@@ -27,6 +27,7 @@ import type { RecallTurn, Terminal } from '@yevgetman/sov-sdk/core/types';
 import { type MemoryManager, createDefaultMemoryManager } from '@yevgetman/sov-sdk/memory/provider';
 import { type ProjectScope, resolveProjectScope } from '@yevgetman/sov-sdk/memory/scope';
 import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { TraceWriter } from '@yevgetman/sov-sdk/trace/writer';
 import { tryWriteTrajectory } from '@yevgetman/sov-sdk/trajectory/writer';
 import { LearningObserver } from '../learning/observer.js';
@@ -167,6 +168,32 @@ export function resolveSeedEffort(runtime: Runtime, sessionId: string): Reasonin
   if (parentSessionId === null) return runtime.effort;
   const parentEffort = runtime.sessionContexts.get(parentSessionId)?.effort;
   return parentEffort ?? runtime.effort;
+}
+
+/**
+ * Build the general external-observability recorder shared by the real runtime
+ * (`buildRuntime`) and the standalone config-mode runtime (`configMode.ts`).
+ *
+ * Semantics — identical in both hosts:
+ *   - PEEK-ONLY: look up the LIVE session; never lazy-build one. A producer's
+ *     audit event for a session that isn't currently resident is DROPPED, not
+ *     forged into existence.
+ *   - NO-THROW: a failing trace write is swallowed — observer isolation means a
+ *     producer's logging never propagates into the turn that produced it.
+ */
+export function makeExternalTraceRecorder(
+  sessionContexts: Map<string, SessionContext>,
+): (sessionId: string, event: TraceEvent) => void {
+  return (sessionId, event) => {
+    const ctx = sessionContexts.get(sessionId);
+    if (!ctx) return;
+    try {
+      ctx.traceWriter.record(event);
+    } catch {
+      // Observer isolation: a failing trace write never propagates into the
+      // turn that produced the event.
+    }
+  };
 }
 
 /** Build the per-session learning observer, or undefined when learning is

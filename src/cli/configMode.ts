@@ -50,7 +50,7 @@ import { ApprovalQueue } from '../server/approvalQueue.js';
 import { type ServerCompactor, buildServerCompactor } from '../server/compactor.js';
 import { startServer } from '../server/index.js';
 import type { Runtime } from '../server/runtime.js';
-import type { SessionContext } from '../server/sessionContext.js';
+import { type SessionContext, makeExternalTraceRecorder } from '../server/sessionContext.js';
 import { TaskManager } from '../tasks/manager.js';
 import { TaskStore } from '../tasks/store.js';
 import { findTuiBinary } from './tuiLauncher.js';
@@ -385,17 +385,11 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
     sessionContexts,
     getSessionContext,
     // Standalone config mode runs no turns and no external producers, so this
-    // inlet is effectively inert. Keep the same peek-only + no-throw shape as
-    // the real runtime for a uniform Runtime surface.
-    recordExternalTrace: (sessionId, event) => {
-      const ctx = sessionContexts.get(sessionId);
-      if (!ctx) return;
-      try {
-        ctx.traceWriter.record(event);
-      } catch {
-        // observer isolation — never propagate into a turn
-      }
-    },
+    // inlet is effectively inert. Reuse the SAME peek-only + no-throw recorder
+    // as the real runtime (shared helper) for a uniform Runtime surface — this
+    // path carries NO distinct logic, so its behavior is covered by
+    // tests/server/runtime.externalTrace.test.ts (which exercises the helper).
+    recordExternalTrace: makeExternalTraceRecorder(sessionContexts),
     disposeSession,
     // 2026-05-24 — Config UX rebuild. Signals `/config`'s slash dispatcher
     // that there's no active session to live-apply against (Agent A's

@@ -110,6 +110,7 @@ import {
   type SessionContext,
   buildSessionContext,
   disposeSessionContext,
+  makeExternalTraceRecorder,
 } from './sessionContext.js';
 
 /**
@@ -1985,19 +1986,9 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     mcpClientPool,
     sessionContexts,
     getSessionContext,
-    recordExternalTrace: (sessionId, event) => {
-      // Peek the LIVE session only — never lazy-build. A producer's audit
-      // event for a session that isn't currently resident is dropped, not
-      // forged into existence.
-      const ctx = sessionContexts.get(sessionId);
-      if (!ctx) return;
-      try {
-        ctx.traceWriter.record(event);
-      } catch {
-        // Observer isolation: a failing trace write never propagates into
-        // the turn that produced the event.
-      }
-    },
+    // Peek-only + no-throw external-observability inlet (shared helper — see
+    // makeExternalTraceRecorder + tests/server/runtime.externalTrace.test.ts).
+    recordExternalTrace: makeExternalTraceRecorder(sessionContexts),
     disposeSession,
     dispose: async () => {
       // M7-08 disposal order: cron runner → per-session subsystems →
