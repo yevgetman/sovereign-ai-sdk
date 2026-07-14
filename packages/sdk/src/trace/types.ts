@@ -101,6 +101,16 @@ export type TraceEvent =
       /** Turn index (0-based) at which the stall was detected. */
       turn: number;
       iso: string;
+    }
+  | {
+      /** An event produced by a third-party tool (e.g. a governance engine),
+       *  adapted into the SDK's trace. `source` names the producer; `payload`
+       *  is the producer's own event, opaque to the SDK. This is the SDK's
+       *  general inlet for external observability — vendor-neutral by design. */
+      type: 'external';
+      source: string;
+      payload: unknown;
+      iso: string;
     };
 
 export type TraceEventType = TraceEvent['type'];
