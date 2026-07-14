@@ -169,6 +169,12 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
   // main() catch prints it to stderr and exits non-zero rather than booting a
   // gateway into a no-governance state. ABSENT block ⇒ `conduct` stays
   // undefined and every seam runs as the null provider (byte-identical).
+  // The audit inlet is late-bound: the adapter is constructed BEFORE the runtime
+  // exists, so it captures a `let runtime` that is assigned immediately after
+  // `buildRuntime`. The closure only fires during turns — long after boot — so
+  // `runtime` is always populated by the time an audit event flows through it.
+  let runtime: Awaited<ReturnType<typeof buildRuntime>> | undefined;
+  const conductAuditEnabled = config.observability?.conductAudit !== false; // default on
   const conduct =
     config.conduct !== undefined
       ? createDecorumAdapter({
@@ -176,10 +182,16 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
             ? { configPath: config.conduct.configPath }
             : {}),
           ...(config.conduct.packDir !== undefined ? { packDir: config.conduct.packDir } : {}),
+          ...(conductAuditEnabled
+            ? {
+                emitExternalTrace: (sessionId: string, event) =>
+                  runtime?.recordExternalTrace(sessionId, event),
+              }
+            : {}),
         })
       : undefined;
 
-  const runtime = await buildRuntime({
+  runtime = await buildRuntime({
     cwd: process.cwd(),
     harnessHome,
     ...(conduct !== undefined ? { conduct } : {}),
