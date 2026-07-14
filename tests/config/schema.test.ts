@@ -1070,3 +1070,27 @@ describe('SettingsSchema — gateway.channels.sms (Twilio)', () => {
     expect(p.gateway?.channels?.sms?.provider).toBe('twilio');
   });
 });
+
+describe('SettingsSchema — observability.conductAudit', () => {
+  test('absent block ⇒ audit on (default true) via read-site fallback', () => {
+    // The block is optional, so an absent `observability` stays absent (no
+    // field forged — the empty-object regression above still holds). Read
+    // sites default to on: `observability?.conductAudit ?? true`.
+    expect(SettingsSchema.parse({}).observability?.conductAudit ?? true).toBe(true);
+  });
+
+  test('present block ⇒ conductAudit defaults on', () => {
+    // When the block IS supplied (even empty), the inner default materializes.
+    expect(SettingsSchema.parse({ observability: {} }).observability?.conductAudit).toBe(true);
+  });
+
+  test('explicit false ⇒ audit off', () => {
+    expect(
+      SettingsSchema.parse({ observability: { conductAudit: false } }).observability?.conductAudit,
+    ).toBe(false);
+  });
+
+  test('rejects unknown nested keys under observability (strict)', () => {
+    expect(() => SettingsSchema.parse({ observability: { unknown: true } })).toThrow();
+  });
+});

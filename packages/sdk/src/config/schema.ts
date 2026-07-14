@@ -764,6 +764,18 @@ export const SettingsSchema = z
       })
       .strict()
       .optional(),
+    /** Observability & audit logging. Sibling to `conduct` — governs how
+     *  governance/observability signals surface in the per-session trace.
+     *  Absent block ⇒ every field takes its default. */
+    observability: z
+      .object({
+        /** Record conduct/governance audit events to the per-session trace
+         *  log. Content-free, so on by default whenever a conduct pack is
+         *  active. Set false to suppress the audit trail. */
+        conductAudit: z.boolean().default(true),
+      })
+      .strict()
+      .optional(),
     /** Plugin System v1 — OPT-IN enable/disable allow-list for installed
      *  plugins (under `<harnessHome>/plugins/*`). Both lists hold plugin names
      *  (manifest `name`). The T3 loader consults this block: when `enabled` is
