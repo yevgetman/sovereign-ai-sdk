@@ -1,5 +1,36 @@
 # Changelog
 
+## sdk 0.6.2 — Conduct Port (1f): the gateway binds + enforces a decorum pack via config (released in sov v0.6.58) - 2026-07-14
+
+The `sov gateway` can now load a **decorum conduct/persona pack** at boot and
+enforce it through the Conduct Port seam that shipped threaded-but-unpopulated in
+1b. This is the upstream unblocker for dogfooding decorum into a gateway-based
+deployment (Appleo). All opt-in and **null-provider byte-identical** when
+unconfigured.
+
+- **Config surface.** An OPTIONAL, strict `conduct { configPath?, packDir? }`
+  block on the SDK Settings schema. `configPath` is a deployment-binding
+  `conduct.yaml`; `packDir` is a directory holding one (`<packDir>/conduct.yaml`,
+  used only when `configPath` is unset). **Absent block ⇒ today's behavior
+  exactly** — no provider is constructed and every seam runs as the null provider.
+- **Real adapter.** `createDecorumAdapter` now imports `@yevgetman/decorum`
+  (added as a `file:` dependency of the root `@yevgetman/sov` package; the open
+  SDK core still never depends on the engine — only this wrapper does) and returns
+  a real `ConductProvider` bound to the resolved binding. It **FAILS CLOSED at
+  boot** — a missing/invalid pack throws and the gateway exits non-zero rather
+  than booting into a no-governance state. Triage's host reasoner is wired
+  `undefined` for this first release (floors + persona + input-gate + tool-policy
+  + output-governor all enforce without it; TODO seam documented); the audit sink
+  is likewise a documented TODO.
+- **Boot wiring.** `runGateway` reads `config.conduct` and, when present, builds
+  the adapter and passes it as `conduct` into `buildRuntime`, which threads it to
+  every surface verbatim.
+- Tests: an end-to-end suite through `buildRuntime` with the shipped decorum
+  assistant-core binding proves a bound runtime enforces (clean turn passes,
+  a directive-extraction input is gated, a directive-leak output is
+  blocked/substituted); a missing path fails closed at boot; and no conduct
+  config leaves `runtime.conduct` undefined with a byte-identical turn.
+
 ## sdk 0.6.1 — Conduct Port (1d): regenerate-once + onStreamEnd flush + SSE convergence closed - 2026-07-10
 
 Additive extensions to the 1b Conduct Port, driven by decorum's OutputGovernor
