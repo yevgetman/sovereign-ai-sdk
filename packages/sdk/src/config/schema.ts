@@ -747,6 +747,23 @@ export const SettingsSchema = z
       })
       .strict()
       .optional(),
+    /** Conduct Port binding (spec D30) — an OPTIONAL decorum conduct/persona
+     *  pack the `sov gateway` loads at boot and enforces via the Conduct Port.
+     *  `configPath` is a deployment-binding `conduct.yaml`; `packDir` is a
+     *  directory holding one (used only when `configPath` is unset —
+     *  `<packDir>/conduct.yaml`). ABSENT block = today's behavior EXACTLY: no
+     *  provider is constructed and every seam runs as the null provider
+     *  (byte-identical). When the block IS present the gateway builds the
+     *  decorum adapter and FAILS CLOSED at boot on a missing/invalid pack —
+     *  it never boots into a no-governance state. Both fields optional at the
+     *  schema layer; the adapter throws if neither is supplied. */
+    conduct: z
+      .object({
+        configPath: z.string().min(1).optional(),
+        packDir: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
     /** Plugin System v1 — OPT-IN enable/disable allow-list for installed
      *  plugins (under `<harnessHome>/plugins/*`). Both lists hold plugin names
      *  (manifest `name`). The T3 loader consults this block: when `enabled` is

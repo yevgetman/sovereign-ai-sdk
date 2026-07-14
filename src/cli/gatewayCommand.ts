@@ -8,6 +8,7 @@ import {
   buildChannelListeners,
   resolveChannelsConfig,
 } from '../channels/listeners.js';
+import { createDecorumAdapter } from '../conduct/decorumAdapter.js';
 import { assertGatewaySafe } from '../server/gatewaySafety.js';
 import { startServer } from '../server/index.js';
 import { buildRuntime } from '../server/runtime.js';
@@ -162,9 +163,26 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
     process.exit(1);
   }
 
+  // Conduct Port (spec D30) — when a `conduct` block is configured, build the
+  // decorum adapter and bind it as the runtime's ConductProvider. The adapter
+  // FAILS CLOSED at boot (throws on a missing/invalid pack); the top-level
+  // main() catch prints it to stderr and exits non-zero rather than booting a
+  // gateway into a no-governance state. ABSENT block ⇒ `conduct` stays
+  // undefined and every seam runs as the null provider (byte-identical).
+  const conduct =
+    config.conduct !== undefined
+      ? createDecorumAdapter({
+          ...(config.conduct.configPath !== undefined
+            ? { configPath: config.conduct.configPath }
+            : {}),
+          ...(config.conduct.packDir !== undefined ? { packDir: config.conduct.packDir } : {}),
+        })
+      : undefined;
+
   const runtime = await buildRuntime({
     cwd: process.cwd(),
     harnessHome,
+    ...(conduct !== undefined ? { conduct } : {}),
   });
 
   // Phase D — gateway-scoped session lifecycle. The SessionSupervisor sweeps
