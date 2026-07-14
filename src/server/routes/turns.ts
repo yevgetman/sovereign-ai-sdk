@@ -640,6 +640,13 @@ async function runTurnInBackground(
   // the wire fields stay absent exactly as before on a no-usage turn.
   let hopUsageAcc = createUsageAccumulator();
   let turnUsageAcc = createUsageAccumulator();
+  // Item 3 — turn-level "did any text stream?" flag. Set at the text_delta
+  // publish site below; read by handleAssistantMessage to decide whether the
+  // final message's text needs projecting onto the wire. Declared OUTSIDE
+  // runOnce so it spans both the initial hop and the overflow-recovery retry:
+  // once ANY delta has streamed this turn, the buffered-delivery branch stays
+  // skipped for every subsequent assistant_message (streaming byte-identical).
+  let sawTextDelta = false;
   const recordHopUsage = (currentSessionId: string): void => {
     const usage = finalizeUsage(hopUsageAcc);
     if (usage !== undefined) {
@@ -1020,11 +1027,19 @@ async function runTurnInBackground(
             runtime.toolPool,
             runtime,
             sessionCtx,
+            sawTextDelta,
+            runtime.conduct !== undefined,
           );
           continue;
         }
         const mapped = mapStreamEventToServerEvent(streamEvent, bus, sessionId, currentBlock);
-        if (mapped !== null) bus.publish(mapped);
+        if (mapped !== null) {
+          // Item 3 — record that live text streamed this turn. Guards the
+          // buffered-delivery branch in handleAssistantMessage so a streaming
+          // turn never double-delivers its final (post-governor) text.
+          if (mapped.type === 'text_delta') sawTextDelta = true;
+          bus.publish(mapped);
+        }
       }
     };
 
@@ -1262,6 +1277,12 @@ async function runTurnInBackground(
   }
 }
 
+/** Item 3 — process-level guard so the buffered-delivery diagnostic warns
+ *  exactly once. The condition (conduct bound + a text-bearing final message
+ *  that never streamed a delta) is a configuration footgun worth announcing,
+ *  but repeating it on every buffered turn would flood the gateway log. */
+let bufferedDeliveryWarned = false;
+
 /** Emit `tool_use_start` + `tool_use_done` for each `tool_use` block in the
  *  assistant message and stash the call's `tool` / `input` / `renderHint` in
  *  `pending` so the matching `tool_result` wire event can echo them.
@@ -1270,7 +1291,17 @@ async function runTurnInBackground(
  *  .toolCallCount` exactly once per `tool_use` block so the trajectory
  *  record flushed on disposal carries the actual count. Without this,
  *  every trajectory would ship with `toolCallCount: 0` — the corpus
- *  consumer's per-session activity signal would be dead. */
+ *  consumer's per-session activity signal would be dead.
+ *
+ *  Item 3 — buffered-mode delivery. In buffered (non-streaming) mode the
+ *  provider emits ZERO `text_delta` events; the whole answer arrives here on
+ *  the final (POST-governor) `assistant_message`. When nothing streamed this
+ *  turn (`sawTextDelta === false`), each `type:'text'` block is projected onto
+ *  the wire as a `text_delta` server event (reusing the existing shape — zero
+ *  client change) so the live UI shows the answer. When ANY delta streamed the
+ *  branch is skipped, keeping the streaming path byte-identical (the wire keeps
+ *  the original streamed text, never the possibly-substituted accumulated
+ *  message). `thinking` blocks are NEVER projected — only assistant text. */
 function handleAssistantMessage(
   msg: AssistantMessage,
   bus: ServerEventBus,
@@ -1280,6 +1311,8 @@ function handleAssistantMessage(
   toolPool: readonly Tool<unknown, unknown>[],
   host: PersistMessageHost,
   sessionCtx: SessionContext,
+  sawTextDelta: boolean,
+  conductBound: boolean,
 ): void {
   // Persist before emitting wire events so resume can reconstruct the full turn even if the SSE subscriber disconnects.
   persistMessage(host, sessionId, {
@@ -1311,6 +1344,31 @@ function handleAssistantMessage(
       block,
       input: contentBlock.input,
     });
+  }
+
+  // Item 3 — buffered-mode delivery. Streaming already put the text on the
+  // wire (delta-by-delta), so only project when NOTHING streamed this turn.
+  if (sawTextDelta) return;
+  let deliveredText = false;
+  for (const contentBlock of msg.content) {
+    if (contentBlock.type !== 'text') continue;
+    deliveredText = true;
+    bus.publish({
+      type: 'text_delta',
+      seq: bus.nextSeq(),
+      sessionId,
+      block,
+      text: contentBlock.text,
+    });
+  }
+  // The footgun announces itself: a bound conduct pack + a text-bearing final
+  // message that never streamed a delta means the provider ran buffered and
+  // the live UI would have shown nothing without this branch. Warn once.
+  if (deliveredText && conductBound && !bufferedDeliveryWarned) {
+    bufferedDeliveryWarned = true;
+    console.warn(
+      '[gateway] buffered-mode delivery: a conduct pack is bound and a turn produced a text-bearing final message with zero streamed text_delta — delivering the final text to the live SSE. The provider ran in buffered (non-streaming) mode; live output arrives only at turn end.',
+    );
   }
 }
 

@@ -105,6 +105,15 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
   static stallMode = false;
   static stallTargetIterations = 4;
 
+  /** Buffered-delivery test hook — when true, `stream()` emits a
+   *  text-bearing assistant_message WITHOUT any preceding `text_delta`
+   *  event, mimicking a provider running in buffered (non-streaming)
+   *  mode. The gateway's buffered-delivery branch (turns.ts) projects
+   *  that final text onto the wire as a `text_delta` when nothing
+   *  streamed; the byte-identical streaming path is exercised by every
+   *  other (delta-emitting) mock mode. Reset in test finally. */
+  static bufferedMode = false;
+
   /** Records the maxTokens value from the last stream() invocation.
    *  Tests reset this to `undefined` before driving a turn to avoid
    *  cross-test leak, then assert the value after draining SSE. */
@@ -274,6 +283,9 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
       // Past end of script — fall through to default Hello-world so a
       // misconfigured (too-short) script can't hang the turn loop.
     }
+    if (MockProvider.bufferedMode) {
+      return yield* this.streamBufferedHello();
+    }
     if (MockProvider.stallMode) {
       return yield* this.streamStall(req);
     }
@@ -359,6 +371,26 @@ export class MockProvider implements Transport<Message, ToolSchema, unknown, nev
     };
     yield { type: 'message_stop', stop_reason: 'end_turn' };
     const content: ContentBlock[] = [{ type: 'text', text: 'Hello world.' }];
+    const assistant: AssistantMessage = { role: 'assistant', content };
+    yield { type: 'assistant_message', message: assistant };
+    return assistant;
+  }
+
+  /** Buffered (non-streaming) path — emit a single text-bearing
+   *  assistant_message with NO `text_delta` events, mimicking a provider
+   *  that buffers the whole response before returning it. Used to exercise
+   *  the gateway's buffered-delivery branch (project final text to the
+   *  wire when nothing streamed). The message/usage/stop shapes match the
+   *  streaming path exactly so everything downstream consumes it without
+   *  special-casing — only the interstitial `text_delta` events are absent. */
+  private async *streamBufferedHello(): AsyncGenerator<StreamEvent, AssistantMessage> {
+    yield { type: 'message_start' };
+    yield {
+      type: 'usage_delta',
+      usage: { inputTokens: 0, outputTokens: 2 },
+    };
+    yield { type: 'message_stop', stop_reason: 'end_turn' };
+    const content: ContentBlock[] = [{ type: 'text', text: 'Buffered hello.' }];
     const assistant: AssistantMessage = { role: 'assistant', content };
     yield { type: 'assistant_message', message: assistant };
     return assistant;
