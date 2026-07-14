@@ -384,6 +384,18 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
     mcpClientPool: undefined,
     sessionContexts,
     getSessionContext,
+    // Standalone config mode runs no turns and no external producers, so this
+    // inlet is effectively inert. Keep the same peek-only + no-throw shape as
+    // the real runtime for a uniform Runtime surface.
+    recordExternalTrace: (sessionId, event) => {
+      const ctx = sessionContexts.get(sessionId);
+      if (!ctx) return;
+      try {
+        ctx.traceWriter.record(event);
+      } catch {
+        // observer isolation — never propagate into a turn
+      }
+    },
     disposeSession,
     // 2026-05-24 — Config UX rebuild. Signals `/config`'s slash dispatcher
     // that there's no active session to live-apply against (Agent A's

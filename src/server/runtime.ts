@@ -63,6 +63,7 @@ import { loadSkills } from '@yevgetman/sov-sdk/skills/loader';
 import type { SkillRegistry } from '@yevgetman/sov-sdk/skills/types';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import type { HarnessInfoSnapshot } from '@yevgetman/sov-sdk/tools/HarnessInfoTool';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { FileTranscriptStore } from '@yevgetman/sov-sdk/transcript/store';
 import { SessionDb } from '../agent/sessionDb.js';
 import type { CronRunner } from '../cron/runner.js';
@@ -601,6 +602,11 @@ export type Runtime = {
    *  shutdown sees the missing entry and rebuilds rather than handing
    *  back a half-closed writer). */
   getSessionContext: (sessionId: string) => SessionContext;
+  /** General external-observability inlet: record a third-party TraceEvent
+   *  into a LIVE session's trace, routed by sessionId. No lazy session build
+   *  (peek only) and no-throw — a producer's logging never affects a turn.
+   *  The vendor-neutral seam any tool/adapter injects through. */
+  recordExternalTrace: (sessionId: string, event: TraceEvent) => void;
   /** Tear down the per-session subsystems for `sessionId` and evict from
    *  the registry. Idempotent — no-op when the id is not registered. The
    *  M6 compaction pivot calls this on the parent id (and lazy-builds the
@@ -1979,6 +1985,19 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     mcpClientPool,
     sessionContexts,
     getSessionContext,
+    recordExternalTrace: (sessionId, event) => {
+      // Peek the LIVE session only — never lazy-build. A producer's audit
+      // event for a session that isn't currently resident is dropped, not
+      // forged into existence.
+      const ctx = sessionContexts.get(sessionId);
+      if (!ctx) return;
+      try {
+        ctx.traceWriter.record(event);
+      } catch {
+        // Observer isolation: a failing trace write never propagates into
+        // the turn that produced the event.
+      }
+    },
     disposeSession,
     dispose: async () => {
       // M7-08 disposal order: cron runner → per-session subsystems →
