@@ -34,6 +34,10 @@ import {
 import { readConfig } from '@yevgetman/sov-sdk/config/store';
 import { auditContextBudget } from '@yevgetman/sov-sdk/context/budget';
 import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
+import {
+  type AssayUsageRecorder,
+  createAssayUsageRecorder,
+} from '@yevgetman/sov-sdk/telemetry/assayUsageRecorder';
 import { buildSystemSegments } from '@yevgetman/sov-sdk/core/systemPrompt';
 import type { SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import { buildConsentChecker, buildFileConsentStore } from '@yevgetman/sov-sdk/hooks/consent';
@@ -436,6 +440,15 @@ export type Runtime = {
    *  threads it onto each SessionContext and the turns route reads it for the
    *  createAgent conduct config + the perTurnInstructions wire gate (D23). */
   conduct?: ConductProvider;
+  /** SOV-ASSAY WIRE v1 (config.assay) — the boot-bound usage-only telemetry
+   *  recorder. Absent when the config block is absent (byte-identical: no
+   *  telemetry). Present → the turns route folds every TraceEvent into it
+   *  (usage/tool-timing OTLP spans, NEVER content) and dispose() flushes it.
+   *  Fail-open by design: an unreachable endpoint only accrues stats. ONE
+   *  recorder per runtime — its state is session-affine and a new
+   *  session_start defensively seals prior state, so the single-session app
+   *  embedding is exact and interleaved sessions degrade gracefully. */
+  assayRecorder?: AssayUsageRecorder;
   /** Resolved max tokens per provider call. Always populated — either
    *  the caller-supplied value or DEFAULT_MAX_TOKENS (12000). The turns
    *  route reads this instead of its own local const so --max-tokens
@@ -1956,6 +1969,19 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     // unbound so the exactOptionalPropertyTypes `conduct?` invariant holds and
     // sessionContext/turns read it as the null provider (byte-identical).
     ...(opts.conduct !== undefined ? { conduct: opts.conduct } : {}),
+    // SOV-ASSAY WIRE v1 — construct the usage-only recorder when config.assay
+    // is present (absent block = absent field = no telemetry, byte-identical).
+    // Fail-open: transport errors surface as content-free stderr lines only.
+    ...(settings.assay !== undefined
+      ? {
+          assayRecorder: createAssayUsageRecorder({
+            token: settings.assay.token,
+            ...(settings.assay.endpoint !== undefined ? { endpoint: settings.assay.endpoint } : {}),
+            ...(settings.assay.identity !== undefined ? { identity: settings.assay.identity } : {}),
+            onError: (msg) => process.stderr.write(`[assay] ${msg}\n`),
+          }),
+        }
+      : {}),
     maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
     hookRunner,
     approvalQueue,
@@ -2046,6 +2072,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
         }
       }
       if (mcpClientPool) await mcpClientPool.shutdown();
+      // SOV-ASSAY WIRE v1 — seal + drain the usage-span queue before exit so
+      // the final turn's spans reach the local assay door. Fail-open: flush()
+      // never throws; an unreachable endpoint just leaves stats behind.
+      await runtime.assayRecorder?.flush();
       // Cancel any in-flight approval promises before closing the DB so
       // a clean shutdown doesn't leave Promises that never resolve.
       approvalQueue.disposeAll();

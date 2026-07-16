@@ -764,6 +764,24 @@ export const SettingsSchema = z
       })
       .strict()
       .optional(),
+    /** Assay usage telemetry (SOV-ASSAY WIRE v1) — an OPTIONAL block that turns
+     *  on the SDK's `assayUsageRecorder` at the server: every turn's TraceEvents
+     *  are folded into USAGE-ONLY OTLP `gen_ai` spans (tokens / cost / tool
+     *  names / timings — NEVER content) and POSTed fire-and-forget to a local
+     *  `assay serve`. ABSENT block = today's behavior exactly (no recorder).
+     *  Present block = the recorder is constructed at boot and FAILS OPEN by
+     *  design: an unreachable endpoint only accrues stats, never blocks a turn.
+     *  `token` is the assay tenant bearer (assay authenticates every POST);
+     *  `endpoint` defaults to the local assay door (http://127.0.0.1:4318);
+     *  `identity` lands as the span principal (default 'sov'). */
+    assay: z
+      .object({
+        token: z.string().min(1),
+        endpoint: z.string().min(1).optional(),
+        identity: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
     /** Observability & audit logging. Sibling to `conduct` — governs how
      *  governance/observability signals surface in the per-session trace.
      *  Absent block ⇒ every field takes its default. */

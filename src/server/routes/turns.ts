@@ -523,6 +523,10 @@ async function runTurnInBackground(
   let sessionCtx = runtime.getSessionContext(sessionId);
   const traceRecorder = (event: TraceEvent): void => {
     sessionCtx.traceWriter.record(event);
+    // SOV-ASSAY WIRE v1 (config.assay) — fold every TraceEvent into the boot-
+    // bound usage-only recorder (absent → no-op). `record` never throws and
+    // content never rides this wire; only tokens/cost/tool names/timings.
+    runtime.assayRecorder?.record(event);
     // M8 T7 — forward stall_detected onto the SSE bus so the TUI can render
     // it as a soft warning. The trace event itself is emitted by query()
     // at src/core/query.ts:393; the route's traceRecorder closure already

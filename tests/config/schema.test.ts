@@ -1094,3 +1094,26 @@ describe('SettingsSchema — observability.conductAudit', () => {
     expect(() => SettingsSchema.parse({ observability: { unknown: true } })).toThrow();
   });
 });
+
+describe('SettingsSchema — assay (SOV-ASSAY WIRE v1)', () => {
+  test('absent block parses to absent (no telemetry)', () => {
+    expect(SettingsSchema.parse({}).assay).toBeUndefined();
+  });
+
+  test('a token-only block is valid; endpoint/identity optional', () => {
+    const s = SettingsSchema.parse({ assay: { token: 'tenant-tok' } });
+    expect(s.assay?.token).toBe('tenant-tok');
+    expect(s.assay?.endpoint).toBeUndefined();
+    expect(s.assay?.identity).toBeUndefined();
+    const full = SettingsSchema.parse({
+      assay: { token: 't', endpoint: 'http://127.0.0.1:4318', identity: 'factory-app' },
+    });
+    expect(full.assay?.identity).toBe('factory-app');
+  });
+
+  test('rejects a block without a token, an empty token, and unknown keys', () => {
+    expect(() => SettingsSchema.parse({ assay: {} })).toThrow();
+    expect(() => SettingsSchema.parse({ assay: { token: '' } })).toThrow();
+    expect(() => SettingsSchema.parse({ assay: { token: 't', nope: 1 } })).toThrow();
+  });
+});

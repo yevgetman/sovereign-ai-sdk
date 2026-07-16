@@ -1,7 +1,7 @@
 {
   "name": "@yevgetman/sov",
-  "version": "0.6.61",
-  "description": "Sovereign AI agent runtime — Claude-Code-style harness with Hermes-pattern learning layer.",
+  "version": "0.6.62",
+  "description": "Sovereign AI agent runtime \u2014 Claude-Code-style harness with Hermes-pattern learning layer.",
   "private": true,
   "workspaces": [
     "packages/sdk",
