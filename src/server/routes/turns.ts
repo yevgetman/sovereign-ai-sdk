@@ -1278,6 +1278,12 @@ async function runTurnInBackground(
     // next POST /turns allocates a fresh controller. Idempotent; safe
     // even if cancelCurrentTurn never fired.
     bus.clearCurrentTurnAbort();
+    // SOV-ASSAY WIRE v1 — seal + deliver THIS turn's usage span at the turn
+    // boundary. The recorder's pending chat span otherwise seals only at the
+    // NEXT boundary event, so a session's final turn (or an app killed between
+    // turns) would never deliver. Fire-and-forget: flush() never throws and
+    // never blocks turn teardown.
+    void runtime.assayRecorder?.flush();
   }
 }
 
