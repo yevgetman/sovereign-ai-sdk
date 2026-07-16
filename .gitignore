@@ -35,3 +35,6 @@ bin/sov-tui
 
 # Visual TUI screenshots (regenerated on demand via `bun run visual`)
 .harness/visual/output/
+
+# npm pack / build tarballs (never commit)
+*.tgz

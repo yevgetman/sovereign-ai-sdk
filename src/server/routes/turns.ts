@@ -545,6 +545,21 @@ async function runTurnInBackground(
       });
     }
   };
+  // SOV-ASSAY WIRE v1 — seed the recorder with the REAL session id at the top of
+  // every user turn so its spans carry gen_ai.conversation.id = this session (not
+  // the recorder's boot-time random UUID — the recorder never sees the
+  // buildSessionContext session_start, which writes only to the trace file).
+  // Emitted DIRECTLY to the recorder (not via traceRecorder) so the per-session
+  // trace file isn't double-stamped. Idempotent (re-affirming the same id is a
+  // cheap no-op that never resets the monotonic turn counter).
+  runtime.assayRecorder?.record({
+    type: 'session_start',
+    sessionId,
+    provider: runtime.resolvedProvider.transport.name,
+    model: runtime.model,
+    cwd: runtime.cwd,
+    iso: new Date().toISOString(),
+  });
   // M8 T3 — expand @file:path / @folder: / @url: / @diff / @staged
   // references in the user's text BEFORE persisting + handing it to the
   // model. Failures inline as `[ERROR: ...]` markers —

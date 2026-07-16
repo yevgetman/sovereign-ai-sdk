@@ -131,3 +131,52 @@ describe('spawnProc', () => {
     }
   });
 });
+
+import { toolSubprocessEnv } from '@yevgetman/sov-sdk/util/spawn';
+
+describe('toolSubprocessEnv — credential scrub (SECURITY)', () => {
+  test('scrubs provider auth vars, the gateway token, and MCP secrets; keeps everything else', () => {
+    const scrubbed = toolSubprocessEnv({
+      PATH: '/usr/bin',
+      HOME: '/Users/x',
+      ANTHROPIC_API_KEY: 'sk-secret',
+      OPENAI_API_KEY: 'sk-openai',
+      OPENROUTER_API_KEY: 'sk-or',
+      MANIFEST_API_KEY: 'mnfst-x',
+      SOV_GATEWAY_TOKEN: 'bearer-tok',
+      SOV_MCP_GITHUB_TOKEN: 'ghp_x',
+      SOV_MCP_LINEAR_API_KEY: 'lin_x',
+      MY_OWN_VAR: 'keep-me',
+      STRIPE_API_KEY: 'user-own-unrelated', // a *user* var (not a sov provider) — left intact
+    });
+    // Sensitive: gone.
+    expect(scrubbed.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(scrubbed.OPENAI_API_KEY).toBeUndefined();
+    expect(scrubbed.OPENROUTER_API_KEY).toBeUndefined();
+    expect(scrubbed.MANIFEST_API_KEY).toBeUndefined();
+    expect(scrubbed.SOV_GATEWAY_TOKEN).toBeUndefined();
+    expect(scrubbed.SOV_MCP_GITHUB_TOKEN).toBeUndefined();
+    expect(scrubbed.SOV_MCP_LINEAR_API_KEY).toBeUndefined();
+    // Everything else: intact (PATH/HOME + the user's own unrelated vars).
+    expect(scrubbed.PATH).toBe('/usr/bin');
+    expect(scrubbed.HOME).toBe('/Users/x');
+    expect(scrubbed.MY_OWN_VAR).toBe('keep-me');
+    expect(scrubbed.STRIPE_API_KEY).toBe('user-own-unrelated');
+  });
+
+  test('a spawned child cannot read the provider key from its environment', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-must-not-leak';
+    try {
+      const proc = spawnProc(['bash', '-c', 'echo "[$ANTHROPIC_API_KEY]"'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const out = await new Response(proc.stdout).text();
+      await proc.exited;
+      expect(out.trim()).toBe('[]'); // empty — the key was scrubbed from the child env
+      expect(out).not.toContain('sk-must-not-leak');
+    } finally {
+      delete process.env.ANTHROPIC_API_KEY;
+    }
+  });
+});

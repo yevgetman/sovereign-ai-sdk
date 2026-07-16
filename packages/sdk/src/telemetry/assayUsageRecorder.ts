@@ -153,6 +153,15 @@ export function createAssayUsageRecorder(config: AssayUsageRecorderConfig): Assa
   // ── session-affine state ──
   let sessionId: string = randomUUID(); // stand-in until session_start names the real one
   let turn = 0;
+  // SESSION-MONOTONIC turn ordinal (advances on every turn_start, never resets).
+  // The server driver (query()) restarts its OWN per-invocation loop counter at 0
+  // on every user turn (a fresh query() per POST /turns), so copying `event.turn`
+  // would collide `sov.turn.id`/`traceId` across sequential user turns and merge
+  // independent priced turns into one assay task. Deriving `turn` from this
+  // monotonic counter instead makes every turn's ids distinct within a session.
+  // (For the golden-fixture stream — turn_start turns 1 then 2 — the counter
+  // yields exactly 1 then 2, so the wire fixture stays byte-identical.)
+  let turnCounter = 0;
   let seq = 0;
   let turnRootSpanId: string | undefined;
   let pending: PendingChatSpan | null = null;
@@ -274,7 +283,9 @@ export function createAssayUsageRecorder(config: AssayUsageRecorderConfig): Assa
       }
       case 'turn_start': {
         sealPending();
-        turn = event.turn;
+        // Monotonic — see turnCounter. Ignores event.turn (query resets it to 0
+        // per user turn) so sequential user turns get distinct trace/turn ids.
+        turn = ++turnCounter;
         turnRootSpanId = undefined;
         break;
       }

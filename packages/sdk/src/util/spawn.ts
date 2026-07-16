@@ -12,9 +12,44 @@
 
 import { spawn as nodeSpawn } from 'node:child_process';
 import { Readable } from 'node:stream';
+import { PROVIDER_REGISTRY } from '../providers/models.js';
 import type { SpawnedProc } from '../runtime/executorPort.js';
 
 export type { SpawnedProc } from '../runtime/executorPort.js';
+
+/** Credential env-var names that MUST NOT reach a tool subprocess (bash / grep /
+ *  node / hook / skill children). SECURITY: the parent makes the provider HTTP
+ *  call IN-PROCESS, so a tool child never needs the model-provider credential or
+ *  the gateway's own bearer — yet `nodeSpawn` inherits the full parent env by
+ *  default, so an auto-allowed read-only command like `echo $ANTHROPIC_API_KEY`
+ *  (or `printenv`) would print the owner's live key straight into the tool
+ *  result, defeating any "the key never touches disk" protection. We scrub:
+ *    - every provider auth var in the registry (covers the key however it entered
+ *      the env — harness-injected OR the launching shell's own export),
+ *    - the gateway bearer `SOV_GATEWAY_TOKEN`,
+ *    - per-server MCP secrets (`SOV_MCP_<ALIAS>_TOKEN` / `_API_KEY`),
+ *  and NOTHING else — a user's unrelated env (PATH, HOME, their own vars) is left
+ *  intact so tools behave exactly as before. */
+const PROVIDER_AUTH_VARS: ReadonlySet<string> = new Set(
+  Object.values(PROVIDER_REGISTRY)
+    .map((p) => p.authEnvVar)
+    .filter((v): v is string => v !== undefined),
+);
+const MCP_SECRET_RE = /^SOV_MCP_.+_(TOKEN|API_KEY)$/;
+
+/** The environment a tool subprocess runs with: the parent env minus the
+ *  credentials above. Exported so the scrub is unit-testable without spawning. */
+export function toolSubprocessEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (value === undefined) continue;
+    if (PROVIDER_AUTH_VARS.has(key) || key === 'SOV_GATEWAY_TOKEN' || MCP_SECRET_RE.test(key)) {
+      continue;
+    }
+    env[key] = value;
+  }
+  return env;
+}
 
 /** Exit code reported when the process could not be spawned at all (ENOENT
  *  etc.) — the shell's "command not found" convention. Distinct from 1 so a
@@ -93,6 +128,10 @@ export function spawnProc(argv: string[], opts: SpawnProcOpts = {}): SpawnedProc
   const child = nodeSpawn(command, args, {
     ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
     ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+    // SECURITY: run tool children with provider/gateway/MCP credentials scrubbed
+    // (see toolSubprocessEnv) so an auto-allowed `echo $ANTHROPIC_API_KEY` cannot
+    // read the owner's key out of the inherited environment.
+    env: toolSubprocessEnv(),
     stdio: [opts.stdin === 'pipe' ? 'pipe' : 'ignore', 'pipe', 'pipe'],
   });
   const { stdin: childStdin, stdout: childStdout, stderr: childStderr } = child;

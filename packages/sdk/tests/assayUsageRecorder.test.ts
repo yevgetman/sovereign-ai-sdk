@@ -258,6 +258,52 @@ describe('the event → span state machine', () => {
     expect(all).toHaveLength(1); // the pending span of session 1 was sealed, not lost
     expect(attr(all[0] as WireSpan, 'gen_ai.conversation.id')).toBe('sov-fixture-session-1');
   });
+
+  it('server wiring: sequential user turns whose loop counter resets to 0 still get DISTINCT ids + the real session', async () => {
+    // Reproduces the real gateway stream: query() restarts its per-invocation
+    // loop counter at 0 on EVERY user turn, and the turns route forwards a
+    // session_start (the real session id) at the top of each turn. Before the fix
+    // both turns collided on sov.turn.id=<randomUUID>#0; after it they are
+    // distinct and carry the real conversation id.
+    const { impl, posts } = fakeFetch();
+    const rec = createAssayUsageRecorder({ token: 'tkn', fetch: impl, batchSize: 1000 });
+    const seed = (): TraceEvent => ({
+      type: 'session_start',
+      sessionId: 'real-gateway-session',
+      provider: 'anthropic',
+      model: 'm',
+      cwd: '/',
+      iso: ISO('00.000'),
+    });
+    const turn0 = (): TraceEvent => ({ type: 'turn_start', turn: 0, iso: ISO('00.100') }); // query is ALWAYS 0
+    const resp = (n: number): TraceEvent => ({
+      type: 'provider_response',
+      provider: 'anthropic',
+      model: 'm',
+      purpose: 'main',
+      usage: { inputTokens: n },
+      latencyMs: 1,
+      stopReason: 'end_turn',
+      iso: ISO(`0${n}.000`),
+    });
+    // user turn 1, then user turn 2 — each a fresh query() (turn resets to 0).
+    rec.record(seed());
+    rec.record(turn0());
+    rec.record(resp(1));
+    rec.record(seed());
+    rec.record(turn0());
+    rec.record(resp(2));
+    await rec.flush();
+    const chats = posts
+      .flatMap((p) => spansOf(JSON.parse(String(p.init.body)) as WireBody))
+      .filter((s) => attr(s, 'gen_ai.operation.name') === 'chat');
+    expect(chats).toHaveLength(2);
+    // The real session id, not the boot-time random UUID.
+    for (const s of chats) expect(attr(s, 'gen_ai.conversation.id')).toBe('real-gateway-session');
+    // Distinct turn ids + traces despite query sending turn=0 both times.
+    expect(attr(chats[0] as WireSpan, 'sov.turn.id')).not.toBe(attr(chats[1] as WireSpan, 'sov.turn.id'));
+    expect((chats[0] as WireSpan).traceId).not.toBe((chats[1] as WireSpan).traceId);
+  });
 });
 
 describe('transport', () => {
