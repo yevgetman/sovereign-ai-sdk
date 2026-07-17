@@ -880,10 +880,7 @@ describe('query() — ToolResult.newMessages reaches the model (end-to-end)', ()
   /** scriptedTurns variant that also records every request the provider
    *  receives, so we can inspect the exact message history the model is
    *  handed on turn 2 (the strongest signal the image reached the model). */
-  function scriptedTurnsCapturing(
-    turns: StreamEvent[][],
-    seen: ProviderRequest[],
-  ): LLMProvider {
+  function scriptedTurnsCapturing(turns: StreamEvent[][], seen: ProviderRequest[]): LLMProvider {
     const queue = [...turns];
     return {
       name: 'fake-capture',
@@ -951,8 +948,8 @@ describe('query() — ToolResult.newMessages reaches the model (end-to-end)', ()
       ) as Message[]
     )[0];
     expect(yieldedUser?.content[0]?.type).toBe('tool_result');
-    expect(yieldedUser?.content.some((b) => b.type === 'image' && b.source.data === IMAGE_DATA)).toBe(
-      true,
-    );
+    expect(
+      yieldedUser?.content.some((b) => b.type === 'image' && b.source.data === IMAGE_DATA),
+    ).toBe(true);
   });
 });

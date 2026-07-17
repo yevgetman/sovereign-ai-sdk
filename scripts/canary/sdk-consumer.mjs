@@ -12,6 +12,7 @@
 // disk writes. Deliberately self-contained: an external consumer cannot reach
 // repo test helpers.
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import { readdirSync } from 'node:fs';
 import { buildTool, createAgent, createInMemorySessionStore } from '@yevgetman/sov-sdk';
 // The one deliberate deep-subpath import in this otherwise barrel-only consumer:
@@ -139,11 +140,15 @@ assert.deepEqual(filesAfter, filesBefore, 'the agent turn must not create files 
 // ── F17/F18/F19 regression guard: an installed SDK must report its OWN bare
 // version, never a suffix derived from the CONSUMER's git HEAD. The canary runs
 // this script from inside a scratch *git repo* (see run-consumer-canary), so a
-// regressed version.ts ownership gate would surface here as `0.1.0-<consumerSHA>`
-// — the exact leak that reaches remote MCP servers and on-disk transcripts.
+// regressed version.ts ownership gate would surface here as `<pkgVersion>-<consumerSHA>`
+// — the exact leak that reaches remote MCP servers and on-disk transcripts. The
+// expected value is the installed package's OWN package.json version (read from
+// node_modules), so this guard tracks every release bump instead of pinning a
+// literal: a leaked `-<sha>` suffix still fails the equality.
+const bareVersion = createRequire(import.meta.url)('@yevgetman/sov-sdk/package.json').version;
 assert.equal(
   VERSION,
-  '0.1.0',
+  bareVersion,
   `installed SDK VERSION must be the bare package version with no consumer-SHA suffix, got: ${VERSION}`,
 );
 

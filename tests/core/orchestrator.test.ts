@@ -909,7 +909,10 @@ describe('runTools — ToolResult.newMessages', () => {
               {
                 role: 'user' as const,
                 content: [
-                  { type: 'image' as const, source: { type: 'base64' as const, media_type: 'image/png', data: imgData } },
+                  {
+                    type: 'image' as const,
+                    source: { type: 'base64' as const, media_type: 'image/png', data: imgData },
+                  },
                 ],
               },
             ],

@@ -1,5 +1,33 @@
 # Changelog
 
+## sdk 0.7.0 — Honor `ToolResult.newMessages` (a tool can inject content, e.g. an image, into the next turn) - 2026-07-16
+
+`ToolResult.newMessages` was a **declared-but-unimplemented** field — the type
+advertised it but the orchestrator silently discarded it (the old "Phase 4 we
+ignore them" comment). A tool author who returned `newMessages` in good faith had
+it thrown away with no error, warning, or log. This bit a downstream consumer (the
+Agent Casa studio ingest agent) hard: a `read_source` tool delivered intake images
+via `newMessages`, the images were dropped, and the model confabulated content from
+a bare filename.
+
+- **Honored (user-role).** A tool may now return
+  `newMessages: [{ role: 'user', content: [...] }]`. Those content blocks are
+  **appended to the aggregated tool_result user message** — after all `tool_result`
+  blocks, in `tool_use` block order — reusing the exact ordering-safe merge the loop
+  already uses for loop-detector guidance and mid-turn steering. Serial and
+  concurrent partitions alike. The canonical use case is a **vision block** a tool
+  reads at runtime.
+- **Fail loud (assistant-role).** A `role: 'assistant'` entry cannot be merged into
+  a user message without breaking Anthropic's tool_use↔tool_result adjacency, so the
+  orchestrator **throws** a clear developer error naming the tool — replacing a
+  *silent drop* with correct behavior or a *loud error*.
+- **Byte-identical when unused.** With no `newMessages`, the message `runTools`
+  yields is unchanged from before.
+- All changes contained in open-core `orchestrator.ts` (+ a doc reconciliation in
+  `tool/types.ts`); `query.ts` needed no change. Additive, non-breaking → minor bump.
+  Spec `specs/2026-07-17-tool-newmessages-design.md`, plan
+  `plans/2026-07-17-tool-newmessages.md`.
+
 ## sdk 0.6.2 — Conduct Port (1f): the gateway binds + enforces a decorum pack via config (released in sov v0.6.58) - 2026-07-14
 
 The `sov gateway` can now load a **decorum conduct/persona pack** at boot and
