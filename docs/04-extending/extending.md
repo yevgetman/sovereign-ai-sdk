@@ -12,11 +12,12 @@ This guide covers common code changes. Keep changes narrow, preserve the async-g
 4. Implement `call(input, ctx, onProgress?)`.
 5. Add `renderResult()` when structured output needs a user-facing transcript shape.
 6. **Optional but encouraged:** populate the `observation` field on `ToolResult` with `{status, summary, next_actions?, artifacts?}` (Phase 12.5). The orchestrator renders it as a header above `renderResult` content; `status: 'error'` forces `is_error: true`. `next_actions` is most valuable on error paths — it gives the model a concrete recovery hint instead of a vague apology. See `BashTool`'s per-error-class envelope, or `FileEditTool`'s missing-match envelope, for examples.
-7. Add `preparePermissionMatcher()` if permission rules should support tool-specific patterns.
-8. Add `virtualToolName(input)` if the tool's operations map to another tool's permission rules (e.g., a shell wrapper that does reads should return `'Read'`).
-9. Add `affectedPaths()`, `isReadOnly(input)`, and `isConcurrencySafe(input)` only when they are true for the actual invocation.
-10. Register the tool in `assembleToolPool()` in `src/tool/registry.ts`.
-11. Add focused tests under `tests/tools/` and orchestration tests if concurrency or path behavior matters.
+7. **Optional — inject content for the next turn:** return `newMessages: [{ role: 'user', content: [...] }]` on `ToolResult` to hand the model additional content alongside the tool output — most usefully an `image` block a tool reads at runtime (e.g. a `read_source` that returns a screenshot). The orchestrator **merges those content blocks into the tool_result user message** (appended after the `tool_result` blocks, in tool-call order), preserving Anthropic's tool_use↔tool_result adjacency. Only `role: 'user'` is supported; a `role: 'assistant'` entry throws a developer error (there is no ordering-safe place for it). When a tool returns no `newMessages` the message is unchanged.
+8. Add `preparePermissionMatcher()` if permission rules should support tool-specific patterns.
+9. Add `virtualToolName(input)` if the tool's operations map to another tool's permission rules (e.g., a shell wrapper that does reads should return `'Read'`).
+10. Add `affectedPaths()`, `isReadOnly(input)`, and `isConcurrencySafe(input)` only when they are true for the actual invocation.
+11. Register the tool in `assembleToolPool()` in `src/tool/registry.ts`.
+12. Add focused tests under `tests/tools/` and orchestration tests if concurrency or path behavior matters.
 
 Skeleton:
 
