@@ -844,3 +844,115 @@ describe('query() — steering maxTurns guards (review fixes)', () => {
     expect(polls).toBe(0);
   });
 });
+
+describe('query() — ToolResult.newMessages reaches the model (end-to-end)', () => {
+  // Base64 for "ABC" — a tiny stand-in image payload so we can pin the exact
+  // bytes as they travel: tool → runTools merge → history → provider turn 2.
+  const IMAGE_DATA = 'QUJD';
+
+  /** Tool that returns an image via `newMessages` (user-role) alongside its
+   *  normal tool_result data. Task 1 merges that image block into the
+   *  tool_result user message so the model sees it on the next turn. */
+  function makeImageTool(): Tool<unknown, unknown> {
+    return buildTool({
+      name: 'Echo',
+      description: () => 'returns an image via newMessages',
+      inputSchema: z.object({ text: z.string() }),
+      async call() {
+        return {
+          data: 'read',
+          newMessages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'image',
+                  source: { type: 'base64', media_type: 'image/png', data: IMAGE_DATA },
+                },
+              ],
+            },
+          ],
+        };
+      },
+    }) as unknown as Tool<unknown, unknown>;
+  }
+
+  /** scriptedTurns variant that also records every request the provider
+   *  receives, so we can inspect the exact message history the model is
+   *  handed on turn 2 (the strongest signal the image reached the model). */
+  function scriptedTurnsCapturing(
+    turns: StreamEvent[][],
+    seen: ProviderRequest[],
+  ): LLMProvider {
+    const queue = [...turns];
+    return {
+      name: 'fake-capture',
+      async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+        seen.push(req);
+        const events = queue.shift();
+        if (!events) throw new Error('scriptedTurnsCapturing: no more turns in script');
+        let last: AssistantMessage | undefined;
+        for (const ev of events) {
+          if (ev.type === 'assistant_message') last = ev.message;
+          yield ev;
+        }
+        return last ?? { role: 'assistant', content: [] };
+      },
+    };
+  }
+
+  test('a tool image returned via newMessages is in the history the model receives on turn 2', async () => {
+    const seen: ProviderRequest[] = [];
+    // Turn 1: assistant calls Echo → tool returns the image via newMessages.
+    // Turn 2: assistant finishes with text (ends the run).
+    const provider = scriptedTurnsCapturing(toolUseThenFinishTurns, seen);
+    const gen = query({
+      provider,
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'read the file' }] }],
+      systemPrompt: [],
+      tools: [makeImageTool()],
+      toolContext: toolCtx,
+      maxTokens: 256,
+    });
+    const yielded: (StreamEvent | Message)[] = [];
+    let terminal: { reason: string } | undefined;
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        terminal = step.value;
+        break;
+      }
+      yielded.push(step.value);
+    }
+    expect(terminal?.reason).toBe('completed');
+
+    // The provider was called twice; turn 2's request carries the tool_result
+    // user message. That message must ALSO contain the image block appended
+    // after the tool_result — i.e. the picture reached the model.
+    expect(seen).toHaveLength(2);
+    const turn2Messages = seen[1]?.messages ?? [];
+    const toolResultMsg = turn2Messages.find(
+      (m) => m.role === 'user' && m.content.some((b) => b.type === 'tool_result'),
+    );
+    expect(toolResultMsg?.content[0]?.type).toBe('tool_result');
+    const imageBlock = toolResultMsg?.content.find((b) => b.type === 'image');
+    expect(imageBlock).toBeDefined();
+    if (imageBlock?.type === 'image') {
+      expect(imageBlock.source.type).toBe('base64');
+      expect(imageBlock.source.media_type).toBe('image/png');
+      expect(imageBlock.source.data).toBe(IMAGE_DATA);
+    }
+
+    // And the same is true of the user message query() yielded to the caller.
+    const yieldedUser = (
+      yielded.filter(
+        (v) => v && typeof v === 'object' && 'role' in v && v.role === 'user',
+      ) as Message[]
+    )[0];
+    expect(yieldedUser?.content[0]?.type).toBe('tool_result');
+    expect(yieldedUser?.content.some((b) => b.type === 'image' && b.source.data === IMAGE_DATA)).toBe(
+      true,
+    );
+  });
+});
