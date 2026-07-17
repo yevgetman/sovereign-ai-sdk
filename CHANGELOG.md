@@ -1,5 +1,36 @@
 # Changelog
 
+## harness 0.6.64 — Directive overlays: the gateway can bind a tenant's runtime directives - 2026-07-16
+
+decorum has shipped a **directive-overlay layer** since 0.8.0 — its third conduct
+layer, the one built for user-authored runtime directives ("never bring up
+refinancing"). No host could reach it: the gateway built its provider from a
+`configPath` and never called `withOverlay`, so the capability was inert in every
+deployment. This wires it.
+
+- **`conduct.overlay` config** — `{ scopeId, instructions?, constraints? }`. When
+  present, the gateway folds the tenant's directives onto the boot-frozen base
+  composition via `provider.withOverlay` and serves the **scoped** provider.
+  **Absent ⇒ byte-identical to before.**
+- **Bound once, at boot.** decorum forbids sharing a `sessionId` across the base and
+  a scoped provider (they share per-session streaming state). Binding at boot makes
+  that structurally impossible: one gateway process = one scope. This is the natural
+  shape for a host that already runs a gateway per tenant.
+- **`GET /conduct/overlay`** — the intake verdict (`{ accepted, rejected }`), gated
+  by the same auth as the session routes and mounted only when an overlay is bound.
+  decorum does not export its vetting, so the verdict exists **only** inside the
+  gateway; without this a refused directive would silently never apply and the user
+  would never learn why. Content-free by construction: rejections carry a channel,
+  an index, and a reason code — never the tenant's text.
+
+**Safety is decorum's, not ours.** Each free-text directive runs the input gate's
+injection screen at intake and compiles to a **discretionary** (advisory,
+projection-only) rule; anything that would loosen or pierce a base rule is refused.
+Directives remain subject to the binding's own `overlays:` envelope (`enabled`,
+`allow_free_text`, `max_rules`) — an overlay sent to a binding that never opted in
+is rejected wholesale. A user directive can therefore never gain mechanical force,
+and can only ever tighten.
+
 ## sdk 0.7.0 — Honor `ToolResult.newMessages` (a tool can inject content, e.g. an image, into the next turn) - 2026-07-16
 
 `ToolResult.newMessages` was a **declared-but-unimplemented** field — the type
