@@ -153,9 +153,13 @@ export type ToolResult<T> = {
    *  content. `status === 'error'` also forces the tool_result `is_error`
    *  flag. Tools that omit this field render exactly as before. */
   observation?: ToolObservation;
-  /** Messages spliced into the transcript after this tool's result. Used by
-   * tools that inject context (e.g. skill activation hints). Applied only
-   * between serial tools; ignored for parallel batches. */
+  /** Additional messages returned alongside this tool's result. Used by tools
+   * that inject context (e.g. skill activation hints, an image the model must
+   * see). Must be role:'user'; the orchestrator merges each message's content
+   * blocks into the tool_result user message, after all tool_result blocks, in
+   * tool_use block order — serial and parallel partitions alike. role:'assistant'
+   * is a developer error and throws. (A tool_result must lead the user turn, so
+   * the content is appended in-place rather than emitted as a separate message.) */
   newMessages?: import('../core/types.js').Message[];
 };
 

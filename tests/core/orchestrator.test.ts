@@ -13,7 +13,7 @@ import {
   runTools,
   splitByPathOverlap,
 } from '@yevgetman/sov-sdk/core/orchestrator';
-import type { ContentBlock } from '@yevgetman/sov-sdk/core/types';
+import type { ContentBlock, Message } from '@yevgetman/sov-sdk/core/types';
 import type { CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
@@ -796,6 +796,121 @@ describe('notifyLearningObserver helper', () => {
     notifyLearningObserver(fakeCtx, 'T', {}, 'success', 0);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.traceId).toBeUndefined();
+  });
+});
+
+// ─── ToolResult.newMessages — merge user-role content into tool_result msg ──
+//
+// A tool may return `newMessages` alongside its data. When those messages are
+// role:'user', their content blocks are appended AFTER all tool_result blocks
+// in the single yielded user message, in tool_use block order (serial and
+// parallel alike). role:'assistant' newMessages are a developer error and
+// throw loudly. When no tool returns newMessages the output is unchanged.
+
+async function drainMessages(
+  blocks: UseBlock[],
+  tools: Tool<unknown, unknown>[],
+): Promise<Message[]> {
+  const out: Message[] = [];
+  for await (const msg of runTools(blocks, ctx, tools)) {
+    out.push(msg);
+  }
+  return out;
+}
+
+function makeImageNewMessagesTool(name: string, imgData: string): Tool<unknown, unknown> {
+  return buildTool({
+    name,
+    description: () => 'returns an image via newMessages',
+    inputSchema: z.object({}),
+    async call() {
+      return {
+        data: 'ok',
+        newMessages: [
+          {
+            role: 'user' as const,
+            content: [
+              {
+                type: 'image' as const,
+                source: { type: 'base64' as const, media_type: 'image/png', data: imgData },
+              },
+            ],
+          },
+        ],
+      };
+    },
+  }) as unknown as Tool<unknown, unknown>;
+}
+
+describe('runTools — ToolResult.newMessages', () => {
+  test('user-role image newMessages is appended after the tool_result block', async () => {
+    const blocks: UseBlock[] = [{ type: 'tool_use', id: 'n1', name: 'ImgTool', input: {} }];
+    const messages = await drainMessages(blocks, [makeImageNewMessagesTool('ImgTool', 'QUJD')]);
+    expect(messages).toHaveLength(1);
+    const msg = messages[0];
+    expect(msg?.role).toBe('user');
+    const content = msg?.content ?? [];
+    expect(content).toHaveLength(2);
+    expect(content[0]?.type).toBe('tool_result');
+    expect((content[0] as ResultBlock).tool_use_id).toBe('n1');
+    expect(content[1]?.type).toBe('image');
+    const img = content[1] as Extract<ContentBlock, { type: 'image' }>;
+    expect(img.source.data).toBe('QUJD');
+  });
+
+  test('no newMessages → yielded content is exactly [tool_result]', async () => {
+    const blocks: UseBlock[] = [
+      { type: 'tool_use', id: 'p1', name: 'Echo', input: { text: 'ping' } },
+    ];
+    const messages = await drainMessages(blocks, [makeEchoTool()]);
+    expect(messages).toHaveLength(1);
+    const content = messages[0]?.content ?? [];
+    expect(content).toHaveLength(1);
+    expect(content[0]?.type).toBe('tool_result');
+  });
+
+  test('multiple tools: appended content follows all tool_results in block order', async () => {
+    const blocks: UseBlock[] = [
+      { type: 'tool_use', id: 'm1', name: 'ImgA', input: {} },
+      { type: 'tool_use', id: 'm2', name: 'Echo', input: { text: 'mid' } },
+      { type: 'tool_use', id: 'm3', name: 'ImgB', input: {} },
+    ];
+    const messages = await drainMessages(blocks, [
+      makeImageNewMessagesTool('ImgA', 'AAA'),
+      makeEchoTool(),
+      makeImageNewMessagesTool('ImgB', 'BBB'),
+    ]);
+    const content = messages[0]?.content ?? [];
+    // 3 tool_result blocks first, then 2 appended images in block order.
+    expect(content.map((c) => c.type)).toEqual([
+      'tool_result',
+      'tool_result',
+      'tool_result',
+      'image',
+      'image',
+    ]);
+    expect((content[3] as Extract<ContentBlock, { type: 'image' }>).source.data).toBe('AAA');
+    expect((content[4] as Extract<ContentBlock, { type: 'image' }>).source.data).toBe('BBB');
+  });
+
+  test('assistant-role newMessages throws a developer error naming the tool', async () => {
+    const tool = buildTool({
+      name: 'BadRole',
+      description: () => 'returns assistant-role newMessages',
+      inputSchema: z.object({}),
+      async call() {
+        return {
+          data: 'ok',
+          newMessages: [
+            { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'nope' }] },
+          ],
+        };
+      },
+    }) as unknown as Tool<unknown, unknown>;
+    const blocks: UseBlock[] = [{ type: 'tool_use', id: 'b1', name: 'BadRole', input: {} }];
+    await expect(drainMessages(blocks, [tool])).rejects.toThrow(
+      /ToolResult\.newMessages currently supports role:'user' only; got role:'assistant' from tool 'BadRole'/,
+    );
   });
 });
 

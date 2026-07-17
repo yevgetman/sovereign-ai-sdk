@@ -66,6 +66,10 @@ export async function* runTools(
 ): AsyncGenerator<Message, void> {
   const toolsByName = new Map(tools.map((t) => [t.name, t]));
   const results: (ToolResultBlock | undefined)[] = new Array(blocks.length);
+  // Parallel to `results`: the user-role newMessages each tool returned (if
+  // any), keyed by the same block index. Merged into the yielded message
+  // below, in block order, after all tool_result blocks.
+  const newMessagesByIndex: (Message[] | undefined)[] = new Array(blocks.length);
   const recordTrace = traceRecorder ?? NO_TRACE;
 
   const partitions = partitionToolCalls(blocks, toolsByName);
@@ -80,6 +84,7 @@ export async function* runTools(
         hookRunner,
         recordTrace,
         results,
+        newMessagesByIndex,
       );
     } else {
       await runConcurrentPartition(
@@ -90,6 +95,7 @@ export async function* runTools(
         hookRunner,
         recordTrace,
         results,
+        newMessagesByIndex,
       );
     }
   }
@@ -113,7 +119,21 @@ export async function* runTools(
     }
   }
 
-  const userMessage: UserMessage = { role: 'user', content: resolved };
+  // Append user-role newMessages content AFTER all tool_result blocks, in
+  // tool_use block order. The content is merged into this single user message
+  // (never a separate message — a tool_result must be the leading content of
+  // the user turn that answers the tool_use, and Anthropic 400s on a bare
+  // tool_result message followed by another user message). Byte-identical to
+  // the old output when no tool returned newMessages.
+  const appended: ContentBlock[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const nm = newMessagesByIndex[i];
+    if (nm) {
+      for (const m of nm) appended.push(...m.content);
+    }
+  }
+
+  const userMessage: UserMessage = { role: 'user', content: [...resolved, ...appended] };
   yield userMessage;
 }
 
@@ -158,8 +178,10 @@ export function partitionToolCalls(
 
 // ──────────────────────────────────────────────────────────────────────
 // Serial dispatch — strictly sequential, preserves the Phase 2/3 default
-// behavior. ToolResult.newMessages will eventually splice into history
-// here (Phase 9 skill activation hints); for Phase 4 we ignore them.
+// behavior. ToolResult.newMessages returned by a tool is captured into the
+// parallel `nmOut` array and merged into the yielded user message by
+// `runTools` (user-role content only; assistant-role throws — see
+// `userNewMessages`). Serial and parallel partitions are handled identically.
 // ──────────────────────────────────────────────────────────────────────
 
 async function runSerialPartition(
@@ -170,16 +192,12 @@ async function runSerialPartition(
   hookRunner: HookRunner | undefined,
   recordTrace: TraceRecorder,
   out: (ToolResultBlock | undefined)[],
+  nmOut: (Message[] | undefined)[],
 ): Promise<void> {
   for (const item of items) {
-    out[item.index] = await executeOne(
-      item.block,
-      ctx,
-      toolsByName,
-      canUseTool,
-      hookRunner,
-      recordTrace,
-    );
+    const r = await executeOne(item.block, ctx, toolsByName, canUseTool, hookRunner, recordTrace);
+    out[item.index] = r.block;
+    nmOut[item.index] = r.newMessages;
   }
 }
 
@@ -197,6 +215,7 @@ async function runConcurrentPartition(
   hookRunner: HookRunner | undefined,
   recordTrace: TraceRecorder,
   out: (ToolResultBlock | undefined)[],
+  nmOut: (Message[] | undefined)[],
 ): Promise<void> {
   const subBatches = splitByPathOverlap(items, toolsByName, ctx.cwd);
 
@@ -212,7 +231,10 @@ async function runConcurrentPartition(
       for (let j = 0; j < wave.length; j++) {
         const item = wave[j];
         const result = waveResults[j];
-        if (item && result) out[item.index] = result;
+        if (item && result) {
+          out[item.index] = result.block;
+          nmOut[item.index] = result.newMessages;
+        }
       }
     }
   }
@@ -324,6 +346,27 @@ function safeIsReadOnly(tool: Tool<unknown, unknown>, input: unknown): boolean {
 // throws from here.
 // ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Validate + return a tool's user-role `newMessages`. Returns `undefined`
+ * when there are none. Assistant-role newMessages are a developer misuse
+ * (the orchestrator only knows how to merge user-role content into the
+ * tool_result message) and throw a loud error naming the tool.
+ */
+function userNewMessages(
+  newMessages: Message[] | undefined,
+  toolName: string,
+): Message[] | undefined {
+  if (newMessages === undefined || newMessages.length === 0) return undefined;
+  for (const m of newMessages) {
+    if (m.role !== 'user') {
+      throw new Error(
+        `ToolResult.newMessages currently supports role:'user' only; got role:'${m.role}' from tool '${toolName}'`,
+      );
+    }
+  }
+  return newMessages;
+}
+
 async function executeOne(
   block: ToolUseBlock,
   ctx: ToolContext,
@@ -331,7 +374,7 @@ async function executeOne(
   canUseTool?: CanUseTool,
   hookRunner?: HookRunner,
   recordTrace: TraceRecorder = NO_TRACE,
-): Promise<ToolResultBlock> {
+): Promise<{ block: ToolResultBlock; newMessages?: Message[] }> {
   // Phase 13.4 follow-up (backlog item 5) — track the terminal observation
   // status so every early-return path in this dispatcher can notify the
   // learning observer with the correct ObservationStatus value. Without this
@@ -350,10 +393,12 @@ async function executeOne(
       traceId: block.id,
     });
     return {
-      type: 'tool_result',
-      tool_use_id: block.id,
-      content: `unknown tool: ${block.name}`,
-      is_error: true,
+      block: {
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: `unknown tool: ${block.name}`,
+        is_error: true,
+      },
     };
   }
 
@@ -366,10 +411,12 @@ async function executeOne(
       traceId: block.id,
     });
     return {
-      type: 'tool_result',
-      tool_use_id: block.id,
-      content: 'tool dispatch cancelled before execution',
-      is_error: true,
+      block: {
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: 'tool dispatch cancelled before execution',
+        is_error: true,
+      },
     };
   }
 
@@ -388,10 +435,12 @@ async function executeOne(
         traceId: block.id,
       });
       return {
-        type: 'tool_result',
-        tool_use_id: block.id,
-        content: `input validation failed: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
-        is_error: true,
+        block: {
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: `input validation failed: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+          is_error: true,
+        },
       };
     }
     callInput = parsed.data;
@@ -411,10 +460,12 @@ async function executeOne(
         traceId: block.id,
       });
       return {
-        type: 'tool_result',
-        tool_use_id: block.id,
-        content: perm.reason ? `permission denied: ${perm.reason}` : 'permission denied',
-        is_error: true,
+        block: {
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: perm.reason ? `permission denied: ${perm.reason}` : 'permission denied',
+          is_error: true,
+        },
       };
     }
     if (perm.updatedInput !== undefined) {
@@ -433,10 +484,12 @@ async function executeOne(
             { traceId: block.id },
           );
           return {
-            type: 'tool_result',
-            tool_use_id: block.id,
-            content: `permission-updated input validation failed: ${updated.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
-            is_error: true,
+            block: {
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: `permission-updated input validation failed: ${updated.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+              is_error: true,
+            },
           };
         }
         callInput = updated.data;
@@ -467,10 +520,12 @@ async function executeOne(
         traceId: block.id,
       });
       return {
-        type: 'tool_result',
-        tool_use_id: block.id,
-        content: pre.reason ? `hook denied: ${pre.reason}` : 'hook denied',
-        is_error: true,
+        block: {
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: pre.reason ? `hook denied: ${pre.reason}` : 'hook denied',
+          is_error: true,
+        },
       };
     }
     if (pre.updatedInput !== undefined) {
@@ -488,10 +543,12 @@ async function executeOne(
             { traceId: block.id },
           );
           return {
-            type: 'tool_result',
-            tool_use_id: block.id,
-            content: `hook-updated input validation failed: ${updated.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
-            is_error: true,
+            block: {
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: `hook-updated input validation failed: ${updated.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+              is_error: true,
+            },
           };
         }
         callInput = updated.data;
@@ -511,17 +568,19 @@ async function executeOne(
         traceId: block.id,
       });
       return {
-        type: 'tool_result',
-        tool_use_id: block.id,
-        content: `input validation failed: ${validation.reason}`,
-        is_error: true,
+        block: {
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: `input validation failed: ${validation.reason}`,
+          is_error: true,
+        },
       };
     }
   }
 
   recordTrace({ type: 'tool_start', tool: tool.name, toolUseId: block.id, iso: nowIso() });
   const callStart = Date.now();
-  let result: { data: unknown; observation?: ToolObservation };
+  let result: { data: unknown; observation?: ToolObservation; newMessages?: Message[] };
   let toolError: Error | undefined;
   try {
     result = await tool.call(callInput, ctx);
@@ -623,7 +682,15 @@ async function executeOne(
     });
   }
 
-  return maybeAppendHints(tool.name, callInput, ctx, final);
+  // Only user-role newMessages survive; assistant-role is a developer error
+  // (throws, naming the tool). Computed on the success path only — a tool that
+  // errored out never reaches here. Omitted entirely when the tool returns none
+  // (exactOptionalPropertyTypes: no explicit `undefined` on an optional field).
+  const nm = userNewMessages(result.newMessages, tool.name);
+  return {
+    block: maybeAppendHints(tool.name, callInput, ctx, final),
+    ...(nm !== undefined ? { newMessages: nm } : {}),
+  };
 }
 
 /**
