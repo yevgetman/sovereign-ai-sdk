@@ -683,8 +683,9 @@ async function executeOne(
   }
 
   // Only user-role newMessages survive; assistant-role is a developer error
-  // (throws, naming the tool). Computed on the success path only — a tool that
-  // errored out never reaches here. Omitted entirely when the tool returns none
+  // (throws, naming the tool). A thrown tool's newMessages never survive (the
+  // catch reassigns `result`), so this path only carries genuinely-returned
+  // messages. Omitted entirely when the tool returns none
   // (exactOptionalPropertyTypes: no explicit `undefined` on an optional field).
   const nm = userNewMessages(result.newMessages, tool.name);
   return {

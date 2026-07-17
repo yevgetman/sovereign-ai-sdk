@@ -893,6 +893,43 @@ describe('runTools — ToolResult.newMessages', () => {
     expect((content[4] as Extract<ContentBlock, { type: 'image' }>).source.data).toBe('BBB');
   });
 
+  test('concurrent partition: newMessages from concurrency-safe tools are appended in block order', async () => {
+    // isConcurrencySafe → these run through runConcurrentPartition, exercising
+    // the nmOut write on the concurrent path (not just the serial one).
+    const concurrentImageTool = (name: string, imgData: string): Tool<unknown, unknown> =>
+      buildTool({
+        name,
+        description: () => 'concurrency-safe image via newMessages',
+        inputSchema: z.object({}),
+        isConcurrencySafe: () => true,
+        async call() {
+          return {
+            data: 'ok',
+            newMessages: [
+              {
+                role: 'user' as const,
+                content: [
+                  { type: 'image' as const, source: { type: 'base64' as const, media_type: 'image/png', data: imgData } },
+                ],
+              },
+            ],
+          };
+        },
+      }) as unknown as Tool<unknown, unknown>;
+    const blocks: UseBlock[] = [
+      { type: 'tool_use', id: 'c1', name: 'CImgA', input: {} },
+      { type: 'tool_use', id: 'c2', name: 'CImgB', input: {} },
+    ];
+    const messages = await drainMessages(blocks, [
+      concurrentImageTool('CImgA', 'AAA'),
+      concurrentImageTool('CImgB', 'BBB'),
+    ]);
+    const content = messages[0]?.content ?? [];
+    expect(content.map((c) => c.type)).toEqual(['tool_result', 'tool_result', 'image', 'image']);
+    expect((content[2] as Extract<ContentBlock, { type: 'image' }>).source.data).toBe('AAA');
+    expect((content[3] as Extract<ContentBlock, { type: 'image' }>).source.data).toBe('BBB');
+  });
+
   test('assistant-role newMessages throws a developer error naming the tool', async () => {
     const tool = buildTool({
       name: 'BadRole',
