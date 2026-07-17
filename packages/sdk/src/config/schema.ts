@@ -756,11 +756,40 @@ export const SettingsSchema = z
      *  (byte-identical). When the block IS present the gateway builds the
      *  decorum adapter and FAILS CLOSED at boot on a missing/invalid pack —
      *  it never boots into a no-governance state. Both fields optional at the
-     *  schema layer; the adapter throws if neither is supplied. */
+     *  schema layer; the adapter throws if neither is supplied.
+     *
+     *  `overlay` is the OPTIONAL directive-overlay scope (decorum's third
+     *  conduct layer — see decorum `docs/overlay-layer.md`): the runtime,
+     *  user-authored directives this gateway's tenant has configured. The
+     *  gateway binds it ONCE at boot via `provider.withOverlay`, so one gateway
+     *  process = one scope; a host that runs a gateway per tenant (the intended
+     *  shape) therefore never shares a session across two scopes, which decorum
+     *  forbids. Absent ⇒ the base provider is used unchanged (byte-identical).
+     *
+     *  The overlay can only ever TIGHTEN: decorum vets each free-text
+     *  instruction through the input gate at intake, compiles it to a
+     *  DISCRETIONARY (advisory, projection-only) rule, and refuses anything that
+     *  would loosen or pierce a base rule. Directives are still subject to the
+     *  binding's own `overlays:` envelope (enabled / allow_free_text /
+     *  max_rules) — an overlay sent to a binding that does not opt in is
+     *  rejected wholesale. */
     conduct: z
       .object({
         configPath: z.string().min(1).optional(),
         packDir: z.string().min(1).optional(),
+        overlay: z
+          .object({
+            /** Opaque per-tenant scope id (decorum: `^[A-Za-z0-9_-]{1,64}$`). */
+            scopeId: z.string().min(1),
+            /** Free-text directives. Advisory projection only, vetted at intake. */
+            instructions: z.array(z.string()).optional(),
+            /** Structured constraints (decorum's closed v1 menu). Passed through
+             *  verbatim — decorum owns the per-type schema and rejects unknown
+             *  types per-rule at intake rather than crashing. */
+            constraints: z.array(z.record(z.string(), z.unknown())).optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),

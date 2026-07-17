@@ -44,6 +44,10 @@ export type StartServerOptions = {
    *  webhook HMAC, not the gateway token). Unset mounts no channel route
    *  (byte-unchanged). */
   channels?: ChannelsConfig;
+  /** The boot-time directive-overlay intake result (see conduct/decorumAdapter).
+   *  Forwarded to buildAppWithRuntime; when set, GET /conduct/overlay serves the
+   *  content-free verdict. Unset mounts no route (byte-unchanged). */
+  overlayIntake?: { accepted: number; rejected: readonly unknown[] };
 };
 
 export type StartedServer = {
@@ -62,13 +66,15 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Starte
     opts.corsOrigins !== undefined ||
     opts.supervisor !== undefined ||
     opts.principals !== undefined ||
-    opts.channels !== undefined
+    opts.channels !== undefined ||
+    opts.overlayIntake !== undefined
       ? {
           ...(opts.auth !== undefined ? { auth: opts.auth } : {}),
           ...(opts.corsOrigins !== undefined ? { corsOrigins: opts.corsOrigins } : {}),
           ...(opts.supervisor !== undefined ? { supervisor: opts.supervisor } : {}),
           ...(opts.principals !== undefined ? { principals: opts.principals } : {}),
           ...(opts.channels !== undefined ? { channels: opts.channels } : {}),
+          ...(opts.overlayIntake !== undefined ? { overlayIntake: opts.overlayIntake } : {}),
         }
       : undefined;
   const app = opts.runtime

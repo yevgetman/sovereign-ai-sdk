@@ -1,5 +1,6 @@
 // Phase A T6 — `sov gateway` long-lived entrypoint serving the native HTTP+SSE protocol with auth + CORS.
 
+import type { ScopeOverlay } from '@yevgetman/decorum';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import { type Settings, SettingsSchema } from '@yevgetman/sov-sdk/config/schema';
 import { readRawConfig } from '@yevgetman/sov-sdk/config/store';
@@ -175,13 +176,20 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
   // `runtime` is always populated by the time an audit event flows through it.
   let runtime: Awaited<ReturnType<typeof buildRuntime>> | undefined;
   const conductAuditEnabled = config.observability?.conductAudit !== false; // default on
-  const conduct =
+  // The adapter now returns the provider PLUS the overlay intake result (present
+  // only when `conduct.overlay` was supplied). The intake is content-free —
+  // counts + reason codes — and is served at GET /conduct/overlay so the host can
+  // tell a user their directive was refused rather than silently dropped.
+  const conductBinding =
     config.conduct !== undefined
       ? createDecorumAdapter({
           ...(config.conduct.configPath !== undefined
             ? { configPath: config.conduct.configPath }
             : {}),
           ...(config.conduct.packDir !== undefined ? { packDir: config.conduct.packDir } : {}),
+          ...(config.conduct.overlay !== undefined
+            ? { overlay: config.conduct.overlay as ScopeOverlay }
+            : {}),
           ...(conductAuditEnabled
             ? {
                 emitExternalTrace: (sessionId: string, event) =>
@@ -190,6 +198,8 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
             : {}),
         })
       : undefined;
+  const conduct = conductBinding?.provider;
+  const overlayIntake = conductBinding?.intake;
 
   runtime = await buildRuntime({
     cwd: process.cwd(),
@@ -246,6 +256,7 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
     ...(principals !== undefined ? { principals } : token !== undefined ? { auth: token } : {}),
     ...(corsOrigins !== undefined ? { corsOrigins } : {}),
     ...(channels !== undefined ? { channels } : {}),
+    ...(overlayIntake !== undefined ? { overlayIntake } : {}),
   });
 
   process.stdout.write(`sov gateway: listening on http://${host}:${server.port}\n`);

@@ -71,4 +71,69 @@ describe('buildAppWithRuntime', () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  // GET /conduct/overlay — the directive-overlay intake verdict. Mounted ONLY
+  // when an overlay was bound at boot, so a host can report a refused directive
+  // to the user instead of it silently never applying.
+  describe('GET /conduct/overlay', () => {
+    async function withRuntime<T>(
+      fn: (runtime: Awaited<ReturnType<typeof buildRuntime>>) => Promise<T>,
+    ): Promise<T> {
+      const home = mkdtempSync(join(tmpdir(), 'sov-app-overlay-'));
+      process.env.SOV_TEST_MOCK_PROVIDER = '1';
+      try {
+        const runtime = await buildRuntime({
+          harnessHome: home,
+          cwd: process.cwd(),
+          provider: 'mock',
+          model: 'mock-haiku',
+        });
+        const out = await fn(runtime);
+        await runtime.dispose();
+        return out;
+      } finally {
+        // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+        delete process.env.SOV_TEST_MOCK_PROVIDER;
+        rmSync(home, { recursive: true, force: true });
+      }
+    }
+
+    test('serves the content-free intake when an overlay was bound', async () => {
+      await withRuntime(async (runtime) => {
+        const app = buildAppWithRuntime(runtime, {
+          overlayIntake: {
+            accepted: 2,
+            rejected: [{ channel: 'instruction', index: 1, reasonCode: 'injection' }],
+          },
+        });
+        const res = await app.request('/conduct/overlay');
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({
+          accepted: 2,
+          rejected: [{ channel: 'instruction', index: 1, reasonCode: 'injection' }],
+        });
+      });
+    });
+
+    test('is NOT mounted when no overlay was bound (byte-unchanged)', async () => {
+      await withRuntime(async (runtime) => {
+        const app = buildAppWithRuntime(runtime);
+        expect((await app.request('/conduct/overlay')).status).toBe(404);
+      });
+    });
+
+    test('is gated by the same bearer auth as the session routes', async () => {
+      await withRuntime(async (runtime) => {
+        const app = buildAppWithRuntime(runtime, {
+          auth: 'secret-token',
+          overlayIntake: { accepted: 1, rejected: [] },
+        });
+        expect((await app.request('/conduct/overlay')).status).toBe(401);
+        const ok = await app.request('/conduct/overlay', {
+          headers: { authorization: 'Bearer secret-token' },
+        });
+        expect(ok.status).toBe(200);
+      });
+    });
+  });
 });

@@ -91,7 +91,7 @@ describe('gateway conduct — real decorum binding enforces via the Conduct Port
 
   test('(a) a valid binding populates runtime.conduct and ENFORCES (pass / input-gate / output-floor)', async () => {
     const home = join(tmpdir(), `gw-conduct-enforce-${Date.now()}`);
-    const conduct = createDecorumAdapter({ configPath: ASSISTANT_CORE_BINDING });
+    const { provider: conduct } = createDecorumAdapter({ configPath: ASSISTANT_CORE_BINDING });
     let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
     try {
       runtime = await buildRuntime({
@@ -179,7 +179,7 @@ describe('gateway conduct — real decorum binding enforces via the Conduct Port
       stringify({ version: '1', pack_dir: ASSISTANT_CORE_PACK, pregate: { enabled: true } }),
     );
     const home = join(tmpdir(), `gw-conduct-packdir-home-${Date.now()}`);
-    const conduct = createDecorumAdapter({ packDir: bindingDir });
+    const { provider: conduct } = createDecorumAdapter({ packDir: bindingDir });
     let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
     try {
       runtime = await buildRuntime({

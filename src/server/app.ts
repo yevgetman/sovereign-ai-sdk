@@ -64,6 +64,11 @@ export type BuildAppOpts = {
   supervisor?: SessionSupervisorLike;
   principals?: ReadonlyArray<{ id: string; token: string; name?: string | undefined }>;
   channels?: ChannelsConfig;
+  /** The boot-time directive-overlay intake result (see decorumAdapter). When
+   *  present, GET /conduct/overlay serves it so the host can tell a user which of
+   *  their directives decorum refused. Content-free: counts + reason codes only.
+   *  Absent ⇒ the route is not mounted (byte-unchanged). */
+  overlayIntake?: { accepted: number; rejected: readonly unknown[] };
 };
 
 export function buildAppWithRuntime(
@@ -106,8 +111,23 @@ export function buildAppWithRuntime(
   // path for TUI / `sov serve` / `sov drive`).
   if (opts?.principals !== undefined) {
     app.use('/sessions/*', principalAuth(opts.principals));
+    app.use('/conduct/*', principalAuth(opts.principals));
   } else if (opts?.auth !== undefined) {
     app.use('/sessions/*', bearerAuth(opts.auth));
+    app.use('/conduct/*', bearerAuth(opts.auth));
+  }
+  // GET /conduct/overlay — the boot-time intake verdict for this gateway's
+  // directive overlay. Mounted ONLY when an overlay was bound, and gated by the
+  // same auth as the session routes (it is tenant-scoped operational state). The
+  // payload is content-free by construction: decorum's rejections carry a
+  // channel, an index, and a reason code — never the tenant's directive text.
+  // A host surfaces this so a refused rule (e.g. one that read as prompt
+  // injection) is reported to the user instead of silently never applying.
+  const intake = opts?.overlayIntake;
+  if (intake !== undefined) {
+    app.get('/conduct/overlay', (c) =>
+      c.json({ accepted: intake.accepted, rejected: intake.rejected }),
+    );
   }
   app.route('/', sessionsRoute(runtime, opts?.supervisor));
   app.route('/', turnsRoute(runtime));

@@ -25,7 +25,7 @@
 
 import { join } from 'node:path';
 import { DECORUM_AUDIT_SCHEMA_VERSION, createDecorumProvider } from '@yevgetman/decorum';
-import type { DecorumAuditEvent } from '@yevgetman/decorum';
+import type { DecorumAuditEvent, OverlayRejection, ScopeOverlay } from '@yevgetman/decorum';
 import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 
@@ -39,12 +39,28 @@ export type DecorumAdapterOptions = {
    *  `configPath` is unset — the binding is resolved as
    *  `<packDir>/conduct.yaml`. An explicit `configPath` always wins. */
   packDir?: string;
+  /** The tenant's directive overlay (decorum's third conduct layer). Bound ONCE
+   *  here, at boot, so this gateway process serves exactly ONE scope — decorum
+   *  forbids sharing a sessionId across the base and a scoped provider, and a
+   *  boot-bound scope makes that structurally impossible. Absent ⇒ the base
+   *  provider is returned unchanged (byte-identical). */
+  overlay?: ScopeOverlay;
   /** Late-bound inlet to the SDK's per-session trace (Runtime.recordExternalTrace).
    *  When provided, decorum's content-free audit events are forwarded as
    *  `{type:'external', source:'decorum'}` trace events, routed by the event's
    *  own `sessionId`. Absent ⇒ no audit sink ⇒ byte-identical (no governance
    *  observability). This is the SOLE decorum→SDK-trace coupling point. */
   emitExternalTrace?: (sessionId: string, event: TraceEvent) => void;
+};
+
+/** The content-free result of binding an overlay at boot: how many directives
+ *  decorum accepted, and a per-directive rejection list carrying reason codes
+ *  ONLY — never the tenant's text. A host surfaces this so a user whose rule was
+ *  refused (e.g. it read as prompt injection) learns it was refused, instead of
+ *  the rule silently never applying. Absent `overlay` ⇒ undefined. */
+export type OverlayIntake = {
+  readonly accepted: number;
+  readonly rejected: readonly OverlayRejection[];
 };
 
 /**
@@ -90,8 +106,21 @@ function resolveConfigPath(options: DecorumAdapterOptions): string {
  *
  * FAIL-CLOSED: {@link createDecorumProvider} throws at construction on a
  * missing/invalid pack; that throw propagates to gateway boot (no catch).
+ *
+ * OVERLAY: when `options.overlay` is present the tenant's directives are folded
+ * on via `provider.withOverlay` and the SCOPED provider is returned, together
+ * with the content-free {@link OverlayIntake}. decorum owns the vetting — each
+ * free-text directive runs the input gate's injection screen at intake and
+ * compiles to a DISCRETIONARY (advisory) rule; anything that would loosen a base
+ * rule is refused. Binding here (once, at boot) is deliberate: one gateway
+ * process then serves exactly one scope, so a sessionId can never straddle the
+ * base and a scoped provider. Absent `overlay` ⇒ base provider, `intake`
+ * undefined, byte-identical to before.
  */
-export function createDecorumAdapter(options: DecorumAdapterOptions = {}): ConductProvider {
+export function createDecorumAdapter(options: DecorumAdapterOptions = {}): {
+  provider: ConductProvider;
+  intake?: OverlayIntake;
+} {
   const configPath = resolveConfigPath(options);
   const emitExternalTrace = options.emitExternalTrace;
   // Forward ONLY decorum's own rich audit events (schemaVersion present) as
@@ -111,5 +140,12 @@ export function createDecorumAdapter(options: DecorumAdapterOptions = {}): Condu
         });
       }
     : undefined;
-  return createDecorumProvider({ configPath, ...(auditSink ? { auditSink } : {}) });
+  const provider = createDecorumProvider({ configPath, ...(auditSink ? { auditSink } : {}) });
+  if (options.overlay === undefined) return { provider };
+  // Fold the tenant's directives onto the boot-frozen base composition. decorum
+  // never mutates the base: it hands back a scope-bound provider (or the base
+  // itself when nothing was accepted — a disabled `overlays:` envelope, an
+  // all-rejected set, or an empty one), plus the per-directive verdicts.
+  const { provider: scoped, accepted, rejected } = provider.withOverlay(options.overlay);
+  return { provider: scoped, intake: { accepted, rejected } };
 }
