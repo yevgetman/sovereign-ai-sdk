@@ -34,10 +34,6 @@ import {
 import { readConfig } from '@yevgetman/sov-sdk/config/store';
 import { auditContextBudget } from '@yevgetman/sov-sdk/context/budget';
 import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
-import {
-  type AssayUsageRecorder,
-  createAssayUsageRecorder,
-} from '@yevgetman/sov-sdk/telemetry/assayUsageRecorder';
 import { buildSystemSegments } from '@yevgetman/sov-sdk/core/systemPrompt';
 import type { SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import { buildConsentChecker, buildFileConsentStore } from '@yevgetman/sov-sdk/hooks/consent';
@@ -65,6 +61,10 @@ import { PathLockManager } from '@yevgetman/sov-sdk/runtime/pathLock';
 import { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
 import { loadSkills } from '@yevgetman/sov-sdk/skills/loader';
 import type { SkillRegistry } from '@yevgetman/sov-sdk/skills/types';
+import {
+  type AssayUsageRecorder,
+  createAssayUsageRecorder,
+} from '@yevgetman/sov-sdk/telemetry/assayUsageRecorder';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import type { HarnessInfoSnapshot } from '@yevgetman/sov-sdk/tools/HarnessInfoTool';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';

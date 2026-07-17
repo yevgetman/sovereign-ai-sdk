@@ -176,6 +176,7 @@ describe('toolSubprocessEnv — credential scrub (SECURITY)', () => {
       expect(out.trim()).toBe('[]'); // empty — the key was scrubbed from the child env
       expect(out).not.toContain('sk-must-not-leak');
     } finally {
+      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
       delete process.env.ANTHROPIC_API_KEY;
     }
   });

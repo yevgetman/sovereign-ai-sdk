@@ -301,7 +301,9 @@ describe('the event → span state machine', () => {
     // The real session id, not the boot-time random UUID.
     for (const s of chats) expect(attr(s, 'gen_ai.conversation.id')).toBe('real-gateway-session');
     // Distinct turn ids + traces despite query sending turn=0 both times.
-    expect(attr(chats[0] as WireSpan, 'sov.turn.id')).not.toBe(attr(chats[1] as WireSpan, 'sov.turn.id'));
+    expect(attr(chats[0] as WireSpan, 'sov.turn.id')).not.toBe(
+      attr(chats[1] as WireSpan, 'sov.turn.id'),
+    );
     expect((chats[0] as WireSpan).traceId).not.toBe((chats[1] as WireSpan).traceId);
   });
 });
