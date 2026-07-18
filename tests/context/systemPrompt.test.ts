@@ -244,6 +244,46 @@ describe('buildSystemSegments', () => {
     });
   });
 
+  test('governance seat: systemAppend injects a top-authority <governance-seat> segment', async () => {
+    await withTmp(async (dir) => {
+      const seat = 'SEAT-MARKER: bylaws + tier authority + SOPs + node identity';
+      const segments = buildSystemSegments({
+        cwd: dir,
+        homeDir: dir,
+        warn: () => {},
+        systemAppend: seat,
+      });
+      const seg = segments.find((s) => s.text.includes('<governance-seat>'));
+      expect(seg).toBeDefined();
+      expect(seg?.text).toContain(seat);
+      expect(seg?.cacheable).toBe(true);
+      // Top authority: immediately after BASE_INSTRUCTIONS (index 1), above the
+      // harness self-doc, the memory scope, and the lower-priority user-context tail.
+      expect(segments.findIndex((s) => s.text.includes('<governance-seat>'))).toBe(1);
+      const userIdx = segments.findIndex((s) => s.text.includes('<user-context>'));
+      if (userIdx >= 0) expect(1).toBeLessThan(userIdx);
+    });
+  });
+
+  test('governance seat: absent / empty systemAppend is byte-identical (no segment)', async () => {
+    await withTmp(async (dir) => {
+      // Pin `now` so the <runtime-context> timestamp is identical across both calls;
+      // the ONLY thing under test is whether an empty systemAppend adds a segment.
+      const now = new Date('2026-01-01T00:00:00.000Z');
+      const base = buildSystemSegments({ cwd: dir, homeDir: dir, warn: () => {}, now });
+      const empty = buildSystemSegments({
+        cwd: dir,
+        homeDir: dir,
+        warn: () => {},
+        now,
+        systemAppend: '', // treated as absent (length 0)
+      });
+      expect(base.some((s) => s.text.includes('<governance-seat>'))).toBe(false);
+      expect(empty.map((s) => s.text)).toEqual(base.map((s) => s.text));
+      expect(empty.map((s) => s.cacheable)).toEqual(base.map((s) => s.cacheable));
+    });
+  });
+
   test('memory-scope segment with kind=none uses harness-mode wording', async () => {
     await withTmp(async (dir) => {
       const segments = buildSystemSegments({

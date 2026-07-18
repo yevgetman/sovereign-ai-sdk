@@ -40,6 +40,13 @@ export type BuildSystemSegmentsOptions = {
    *  out to a headless `claude -p`). Inserted after the smart-router segment;
    *  absent / empty means the segment is omitted entirely. */
   subscriptionExecutorPrompt?: string;
+  /** Config-driven governance seat (`context.systemAppend`) — a caller-supplied
+   *  standing instruction injected VERBATIM as a top-authority `<governance-seat>`
+   *  system segment (right after BASE_INSTRUCTIONS, above the harness self-doc and
+   *  well above the lower-priority `<user-context>` cwd files). Used to seat the
+   *  agent with the Factory's governance. Absent / empty means the segment is
+   *  omitted entirely (byte-identical to before), like `smartRouterPrompt`. */
+  systemAppend?: string;
 };
 
 const BASE_INSTRUCTIONS = `\
@@ -170,6 +177,19 @@ export function buildSystemSegments(
     { text: HARNESS_SELF_DOC, cacheable: cacheEnabled },
     { text: buildMemoryScopeSegment(options.projectScope), cacheable: cacheEnabled },
   ];
+
+  // Governance seat (config `context.systemAppend`) — inserted right AFTER
+  // BASE_INSTRUCTIONS as a top-authority standing instruction: above the harness
+  // self-doc and well above the lower-priority `<user-context>` tail (cwd AGENTS.md),
+  // because the Factory's governance (bylaws, tier authority, SOPs, node identity)
+  // must outrank project context. Absent / empty → omitted (byte-identical), exactly
+  // like the smartRouterPrompt segment below.
+  if (options.systemAppend !== undefined && options.systemAppend.length > 0) {
+    segments.splice(1, 0, {
+      text: `<governance-seat>\n${options.systemAppend}\n</governance-seat>`,
+      cacheable: cacheEnabled,
+    });
+  }
 
   const toolText = formatTools(options.tools ?? []);
   if (toolText) segments.push({ text: toolText, cacheable: cacheEnabled });

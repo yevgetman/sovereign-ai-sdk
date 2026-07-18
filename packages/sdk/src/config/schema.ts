@@ -811,6 +811,19 @@ export const SettingsSchema = z
       })
       .strict()
       .optional(),
+    /** Caller-supplied standing context. `systemAppend` is a verbatim text blob
+     *  injected as a TOP-AUTHORITY system-prompt segment (`<governance-seat>`) at
+     *  session start — used to seat the agent with the Factory's governance
+     *  (bylaws, tier authority, SOPs, node identity), GUARANTEED at turn 1 and
+     *  ranked ABOVE the lower-priority cwd context files. ABSENT block = today's
+     *  behavior exactly (segment omitted, byte-identical). Operator/config-authored
+     *  trust tier (like the smart-router prompt), so it is injected verbatim. */
+    context: z
+      .object({
+        systemAppend: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
     /** Observability & audit logging. Sibling to `conduct` — governs how
      *  governance/observability signals surface in the per-session trace.
      *  Absent block ⇒ every field takes its default. */

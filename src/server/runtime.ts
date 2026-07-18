@@ -1057,6 +1057,9 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     tools: toolPool,
     ...(smartRouterPrompt !== undefined ? { smartRouterPrompt } : {}),
     ...(subscriptionExecutorPrompt !== undefined ? { subscriptionExecutorPrompt } : {}),
+    ...(userSettings.context?.systemAppend !== undefined
+      ? { systemAppend: userSettings.context.systemAppend }
+      : {}),
   });
   systemSegmentsRef = systemSegments;
   const useRouter =
@@ -1685,6 +1688,9 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       ...(freshPrompt !== undefined ? { smartRouterPrompt: freshPrompt } : {}),
       ...(freshSubscriptionExecutorPrompt !== undefined
         ? { subscriptionExecutorPrompt: freshSubscriptionExecutorPrompt }
+        : {}),
+      ...(fresh.context?.systemAppend !== undefined
+        ? { systemAppend: fresh.context.systemAppend }
         : {}),
     });
     // Mutate in place so any closure that captured the array reference
