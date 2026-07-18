@@ -1,5 +1,29 @@
 # Changelog
 
+## harness 0.6.65 — Config-driven `<governance-seat>` system segment - 2026-07-18
+
+A host had no guaranteed way to seat the agent with top-authority governance at
+turn 1. The only lever was a cwd `AGENTS.md`, which the system prompt ranks as
+**lower-priority `<user-context>`** — below the harness self-doc — so a tenant's
+project context could outrank the Factory's own bylaws. This adds a config seam
+that injects that governance **above** project context, guaranteed on every turn.
+
+- **`context.systemAppend` config** — an optional gateway-config field
+  (`.strict`, sibling of `conduct`/`assay`). Its verbatim text is spliced in as a
+  **top-authority `<governance-seat>` system-prompt segment**, right after
+  `BASE_INSTRUCTIONS` — above the harness self-doc and well above `<user-context>`.
+  The canonical use is the Kernel app seating the agent with the Factory's
+  governance (bylaws, tier authority, SOPs, node identity) ranked over any cwd
+  files. **Absent/empty ⇒ byte-identical to before**, opt-in only.
+- **Operator-trust, verbatim.** Injected at the config-authored trust tier (like
+  the smart-router prompt), not model- or user-authored text. Threaded at both
+  `buildSystemSegments` call sites — boot and the hot-reload rebuild — so a live
+  `/config` reload stays consistent. Proven byte-identical-when-absent by a
+  pinned-`now` equality test. Ships e01d8fc.
+- **Rebuilt against decorum 0.10.1.** The binary bundles `file:../decorum` at
+  build time; this cut picks up decorum 0.10.1, which carries the turn-close-gate
+  review fixes.
+
 ## harness 0.6.64 — Directive overlays: the gateway can bind a tenant's runtime directives - 2026-07-16
 
 decorum has shipped a **directive-overlay layer** since 0.8.0 — its third conduct
