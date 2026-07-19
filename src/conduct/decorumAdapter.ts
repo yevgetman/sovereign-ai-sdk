@@ -25,7 +25,12 @@
 
 import { join } from 'node:path';
 import { DECORUM_AUDIT_SCHEMA_VERSION, createDecorumProvider } from '@yevgetman/decorum';
-import type { DecorumAuditEvent, OverlayRejection, ScopeOverlay } from '@yevgetman/decorum';
+import type {
+  AttestationSink,
+  DecorumAuditEvent,
+  OverlayRejection,
+  ScopeOverlay,
+} from '@yevgetman/decorum';
 import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 
@@ -51,6 +56,14 @@ export type DecorumAdapterOptions = {
    *  own `sessionId`. Absent ⇒ no audit sink ⇒ byte-identical (no governance
    *  observability). This is the SOLE decorum→SDK-trace coupling point. */
   emitExternalTrace?: (sessionId: string, event: TraceEvent) => void;
+  /** Attestation records sink (evidence spec 2026-07-19 §3.1). Forwarded to
+   *  `createDecorumProvider` EXACTLY as `auditSink` is: present ⇒ decorum
+   *  hands it the full `DecisionRecord` for every decision (observation —
+   *  fails open inside decorum; a throwing sink never breaks a governed
+   *  turn); ABSENT ⇒ not passed ⇒ byte-identical (no attestation at all).
+   *  The gateway wires this to the AttestationWriter's verbatim
+   *  records.jsonl persistence. */
+  attestationSink?: AttestationSink;
 };
 
 /** The content-free result of binding an overlay at boot: how many directives
@@ -140,7 +153,14 @@ export function createDecorumAdapter(options: DecorumAdapterOptions = {}): {
         });
       }
     : undefined;
-  const provider = createDecorumProvider({ configPath, ...(auditSink ? { auditSink } : {}) });
+  const provider = createDecorumProvider({
+    configPath,
+    ...(auditSink ? { auditSink } : {}),
+    // Attestation (§3.1): the records sink rides the SAME conditional-spread
+    // discipline as auditSink — absent ⇒ the key is never passed ⇒ decorum
+    // composes zero sinks (byte-identical to a provider with no attestation).
+    ...(options.attestationSink ? { attestationSink: options.attestationSink } : {}),
+  });
   if (options.overlay === undefined) return { provider };
   // Fold the tenant's directives onto the boot-frozen base composition. decorum
   // never mutates the base: it hands back a scope-bound provider (or the base

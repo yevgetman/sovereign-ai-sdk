@@ -23,15 +23,21 @@
 // delivery surface the output gate governs — see turnsConduct.test.ts's note).
 
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { AttestationManifestSchema, DecisionRecordSchema } from '@yevgetman/decorum';
+import type { AttestationManifest } from '@yevgetman/decorum';
 import { SettingsSchema } from '@yevgetman/sov-sdk/config/schema';
+import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
 import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
 import { stringify } from 'yaml';
+import { createTurnEvidence, withEvidenceSink } from '../../src/attestation/turnEvidence.js';
+import { AttestationWriter } from '../../src/attestation/writer.js';
 import { createDecorumAdapter } from '../../src/conduct/decorumAdapter.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildRuntime } from '../../src/server/runtime.js';
+import { ObservedTurnSchema } from '../attestation/fixtures/verifierSchemas.js';
 
 /** Absolute path to the installed `@yevgetman/decorum` package root. */
 const DECORUM_ROOT = dirname(Bun.resolveSync('@yevgetman/decorum/package.json', import.meta.dir));
@@ -130,6 +136,129 @@ describe('gateway conduct — real decorum binding enforces via the Conduct Port
       // forbidden output that was then substituted (rules out a vacuous pass
       // where the script silently never applied). It is the governor's refusal.
       expect(blocked).not.toBe('Hello world.');
+
+      // Attestation ABSENT (no `conduct.attestation` block wired) ⇒ no
+      // evidence dir, no files — the byte-identical discipline.
+      expect(existsSync(join(home, 'attestations'))).toBe(false);
+    } finally {
+      if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('ATTESTATION EVIDENCE end-to-end: records all host-stamped, manifest snapshot, ZERO orphan turnIds', async () => {
+    const home = join(tmpdir(), `gw-attest-e2e-${Date.now()}`);
+    // The `sov gateway` boot wiring in miniature (gatewayCommand.ts): writer
+    // first (its records sink feeds the adapter), manifest getter late-bound to
+    // the SAME provider instance the runtime mounts, boot snapshot, io
+    // coordinator, evidenceSink wrapper.
+    let attestedProvider: (ConductProvider & { attestationManifest: AttestationManifest }) | null =
+      null;
+    const writer = new AttestationWriter({
+      harnessHome: home,
+      getManifest: () => {
+        if (attestedProvider === null) throw new Error('provider not bound yet');
+        return attestedProvider.attestationManifest;
+      },
+    });
+    const { provider } = createDecorumAdapter({
+      configPath: ASSISTANT_CORE_BINDING,
+      attestationSink: (record) => writer.record(record),
+    });
+    attestedProvider = provider as ConductProvider & { attestationManifest: AttestationManifest };
+    writer.snapshotManifest(); // boot snapshot (§3.2)
+    const evidence = createTurnEvidence({ writer, io: true });
+    const sink = evidence.evidenceSink;
+    if (sink === undefined) throw new Error('io:true must expose an evidenceSink');
+    const conduct = withEvidenceSink(provider, sink);
+
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
+    try {
+      runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+        model: 'mock-haiku',
+        conduct,
+        attestationEvidence: evidence,
+      });
+      const app = buildAppWithRuntime(runtime);
+
+      // Three governed turns: pass / pregate-deny / output-block.
+      const passSession = await driveTurn(app, BENIGN_INPUT);
+      const denySession = await driveTurn(app, DIRECTIVE_EXTRACTION_INPUT);
+      MockProvider.resetScriptCursor();
+      MockProvider.toolUseScript = [{ kind: 'text', text: VERBATIM_LEAK_OUTPUT }];
+      const blockSession = await driveTurn(app, 'tell me a fun fact');
+      await writer.close();
+
+      const dir = join(home, 'attestations');
+      const files = readdirSync(dir).sort();
+
+      // ── records: every line strict-parses and every record is HOST-stamped ──
+      const records = files
+        .filter((f) => f.endsWith('.records.jsonl'))
+        .flatMap((f) =>
+          readFileSync(join(dir, f), 'utf8')
+            .split('\n')
+            .filter((line) => line.length > 0)
+            .map((line) => DecisionRecordSchema.parse(JSON.parse(line))),
+        );
+      expect(records.length).toBeGreaterThanOrEqual(3); // ≥1 per driven turn
+      for (const record of records) {
+        expect(record.turnIdSource).toBe('host');
+      }
+
+      // ── io: one row per driven turn, verifier-strict, unique join keys ──
+      const ioRows = files
+        .filter((f) => f.endsWith('.io.jsonl'))
+        .flatMap((f) =>
+          readFileSync(join(dir, f), 'utf8')
+            .split('\n')
+            .filter((line) => line.length > 0)
+            .map((line) => ObservedTurnSchema.parse(JSON.parse(line))),
+        );
+      expect(ioRows).toHaveLength(3);
+      const joinKey = (sessionId: string, turnId: string | undefined): string =>
+        JSON.stringify([sessionId, turnId]);
+      const ioKeys = new Set(ioRows.map((row) => joinKey(row.sessionId, row.turnId)));
+      expect(ioKeys.size).toBe(3); // no duplicate (sessionId, turnId) rows
+
+      // ── THE MONEY INVARIANT: zero records whose turnId lacks an io row ──
+      for (const record of records) {
+        expect(ioKeys.has(joinKey(record.sessionId, record.turnId))).toBe(true);
+      }
+
+      // ── io row shapes per verdict ──
+      const rowFor = (sessionId: string): (typeof ioRows)[number] => {
+        const row = ioRows.find((r) => r.sessionId === sessionId);
+        if (row === undefined) throw new Error(`no io row for session ${sessionId}`);
+        return row;
+      };
+      const passRow = rowFor(passSession);
+      expect(passRow.candidate).toBe('Hello world.');
+      expect(passRow.delivered).toBe('Hello world.'); // pass-unchanged equality
+      expect(passRow.input).toBe(BENIGN_INPUT); // the exact gateText preGate saw
+      const denyRow = rowFor(denySession);
+      expect(denyRow.input).toBe(DIRECTIVE_EXTRACTION_INPUT);
+      expect(denyRow.delivered).not.toBe('Hello world.'); // the model never answered
+      const blockRow = rowFor(blockSession);
+      expect(blockRow.candidate).toBe(VERBATIM_LEAK_OUTPUT); // pre-governance
+      expect(blockRow.delivered).not.toBe(VERBATIM_LEAK_OUTPUT); // substituted
+
+      // ── manifest snapshot: one per governanceHash, hash-consistent ──
+      const manifestFiles = files.filter((f) => f.startsWith('manifest-'));
+      expect(manifestFiles).toHaveLength(1);
+      const manifestFile = manifestFiles[0];
+      if (manifestFile === undefined) throw new Error('expected a manifest snapshot');
+      const manifest = AttestationManifestSchema.parse(
+        JSON.parse(readFileSync(join(dir, manifestFile), 'utf8')),
+      );
+      expect(manifestFile).toBe(`manifest-${manifest.governanceHash.slice(0, 12)}.json`);
+      for (const record of records) {
+        expect(record.governanceHash).toBe(manifest.governanceHash);
+      }
+      expect(writer.failureCount).toBe(0);
     } finally {
       if (runtime !== null) await runtime.dispose();
       rmSync(home, { recursive: true, force: true });
