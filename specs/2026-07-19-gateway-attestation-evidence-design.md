@@ -1,6 +1,7 @@
 # Gateway attestation evidence — live-audit plumbing for decorum-verify
 
-**Status: DRAFT — pending CEO green-light on the three open decisions in §9.**
+**Status: APPROVED 2026-07-19 — CEO ratified all three §9 decisions as recommended:
+D1 full evidence in v1 (records + manifest + io) · D2 opt-in · D3 one arc, sov + Appleo.**
 **Scope:** the sov gateway persists the three evidence artifacts decorum-verify's
 `verify audit` consumes, so a live deployment (Appleo-style) can be forensically
 audited after the fact — not just proven pre-deploy with `verify run`.
