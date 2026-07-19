@@ -790,6 +790,32 @@ export const SettingsSchema = z
           })
           .strict()
           .optional(),
+        /** Attestation evidence capture — persists the artifacts decorum-verify's
+         *  `verify audit` consumes so a live deployment can be forensically
+         *  audited after the fact. `enabled` turns on the content-free evidence
+         *  (verbatim DecisionRecords + per-hash manifest snapshots); `io` is a
+         *  SEPARATE, deliberate flag for the content-bearing observed-io rows
+         *  (conversation text — never a surprise, hence its own switch). `dir`
+         *  resolves under HARNESS_HOME (containment-asserted by the writer).
+         *  ABSENT block ⇒ byte-identical gateway: no writer constructed, no
+         *  files, no behavior delta. Attestation is OBSERVATION and fails open
+         *  at runtime; the one hard check is config-shaped and parse-time:
+         *  `enabled: true` with neither `configPath` nor `packDir` is rejected
+         *  by the SettingsSchema superRefine (fail-fast at boot, like a bad
+         *  pack path — evidence without a governing pack attests nothing). */
+        attestation: z
+          .object({
+            /** Persist `<sessionId>.records.jsonl` + `manifest-<hash12>.json`
+             *  (content-free). Default off — evidence is a deliberate act. */
+            enabled: z.boolean().default(false),
+            /** Persist `<sessionId>.io.jsonl` observed-turn rows
+             *  (CONTENT-BEARING). Default off; inert unless `enabled`. */
+            io: z.boolean().default(false),
+            /** Evidence directory, resolved under HARNESS_HOME. */
+            dir: z.string().min(1).default('attestations'),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),
@@ -871,6 +897,23 @@ export const SettingsSchema = z
         message:
           '`subscriptionExecutor` and `taskRouting` are mutually exclusive — they are two different cost strategies (a flat-rate subscription vs. API cost-tier routing); enable only one.',
         path: ['subscriptionExecutor', 'enabled'],
+      });
+    }
+    // Attestation evidence attests a GOVERNING PACK — enabling it with no pack
+    // bound (neither configPath nor packDir) is incoherent, and silently
+    // accepting it would look like evidence was being collected when nothing
+    // is governed. Reject at parse time so the gateway fails fast at boot,
+    // exactly like a bad pack path.
+    if (
+      settings.conduct?.attestation?.enabled === true &&
+      settings.conduct.configPath === undefined &&
+      settings.conduct.packDir === undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          '`conduct.attestation.enabled` requires a bound pack — set `conduct.configPath` or `conduct.packDir`. Attestation evidence records what a pack enforced; without a pack there is nothing to attest.',
+        path: ['conduct', 'attestation', 'enabled'],
       });
     }
   });

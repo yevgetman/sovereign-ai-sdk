@@ -1117,3 +1117,69 @@ describe('SettingsSchema — assay (SOV-ASSAY WIRE v1)', () => {
     expect(() => SettingsSchema.parse({ assay: { token: 't', nope: 1 } })).toThrow();
   });
 });
+
+describe('SettingsSchema — conduct.attestation', () => {
+  test('absent attestation block stays absent (no field forged — byte-identical)', () => {
+    // Same discipline as the empty-object regression: an absent optional block
+    // is NEVER materialized, so downstream `attestation === undefined` gates
+    // (no writer constructed, no files) hold byte-identical.
+    const p = SettingsSchema.parse({ conduct: { configPath: '/packs/conduct.yaml' } });
+    expect(p.conduct?.attestation).toBeUndefined();
+  });
+
+  test('present block ⇒ defaults enabled:false, io:false, dir:"attestations"', () => {
+    const p = SettingsSchema.parse({
+      conduct: { configPath: '/packs/conduct.yaml', attestation: {} },
+    });
+    expect(p.conduct?.attestation).toEqual({ enabled: false, io: false, dir: 'attestations' });
+  });
+
+  test('explicit values pass through (packDir binding counts as a bound pack)', () => {
+    const p = SettingsSchema.parse({
+      conduct: { packDir: '/packs', attestation: { enabled: true, io: true, dir: 'evidence' } },
+    });
+    expect(p.conduct?.attestation).toEqual({ enabled: true, io: true, dir: 'evidence' });
+  });
+
+  test('records-only shape: enabled true, io left to its false default', () => {
+    const p = SettingsSchema.parse({
+      conduct: { configPath: '/packs/conduct.yaml', attestation: { enabled: true } },
+    });
+    expect(p.conduct?.attestation).toEqual({ enabled: true, io: false, dir: 'attestations' });
+  });
+
+  test('rejects unknown nested keys under conduct.attestation (strict)', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        conduct: { configPath: '/packs/conduct.yaml', attestation: { unknown: true } },
+      }),
+    ).toThrow();
+  });
+
+  test('rejects an empty dir string', () => {
+    expect(() =>
+      SettingsSchema.parse({
+        conduct: { configPath: '/packs/conduct.yaml', attestation: { dir: '' } },
+      }),
+    ).toThrow();
+  });
+
+  test('enabled without a bound pack (no configPath, no packDir) is a parse error', () => {
+    // Boot-time fail-fast: config load runs SettingsSchema.parse, so this
+    // rejects at boot exactly like a bad pack path — never a silent no-op.
+    expect(() => SettingsSchema.parse({ conduct: { attestation: { enabled: true } } })).toThrow(
+      /configPath|packDir/,
+    );
+  });
+
+  test('attestation block without a pack is fine while enabled stays false (inert)', () => {
+    // Only `enabled: true` demands a pack; a defaulted/explicit false block is
+    // inert configuration, not an error.
+    expect(
+      SettingsSchema.parse({ conduct: { attestation: {} } }).conduct?.attestation?.enabled,
+    ).toBe(false);
+    expect(() =>
+      SettingsSchema.parse({ conduct: { attestation: { enabled: false, io: true } } }),
+    ).not.toThrow();
+  });
+});
