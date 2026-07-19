@@ -42,7 +42,7 @@
 import { randomUUID } from 'node:crypto';
 import type { MicrocompactConfig } from '../compact/microcompact.js';
 import type { Settings } from '../config/schema.js';
-import { substituteAssistantText } from '../core/conductOutput.js';
+import { extractAssistantText, substituteAssistantText } from '../core/conductOutput.js';
 import {
   type ConductContext,
   type ConductProvider,
@@ -202,6 +202,12 @@ export type PerTurn = Partial<{
   rethrow: boolean;
   /** Per-turn override of the standing conduct provider (see AgentConfig). */
   conduct: ConductProvider;
+  /** Host-minted per-turn id (attestation evidence §3.3), threaded VERBATIM
+   *  into `ConductContext.turnId` so the SAME id rides every conduct
+   *  capability call of this turn (all-or-none). Mint a FRESH id per `run()`
+   *  invocation — re-using one across turns corrupts host turn identity.
+   *  Absent ⇒ no `turnId` on the ctx (byte-identical; engines synthesize). */
+  turnId: string;
 }>;
 
 /** The structured result of a `run()`, returned as the generator's return
@@ -286,8 +292,20 @@ export function createAgent(config: AgentConfig): Agent {
       model,
       providerName: provider.name,
       ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
+      // Host turn identity (attestation §3.3): the per-invocation id rides the
+      // ctx VERBATIM so every capability call of this turn carries the same id.
+      ...(perTurn.turnId !== undefined ? { turnId: perTurn.turnId } : {}),
     };
     const emitConductAudit = wrapConductAuditSink(conduct?.auditSink?.bind(conduct));
+    // Evidence seam (attestation §3.4): when the host wires an evidenceSink,
+    // capture the gate input (via query's onConductGateInput bridge) and the
+    // final attempt's candidate/delivered pair (at the onFinal seam below),
+    // then emit ONE ConductEvidenceEvent after the drive loop reaches terminal.
+    // Absent sink ⇒ none of this runs — byte-identical.
+    const emitConductEvidence = conduct?.evidenceSink?.bind(conduct);
+    let evidenceGateInput: string | undefined;
+    let evidenceCandidate: string | undefined;
+    let evidenceDelivered: string | undefined;
     let effectiveSystemPrompt = systemPrompt;
     if (conduct?.personaSegments && conductSurface === 'user') {
       const startedAt = Date.now();
@@ -376,6 +394,13 @@ export function createAgent(config: AgentConfig): Agent {
         maxTokens,
         sessionId,
         ...(conduct !== undefined ? { conduct, conductCtx } : {}),
+        ...(emitConductEvidence !== undefined
+          ? {
+              onConductGateInput: (finalUserText: string) => {
+                evidenceGateInput = finalUserText;
+              },
+            }
+          : {}),
         ...(effort !== undefined ? { effort } : {}),
         ...(temperature !== undefined ? { temperature } : {}),
         ...(cacheEnabled !== undefined ? { cacheEnabled } : {}),
@@ -440,6 +465,13 @@ export function createAgent(config: AgentConfig): Agent {
           distinctTools.clear();
           iterationsUsed = 0;
           finalAssistant = undefined;
+          // Evidence (attestation §3.4): the discarded attempt's pair must
+          // never leak — if the retry fails to produce a gated message, the
+          // emitted event carries NO candidate/delivered rather than attempt-0
+          // text. (`evidenceGateInput` is retained: the retry re-runs preGate
+          // on the same seed and re-captures the same text.)
+          evidenceCandidate = undefined;
+          evidenceDelivered = undefined;
         }
         let regenerated = false;
         let regenerateReason: string | undefined;
@@ -508,6 +540,10 @@ export function createAgent(config: AgentConfig): Agent {
                 if (flushed.length > 0) yield { type: 'text_delta', text: flushed };
               }
               if (guard?.onFinal && ev.type === 'assistant_message') {
+                // Evidence (attestation §3.4): keep a handle on the message the
+                // guard RECEIVES — `ev` is reassigned on a replace/block
+                // substitution, and the pre-substitution text is the candidate.
+                const preVerdictMessage = ev.message;
                 const startedAt = Date.now();
                 let verdictLabel = 'pass';
                 let doRegenerate = false;
@@ -563,6 +599,18 @@ export function createAgent(config: AgentConfig): Agent {
                   regenerated = true;
                   break;
                 }
+                // Evidence capture (attestation §3.4): the LAST gated message
+                // of the attempt wins — at terminal that is the turn's final
+                // delivered message, so the once-per-turn event below carries
+                // the FINAL pair. candidate = pre-substitution text (what the
+                // guard received); delivered = post-governor text (what is
+                // yielded/persisted). A regenerated message never reaches here
+                // (discarded above); a text-free message extracts to undefined
+                // so the fields stay OMITTED, never ''.
+                if (emitConductEvidence !== undefined && ev.type === 'assistant_message') {
+                  evidenceCandidate = extractAssistantText(preVerdictMessage);
+                  evidenceDelivered = extractAssistantText(ev.message);
+                }
               }
               usageAcc = accumulateUsage(usageAcc, ev);
               if (ev.type === 'message_stop') iterationsUsed += 1;
@@ -613,6 +661,26 @@ export function createAgent(config: AgentConfig): Agent {
       // arg of the generator's TReturn, but the finalization value is DISCARDED
       // (never read) — we only need query()'s finalizers to run.
       await gen.return(undefined as unknown as Terminal);
+    }
+
+    // Evidence emission (attestation §3.4): exactly ONE ConductEvidenceEvent
+    // per turn that reaches terminal, carrying the final attempt's pair from
+    // the onFinal seam + the gate input. Unobserved fields are OMITTED — never
+    // '' — so an undelivered turn reads honestly as undelivered. Abandoned
+    // (early-`.return()`) and rethrown turns unwind before this line and never
+    // emit — the host backfills a row per minted turnId. Evidence fails OPEN:
+    // a throwing sink is swallowed and never affects the turn's result.
+    if (emitConductEvidence !== undefined) {
+      try {
+        emitConductEvidence({
+          ...(conductCtx.turnId !== undefined ? { turnId: conductCtx.turnId } : {}),
+          ...(evidenceGateInput !== undefined ? { input: evidenceGateInput } : {}),
+          ...(evidenceCandidate !== undefined ? { candidate: evidenceCandidate } : {}),
+          ...(evidenceDelivered !== undefined ? { delivered: evidenceDelivered } : {}),
+        });
+      } catch {
+        // Evidence is an observer; never propagate.
+      }
     }
 
     // 9. Finalize usage ONCE and share it between persistence and the returned

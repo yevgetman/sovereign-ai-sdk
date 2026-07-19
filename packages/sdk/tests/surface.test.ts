@@ -83,6 +83,7 @@ import type {
   ChildCompletionEvent,
   ConductAuditEvent,
   ConductContext,
+  ConductEvidenceEvent,
   ConductOutputGuard,
   ConductProvider,
   ConductStage,
@@ -351,6 +352,7 @@ type TypeSurfaceWitness = {
   childCompletionEvent?: ChildCompletionEvent;
   conductAuditEvent?: ConductAuditEvent;
   conductContext?: ConductContext;
+  conductEvidenceEvent?: ConductEvidenceEvent;
   conductOutputGuard?: ConductOutputGuard;
   conductProvider?: ConductProvider;
   conductStage?: ConductStage;

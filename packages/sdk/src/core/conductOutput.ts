@@ -27,3 +27,20 @@ export function substituteAssistantText(message: AssistantMessage, text: string)
   if (!substituted) content.unshift({ type: 'text', text });
   return { role: 'assistant', content };
 }
+
+/** Join a message's text blocks into the single string an output governor
+ *  gates (attestation evidence §3.4). The '\n' join matches the extraction the
+ *  decorum engine's own onFinal uses, so a pass verdict's candidate === the
+ *  delivered text extracted the same way (pass-unchanged equality survives).
+ *  Returns undefined — never '' — when the message carries no text (a tool-only
+ *  or empty message delivered nothing; the evidence row must OMIT the field). */
+export function extractAssistantText(message: AssistantMessage): string | undefined {
+  const text = message.content
+    .filter(
+      (block): block is Extract<AssistantMessage['content'][number], { type: 'text' }> =>
+        block.type === 'text',
+    )
+    .map((block) => block.text)
+    .join('\n');
+  return text.length > 0 ? text : undefined;
+}

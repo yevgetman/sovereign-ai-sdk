@@ -168,4 +168,11 @@ export type QueryParams = {
   /** Per-turn conduct context. Required for the seams to run — createAgent
    *  builds it; a bare query() caller may omit both. */
   conductCtx?: import('./conductPort.js').ConductContext;
+  /** Gate-input capture (attestation evidence §3.4) — the bridge that hands
+   *  createAgent the EXACT gateText preGate saw (post-rewrite,
+   *  post-injection), for the once-per-turn ConductEvidenceEvent's `input`.
+   *  Called only when preGate runs ("what the gate saw", nothing else) and
+   *  BEFORE its verdict applies; an observer — a throw is swallowed and never
+   *  breaks the turn. Absent ⇒ byte-identical (no capture). */
+  onConductGateInput?: (finalUserText: string) => void;
 };
