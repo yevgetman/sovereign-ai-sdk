@@ -299,7 +299,7 @@ describe('AttestationWriter io stream', () => {
     }
   });
 
-  test('redacts input/candidate/delivered with the transcript redactor, preserving pass-equality', async () => {
+  test('redacts input/candidate/delivered with TAGGED markers, preserving pass-equality', async () => {
     const writer = makeWriter({});
     writer.recordIo({
       sessionId: 'sess-1',
@@ -312,10 +312,19 @@ describe('AttestationWriter io stream', () => {
     const raw = readFileSync(join(writer.dir, 'sess-1.io.jsonl'), 'utf8');
     // MONEY: the live secret never reaches disk.
     expect(raw).not.toContain(SECRET);
-    expect(raw).toContain('[REDACTED]');
+    // MONEY (review fix wave): the marker is TAGGED — `[REDACTED:<kind>]`, not
+    // the bare `[REDACTED]`. Redaction destroys re-execution (F4) for any
+    // authored rule whose detect matches secret-shaped text: an honest fire
+    // would read CONTRADICTED (false MISALIGNED) and a real leak would read
+    // clean. A tagged, unambiguous marker is what lets the verifier RECOGNIZE
+    // redacted evidence and decline that check honestly (UNVERIFIABLE) instead
+    // — the documented decorum-verify follow-up keys on this exact shape.
+    expect(raw).toContain('[REDACTED:anthropic]');
+    expect(raw).not.toContain('[REDACTED]"');
     const parsed = JSON.parse(raw.trim());
     // MONEY: a pass-verdict turn must still read candidate === delivered after
-    // redaction, or the verifier flags an unchanged pass as tampered.
+    // redaction (identical tagged substitution on both), or the verifier flags
+    // an unchanged pass as tampered.
     expect(parsed.candidate).toBe(parsed.delivered);
     // Ids are the records↔io JOIN keys — never redacted (records are verbatim,
     // so a redacted id here would orphan every turn).

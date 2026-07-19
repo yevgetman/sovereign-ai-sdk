@@ -147,7 +147,19 @@ function resolveContainedDir(home: string, dir: string): string {
  *  strict-parsed JSON — and identically to candidate and delivered so
  *  pass-unchanged equality survives redaction. sessionId/turnId are the
  *  records↔io JOIN keys and are never redacted (records are verbatim; a
- *  redacted id on one side would orphan every turn). */
+ *  redacted id on one side would orphan every turn).
+ *
+ *  Markers are TAGGED — `[REDACTED:<kind>]`, not the bare `[REDACTED]`
+ *  (review fix wave). Redaction is a KNOWN COLLISION with the verifier's
+ *  re-execution check (F4): an authored rule whose detect matches
+ *  secret-shaped text (e.g. "never output API keys" over an AKIA/sk- form)
+ *  cannot be re-executed over persisted evidence — the fired-on span is gone.
+ *  Left bare, that reads as CONTRADICTED (a false MISALIGNED on an honest
+ *  deployment) or hides a real leak behind a claimed pass. The tagged form is
+ *  an unambiguous, machine-recognizable signature so the verifier can decline
+ *  such checks honestly (UNVERIFIABLE — the decorum-verify follow-up keys on
+ *  it), and pass-equality (F3) still survives: candidate and delivered get
+ *  the identical substitution. */
 function buildObservedTurn(row: ObservedTurnRow): Record<string, unknown> {
   const surface = row.vars?.surface;
   const model = row.vars?.model;
@@ -161,9 +173,9 @@ function buildObservedTurn(row: ObservedTurnRow): Record<string, unknown> {
   return {
     sessionId: row.sessionId,
     ...(row.turnId !== undefined ? { turnId: row.turnId } : {}),
-    ...(row.input !== undefined ? { input: redact(row.input) } : {}),
-    ...(row.candidate !== undefined ? { candidate: redact(row.candidate) } : {}),
-    ...(row.delivered !== undefined ? { delivered: redact(row.delivered) } : {}),
+    ...(row.input !== undefined ? { input: redact(row.input, { tagged: true }) } : {}),
+    ...(row.candidate !== undefined ? { candidate: redact(row.candidate, { tagged: true }) } : {}),
+    ...(row.delivered !== undefined ? { delivered: redact(row.delivered, { tagged: true }) } : {}),
     ...(vars !== undefined ? { vars } : {}),
   };
 }

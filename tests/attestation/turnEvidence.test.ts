@@ -190,6 +190,55 @@ describe('createTurnEvidence — the one-row-per-minted-turnId ledger', () => {
   });
 });
 
+describe('settleAll — graceful-shutdown sweep (review fix wave)', () => {
+  test('settles EVERY still-pending minted turnId with a delivered-omitted backfill row', () => {
+    // The gateway's shutdown path stops the server while runTurnInBackground
+    // drives may still be mid-flight; their records are already on disk, so
+    // leaving their minted ids unsettled would strand them as floor-B orphans
+    // (INCOMPLETE forever). settleAll is the pre-close sweep.
+    const { rows, writer } = captureWriter();
+    const evidence = createTurnEvidence({ writer, io: true });
+    const settled = evidence.beginTurn('sess-1', VARS);
+    evidence.evidenceSink?.({ turnId: settled, delivered: 'done' });
+    const inflightA = evidence.beginTurn('sess-1', VARS);
+    const inflightB = evidence.beginTurn('sess-2', VARS);
+
+    evidence.settleAll();
+
+    expect(rows).toHaveLength(3);
+    const rowA = rows.find((r) => r.turnId === inflightA);
+    const rowB = rows.find((r) => r.turnId === inflightB);
+    expect(rowA?.sessionId).toBe('sess-1');
+    expect(rowB?.sessionId).toBe('sess-2');
+    // In-flight turns read honestly as undelivered: `delivered` OMITTED.
+    if (rowA === undefined || rowB === undefined) throw new Error('missing backfill rows');
+    expect('delivered' in rowA).toBe(false);
+    expect('delivered' in rowB).toBe(false);
+  });
+
+  test('idempotent, and a late sink event after settleAll writes NOTHING (no duplicate rows)', () => {
+    const { rows, writer } = captureWriter();
+    const evidence = createTurnEvidence({ writer, io: true });
+    const turnId = evidence.beginTurn('sess-1', VARS);
+    evidence.settleAll();
+    evidence.settleAll();
+    expect(rows).toHaveLength(1);
+    // The in-flight drive's sink fires after the sweep (single-threaded, but
+    // the turn's async continuation can still run before process.exit): the
+    // registration is gone, so no second (sessionId, turnId) row appears.
+    evidence.evidenceSink?.({ turnId, delivered: 'late' });
+    expect(rows).toHaveLength(1);
+  });
+
+  test('io:false — settleAll is a no-op (nothing pending, no rows)', () => {
+    const { rows, writer } = captureWriter();
+    const evidence = createTurnEvidence({ writer, io: false });
+    evidence.beginTurn('sess-1', VARS);
+    expect(() => evidence.settleAll()).not.toThrow();
+    expect(rows).toHaveLength(0);
+  });
+});
+
 describe('withEvidenceSink — boot-time provider wrapper', () => {
   test('mirrors capability PRESENCE exactly and delegates calls verbatim', async () => {
     const seen: Array<[string, ConductContext]> = [];

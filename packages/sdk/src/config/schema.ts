@@ -802,14 +802,30 @@ export const SettingsSchema = z
          *  at runtime; the one hard check is config-shaped and parse-time:
          *  `enabled: true` with neither `configPath` nor `packDir` is rejected
          *  by the SettingsSchema superRefine (fail-fast at boot, like a bad
-         *  pack path — evidence without a governing pack attests nothing). */
+         *  pack path — evidence without a governing pack attests nothing).
+         *
+         *  AUDITABILITY, honestly stated: only `enabled` + `io: true` (full
+         *  evidence) produces a set `verify audit` can render a verdict on —
+         *  the audit command REQUIRES an io file, and io-less records are
+         *  orphans under its completeness floor (INCOMPLETE by design).
+         *  Records-only mode (`io: false`) is forensic RAW MATERIAL — verbatim
+         *  decision records + manifests for record-keeping and integrity
+         *  checks — NOT an auditable mode. Deployments that want the audit
+         *  story must run full evidence. And the audit proves consistency of
+         *  what is PRESENT, never completeness of what is absent: evidence
+         *  files are host-owned JSONL, so a custodian who deletes a whole
+         *  turn's records AND its io row leaves a set that still verifies —
+         *  completeness needs external anchoring (backups, copies taken at
+         *  audit time), which stays the host's responsibility. */
         attestation: z
           .object({
             /** Persist `<sessionId>.records.jsonl` + `manifest-<hash12>.json`
              *  (content-free). Default off — evidence is a deliberate act. */
             enabled: z.boolean().default(false),
             /** Persist `<sessionId>.io.jsonl` observed-turn rows
-             *  (CONTENT-BEARING). Default off; inert unless `enabled`. */
+             *  (CONTENT-BEARING). Default off; inert unless `enabled` — and
+             *  REQUIRED for auditability: without io rows `verify audit`
+             *  cannot run (records-only = raw material, see above). */
             io: z.boolean().default(false),
             /** Evidence directory, resolved under HARNESS_HOME. */
             dir: z.string().min(1).default('attestations'),

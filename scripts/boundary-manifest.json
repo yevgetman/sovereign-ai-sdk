@@ -20,5 +20,15 @@
     "same two package dirs, hardcoded there by the same by-construction logic."
   ],
   "openPackageDirs": ["^packages/sdk/src/", "^packages/protocol/src/"],
-  "forbiddenWrapperTargets": ["^src/", "(^|node_modules/)@yevgetman/sov(/|$)"]
+  "forbiddenWrapperTargets": ["^src/", "(^|node_modules/)@yevgetman/sov(/|$)"],
+  "$commentEngine": [
+    "forbiddenEngineTargets (no-open-to-engine in .dependency-cruiser.cjs):",
+    "the open SDK must stay VENDOR-NEUTRAL — it may never depend (value OR",
+    "type) on the proprietary conduct engine @yevgetman/decorum, which the",
+    "root wrapper binds via an injected ConductProvider port. The attestation",
+    "evidence seams (ConductContext.turnId, ConductEvidenceEvent) were designed",
+    "as plain strings for exactly this reason; this rule makes the invariant",
+    "mechanical rather than review-enforced (review fix wave 2026-07-19)."
+  ],
+  "forbiddenEngineTargets": ["(^|node_modules/)@yevgetman/decorum(/|$)"]
 }

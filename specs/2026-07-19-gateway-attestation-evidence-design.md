@@ -225,3 +225,50 @@ semver-minor). No decorum change required (sinks + manifest getter shipped in
 - **D3 — scope:** Recommended: this spec covers sov + the small Appleo wiring
   (§4) as one arc, Appleo behind its env flag. Alternative: sov-only, Appleo
   later.
+
+## 10. Amendments (2026-07-19 review fix wave)
+
+Corrections and extensions ratified by the adversarial review over the built
+branch — the claims below supersede the corresponding v1 text.
+
+1. **Host turn identity covers EVERY in-gateway governed drive, not just the
+   turns route.** §3.3 as written wired `beginTurn`/`endTurn` only into
+   `runTurnInBackground`; the cron scheduler, the channel pipeline, and the
+   OpenAI-compat route all bind `runtime.conduct` (the same provider carrying
+   the attestationSink) and were emitting `turnIdSource:'synthesized'` records
+   with no io row — permanent floor-B orphans. Fixed: all three drive sites
+   mint one fresh host turnId per drive and settle it in their finally (the
+   turns-route pattern). The stated scope ("the gateway process") now holds.
+   `sov drive` subprocess sub-agents remain out of scope (§1 non-goals).
+2. **Crash/shutdown windows are settled, not leaked.** Graceful shutdown
+   sweeps every still-pending minted turnId (`TurnEvidence.settleAll()`)
+   BEFORE the writer closes; a hard crash (SIGKILL) is repaired at next boot —
+   the gateway backfills one `delivered`-omitted row per orphaned
+   (sessionId, turnId) found in the evidence dir (io mode only, before any new
+   turn can begin).
+3. **§5-6 tamper-canary claim, honestly scoped.** The audit proves
+   consistency/integrity of what is PRESENT (an in-place edit → MISALIGNED);
+   it can NOT prove completeness of what is ABSENT. Evidence is host-writable
+   0600 JSONL with no continuity seal, and decorum's evt-N counter interleaves
+   across sessions, so a custodian who consistently deletes one turn's records
+   lines AND its io row hands the auditor a set that still verifies ALIGNED.
+   Completeness requires external anchoring (retained copies / backups at
+   audit time) — the host's responsibility, stated in the runbook. A
+   per-session continuity seal + verifier counterpart is a noted follow-up.
+4. **Records-only mode is forensic raw material, not an auditable mode.**
+   `verify audit` hard-requires `--io`, and io-less records are all orphans
+   under the completeness floor. Only `full` yields ALIGNED/MISALIGNED. The
+   config docstring and the Appleo runbook now say so.
+5. **Redaction collides with re-execution (F4) — tagged markers.** The io
+   redactor now writes `[REDACTED:<kind>]` (never bare `[REDACTED]`): an
+   authored rule whose detect matches secret-shaped text (API-key forms, JWTs,
+   …) cannot be re-executed over persisted evidence, and a bare marker would
+   read as CONTRADICTED on an honest fire (false MISALIGNED) or hide a real
+   leak behind a claimed pass. The tagged form is machine-recognizable so
+   decorum-verify can decline such checks honestly (UNVERIFIABLE) — the noted
+   verifier-side follow-up. Pass-equality (F3) survives: candidate and
+   delivered get identical substitutions.
+6. **The §2 boundary claim is now mechanical.** "The SDK cannot import decorum
+   (boundary lint)" was review-enforced only; `bun run boundary` now carries a
+   dedicated `no-open-to-engine` rule (value AND type edges, resolvable or
+   raw) so the vendor-neutrality invariant fails the build, not the review.

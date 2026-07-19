@@ -73,6 +73,14 @@ export type TurnEvidence = {
    *  turn that aborted undelivered, backfills the row (`delivered` OMITTED).
    *  Call for EVERY minted id on every exit path (the gateway's finally). */
   endTurn(turnId: string): void;
+  /** Settle EVERY still-pending minted turnId (review fix wave) — the
+   *  graceful-shutdown sweep. The gateway stops the server while background
+   *  turn drives may still be mid-flight; their DecisionRecords are already
+   *  enqueued, so an unsettled id would strand them as floor-B orphans
+   *  (INCOMPLETE forever). Call BEFORE `AttestationWriter.close()` (a row
+   *  recorded after close is dropped). Idempotent; never throws; a late sink
+   *  event for a swept id writes nothing (settle-once). */
+  settleAll(): void;
   /** The provider-mounted observed-io sink (SDK `ConductProvider.evidenceSink`).
    *  Present ONLY in io mode — records-only attestation captures no turn text,
    *  so the provider is mounted unwrapped and this stays undefined. */
@@ -121,7 +129,14 @@ export function createTurnEvidence(opts: {
     }
   };
 
-  if (!io) return { beginTurn, endTurn };
+  const settleAll = (): void => {
+    // Snapshot the keys first — endTurn deletes from the map it iterates.
+    for (const turnId of [...pending.keys()]) {
+      endTurn(turnId);
+    }
+  };
+
+  if (!io) return { beginTurn, endTurn, settleAll };
 
   const evidenceSink = (event: ConductEvidenceEvent): void => {
     try {
@@ -146,7 +161,7 @@ export function createTurnEvidence(opts: {
     }
   };
 
-  return { beginTurn, endTurn, evidenceSink };
+  return { beginTurn, endTurn, settleAll, evidenceSink };
 }
 
 /**

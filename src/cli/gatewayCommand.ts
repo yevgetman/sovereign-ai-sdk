@@ -5,6 +5,7 @@ import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import { type Settings, SettingsSchema } from '@yevgetman/sov-sdk/config/schema';
 import { readRawConfig } from '@yevgetman/sov-sdk/config/store';
 import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
+import { repairOrphanTurnEvidence } from '../attestation/repair.js';
 import { createTurnEvidence, withEvidenceSink } from '../attestation/turnEvidence.js';
 import { AttestationWriter } from '../attestation/writer.js';
 import {
@@ -279,6 +280,21 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
     if (attestationEvidence.evidenceSink !== undefined) {
       conduct = withEvidenceSink(baseConduct, attestationEvidence.evidenceSink);
     }
+    // Crash-window repair (review fix wave) — a prior process that died hard
+    // (SIGKILL, power loss) may have left records with no io row: permanent
+    // floor-B orphans that fold every audit of the session INCOMPLETE.
+    // Backfill one delivered-omitted row per orphaned turnId NOW, before
+    // buildRuntime (cron ticks/channels start inside it), so no in-flight
+    // drive can race a duplicate row. io mode only: records-only attestation
+    // writes no io files by contract. Fails open; never blocks boot.
+    if (attestationConfig?.io === true) {
+      const repaired = await repairOrphanTurnEvidence(attestationWriter);
+      if (repaired > 0) {
+        process.stdout.write(
+          `sov gateway: attestation repair backfilled ${repaired} orphaned turn row(s) from a prior unclean shutdown\n`,
+        );
+      }
+    }
   }
 
   runtime = await buildRuntime({
@@ -406,6 +422,13 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
       const msg = err instanceof Error ? err.message : String(err);
       process.stderr.write(`runtime.dispose() failed: ${msg}\n`);
     }
+    // Settle every still-pending minted turnId BEFORE the writer closes
+    // (review fix wave): runTurnInBackground drives are fire-and-forget, so a
+    // shutdown can land mid-turn — the turn's records are already enqueued,
+    // and a row recorded after close() is dropped. The sweep backfills each
+    // in-flight turn's io row (`delivered` OMITTED) so no record of this
+    // process can be a floor-B orphan. Idempotent, never throws (fails open).
+    attestationEvidence?.settleAll();
     // Drain the attestation evidence queue LAST — the server + workers are
     // stopped, so every turn's records/io lines are already enqueued; close()
     // awaits the sequential write chain so the final lines land before exit.
