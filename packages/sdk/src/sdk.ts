@@ -281,6 +281,7 @@ export type { ObservationStatus, ObserveInput } from './core/observePort.js';
 export type {
   ConductAuditEvent,
   ConductContext,
+  ConductEvidenceEvent,
   ConductOutputGuard,
   ConductProvider,
   ConductStage,

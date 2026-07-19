@@ -274,6 +274,15 @@ async function runChannelTurnInner(args: {
     content: [{ type: 'text', text: msg.text }],
   });
 
+  // Attestation host turn identity (spec 2026-07-19 §3.3/§3.4, review fix
+  // wave). Declared OUTSIDE the try so the finally can settle it on every exit
+  // path. This drive binds `runtime.conduct` — the SAME provider whose
+  // attestationSink persists DecisionRecords — so without a host-minted turnId
+  // every channel turn's records would land turnIdSource:'synthesized' with no
+  // io row: permanent floor-B orphans that fold every future `verify audit` of
+  // the session INCOMPLETE. Absent coordinator ⇒ undefined ⇒ byte-identical.
+  let turnId: string | undefined;
+
   try {
     // Safe channel posture (F-T1): no local-allow inheritance, ask auto-denies,
     // bypass already rejected above. Bash / Write / Edit are denied; read-only
@@ -379,7 +388,22 @@ async function runChannelTurnInner(args: {
     // the `run(input)` argument — createAgent copies a Message[] seed verbatim,
     // the 1:1 replacement for AgentRunner's `initialMessages` (the `run(prompt)`
     // string arg it then ignored). The per-turn overrides win at run().
-    const gen = agent.run(hydratedMessages, { sessionId, toolContext, canUseTool });
+    // Mint ONE fresh host turnId for this channel drive — exactly the
+    // turns-route pattern — so every conduct capability call of the turn
+    // carries the SAME id (all-or-none; decorum stamps turnIdSource:'host')
+    // and the coordinator can settle exactly one io row for it. `vars` mirror
+    // the ConductContext the hooks see (channel agents run the default 'user'
+    // surface on the runtime boot model).
+    turnId = runtime.attestationEvidence?.beginTurn(sessionId, {
+      surface: 'user',
+      model: runtime.model,
+    });
+    const gen = agent.run(hydratedMessages, {
+      sessionId,
+      toolContext,
+      canUseTool,
+      ...(turnId !== undefined ? { turnId } : {}),
+    });
     let step: Awaited<ReturnType<typeof gen.next>>;
     for (;;) {
       step = await gen.next();
@@ -422,6 +446,13 @@ async function runChannelTurnInner(args: {
     }
     return { text };
   } finally {
+    // Attestation §3.4 — settle the minted turnId on every exit path. A drive
+    // that reached terminal already wrote its io row through the provider-
+    // mounted evidenceSink (endTurn is then a no-op); an aborted turn gets its
+    // backfill row here (`delivered` OMITTED — never ''), so no channel turn's
+    // DecisionRecord can ever be an orphan. Evidence fails open: endTurn never
+    // throws.
+    if (turnId !== undefined) runtime.attestationEvidence?.endTurn(turnId);
     // Always reclaim the in-memory session context (trace writer flush,
     // trajectory write, learning drain, review dispose) — even on agent error.
     // The DB row itself stays so the next channel message resumes the

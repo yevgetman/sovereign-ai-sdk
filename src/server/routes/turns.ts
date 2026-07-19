@@ -514,6 +514,14 @@ async function runTurnInBackground(
   const turnAbort = new AbortController();
   bus.setCurrentTurnAbort(turnAbort);
   const turnSignal = AbortSignal.any([bus.abortSignal, turnAbort.signal]);
+  // Attestation evidence (spec 2026-07-19 §3.3/§3.4) — this request's ledger of
+  // host-minted turnIds. Each drive below (runOnce; the compaction-retry hop is
+  // a second drive) mints ONE fresh id through the evidence coordinator and
+  // records it here; the finally block settles every minted id so EVERY one
+  // ends with exactly one io row even when the turn aborts undelivered (the
+  // backfill row, `delivered` OMITTED — never ''). No coordinator (attestation
+  // off) ⇒ the array stays empty and no id is ever minted — byte-identical.
+  const mintedTurnIds: string[] = [];
   // M7 T3 — per-session trace writer. The context is fetched (and lazily
   // built) up-front and re-fetched after each compaction pivot below so
   // the post-pivot trace events land in the child's trace file. The
@@ -895,10 +903,29 @@ async function runTurnInBackground(
       // tools/hookRunner/microcompactConfig/maxTokens/cwd; everything below is
       // rebuilt fresh per hop and wins via PerTurn. `messages` is the run()
       // input (first positional arg), not a PerTurn field.
+      // Attestation host turn identity (spec §3.3): mint ONE fresh id per
+      // drive — the compaction-retry hop calls runOnce again and mints its
+      // own — registered under the sessionId THIS drive runs as (the outer
+      // let, already pivoted), which is the verifier's records↔io join key.
+      // The id rides PerTurn.turnId → ConductContext.turnId so every conduct
+      // capability call of the drive carries the SAME id (all-or-none;
+      // decorum stamps turnIdSource:'host'). `vars` mirror the ConductContext
+      // the hooks see (gateway turns are 'user'; model = the per-turn
+      // override else the standing model — exactly createAgent's resolution).
+      // Absent coordinator ⇒ undefined ⇒ the PerTurn field stays ABSENT
+      // (byte-identical).
+      const turnId = runtime.attestationEvidence?.beginTurn(sessionId, {
+        surface: 'user',
+        model: perTurnModel ?? runtime.model,
+      });
+      if (turnId !== undefined) mintedTurnIds.push(turnId);
       const stream = agent.run(currentMessages, {
         // Outer `sessionId` let — reassigned to the post-compaction child id
         // across the recovery hop. The persistence key + hooks/trace target.
         sessionId,
+        // Attestation §3.3 — the host-minted turn id for THIS drive (absent
+        // when attestation is off; see the mint above).
+        ...(turnId !== undefined ? { turnId } : {}),
         // Per-turn model override (PostTurnRequest.model). Present only when the
         // wire body carried a non-empty `model`; the conditional spread keeps
         // the field ABSENT otherwise (exactOptionalPropertyTypes) so createAgent
@@ -1289,6 +1316,15 @@ async function runTurnInBackground(
       recoverable: false,
     });
   } finally {
+    // Attestation §3.4 — settle EVERY minted turnId on every exit path. A
+    // drive that reached terminal already wrote its io row through the
+    // provider-mounted evidenceSink (endTurn is then a no-op); an abandoned /
+    // rethrown drive gets its backfill row here (`delivered` OMITTED — never
+    // ''), so no DecisionRecord of this request can ever be an orphan.
+    // Evidence fails open: endTurn never throws.
+    for (const id of mintedTurnIds) {
+      runtime.attestationEvidence?.endTurn(id);
+    }
     // ux-fixes round 4 — clear the per-turn abort registration so the
     // next POST /turns allocates a fresh controller. Idempotent; safe
     // even if cancelCurrentTurn never fired.

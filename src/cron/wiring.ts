@@ -274,6 +274,16 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
         metadata: { kind: 'cron', cronJobId },
       });
 
+      // Attestation host turn identity (spec 2026-07-19 §3.3/§3.4, review fix
+      // wave). Declared OUTSIDE the try so the finally can settle it on every
+      // exit path. This drive binds `runtime.conduct` — the SAME provider whose
+      // attestationSink persists DecisionRecords — so without a host-minted
+      // turnId every scheduled turn's records would land turnIdSource:
+      // 'synthesized' with no io row: permanent floor-B orphans that fold every
+      // future `verify audit` of the session INCOMPLETE. Absent coordinator ⇒
+      // undefined ⇒ byte-identical (no mint, no settle).
+      let turnId: string | undefined;
+
       try {
         // Cron is non-interactive. Default mode honors explicit allow/deny
         // rules in layered settings; any fall-through to `ask` auto-denies
@@ -368,7 +378,22 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
           }),
         );
 
-        const gen = agent.run(prompt, { sessionId, toolContext, canUseTool });
+        // Mint ONE fresh host turnId for this scheduled drive — exactly the
+        // turns-route pattern — so every conduct capability call of the turn
+        // carries the SAME id (all-or-none; decorum stamps turnIdSource:
+        // 'host') and the coordinator can settle exactly one io row for it.
+        // `vars` mirror the ConductContext the hooks see (cron agents run the
+        // default 'user' surface on the runtime boot model).
+        turnId = runtime.attestationEvidence?.beginTurn(sessionId, {
+          surface: 'user',
+          model: runtime.model,
+        });
+        const gen = agent.run(prompt, {
+          sessionId,
+          toolContext,
+          canUseTool,
+          ...(turnId !== undefined ? { turnId } : {}),
+        });
         let final: Awaited<ReturnType<typeof gen.next>>;
         for (;;) {
           final = await gen.next();
@@ -393,6 +418,13 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
           error: `terminal=${result.terminal.reason}: ${errMsg}`,
         };
       } finally {
+        // Attestation §3.4 — settle the minted turnId on every exit path. A
+        // drive that reached terminal already wrote its io row through the
+        // provider-mounted evidenceSink (endTurn is then a no-op); an aborted
+        // job gets its backfill row here (`delivered` OMITTED — never ''), so
+        // no scheduled turn's DecisionRecord can ever be an orphan. Evidence
+        // fails open: endTurn never throws.
+        if (turnId !== undefined) runtime.attestationEvidence?.endTurn(turnId);
         // Always tear down per-session subsystems (trace writer flush,
         // trajectory write, review manager dispose) — even on agent
         // error. The session row itself stays in the DB for later

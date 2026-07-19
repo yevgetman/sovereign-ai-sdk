@@ -49,6 +49,14 @@ export type ConductContext = {
   readonly model: string;
   readonly providerName: string;
   readonly cwd?: string;
+  /** OPTIONAL host-minted per-turn id (attestation evidence, spec 2026-07-19
+   *  §3.3). The host mints one id per turn invocation (`PerTurn.turnId`) and
+   *  the SDK threads it here VERBATIM, so the SAME id rides every capability
+   *  call of the turn (all-or-none — an engine stamping turn identity onto its
+   *  decision records must never see mixed sources within one turn). Opaque:
+   *  the SDK never inspects it; it is the host's own correlation channel.
+   *  Absent ⇒ engines fall back to their own synthesis (weaker correlation). */
+  readonly turnId?: string;
 };
 
 /** preGate verdict — deny/rewrite semantics mirroring the UserPromptSubmit
@@ -113,6 +121,27 @@ export type ConductOutputGuard = {
 
 export type ConductStage = 'persona' | 'pregate' | 'triage' | 'tool' | 'output';
 
+/** One observed-io evidence event per turn (attestation evidence, spec
+ *  2026-07-19 §3.4). CONTENT-BEARING — unlike {@link ConductAuditEvent} this
+ *  carries turn text, so a host must route it only to evidence-grade custody
+ *  (redaction/permissions are the HOST's job at the write site). Vendor-neutral:
+ *  plain strings, no engine types. Field semantics:
+ *  - `turnId`: the host-minted id from {@link ConductContext.turnId}, verbatim.
+ *  - `input`: the EXACT gateText the preGate capability saw (post-rewrite,
+ *    post-injection) — absent when no input gate ran.
+ *  - `candidate`: the PRE-governance text of the final attempt's final
+ *    assistant message (what `outputGuard.onFinal` received).
+ *  - `delivered`: the POST-governor persisted text of that same message (what
+ *    was yielded/persisted after any replace/block substitution).
+ *  Unobserved fields are OMITTED — never empty strings — so an undelivered
+ *  turn reads honestly as undelivered downstream. */
+export type ConductEvidenceEvent = {
+  readonly turnId?: string;
+  readonly input?: string;
+  readonly candidate?: string;
+  readonly delivered?: string;
+};
+
 /** Typed, CONTENT-FREE audit event (spec §6.2 Audit). Never carries message
  *  text — verdict labels, ids, and latency only. */
 export type ConductAuditEvent = {
@@ -147,6 +176,17 @@ export interface ConductProvider {
   allowPerTurnInstructions?(ctx: ConductContext): boolean;
   /** Sink for typed content-free audit events. Wrapped no-throw by the SDK. */
   auditSink?(event: ConductAuditEvent): void;
+  /** HOST-side observed-io evidence sink (attestation, spec 2026-07-19 §3.4).
+   *  Not an engine capability — engines never call it; the SDK's drive loop
+   *  calls it exactly ONCE per completed `run()` turn, after terminal, with the
+   *  final attempt's candidate/delivered pair captured at the
+   *  `outputGuard.onFinal` seam plus the gate input (see
+   *  {@link ConductEvidenceEvent}). Abandoned (early-`.return()`) and
+   *  rethrown turns never emit — the host owns backfilling a row per minted
+   *  turnId. Evidence is observation and fails OPEN: the call is wrapped
+   *  no-throw, so a broken sink never affects a turn. Absent ⇒ byte-identical
+   *  behavior (no capture, no call). */
+  evidenceSink?(event: ConductEvidenceEvent): void;
 }
 
 /** Default refusal text when a deny/refuse verdict supplies none. */

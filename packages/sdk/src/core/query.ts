@@ -183,6 +183,17 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   if (conduct?.preGate && conductCtx && conductCtx.surface === 'user') {
     const gateText = latestUserText(history);
     if (gateText !== undefined) {
+      // Gate-input capture (attestation evidence §3.4): hand the EXACT text the
+      // gate is about to see to the host's capture callback, BEFORE the verdict
+      // applies (a rewrite must not alter what was captured). Observer — a
+      // throw is swallowed; evidence never breaks a turn.
+      if (params.onConductGateInput) {
+        try {
+          params.onConductGateInput(gateText);
+        } catch {
+          // Evidence is an observer; never propagate.
+        }
+      }
       const startedAt = Date.now();
       let verdictLabel = 'allow';
       try {

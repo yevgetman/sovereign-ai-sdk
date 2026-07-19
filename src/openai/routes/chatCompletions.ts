@@ -274,6 +274,24 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       clientSignal?.addEventListener('abort', () => abortController.abort(), { once: true });
     }
     const toolContext = buildSessionToolContext(runtime, sessionId, sessionCanUseTool);
+    // Attestation host turn identity (spec 2026-07-19 §3.3/§3.4, review fix
+    // wave). This route binds `runtime.conduct` — the SAME provider whose
+    // attestationSink persists DecisionRecords — so without a host-minted
+    // turnId every OpenAI-compat turn's records would land turnIdSource:
+    // 'synthesized' with no io row: permanent floor-B orphans that fold every
+    // future `verify audit` of the session INCOMPLETE. One request drives ONE
+    // run (`buildRun` is called exactly once per branch below), so one mint
+    // here rides `PerTurn.turnId` into every conduct capability call, and
+    // `settleTurnEvidence()` runs beside every disposeSession site so every
+    // exit path settles the id (endTurn is a no-op when the sink already wrote
+    // the row; evidence fails open). Absent coordinator ⇒ byte-identical.
+    const turnId = runtime.attestationEvidence?.beginTurn(sessionId, {
+      surface: 'user',
+      model: resolved.model,
+    });
+    const settleTurnEvidence = (): void => {
+      if (turnId !== undefined) runtime.attestationEvidence?.endTurn(turnId);
+    };
     const agentConfig: AgentConfig = {
       provider: resolved.transport,
       model: resolved.model,
@@ -300,6 +318,9 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       canUseTool: sessionCanUseTool,
       signal: abortController.signal,
       sessionId,
+      // Attestation §3.3 — the host-minted turn id for this request's drive
+      // (absent when attestation is off; see the mint above).
+      ...(turnId !== undefined ? { turnId } : {}),
       ...(parsed.temperature !== undefined ? { temperature: parsed.temperature } : {}),
     };
     const agent = createAgent(agentConfig);
@@ -375,6 +396,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         // the same structured envelope. Tear down the session first — we
         // never opened the stream, so this returns a normal JSON response.
         console.error('[openai] streaming /v1/chat/completions pre-stream error:', err);
+        settleTurnEvidence();
         await runtime.disposeSession(sessionId);
         return buildProviderErrorResponse(c, err);
       }
@@ -383,6 +405,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         // throw and surfaced it as RunResult.terminal{reason:'error'}; unwrap
         // it and return a real non-200 OpenAI error envelope rather than a 200
         // empty [DONE] stream (identical to the prior bare-Terminal check).
+        settleTurnEvidence();
         await runtime.disposeSession(sessionId);
         return buildProviderErrorResponse(c, firstStep.value.terminal.error);
       }
@@ -482,6 +505,10 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
               console.error('[openai] streaming assistant persistence failed:', err);
             }
           }
+          // Attestation §3.4 — settle the minted turnId on every exit path
+          // (no-op when the sink already wrote the row; backfills `delivered`-
+          // omitted for a turn that died mid-stream).
+          settleTurnEvidence();
           await runtime.disposeSession(sessionId);
         }
       });
@@ -615,6 +642,9 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       console.error('[openai] non-streaming /v1/chat/completions error:', err);
       return buildProviderErrorResponse(c, err);
     } finally {
+      // Attestation §3.4 — settle the minted turnId on every exit path (no-op
+      // when the sink already wrote the row).
+      settleTurnEvidence();
       // Always tear down per-session subsystems (trace writer flush,
       // trajectory write) — even on error. The session row stays in the
       // DB so traces and cost records are preserved.

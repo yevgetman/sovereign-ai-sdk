@@ -35,6 +35,18 @@ module.exports = {
       from: { path: manifest.openPackageDirs },
       to: { path: manifest.forbiddenWrapperTargets },
     },
+    {
+      name: "no-open-to-engine",
+      comment:
+        "Open-core SDK code must not depend (value OR type) on the proprietary " +
+        "conduct engine @yevgetman/decorum — the SDK ships the vendor-neutral " +
+        "Conduct Port only; the root wrapper binds the engine via injection. " +
+        "Keep engine-shaped data at the port as plain strings (see " +
+        "specs/2026-07-19-gateway-attestation-evidence-design.md §2/§3.4).",
+      severity: "error",
+      from: { path: manifest.openPackageDirs },
+      to: { path: manifest.forbiddenEngineTargets },
+    },
   ],
   options: {
     // Critical: include type-only / pre-compilation imports so `import type`
@@ -42,7 +54,18 @@ module.exports = {
     tsPreCompilationDeps: true,
     tsConfig: { fileName: "tsconfig.json" },
     doNotFollow: { path: "node_modules" },
-    exclude: { path: "node_modules" },
+    // node_modules is excluded from the cruise EXCEPT the forbidden engine
+    // package: a blanket exclude silently drops the resolved decorum module
+    // from the graph, making the no-open-to-engine rule vacuous for the
+    // resolvable (workspace-installed) import form — the exact hole the
+    // 2026-07-19 review found. Bun's isolated store resolves it as
+    // node_modules/.bun/@yevgetman+decorum@…/node_modules/@yevgetman/decorum/…
+    // (TWO node_modules segments, `+`-joined store key), so the negative
+    // lookahead scans the rest of the path for either form and keeps decorum
+    // visible as a LEAF target (doNotFollow above still stops the cruise from
+    // descending into it). @yevgetman/sov-sdk / -protocol / everything else
+    // stay excluded (the `[@/]|$` boundary spares suffixed names).
+    exclude: { path: "node_modules/(?!.*@yevgetman[/+]decorum([@/]|$))" },
     enhancedResolveOptions: {
       // The codebase writes `.js` specifiers that resolve to `.ts` sources
       // (moduleResolution: bundler); let the resolver see TS extensions.

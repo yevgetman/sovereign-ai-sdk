@@ -70,6 +70,7 @@ import type { HarnessInfoSnapshot } from '@yevgetman/sov-sdk/tools/HarnessInfoTo
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { FileTranscriptStore } from '@yevgetman/sov-sdk/transcript/store';
 import { SessionDb } from '../agent/sessionDb.js';
+import type { TurnEvidence } from '../attestation/turnEvidence.js';
 import type { CronRunner } from '../cron/runner.js';
 import { createProductionCronRunner } from '../cron/wiring.js';
 import { DaemonEventBus } from '../daemon/eventBus.js';
@@ -305,6 +306,13 @@ export type RuntimeOptions = {
    *  the runtime and threaded to every per-session SessionContext + the
    *  gateway turn's createAgent. */
   conduct?: ConductProvider;
+  /** Attestation evidence coordinator (spec 2026-07-19 §3.3/§3.4) — present
+   *  only when `conduct.attestation.enabled`; `sov gateway` constructs it at
+   *  boot beside the AttestationWriter. The turns route mints ONE host turnId
+   *  per drive through it (threaded to ConductContext.turnId) and settles
+   *  every minted id at turn end so each gets exactly one io row. Absent ⇒
+   *  no minting, byte-identical. */
+  attestationEvidence?: TurnEvidence;
   /** Max tokens per provider call. Defaults to 12000 to match the
    *  src/main.ts CLI default; users override via --max-tokens. */
   maxTokens?: number;
@@ -440,6 +448,14 @@ export type Runtime = {
    *  threads it onto each SessionContext and the turns route reads it for the
    *  createAgent conduct config + the perTurnInstructions wire gate (D23). */
   conduct?: ConductProvider;
+  /** Attestation evidence coordinator (spec 2026-07-19 §3.3/§3.4, from
+   *  RuntimeOptions.attestationEvidence). Present only when
+   *  `conduct.attestation.enabled`. The turns route mints one host turnId per
+   *  drive through it (→ PerTurn.turnId → ConductContext.turnId, so decorum
+   *  stamps `turnIdSource:'host'`) and settles every minted id in its finally
+   *  block — the one-io-row-per-minted-turnId invariant (no orphan records).
+   *  Absent → no minting: byte-identical. */
+  attestationEvidence?: TurnEvidence;
   /** SOV-ASSAY WIRE v1 (config.assay) — the boot-bound usage-only telemetry
    *  recorder. Absent when the config block is absent (byte-identical: no
    *  telemetry). Present → the turns route folds every TraceEvent into it
@@ -1975,6 +1991,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     // unbound so the exactOptionalPropertyTypes `conduct?` invariant holds and
     // sessionContext/turns read it as the null provider (byte-identical).
     ...(opts.conduct !== undefined ? { conduct: opts.conduct } : {}),
+    // Attestation evidence (spec 2026-07-19) — echo the boot-bound coordinator.
+    // Same conditional-spread discipline as `conduct`: absent option ⇒ absent
+    // field ⇒ the turns route never mints a turnId (byte-identical).
+    ...(opts.attestationEvidence !== undefined
+      ? { attestationEvidence: opts.attestationEvidence }
+      : {}),
     // SOV-ASSAY WIRE v1 — construct the usage-only recorder when config.assay
     // is present (absent block = absent field = no telemetry, byte-identical).
     // Fail-open: transport errors surface as content-free stderr lines only.

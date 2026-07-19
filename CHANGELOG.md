@@ -1,5 +1,101 @@
 # Changelog
 
+## harness 0.6.66 — Gateway attestation evidence: a live deployment becomes forensically auditable - 2026-07-19
+
+A gateway with a decorum pack bound could *enforce* governance but could not
+*prove* it after the fact: the three artifacts decorum-verify's `verify audit`
+consumes (what SHOULD constrain the agent, what the runtime DID, what actually
+went in and out) all exist at the gateway seam, and none were persisted. This
+adds an opt-in evidence layer so a live deployment (Appleo-style) can hand an
+auditor three files and render ALIGNED / MISALIGNED / INCOMPLETE — not just be
+proven pre-deploy with `verify run`. Spec
+`specs/2026-07-19-gateway-attestation-evidence-design.md` (D1 full evidence ·
+D2 opt-in · D3 sov + Appleo).
+
+- **`conduct.attestation { enabled, io, dir }` config** — a strict block nested
+  under `conduct` (evidence without a governing pack attests nothing:
+  `enabled: true` with no bound pack fails fast at boot, exactly like a bad
+  pack path). Defaults false / false / `"attestations"`. **Absent block ⇒
+  byte-identical gateway** — no new files, no behavior delta (the repo
+  discipline, tested). `enabled` persists the content-free artifacts (records +
+  manifest snapshots); `io: true` is the separate, deliberate flag for
+  content-bearing turn text.
+- **Three artifacts under `<HARNESS_HOME>/attestations/`** (0700 dir / 0600
+  files, sanitized names, containment-asserted at boot):
+  `manifest-<hash12>.json` — one snapshot per distinct `governanceHash`
+  observed, taken from the SAME post-overlay provider instance the runtime
+  mounts, with hot-reload/recomposition drift caught by first-seen-hash
+  snapshotting so every hash in the records has its manifest alongside;
+  `<sessionId>.records.jsonl` — each DecisionRecord `JSON.stringify`'d
+  **verbatim** per line (the verifier intake is `.strict()` — gateway metadata
+  goes nowhere near these files); `<sessionId>.io.jsonl` — ObservedTurn rows
+  built by named picks, with `candidate`/`delivered`/`input` passed through the
+  SAME secrets redactor transcripts use (per field, so pass-unchanged equality
+  survives redaction).
+- **A dedicated writer, not the trace route.** The `conductAudit` trace route
+  is peek-only — events for a non-resident session are silently dropped. Fine
+  for observability; a completeness hole for evidence. Records flow through a
+  new `AttestationWriter` (TraceWriter discipline: sequential write chain,
+  append-only JSONL) that survives session eviction.
+- **Host turn identity.** The gateway now mints `crypto.randomUUID()` per drive
+  — including a FRESH id for the compaction-pivot second hop — and threads it
+  to every hook of the turn, all-or-none. Every DecisionRecord lands
+  `turnIdSource: 'host'`, lifting the verifier's synthesized-id confidence caps
+  so correlation findings hold at HIGH.
+- **One io row per minted turnId, always.** A host-side coordinator owns the
+  invariant: the terminal turn writes its final-attempt pair; abandoned /
+  rethrown turns are backfilled with `delivered` **omitted — never `""`** (an
+  empty string would read as a completed turn). No duplicate rows, no orphan
+  records — both of which fail a `verify audit` closed.
+- **Enforcement fails closed (unchanged); attestation fails OPEN, end-to-end.**
+  A throwing sink, unwritable dir, or dead disk never blocks a turn and never
+  starves the audit sink — the first write failure emits one warning plus a
+  running counter, so evidence loss is detectable rather than a silent hole
+  discovered weeks later by a failed floor.
+- **Proven round-trip against the REAL verifier.** The acceptance gate boots
+  the gateway runtime with a real pack + attestation full, drives the six
+  governed turn shapes (pass / redact / block / regenerate / pregate-deny /
+  abandoned), then runs decorum-verify's actual `verify audit` over the
+  persisted files → **ALIGNED, zero floor findings**, every record
+  `turnIdSource: 'host'`. Tamper canary: one hand-edited verdict → MISALIGNED;
+  one dropped io row → INCOMPLETE. The evidence chain catches its own
+  corruption.
+- **Custody stays the host's.** `io.jsonl` is the customer's conversation text;
+  it lives only under the per-account `HARNESS_HOME` with the same custody as
+  the existing transcript JSONL. No network egress, no auto-upload, no verifier
+  code in sov, no adherence claims; the attestation scope is the gateway
+  process (the `sov drive` subprocess boundary is stated honestly, not papered
+  over).
+
+## sdk 0.8.0 — Attestation-evidence seams: `ConductContext.turnId` + vendor-neutral `evidenceSink` - 2026-07-19
+
+The open-SDK half of the gateway attestation-evidence arc — two optional,
+vendor-neutral additions to the Conduct Port so a host can produce audit-grade
+evidence without the SDK ever importing an engine (boundary lint stays green;
+plain strings only). Additive, non-breaking → minor bump.
+
+- **`ConductContext.turnId?`** — an optional host-minted id threaded VERBATIM
+  from the new per-turn slice into every capability call of a turn
+  (all-or-none, decorum's mixed-source trap avoided by construction), letting a
+  conduct engine stamp its decision records with host-attributed turn identity
+  instead of synthesizing one.
+- **`ConductProvider.evidenceSink?(event: ConductEvidenceEvent)`** — a
+  HOST-side sink (engines never call it) invoked exactly ONCE per turn that
+  reaches terminal, with the FINAL attempt's pair captured at the
+  `outputGuard.onFinal` seam: `candidate` (pre-substitution message text),
+  `delivered` (post-governor persisted text — extraction matches the governor's
+  own, so pass-unchanged equality survives), plus the exact gate `input` the
+  preGate saw, bridged via the new `QueryParams.onConductGateInput` capture.
+  Regenerate discipline: the attempt-0 pair is never emitted; a failed retry
+  resets the pair rather than leaking discarded text. Unobserved fields are
+  **omitted — never `""`** — so an undelivered turn reads honestly as
+  undelivered downstream.
+- **Fails OPEN, byte-identical when unused.** The capture callback and sink are
+  wrapped no-throw (a broken sink never affects a turn); no `turnId` + no
+  `evidenceSink` ⇒ the drive loop is byte-identical to before (tested).
+  `ConductEvidenceEvent` joins the SDK barrel; the surface snapshot witness was
+  updated deliberately.
+
 ## harness 0.6.65 — Config-driven `<governance-seat>` system segment - 2026-07-18
 
 A host had no guaranteed way to seat the agent with top-authority governance at

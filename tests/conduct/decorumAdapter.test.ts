@@ -9,6 +9,9 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { DecisionRecordSchema } from '@yevgetman/decorum';
+import type { DecisionRecord } from '@yevgetman/decorum';
+import type { ConductContext } from '@yevgetman/sov-sdk/core/conductPort';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { stringify } from 'yaml';
 import { createDecorumAdapter } from '../../src/conduct/decorumAdapter.js';
@@ -82,6 +85,55 @@ describe('decorum adapter', () => {
     expect(sid).toBe('s1');
     expect(ev).toMatchObject({ type: 'external', source: 'decorum', iso: 'now' });
     expect((ev as { payload: { ruleIds: string[] } }).payload.ruleIds).toEqual(['r1']);
+  });
+
+  // ── attestation records sink (spec 2026-07-19 §3.1, plan T4a) ─────────────
+
+  /** A host-turnId ConductContext for driving capabilities directly. */
+  const hostCtx: ConductContext = {
+    sessionId: 'adapter-attest-session',
+    surface: 'user',
+    model: 'mock-haiku',
+    providerName: 'mock',
+    turnId: 'host-turn-1',
+  };
+
+  test('attestationSink option → decorum DecisionRecords flow to the sink (option→capability)', async () => {
+    const records: DecisionRecord[] = [];
+    const { provider } = createDecorumAdapter({
+      configPath: ASSISTANT_CORE_BINDING,
+      attestationSink: (record) => records.push(record),
+    });
+    // Drive a real governed decision — the enabled pregate emits one
+    // DecisionRecord per verdict through the sink the adapter forwarded.
+    const verdict = await provider.preGate?.(
+      "What's a good way to structure a weekly status report?",
+      hostCtx,
+    );
+    expect(verdict).toEqual({ action: 'allow' });
+    expect(records.length).toBeGreaterThanOrEqual(1);
+    const record = records[0];
+    if (record === undefined) throw new Error('expected a DecisionRecord');
+    // The host turnId rode ConductContext.turnId VERBATIM into the record —
+    // this is what lifts the verifier's correlation confidence caps.
+    expect(record.turnId).toBe('host-turn-1');
+    expect(record.turnIdSource).toBe('host');
+    expect(record.sessionId).toBe('adapter-attest-session');
+    expect(record.stage).toBe('pregate');
+    // Verbatim persistence contract: the record round-trips decorum's OWN
+    // `.strict()` schema through JSON — exactly what the writer persists.
+    expect(() => DecisionRecordSchema.parse(JSON.parse(JSON.stringify(record)))).not.toThrow();
+  });
+
+  test('absent attestationSink ⇒ none is passed and enforcement is byte-identical', async () => {
+    const { provider } = createDecorumAdapter({ configPath: ASSISTANT_CORE_BINDING });
+    // Same decision, no sink: identical verdict (the option is pure
+    // observation — presence/absence never changes enforcement).
+    const verdict = await provider.preGate?.(
+      "What's a good way to structure a weekly status report?",
+      hostCtx,
+    );
+    expect(verdict).toEqual({ action: 'allow' });
   });
 
   test('FAILS CLOSED on a missing/invalid pack path (throws — no silent null provider)', () => {
