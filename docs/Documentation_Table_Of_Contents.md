@@ -53,6 +53,7 @@ Patterns and standing rules contributors must follow. (These are the operating c
 
 - [Autonomous feature builds](05-conventions/autonomous-feature-builds.md) — **the inherited apex SOP-12 build procedure**: spec → CEO green-light → autonomous subagent build → docs + tests → ship.
 - [Lint and commit](05-conventions/lint-and-commit.md) — `lint` / `typecheck` / `test` all required before any commit; atomic commits; push autonomously.
+- [The SDK consumer contract](05-conventions/consumer-contract.md) — the downstream consumers, the pinned open-core surface (3 entry points + 2 injected ports + the exported types), the verbatim-rehydration invariant, and what changing any of it obliges you to do.
 - [Cutting releases](05-conventions/cutting-releases.md) — cut the next binary release in the same session after any `src/` / `bundle-default/` / `packages/tui/` change.
 - [`sov` upgrade](05-conventions/sov-upgrade.md) — keep the global `sov` binary current after a runtime/TUI change.
 - [Estimation](05-conventions/estimation.md) — quote effort in sessions / dispatches / wall-minutes, never weeks.
