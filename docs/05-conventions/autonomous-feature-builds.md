@@ -1,8 +1,8 @@
 # Autonomous feature builds (spec → plan → ship)
 
-## Building a feature → SOP-12 (inherited from the Factory apex)
+## Building a feature → SOP-12 (inherited from the Kernel apex)
 
-This node's build procedure is the Factory's **apex SOP-12 — "Build a codebase"**, inherited via the factory
+This node's build procedure is Kernel's **apex SOP-12 — "Build a codebase"**, inherited via the factory
 governance cascade. It **supersedes the prior local `autonomous-feature-builds` procedure**, and the agent
 governing this node **must follow it for any code build, without being told**. Shape:
 
