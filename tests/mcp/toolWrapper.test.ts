@@ -2,7 +2,11 @@
 // coverage lives in tests/mcp/client.test.ts.
 
 import { describe, expect, test } from 'bun:test';
-import { wrapMcpTool } from '@yevgetman/sov-sdk/mcp/toolWrapper';
+import {
+  EAGER_MCP_TOOL_LIMIT,
+  wrapMcpTool,
+  wrapMcpTools,
+} from '@yevgetman/sov-sdk/mcp/toolWrapper';
 import type { McpClientPool, McpToolMeta } from '@yevgetman/sov-sdk/mcp/types';
 
 function fakePool(behavior: {
@@ -119,5 +123,44 @@ describe('wrapMcpTool', () => {
     expect(ok).toEqual({ content: 'fine' });
     const bad = tool.renderResult?.({ text: 'broke', isError: true });
     expect(bad).toEqual({ content: 'broke', isError: true });
+  });
+});
+
+describe('wrapMcpTools — eager threshold (Goat Show incident, 2026-08-01)', () => {
+  const mk = (n: number): McpToolMeta => ({
+    serverName: 'factory-node-fs',
+    toolName: `node_tool_${n}`,
+    description: `tool ${n}`,
+    inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+  });
+
+  test('a batch at or under EAGER_MCP_TOOL_LIMIT registers EAGERLY (shouldDefer false)', () => {
+    const metas = Array.from({ length: EAGER_MCP_TOOL_LIMIT }, (_, i) => mk(i));
+    const tools = wrapMcpTools(metas, fakePool({}));
+    expect(tools).toHaveLength(EAGER_MCP_TOOL_LIMIT);
+    for (const t of tools) {
+      expect(t.shouldDefer).toBe(false);
+      // Eager registration must still carry the server's real schema verbatim.
+      expect(t.inputJSONSchema).toEqual(mk(0).inputSchema);
+    }
+  });
+
+  test('the 7-tool node-fs conduit case is eager', () => {
+    const tools = wrapMcpTools(
+      Array.from({ length: 7 }, (_, i) => mk(i)),
+      fakePool({}),
+    );
+    expect(tools.every((t) => t.shouldDefer === false)).toBe(true);
+  });
+
+  test('a batch over the limit defers every tool (prompt-cost trade preserved)', () => {
+    const metas = Array.from({ length: EAGER_MCP_TOOL_LIMIT + 1 }, (_, i) => mk(i));
+    const tools = wrapMcpTools(metas, fakePool({}));
+    expect(tools).toHaveLength(EAGER_MCP_TOOL_LIMIT + 1);
+    expect(tools.every((t) => t.shouldDefer === true)).toBe(true);
+  });
+
+  test('single-tool wrapMcpTool keeps the historical deferred default', () => {
+    expect(wrapMcpTool(mk(0), fakePool({})).shouldDefer).toBe(true);
   });
 });

@@ -1,5 +1,27 @@
 # Changelog
 
+## harness 0.6.67 — MCP tools register eagerly under a small-inventory threshold - 2026-08-01
+
+Every MCP tool registered `shouldDefer: true` unconditionally, so a session
+whose ONLY route to its data is a small MCP tool set — the hosted shared-node
+seat's 4-7 `factory node-fs` tools — presented them as name-only deferred
+stubs. In a real session (Goat Show node, 2026-08-01) the agent found the
+stubs under-salient, fell back to public web search, and returned a stale
+answer instead of reading the node it was seated on.
+
+- **`wrapMcpTools` batch deferral threshold** (sdk 0.8.1,
+  `EAGER_MCP_TOOL_LIMIT = 12`): at or below 12 MCP tools across the session's
+  servers, every tool registers EAGERLY — full JSON schema in the provider
+  tools array from turn 1. Above it, all defer behind ToolSearch exactly as
+  before (the Phase-12 prompt-cost trade, preserved for large inventories).
+- Single-tool `wrapMcpTool` keeps its historical deferred default; the batch
+  path decides. No config change, no schema change — older configs are
+  byte-compatible.
+- SDK consumer note (`@yevgetman/sov-sdk` 0.8.0 → 0.8.1): additive only — a
+  new optional `defer` parameter on `wrapMcpTool` and the exported
+  `EAGER_MCP_TOOL_LIMIT` constant. No entry-point or type-surface changes;
+  packaging canary green under node + bun.
+
 ## harness 0.6.66 — Gateway attestation evidence: a live deployment becomes forensically auditable - 2026-07-19
 
 A gateway with a decorum pack bound could *enforce* governance but could not
