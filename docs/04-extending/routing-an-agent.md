@@ -6,7 +6,7 @@ The SDK does not embed model-routing logic — it connects to a dedicated routin
 
 ## What the lane is
 
-The Factory's **model-router organ** (`~/code/me/projects/model-router.md`) is a provider-agnostic router the SDK *connects to* but does not contain. The adopt-vs-build decision resolved to adopt [Manifest](https://github.com/mnfst/manifest) as the current binding, keeping the SDK seam generic (the same protocol-marriage posture as the [Assay wire](metering-an-agent.md#metering-with-assay-the-official-pairing)). Concretely:
+Kernel's **model-router organ** (`~/code/me/projects/model-router.md`) is a provider-agnostic router the SDK *connects to* but does not contain. The adopt-vs-build decision resolved to adopt [Manifest](https://github.com/mnfst/manifest) as the current binding, keeping the SDK seam generic (the same protocol-marriage posture as the [Assay wire](metering-an-agent.md#metering-with-assay-the-official-pairing)). Concretely:
 
 - **Provider name:** `manifest` — a registry lane whose apiMode is `'router'`.
 - **Default model:** `auto` — the routing alias. Manifest resolves it per request.

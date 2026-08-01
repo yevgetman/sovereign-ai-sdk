@@ -101,14 +101,14 @@ plain strings only). Additive, non-breaking → minor bump.
 A host had no guaranteed way to seat the agent with top-authority governance at
 turn 1. The only lever was a cwd `AGENTS.md`, which the system prompt ranks as
 **lower-priority `<user-context>`** — below the harness self-doc — so a tenant's
-project context could outrank the Factory's own bylaws. This adds a config seam
+project context could outrank Kernel's own bylaws. This adds a config seam
 that injects that governance **above** project context, guaranteed on every turn.
 
 - **`context.systemAppend` config** — an optional gateway-config field
   (`.strict`, sibling of `conduct`/`assay`). Its verbatim text is spliced in as a
   **top-authority `<governance-seat>` system-prompt segment**, right after
   `BASE_INSTRUCTIONS` — above the harness self-doc and well above `<user-context>`.
-  The canonical use is the Kernel app seating the agent with the Factory's
+  The canonical use is the Kernel app seating the agent with Kernel's
   governance (bylaws, tier authority, SOPs, node identity) ranked over any cwd
   files. **Absent/empty ⇒ byte-identical to before**, opt-in only.
 - **Operator-trust, verbatim.** Injected at the config-authored trust tier (like
@@ -803,7 +803,7 @@ New opt-in test category that complements the existing unit/integration suite. D
 
 `auto` mode picks `claude-code` if available, else falls back to `anthropic-api`. Adding a new backend (e.g., `codex`, `sov`-itself) is one new file under `framework/judges/` plus a `selectJudge` switch case — `runner.ts`, `run.ts`, and test cases are unchanged.
 
-**Framework (~700 LOC).** `framework/types.ts` (SemanticTest, JudgeVerdict, Judge, RunSummary), `sandbox.ts` (per-test ephemeral env), `driver.ts` (subprocess spawn + ANSI strip + transcript), `judges/` (prompt builder + verdict parser + per-backend factories), `runner.ts` (load + orchestrate, judge-agnostic), `reporter.ts` (chalk progress + summary).
+**Framework (~700 LOC).** `framework/types.ts` (SemanticTest, JudgeVerdict, Judge, RunSummary), `sandbox.ts` (per-test ephemeral env), `driver.ts` (subprocess spawn + ANSI strip + transcript), `judges/` (prompt builder + verdict parser + per-backend Kernels), `runner.ts` (load + orchestrate, judge-agnostic), `reporter.ts` (chalk progress + summary).
 
 **Starter cases (8 tests).** Bash output capture, Read/Edit/Write tool dispatch, /help command rendering, two-step write-then-verify workflow, directory enumeration, and refusal-on-missing-file (anti-fabrication).
 

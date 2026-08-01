@@ -1,4 +1,5 @@
 node: sovereign-ai
+children: []
 authoritative: me/org/nodes/sovereign-ai
 parent: me
 domain:
