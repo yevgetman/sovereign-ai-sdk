@@ -1,5 +1,28 @@
 # Changelog
 
+## harness 0.6.68 — OpenRouter lane refresh: reasoning control, thinking capture, cache-write accounting - 2026-08-03
+
+The openrouter lane shipped with the multi-provider core and had not been
+exercised since; the Appleo OpenRouter cutover (glm-5.2) audited it against
+current OpenRouter docs and closed four drift items. (1) The lane now sends
+OpenRouter's unified `reasoning: { effort }` param when an effort is set,
+behind a NEW curated gate (`openrouterModelSupportsReasoning`) — the lane
+shares apiMode 'openai', whose o1/o3/o4/gpt-5 regex never matches
+`vendor/model` ids, so `/effort` was a silent no-op there; non-gated models
+keep a byte-identical body. (2) OpenRouter's `delta.reasoning` channel is
+parsed as thinking (a `??` fallback to vLLM's `reasoning_content`) — thinking
+tokens were previously billed but dropped: invisible in the UI and absent
+from sealed turn logs. (3) `prompt_tokens_details.cache_write_tokens` now
+maps to the cacheCreation usage phase (explicit-caching models routed via
+OpenRouter); absent/0 adds no field. (4) Data refresh: pricing + capability
+entries for `z-ai/glm-5.2` and `moonshotai/kimi-k2.5` (rates from the
+OpenRouter models API; tool-call reliability from the live Phase-0 runs:
+32/32 and 30 consecutive clean tool calls respectively), MODEL_CONTEXT
+windows, and the config catalog's model picker. Note recorded in-code:
+`stream_options.include_usage` is now deprecated/no-op ON OPENROUTER (usage
+is always included) but still required for OpenAI proper, so it stays.
+sdk 0.8.1 -> 0.8.2 (additive: two exported helpers + optional wire behavior).
+
 ## harness 0.6.67 — MCP tools register eagerly under a small-inventory threshold - 2026-08-01
 
 Every MCP tool registered `shouldDefer: true` unconditionally, so a session
