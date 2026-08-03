@@ -206,6 +206,30 @@ export const CAPABILITY_TABLE: CapabilityProfile[] = [
     recommendedRoles: ['explore', 'verify', 'plan', 'code', 'draft', 'classify', 'agent'],
     source: 'curated',
   },
+
+  // ── Open-weight lane (OpenRouter — Appleo cutover, live-verified 2026-08-03:
+  //    GLM-5.2 32/32 and Kimi-K2.5 30 consecutive clean tool-using calls
+  //    through the sov openrouter lane; Kimi measurably slower per call). ────
+  {
+    provider: 'openrouter',
+    model: 'z-ai/glm-5.2',
+    contextLength: 1_048_576,
+    costTier: 1,
+    toolCallReliability: 0.95,
+    jsonReliability: 0.9,
+    recommendedRoles: ['explore', 'verify', 'plan', 'code', 'draft', 'classify', 'agent'],
+    source: 'curated',
+  },
+  {
+    provider: 'openrouter',
+    model: 'moonshotai/kimi-k2.5',
+    contextLength: 262_144,
+    costTier: 1,
+    toolCallReliability: 0.9,
+    jsonReliability: 0.9,
+    recommendedRoles: ['explore', 'verify', 'plan', 'code', 'draft', 'classify'],
+    source: 'curated',
+  },
 ];
 
 /** Look up a capability profile by exact `(provider, model)` match.

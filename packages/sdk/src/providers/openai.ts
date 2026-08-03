@@ -9,7 +9,12 @@ import type {
   StreamEvent,
   SystemSegment,
 } from '../core/types.js';
-import { modelSupportsReasoning, openAiReasoningFor } from './effort.js';
+import {
+  modelSupportsReasoning,
+  openAiReasoningFor,
+  openrouterModelSupportsReasoning,
+  openrouterReasoningFor,
+} from './effort.js';
 import { ProviderHttpError } from './errors.js';
 import type { ApiMode, ProviderRequest, ToolChoice, ToolSchema, Transport } from './types.js';
 
@@ -53,6 +58,8 @@ type OpenAIChatBody = {
   stream_options?: { include_usage: boolean };
   /** OpenAI reasoning-model effort dial (o1/o3/o4/gpt-5). */
   reasoning_effort?: string;
+  /** OpenRouter's unified reasoning param (openrouter lane ONLY). */
+  reasoning?: { effort: 'low' | 'medium' | 'high' | 'max' };
   /** sov/vLLM chat-template flag that toggles the thinking channel. */
   chat_template_kwargs?: Record<string, unknown>;
 };
@@ -65,6 +72,10 @@ export type OpenAIChatChunk = {
       // serving DeepSeek-R1-style models). Kept separate from `content` so it
       // surfaces as a `thinking` stream rather than contaminating the answer.
       reasoning_content?: string | null;
+      // OpenRouter's normalized reasoning channel (Reasoning Tokens doc): the
+      // same CoT stream under the unified API's field name. Read as a FALLBACK
+      // to reasoning_content, never both (`??`).
+      reasoning?: string | null;
       tool_calls?: Array<{
         index: number;
         id?: string;
@@ -87,7 +98,12 @@ export type OpenAIChatChunk = {
     completion_tokens?: number;
     // prompt_tokens INCLUDES cached_tokens (cache reads billed at a discount);
     // see the disjoint-phase subtraction where usage is emitted below.
-    prompt_tokens_details?: { cached_tokens?: number | null } | null;
+    prompt_tokens_details?: {
+      cached_tokens?: number | null;
+      // OpenRouter: tokens WRITTEN to the cache this call (explicit-caching
+      // models only; absent elsewhere). Maps to the cacheCreation phase.
+      cache_write_tokens?: number | null;
+    } | null;
     // reasoning_tokens is an informational SUBSET of completion_tokens.
     completion_tokens_details?: { reasoning_tokens?: number | null } | null;
   };
@@ -172,7 +188,12 @@ export class OpenAIProvider
     return (
       req.effort !== undefined &&
       req.effort !== 'off' &&
-      modelSupportsReasoning(req.model, this.apiMode)
+      // The openrouter lane shares apiMode 'openai' but carries vendor/model
+      // ids the openai regex never matches; it gets its own curated gate and
+      // OpenRouter's unified `reasoning` param (buildKwargs below).
+      (this.name === 'openrouter'
+        ? openrouterModelSupportsReasoning(req.model)
+        : modelSupportsReasoning(req.model, this.apiMode))
     );
   }
 
@@ -211,8 +232,14 @@ export class OpenAIProvider
         : {}),
       ...(tools !== undefined ? { tools } : {}),
       ...(req.toolChoice !== undefined ? { tool_choice: mapToolChoice(req.toolChoice) } : {}),
-      // narrows req.effort for the call below
-      ...(reasoningOn && req.effort !== undefined ? openAiReasoningFor(req.effort) : {}),
+      // narrows req.effort for the call below. The openrouter lane sends the
+      // unified `reasoning: { effort }` (OpenRouter normalizes per vendor);
+      // every other openai-mode lane keeps the OpenAI `reasoning_effort` dial.
+      ...(reasoningOn && req.effort !== undefined
+        ? this.name === 'openrouter'
+          ? openrouterReasoningFor(req.effort)
+          : openAiReasoningFor(req.effort)
+        : {}),
       // The sov local engine (vLLM/MLX) toggles its thinking channel via the
       // chat-template flag. We ALWAYS send it for sov — `true` when reasoning is
       // on, `false` otherwise. Omitting it (the old behavior) let Qwen3's chat
@@ -293,7 +320,9 @@ export async function* translateOpenAIStream(
     const choice = chunk.choices?.[0];
     if (!choice) continue;
 
-    const reasoning = choice.delta?.reasoning_content;
+    // reasoning_content (vLLM/SGLang) first, OpenRouter's `reasoning` as the
+    // fallback — `??` so a lane emitting both never double-counts.
+    const reasoning = choice.delta?.reasoning_content ?? choice.delta?.reasoning;
     if (reasoning) {
       if (reasoningIsAnswer) {
         // Local lane, thinking off: this channel carries the answer, not CoT.
@@ -362,6 +391,12 @@ export async function* translateOpenAIStream(
       typeof lastUsage.completion_tokens_details?.reasoning_tokens === 'number'
         ? lastUsage.completion_tokens_details.reasoning_tokens
         : 0;
+    // OpenRouter's cache-write count (explicit-caching models only). A 0/absent
+    // count adds no field — byte-identical emission for every other lane.
+    const cacheWriteTokens =
+      typeof lastUsage.prompt_tokens_details?.cache_write_tokens === 'number'
+        ? lastUsage.prompt_tokens_details.cache_write_tokens
+        : 0;
     yield {
       type: 'usage_delta',
       usage: {
@@ -372,6 +407,7 @@ export async function* translateOpenAIStream(
           ? { outputTokens: lastUsage.completion_tokens }
           : {}),
         ...(cachedTokens > 0 ? { cacheReadInputTokens: cachedTokens } : {}),
+        ...(cacheWriteTokens > 0 ? { cacheCreationInputTokens: cacheWriteTokens } : {}),
         ...(reasoningTokens > 0 ? { reasoningTokens } : {}),
       },
     };

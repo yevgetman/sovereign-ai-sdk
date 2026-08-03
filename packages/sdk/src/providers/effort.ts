@@ -83,6 +83,53 @@ export function modelSupportsReasoning(model: string, apiMode: ApiMode): boolean
   }
 }
 
+/**
+ * Whether `model` supports reasoning when routed VIA OPENROUTER (the
+ * `openrouter` provider lane — apiMode 'openai', so the openai regex above
+ * never fires for its `vendor/model` ids). OpenRouter normalizes reasoning
+ * control across vendors behind its unified `reasoning` request param
+ * (openrouterReasoningFor below); this predicate decides WHICH models get it.
+ *
+ * CURATED, deliberately conservative: OpenRouter's own guidance is that
+ * unsupported params may not be dropped by every upstream, so the gate opens
+ * only for families we know reason. Extending it is a data edit:
+ *  - anthropic/claude-* 4.x+ hybrids (mirrors the anthropic gate above);
+ *  - openai o-series / gpt-5 via OpenRouter;
+ *  - any id carrying an explicit thinking marker (`-thinking`, `:thinking`);
+ *  - z-ai/glm-4.5+ and glm-5* (hybrid-reasoning line);
+ *  - deepseek r1 family.
+ * Everything else keeps a byte-identical request (`/effort` = documented no-op).
+ */
+export function openrouterModelSupportsReasoning(model: string): boolean {
+  const id = model.toLowerCase();
+  if (id.includes('thinking')) return true;
+  if (/anthropic\/claude-(haiku|sonnet|opus)-[45]/.test(id)) return true;
+  if (/(^|\/)(o1|o3|o4)([^a-z]|$)|gpt-5/.test(id)) return true;
+  if (/z-ai\/glm-(4\.[5-9]|5)/.test(id)) return true;
+  if (/deepseek.*r1/.test(id)) return true;
+  return false;
+}
+
+/**
+ * OpenRouter's unified `reasoning` request param for an effort level. The
+ * effort vocabulary maps 1:1 (OpenRouter accepts max/high/medium/low among
+ * others); `off` never reaches the on-path (reasoningEnabled gates it), but is
+ * mapped to an empty object for the same defensive shape as openAiReasoningFor.
+ */
+export function openrouterReasoningFor(effort: ReasoningEffort): {
+  reasoning?: { effort: 'low' | 'medium' | 'high' | 'max' };
+} {
+  switch (effort) {
+    case 'off':
+      return {};
+    case 'low':
+    case 'medium':
+    case 'high':
+    case 'max':
+      return { reasoning: { effort } };
+  }
+}
+
 /** Anthropic thinking parameters derived from an effort level. */
 export type AnthropicThinking = {
   /** Omitted entirely when effort is `off`. */

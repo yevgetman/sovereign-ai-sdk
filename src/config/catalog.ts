@@ -116,7 +116,12 @@ const ANTHROPIC_MODELS = [
   'claude-opus-4-7',
 ] as const;
 const OPENAI_MODELS = ['gpt-4o-mini', 'gpt-4o'] as const;
-const OPENROUTER_MODELS = ['anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5'] as const;
+const OPENROUTER_MODELS = [
+  'anthropic/claude-haiku-4.5',
+  'anthropic/claude-sonnet-4.5',
+  'z-ai/glm-5.2',
+  'moonshotai/kimi-k2.5',
+] as const;
 const OLLAMA_MODELS = ['qwen2.5:7b', 'qwen2.5:3b', 'qwen2.5:14b', 'llama3.1:8b'] as const;
 // The local Sovereign engine advertises models under their real model id (the
 // served-model-name defaults to the model id itself — no alias), so you always

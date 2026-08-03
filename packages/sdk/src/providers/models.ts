@@ -81,6 +81,9 @@ const MODEL_CONTEXT: Record<string, number> = {
   'anthropic/claude-haiku-4.5-20251001': 200_000,
   'anthropic/claude-3.5-haiku': 200_000,
   'anthropic/claude-3-5-haiku': 200_000,
+  // OpenRouter open-weight lane (2026-08-03): published context windows.
+  'z-ai/glm-5.2': 1_048_576,
+  'moonshotai/kimi-k2.5': 262_144,
   'gpt-4o-mini': 128_000,
   'gpt-4o': 128_000,
   'qwen2.5:3b': 32_768,

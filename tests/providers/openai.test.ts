@@ -362,3 +362,94 @@ describe('translateOpenAIStream', () => {
     expect(toolUse?.id).not.toBe('tool_0');
   });
 });
+
+describe('openrouter lane (unified reasoning + usage drift fixes, 2026-08-03)', () => {
+  test('sends OpenRouter unified `reasoning` for a curated reasoning model when effort is set', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+    const body = provider.buildKwargs({
+      model: 'z-ai/glm-5.2',
+      system: [],
+      messages: [],
+      maxTokens: 100,
+      effort: 'medium',
+    });
+    expect(body.reasoning).toEqual({ effort: 'medium' });
+    expect(body.reasoning_effort).toBeUndefined(); // never the OpenAI dial on this lane
+    expect(body.max_tokens).toBe(100); // no max_completion_tokens swap for vendor ids
+  });
+
+  test('effort off / non-reasoning model ⇒ byte-identical body (no reasoning key)', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+    const off = provider.buildKwargs({
+      model: 'z-ai/glm-5.2',
+      system: [],
+      messages: [],
+      maxTokens: 100,
+      effort: 'off',
+    });
+    expect(off.reasoning).toBeUndefined();
+    const nonReasoning = provider.buildKwargs({
+      model: 'moonshotai/kimi-k2.5',
+      system: [],
+      messages: [],
+      maxTokens: 100,
+      effort: 'high',
+    });
+    expect(nonReasoning.reasoning).toBeUndefined();
+  });
+
+  test('openai proper NEVER gets the unified param (keeps reasoning_effort)', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-test' });
+    const body = provider.buildKwargs({
+      model: 'gpt-5',
+      system: [],
+      messages: [],
+      maxTokens: 100,
+      effort: 'high',
+    });
+    expect(body.reasoning).toBeUndefined();
+    expect(body.reasoning_effort).toBe('high');
+  });
+
+  test("parses OpenRouter's `delta.reasoning` as thinking (fallback to reasoning_content)", async () => {
+    const { yielded, returned } = await drainStream([
+      { choices: [{ delta: { reasoning: 'pondering… ' } }] },
+      { choices: [{ delta: { content: 'answer' } }] },
+    ]);
+    expect(yielded).toContainEqual({ type: 'thinking_delta', thinking: 'pondering… ' });
+    expect(returned.content[0]).toEqual({ type: 'thinking', thinking: 'pondering… ' });
+    expect(returned.content[1]).toEqual({ type: 'text', text: 'answer' });
+  });
+
+  test('reasoning_content wins over `reasoning` when a lane emits both (no double count)', async () => {
+    const { yielded } = await drainStream([
+      { choices: [{ delta: { reasoning_content: 'A', reasoning: 'B' } }] },
+    ]);
+    const thinks = yielded.filter((e) => e.type === 'thinking_delta');
+    expect(thinks).toEqual([{ type: 'thinking_delta', thinking: 'A' }]);
+  });
+
+  test('cache_write_tokens maps to the cacheCreation phase in usage_delta', async () => {
+    const { yielded } = await drainStream([
+      { choices: [{ delta: { content: 'x' } }] },
+      {
+        choices: [],
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 20,
+          prompt_tokens_details: { cached_tokens: 700, cache_write_tokens: 55 },
+        },
+      },
+    ]);
+    const usage = yielded.find((e) => e.type === 'usage_delta');
+    expect(usage).toEqual({
+      type: 'usage_delta',
+      usage: {
+        inputTokens: 300, // prompt INCLUDES cached → subtracted (disjoint phases)
+        outputTokens: 20,
+        cacheReadInputTokens: 700,
+        cacheCreationInputTokens: 55,
+      },
+    });
+  });
+});

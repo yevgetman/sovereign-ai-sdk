@@ -14,6 +14,8 @@ import {
   anthropicThinkingFor,
   modelSupportsReasoning,
   openAiReasoningFor,
+  openrouterModelSupportsReasoning,
+  openrouterReasoningFor,
 } from '@yevgetman/sov-sdk/providers/effort';
 
 /** Narrow the optional thinking block; fails loudly if absent. */
@@ -183,5 +185,34 @@ describe('openAiReasoningFor', () => {
 
   test('max collapses to high (OpenAI scale tops out at high)', () => {
     expect(openAiReasoningFor('max')).toEqual({ reasoning_effort: 'high' });
+  });
+});
+
+describe('openrouterModelSupportsReasoning (curated gate)', () => {
+  test('opens for the known reasoning families', () => {
+    expect(openrouterModelSupportsReasoning('z-ai/glm-5.2')).toBe(true);
+    expect(openrouterModelSupportsReasoning('z-ai/glm-4.7')).toBe(true);
+    expect(openrouterModelSupportsReasoning('moonshotai/kimi-k2-thinking')).toBe(true);
+    expect(openrouterModelSupportsReasoning('anthropic/claude-sonnet-4.5')).toBe(true);
+    expect(openrouterModelSupportsReasoning('openai/gpt-5')).toBe(true);
+    expect(openrouterModelSupportsReasoning('openai/o3-mini')).toBe(true);
+    expect(openrouterModelSupportsReasoning('deepseek/deepseek-r1')).toBe(true);
+  });
+
+  test('stays closed for everything else (byte-identical request)', () => {
+    expect(openrouterModelSupportsReasoning('moonshotai/kimi-k2.5')).toBe(false);
+    expect(openrouterModelSupportsReasoning('meta-llama/llama-3.3-70b-instruct')).toBe(false);
+    expect(openrouterModelSupportsReasoning('anthropic/claude-3.5-haiku')).toBe(false);
+    expect(openrouterModelSupportsReasoning('mistralai/mistral-large')).toBe(false);
+  });
+});
+
+describe('openrouterReasoningFor', () => {
+  test('off → empty object; levels map 1:1 (OpenRouter accepts max natively)', () => {
+    expect(openrouterReasoningFor('off')).toEqual({});
+    expect(openrouterReasoningFor('low')).toEqual({ reasoning: { effort: 'low' } });
+    expect(openrouterReasoningFor('medium')).toEqual({ reasoning: { effort: 'medium' } });
+    expect(openrouterReasoningFor('high')).toEqual({ reasoning: { effort: 'high' } });
+    expect(openrouterReasoningFor('max')).toEqual({ reasoning: { effort: 'max' } });
   });
 });

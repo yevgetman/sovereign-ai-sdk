@@ -58,6 +58,19 @@ export const PRICE_TABLE: Readonly<Record<string, TokenPricesPerMillion>> = {
     input: 1,
     output: 5,
   },
+  // The OpenRouter open-weight lane (Appleo OpenRouter cutover, 2026-08-03;
+  // rates from OpenRouter's models API, verified that day). Cache writes are
+  // FREE on both (automatic caching), hence no cacheCreationInput.
+  'openrouter:z-ai/glm-5.2': {
+    input: 0.629,
+    output: 1.976,
+    cacheReadInput: 0.117,
+  },
+  'openrouter:moonshotai/kimi-k2.5': {
+    input: 0.57,
+    output: 2.85,
+    cacheReadInput: 0.095,
+  },
   'openai:gpt-4o-mini': {
     input: 0.15,
     output: 0.6,
