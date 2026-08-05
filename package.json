@@ -5,7 +5,8 @@
   "private": true,
   "workspaces": [
     "packages/sdk",
-    "packages/protocol"
+    "packages/protocol",
+    "packages/debug-console"
   ],
   "type": "module",
   "module": "src/main.ts",
