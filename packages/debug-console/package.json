@@ -31,7 +31,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && bun run scripts/build-iife.mjs",
+    "build": "tsc -p tsconfig.build.json && bun run scripts/build-iife.mjs",
     "prepack": "rm -rf dist && bun run build",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

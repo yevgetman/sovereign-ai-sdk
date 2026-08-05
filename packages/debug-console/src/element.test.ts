@@ -5,6 +5,9 @@
 
 import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
+// Type-only, so it is erased at runtime and cannot pull element.js in before
+// the DOM exists — which is the whole reason the value import below is dynamic.
+import type { SovDebugConsoleElement as ConsoleElement } from './element.js';
 import type { AgentFeed, DebugConsoleAdapter } from './types.js';
 
 // The DOM must exist BEFORE element.js evaluates — it extends HTMLElement at
@@ -50,8 +53,8 @@ const FEED: AgentFeed = {
   ],
 };
 
-function mount(adapter: DebugConsoleAdapter | null): SovDebugConsoleElement {
-  const element = document.createElement(TAG) as SovDebugConsoleElement;
+function mount(adapter: DebugConsoleAdapter | null): ConsoleElement {
+  const element = document.createElement(TAG) as ConsoleElement;
   document.body.append(element);
   if (adapter !== null) element.adapter = adapter;
   return element;
@@ -63,7 +66,7 @@ async function settle(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function html(element: SovDebugConsoleElement): string {
+function html(element: ConsoleElement): string {
   return element.shadowRoot?.innerHTML ?? '';
 }
 
@@ -225,7 +228,7 @@ describe('resilience', () => {
     await settle();
 
     let reported = '';
-    element.addEventListener('sov-debug-error', (event) => {
+    element.addEventListener('sov-debug-error', (event: Event) => {
       reported = (event as CustomEvent<{ message: string }>).detail.message;
     });
     fail = true;

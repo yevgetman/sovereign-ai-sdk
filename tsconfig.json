@@ -25,5 +25,8 @@
     "types": ["bun-types"]
   },
   "include": ["src/**/*", "tests/**/*", "packages/*/src/**/*", "packages/*/tests/**/*"],
-  "exclude": ["node_modules", "dist"]
+  // debug-console is a BROWSER bundle and needs the DOM lib this Node-oriented
+  // config deliberately omits. It carries its own equally-strict tsconfig, and
+  // the root `typecheck` script invokes it — excluded here, never unchecked.
+  "exclude": ["node_modules", "dist", "packages/debug-console"]
 }
