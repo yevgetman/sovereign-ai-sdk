@@ -7,9 +7,19 @@
 > sequence; the build pipeline hard-stops at `npm publish --dry-run`
 > (spec GC-9 / §9.6).
 
-Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`) and
-`@yevgetman/sov-protocol` (`packages/protocol`). The repo root
+Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
+`@yevgetman/sov-protocol` (`packages/protocol`), and
+`@yevgetman/sov-debug-console` (`packages/debug-console`). The repo root
 (`@yevgetman/sov`) is the private wrapper — **never published**.
+
+> **Internal release vs. npm publish — two different acts.** Consumers on the
+> development machine install from a **vendored tarball** (`npm pack` output
+> committed under the consumer's `vendor/`), never from the registry. Cutting
+> an internal release means: bump the version, run the gates, `npm pack`, vendor
+> the tarball into each consumer, and **tag**. None of that touches npm, and an
+> agent may do all of it. `npm publish` is the separate, irreversible step
+> below — and as of 2026-08-05 **no package here has ever been published**, so
+> the first publish is a public launch decision, not a release step.
 
 ---
 
@@ -25,8 +35,9 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`) and
       `bun:sqlite`, no wrapper imports) against the installed tree.
 - [ ] **Both dry-runs green:**
       ```sh
-      cd packages/protocol && npm publish --dry-run
-      cd packages/sdk      && npm publish --dry-run
+      cd packages/protocol      && npm publish --dry-run
+      cd packages/sdk           && npm publish --dry-run
+      cd packages/debug-console && npm publish --dry-run
       ```
 
 ## 1. Versioning
@@ -110,8 +121,9 @@ is alphabetical convention only). Scoped packages default to *restricted*,
 so `--access public` is required:
 
 ```sh
-cd packages/protocol && npm publish --access public
-cd packages/sdk      && npm publish --access public
+cd packages/protocol      && npm publish --access public
+cd packages/sdk           && npm publish --access public
+cd packages/debug-console && npm publish --access public
 ```
 
 Post-publish smoke: `npm view @yevgetman/sov-protocol version` and
@@ -123,11 +135,13 @@ scratch `npm install` of each from the registry resolves.
 ```sh
 git tag protocol-v0.1.0
 git tag sdk-v0.1.0
-git push origin protocol-v0.1.0 sdk-v0.1.0
+git tag debug-console-v0.1.0
+git push origin protocol-v0.1.0 sdk-v0.1.0 debug-console-v0.1.0
 ```
 
-(Adjust versions per release; the two tags move independently, matching the
-independent semver lines.)
+(Adjust versions per release; the tags move independently, matching the
+independent semver lines. Tagging is part of the INTERNAL release and does not
+imply a publish.)
 
 ## 5. The repo-public flip — a SEPARATE decision
 
