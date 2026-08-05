@@ -287,3 +287,37 @@ describe('the data tab', () => {
     expect(element.shadowRoot?.innerHTML).toContain('a change');
   });
 });
+
+describe('launcher placement', () => {
+  test('the pill is FIXED by default — it floats over the host page', async () => {
+    const element = mount({ getAgentFeed: async () => FEED });
+    await settle();
+
+    const pill = element.shadowRoot?.querySelector('.pill');
+    expect(pill?.classList.contains('pill--inline')).toBe(false);
+  });
+
+  test('inline placement puts the pill in normal flow for a host header', async () => {
+    const element = mount({ getAgentFeed: async () => FEED });
+    element.placement = 'inline';
+    await settle();
+
+    const pill = element.shadowRoot?.querySelector('.pill');
+    expect(pill?.classList.contains('pill--inline')).toBe(true);
+  });
+
+  test('an inline pill still OPENS the panel, and the panel still floats', async () => {
+    // Only the launcher moves into the host's chrome; a debug panel pinned
+    // inside a header slot would be unusable.
+    const element = mount({ getAgentFeed: async () => FEED });
+    element.placement = 'inline';
+    await settle();
+
+    element.shadowRoot?.querySelector<HTMLElement>('.pill')?.click();
+    await settle();
+
+    const panel = element.shadowRoot?.querySelector('.panel');
+    expect(panel).not.toBeNull();
+    expect(panel?.classList.contains('panel--page')).toBe(false);
+  });
+});

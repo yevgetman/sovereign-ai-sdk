@@ -63,6 +63,7 @@ export class SovDebugConsoleElement extends HTMLElement {
   #tab: TabId = 'agent';
   #open = false;
   #page = false;
+  #placement: 'floating' | 'inline' = 'floating';
   #timer: ReturnType<typeof setInterval> | null = null;
   #feed: AgentFeed = { currentSessionId: null, events: [], details: [] };
   #telemetry: TelemetryEvent[] = [];
@@ -96,6 +97,23 @@ export class SovDebugConsoleElement extends HTMLElement {
   set labels(next: Partial<DebugConsoleLabels>) {
     this.#labels = { ...DEFAULT_LABELS, ...next };
     this.#render();
+  }
+
+  /**
+   * Where the LAUNCHER sits. 'floating' (default) pins the pill to the viewport
+   * corner; 'inline' renders it in normal document flow so a host can place it
+   * in its own chrome — a header, a toolbar, a status bar.
+   *
+   * Only the launcher moves. The panel it opens stays floating and draggable in
+   * both modes, because a debug panel constrained to a header slot would be
+   * useless.
+   */
+  set placement(next: 'floating' | 'inline') {
+    this.#placement = next;
+    this.#render();
+  }
+  get placement(): 'floating' | 'inline' {
+    return this.#placement;
   }
 
   /** Full-page mode: no drag, no resize, fills its container. */
@@ -169,7 +187,8 @@ export class SovDebugConsoleElement extends HTMLElement {
   #render(): void {
     const style = `<style>${CONSOLE_CSS}</style>`;
     if (!this.#open && !this.#page) {
-      this.#root.innerHTML = `${style}<button class="pill" part="pill">DEBUG</button>`;
+      const inline = this.#placement === 'inline';
+      this.#root.innerHTML = `${style}<button class="pill${inline ? ' pill--inline' : ''}" part="pill" title="Open the agent debug console">DEBUG</button>`;
       this.#wirePill();
       return;
     }
@@ -351,7 +370,9 @@ export class SovDebugConsoleElement extends HTMLElement {
   #wirePill(): void {
     const pill = this.#root.querySelector('.pill');
     if (!(pill instanceof HTMLElement)) return;
-    this.#makeDraggable(pill, pill);
+    // An inline pill lives in the host's layout — dragging it out of a header
+    // would just break that layout, so only the floating one is draggable.
+    if (this.#placement === 'floating') this.#makeDraggable(pill, pill);
     pill.addEventListener('click', () => {
       // A click that ended a drag is a drop, not an open.
       if (this.#dragged) return;

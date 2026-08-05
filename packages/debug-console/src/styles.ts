@@ -44,6 +44,22 @@ export const CONSOLE_CSS = `
 }
 .pill:hover { opacity: 1; }
 
+/* Inline launcher: normal flow, so a host can drop the element straight into a
+   header or toolbar. Sized against the host's own font rather than the panel's
+   monospace, so it sits with the host's chrome instead of shouting over it. */
+.pill--inline {
+  position: static;
+  font: 600 11px/1 var(--sdc-font);
+  padding: 5px 11px;
+  opacity: 1;
+  background: var(--sdc-inline-bg, transparent);
+  border-color: var(--sdc-inline-border, var(--sdc-line));
+  color: var(--sdc-inline-ink, var(--sdc-accent));
+}
+.pill--inline:hover {
+  border-color: var(--sdc-inline-border-hover, var(--sdc-accent));
+}
+
 .panel {
   position: fixed;
   right: 16px;

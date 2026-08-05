@@ -1,6 +1,6 @@
 {
   "name": "@yevgetman/sov-debug-console",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The Sovereign AI debug console — a framework-agnostic custom element for inspecting an agent's machinery, telemetry, and data changes.",
   "type": "module",
   "license": "MIT",
