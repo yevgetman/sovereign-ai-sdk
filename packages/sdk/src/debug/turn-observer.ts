@@ -52,7 +52,13 @@ export interface TurnObserver {
 export interface TurnObserverOptions {
   sessionId: string;
   principal: string;
-  collector: DebugCollector;
+  /**
+   * Narrowed to the ONE method the observer calls. A host whose own collector
+   * speaks a richer vocabulary (its own `surface` union, its own word for a
+   * principal) can pass it straight in without a cast, because this is the only
+   * part of the contract that has to line up.
+   */
+  collector: Pick<DebugCollector, 'recordDetail'>;
   /** Cap for a reasoning block's preview (default 280). */
   reasoningPreviewChars?: number;
   /** Cap for a tool input summary (default 160). */

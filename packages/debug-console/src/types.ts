@@ -104,6 +104,13 @@ export interface DataEvent {
   summary: string;
   /** Optional tags rendered as chips — a branch, a table, a collection. */
   labels?: string[];
+  /**
+   * An optional heading rows are grouped under. A host whose data changes
+   * arrive through more than one mechanism (say, commits AND HTTP writes) can
+   * keep them visually distinct without the console knowing what either is.
+   * Rows are rendered in the order given; a heading is emitted when it changes.
+   */
+  group?: string;
   seq: number;
 }
 

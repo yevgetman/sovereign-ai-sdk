@@ -174,15 +174,12 @@ describe('turn summary', () => {
     const observer = createTurnObserver({
       sessionId: 's1',
       principal: 'acct-1',
+      // Only `recordDetail` — the observer's contract is narrowed to the one
+      // method it calls, so this is all a host has to supply.
       collector: {
-        record: () => {},
         recordDetail: () => {
           throw new Error('ring exploded');
         },
-        recordTelemetry: () => {},
-        feedFor: () => [],
-        detailsFor: () => [],
-        telemetryFor: () => [],
       },
     });
 

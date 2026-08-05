@@ -247,3 +247,43 @@ describe('registration', () => {
     expect(customElements.get(TAG)).toBe(SovDebugConsoleElement);
   });
 });
+
+describe('the data tab', () => {
+  const dataRows = [
+    {
+      at: '2026-08-04T10:00:00.000Z',
+      ref: 'abc1234',
+      summary: 'add role',
+      group: 'commits',
+      seq: 1,
+    },
+    { at: '2026-08-04T10:01:00.000Z', summary: 'PUT /resume', group: 'http writes', seq: 2 },
+    { at: '2026-08-04T10:02:00.000Z', summary: 'PUT /jobs', group: 'http writes', seq: 3 },
+  ];
+
+  test('emits a heading when the group CHANGES, not per row', async () => {
+    const element = mount({ getAgentFeed: async () => FEED, getData: async () => dataRows });
+    element.shadowRoot?.querySelector<HTMLElement>('.pill')?.click();
+    await settle();
+    element.shadowRoot?.querySelector<HTMLElement>('[data-tab="data"]')?.click();
+
+    const groups = [...(element.shadowRoot?.querySelectorAll('.group') ?? [])].map(
+      (node) => node.textContent,
+    );
+    expect(groups).toEqual(['commits', 'http writes']);
+    expect(element.shadowRoot?.querySelectorAll('.row')).toHaveLength(3);
+  });
+
+  test('ungrouped rows render with no headings at all', async () => {
+    const element = mount({
+      getAgentFeed: async () => FEED,
+      getData: async () => [{ at: '2026-08-04T10:00:00.000Z', summary: 'a change', seq: 1 }],
+    });
+    element.shadowRoot?.querySelector<HTMLElement>('.pill')?.click();
+    await settle();
+    element.shadowRoot?.querySelector<HTMLElement>('[data-tab="data"]')?.click();
+
+    expect(element.shadowRoot?.querySelectorAll('.group')).toHaveLength(0);
+    expect(element.shadowRoot?.innerHTML).toContain('a change');
+  });
+});

@@ -163,6 +163,16 @@ export const CONSOLE_CSS = `
 .ref { color: var(--sdc-link); flex-shrink: 0; }
 .label-chip { color: var(--sdc-warn); flex-shrink: 0; }
 
+.group {
+  padding: 8px 12px 2px;
+  color: var(--sdc-ink-soft);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-top: 1px solid var(--sdc-line);
+}
+.group:first-child { border-top: 0; }
+
 .empty { color: var(--sdc-ink-soft); padding: 16px 12px; text-align: center; }
 .footer {
   padding: 6px 12px; border-top: 1px solid var(--sdc-line);

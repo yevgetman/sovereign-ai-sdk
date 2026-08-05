@@ -325,16 +325,25 @@ export class SovDebugConsoleElement extends HTMLElement {
   #dataHtml(): string {
     if (this.#data.length === 0)
       return `<div class="empty">${escapeHtml(this.#labels.emptyData)}</div>`;
-    return this.#data
-      .map(
-        (event) => `<div class="row">
+
+    // Rows keep the host's order; a heading is emitted whenever `group`
+    // changes, so a host with several change mechanisms can keep them apart
+    // without the console knowing what any of them are.
+    const out: string[] = [];
+    let lastGroup: string | undefined;
+    for (const event of this.#data) {
+      if (event.group !== undefined && event.group !== lastGroup) {
+        out.push(`<div class="group">${escapeHtml(event.group)}</div>`);
+        lastGroup = event.group;
+      }
+      out.push(`<div class="row">
   <span class="time">${escapeHtml(timeOf(event.at))}</span>
   ${event.ref ? `<span class="ref">${escapeHtml(event.ref)}</span>` : ''}
   ${(event.labels ?? []).map((l) => `<span class="label-chip">[${escapeHtml(l)}]</span>`).join('')}
   <span class="lane">${escapeHtml(event.summary)}</span>
-</div>`,
-      )
-      .join('');
+</div>`);
+    }
+    return out.join('');
   }
 
   // ── interaction ───────────────────────────────────────────────────────────
