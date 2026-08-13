@@ -649,3 +649,98 @@ describe('createTurnLogRecorder — open-turn accumulation over the real wire', 
     ]);
   });
 });
+
+// ── toolRef: which result answered which call ───────────────────────────────
+//
+// A consumer storing these turns has to pair the two halves of a tool use, and
+// without a join key the only rule available is ADJACENCY — which holds right
+// up until the agent runs tools in PARALLEL, and then attaches each result to
+// the wrong call. Measured on a live store: 13.4% of tool calls were issued
+// back-to-back, and every one mis-paired downstream, showing a reader the output
+// of a command that did not produce it.
+//
+// The wire carried the key all along (`block` on both event types) and this
+// recorder dropped it. What it could NOT do is use the block as an identity:
+// block is intra-MESSAGE, so an agentic turn emits 1, 1, 1.
+
+describe('toolRef — which result answered which call', () => {
+  it('pairs each result with its own call in a PARALLEL run', async () => {
+  const { sink, batches } = captureSink();
+  const rec = createTurnLogRecorder({ sessionId: 's1', principal: 'p', sink });
+  // THREE tools in ONE assistant message — distinct blocks, all issued before
+  // any result arrives. This is the shape adjacency gets wrong.
+  rec.ingest({ type: 'tool_use_start', seq: 10, block: 1, tool: 'Bash' });
+  rec.ingest({ type: 'tool_use_done', seq: 11, block: 1, input: { command: 'a' } });
+  rec.ingest({ type: 'tool_use_start', seq: 12, block: 2, tool: 'Read' });
+  rec.ingest({ type: 'tool_use_done', seq: 13, block: 2, input: { path: 'b' } });
+  rec.ingest({ type: 'tool_use_start', seq: 14, block: 3, tool: 'Grep' });
+  rec.ingest({ type: 'tool_use_done', seq: 15, block: 3, input: { pattern: 'c' } });
+  // Results come back OUT OF ORDER, as they do.
+  rec.ingest({ type: 'tool_result', seq: 16, block: 2, tool: 'Read', output: 'B' });
+  rec.ingest({ type: 'tool_result', seq: 17, block: 3, tool: 'Grep', output: 'C' });
+  rec.ingest({ type: 'tool_result', seq: 18, block: 1, tool: 'Bash', output: 'A' });
+  rec.ingest({ type: 'text_delta', seq: 19, text: 'done' });
+  rec.ingest({ type: 'turn_complete', seq: 1 });
+  await rec.commitTurn(1);
+
+  const recs = batches[0] ?? [];
+  const calls = recs.filter((r) => r.kind === 'tool_call');
+  const results = recs.filter((r) => r.kind === 'tool_result');
+  expect(calls).toHaveLength(3);
+  expect(results).toHaveLength(3);
+  // Every record carries an identity, and each pair shares exactly one.
+  const pair = (name: string): [string | undefined, string | undefined] => [
+    calls.find((r) => r.toolName === name)?.toolRef,
+    results.find((r) => r.toolName === name)?.toolRef,
+  ];
+  for (const name of ['Bash', 'Read', 'Grep']) {
+    const [callRef, resultRef] = pair(name);
+    expect(callRef).toBeDefined();
+    expect(callRef).toBe(resultRef);
+  }
+  // …and the three identities are distinct, so nothing collapses together.
+  expect(new Set(calls.map((r) => r.toolRef)).size).toBe(3);
+  });
+
+  it('does not collide when a block REPEATS across messages', async () => {
+  const { sink, batches } = captureSink();
+  const rec = createTurnLogRecorder({ sessionId: 's1', principal: 'p', sink });
+  // The agentic shape: one tool per assistant message, so `block` is 1 each
+  // time. Keying on the block alone would give all three one identity.
+  for (const [i, tool] of ['WebFetch', 'Bash', 'Read'].entries()) {
+    rec.ingest({ type: 'tool_use_start', seq: 20 + i * 3, block: 1, tool });
+    rec.ingest({ type: 'tool_use_done', seq: 21 + i * 3, block: 1, input: { n: i } });
+    rec.ingest({ type: 'tool_result', seq: 22 + i * 3, block: 1, tool, output: `out-${i}` });
+  }
+  rec.ingest({ type: 'text_delta', seq: 40, text: 'ok' });
+  rec.ingest({ type: 'turn_complete', seq: 1 });
+  await rec.commitTurn(1);
+
+  const recs = batches[0] ?? [];
+  const calls = recs.filter((r) => r.kind === 'tool_call');
+  const results = recs.filter((r) => r.kind === 'tool_result');
+  expect(new Set(calls.map((r) => r.toolRef)).size).toBe(3);
+  for (const tool of ['WebFetch', 'Bash', 'Read']) {
+    expect(calls.find((r) => r.toolName === tool)?.toolRef).toBe(
+      results.find((r) => r.toolName === tool)?.toolRef,
+    );
+  }
+  });
+
+  it('still finds the call when a result carries no block', async () => {
+  const { sink, batches } = captureSink();
+  const rec = createTurnLogRecorder({ sessionId: 's1', principal: 'p', sink });
+  // An older gateway sends no block on the result — the newest unanswered call
+  // is the right answer, and is what adjacency would have concluded anyway.
+  rec.ingest({ type: 'tool_use_start', seq: 30, block: 1, tool: 'Read' });
+  rec.ingest({ type: 'tool_use_done', seq: 31, block: 1, input: { path: '/x' } });
+  rec.ingest({ type: 'tool_result', seq: 32, tool: 'Read', output: 'contents' });
+  rec.ingest({ type: 'turn_complete', seq: 1 });
+  await rec.commitTurn(1);
+  const recs = batches[0] ?? [];
+  const call = recs.find((r) => r.kind === 'tool_call');
+  const result = recs.find((r) => r.kind === 'tool_result');
+  expect(call?.toolRef).toBeDefined();
+  expect(result?.toolRef).toBe(call?.toolRef);
+  });
+});

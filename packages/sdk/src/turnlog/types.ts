@@ -29,6 +29,21 @@ export type TurnLogRecord = {
   role: TurnLogRole;
   content?: string;
   toolName?: string;
+  /**
+   * Which tool use this record belongs to — the SAME value on a `tool_call` and
+   * on the `tool_result` that answered it.
+   *
+   * A consumer that stores these turns has to pair the two halves, and without
+   * a join key the only rule available is ADJACENCY — which holds right up
+   * until the agent runs tools in PARALLEL, and then quietly attaches each
+   * result to the wrong call. Measured on a live store: 13.4% of tool calls were
+   * issued back-to-back, and every one of them mis-paired downstream, showing a
+   * reader the output of a command that did not produce it.
+   *
+   * The wire has carried the key all along (`block` on both event types); this
+   * record simply did not pass it on.
+   */
+  toolRef?: string;
   spanRef?: string;
   taskId?: string;
   source?: unknown;

@@ -65,8 +65,27 @@ type ToolCallUnit = {
   toolName: string;
   hasInput: boolean;
   input: unknown;
+  /** The wire's block index — intra-MESSAGE, so never an identity on its own. */
+  block?: number;
+  /** Set once a result has claimed this call, so a second cannot take it. */
+  answered?: boolean;
 };
-type ToolResultUnit = { kind: 'tool_result'; ordinal: number; toolName: string; content: string };
+type ToolResultUnit = {
+  kind: 'tool_result';
+  ordinal: number;
+  toolName: string;
+  content: string;
+  /**
+   * The ORDINAL of the call this answers — resolved when the result arrives,
+   * not a bare block.
+   *
+   * `block` is intra-MESSAGE, not intra-turn: an agentic turn of three
+   * assistant messages each running one tool emits block 1, 1, 1. Keying on the
+   * block alone would give all three the same identity and pair each result to
+   * the wrong call — the very defect this field exists to prevent.
+   */
+  callOrdinal?: number;
+};
 type IntermediateUnit = ThinkingUnit | ToolCallUnit | ToolResultUnit;
 
 /** Everything accumulated for one turn (open, then sealed at turn_complete). */
@@ -124,6 +143,23 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
   const sealed = new Map<number, TurnState>();
   const stats: TurnLogRecorderStats = { committed: 0, dropped: 0, sinkErrors: 0 };
 
+  /**
+   * Take the call a `tool_result` answers, so it cannot be claimed twice.
+   *
+   * Searches BACKWARDS for the newest unanswered call on the same block; with no
+   * block, the newest unanswered call of any block.
+   */
+  function claimCall(state: TurnState, block: number | undefined): number | undefined {
+    for (let i = state.intermediates.length - 1; i >= 0; i -= 1) {
+      const unit = state.intermediates[i];
+      if (unit === undefined || unit.kind !== 'tool_call' || unit.answered === true) continue;
+      if (block !== undefined && unit.block !== block) continue;
+      unit.answered = true;
+      return unit.ordinal;
+    }
+    return undefined;
+  }
+
   function newToolCall(state: TurnState, block: number, toolName: string): ToolCallUnit {
     const unit: ToolCallUnit = {
       kind: 'tool_call',
@@ -131,6 +167,7 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
       toolName,
       hasInput: false,
       input: undefined,
+      block,
     };
     state.nextOrdinal += 1;
     state.toolCallByBlock.set(block, unit);
@@ -202,11 +239,22 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
       }
       case 'tool_result': {
         finalizeThinking(state); // a non-thinking event closes the reasoning phase
+        // WHICH CALL DOES THIS ANSWER? The most recent call still waiting on
+        // this block — which is exact in both shapes the gateway emits:
+        //   • several tools in ONE message → blocks 1,2,3 are distinct, so a
+        //     result finds its own call however they interleave (the parallel
+        //     case that defeats adjacency downstream);
+        //   • one tool per message, several messages → block repeats, and the
+        //     most-recent-unanswered rule is right because a call is answered
+        //     before the next one is issued.
+        // No block (an older gateway) falls back to the last unanswered call.
+        const answered = claimCall(state, ev.block);
         const unit: ToolResultUnit = {
           kind: 'tool_result',
           ordinal: state.nextOrdinal,
           toolName: ev.tool ?? 'unknown',
           content: stringifyOutput(ev.output) ?? '',
+          ...(answered !== undefined ? { callOrdinal: answered } : {}),
         };
         state.nextOrdinal += 1;
         state.intermediates.push(unit);
@@ -241,6 +289,7 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
     role: TurnLogRole,
     content: string,
     toolName: string | undefined,
+    callOrdinal?: number,
   ): TurnLogRecord {
     const record: TurnLogRecord = {
       producerRef: `${producerPrefix}:${sessionId}:${turnSeq}:${kind}:${ordinal}`,
@@ -253,6 +302,9 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
       spanRef: spanRefFor(turnSeq),
     };
     if (toolName !== undefined) record.toolName = toolName;
+    // Scoped to the session and the turn: an ordinal is unique within a turn and
+    // meaningless outside one.
+    if (callOrdinal !== undefined) record.toolRef = `${sessionId}:${turnSeq}:${callOrdinal}`;
     if (sourceTag !== undefined) record.source = sourceTag;
     return record;
   }
@@ -265,6 +317,8 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
       role: TurnLogRole,
       content: string | undefined,
       toolName: string | undefined,
+      /** The CALL's ordinal — the identity both halves of a tool use share. */
+      callOrdinal?: number,
     ): void => {
       // Empty / whitespace-only content is skipped (NOT a drop). tool_call's
       // content is the JSON input, so `{}` is non-blank and survives naturally.
@@ -273,7 +327,9 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
         stats.dropped += 1; // beyond the per-turn cap — dropped + counted
         return;
       }
-      batch.push(buildRecord(turnSeq, ordinal, kind, role, content as string, toolName));
+      batch.push(
+        buildRecord(turnSeq, ordinal, kind, role, content as string, toolName, callOrdinal),
+      );
     };
 
     // Ordinal 0 — the human message.
@@ -285,9 +341,9 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
         consider(unit.ordinal, 'thinking', 'agent', unit.text, undefined);
       } else if (unit.kind === 'tool_call') {
         const content = unit.hasInput ? JSON.stringify(unit.input) : undefined;
-        consider(unit.ordinal, 'tool_call', 'agent', content, unit.toolName);
+        consider(unit.ordinal, 'tool_call', 'agent', content, unit.toolName, unit.ordinal);
       } else {
-        consider(unit.ordinal, 'tool_result', 'tool', unit.content, unit.toolName);
+        consider(unit.ordinal, 'tool_result', 'tool', unit.content, unit.toolName, unit.callOrdinal);
       }
     }
     // The agent message — ALWAYS last.
