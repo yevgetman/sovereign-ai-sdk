@@ -18,9 +18,17 @@ import {
 import { ProviderHttpError } from './errors.js';
 import type { ApiMode, ProviderRequest, ToolChoice, ToolSchema, Transport } from './types.js';
 
+/** A multimodal content part. Used ONLY when a message actually carries an
+ *  image — a text-only message keeps the plain-string `content` it always had,
+ *  because every lane on this transport (sov/vLLM, Ollama, OpenAI proper) shares
+ *  this serialisation and some are strict about the shape. */
+type OpenAIContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 type OpenAIMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content?: string | null;
+  content?: string | OpenAIContentPart[] | null;
   tool_call_id?: string;
   tool_calls?: OpenAIToolCall[];
 };
@@ -430,11 +438,19 @@ export function messagesToOpenAI(
   for (const message of messages) {
     if (message.role === 'user') {
       const textParts: string[] = [];
+      // Images are collected separately: OpenAI-format vision is `image_url`
+      // content parts, and a message only switches to the parts array when it
+      // actually has one. Flattening them to "[image omitted]" is what made a
+      // tool-rendered screenshot unreachable no matter what the tool returned.
+      const images: OpenAIContentPart[] = [];
       for (const block of message.content) {
         if (block.type === 'text') textParts.push(block.text);
-        else if (block.type === 'image')
-          textParts.push(`[image omitted: ${block.source.media_type}]`);
-        else if (block.type === 'tool_result') {
+        else if (block.type === 'image') {
+          images.push({
+            type: 'image_url',
+            image_url: { url: `data:${block.source.media_type};base64,${block.source.data}` },
+          });
+        } else if (block.type === 'tool_result') {
           out.push({
             role: 'tool',
             tool_call_id: block.tool_use_id,
@@ -442,7 +458,15 @@ export function messagesToOpenAI(
           });
         }
       }
-      if (textParts.length > 0) out.push({ role: 'user', content: textParts.join('\n\n') });
+      if (images.length > 0) {
+        const text = textParts.join('\n\n');
+        out.push({
+          role: 'user',
+          content: [...(text.length > 0 ? [{ type: 'text' as const, text }] : []), ...images],
+        });
+      } else if (textParts.length > 0) {
+        out.push({ role: 'user', content: textParts.join('\n\n') });
+      }
       continue;
     }
 

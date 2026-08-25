@@ -31,12 +31,12 @@ describe('MCP client pool', () => {
     expect(servers).toHaveLength(1);
     expect(servers[0]?.name).toBe('echo');
     const names = (servers[0]?.tools ?? []).map((t) => t.toolName).sort();
-    expect(names).toEqual(['boom', 'echo', 'slow']);
+    expect(names).toEqual(['boom', 'echo', 'huge', 'shot', 'slow']);
   });
 
   test('flat tool list spans all servers', () => {
     const tools = pool.tools();
-    expect(tools).toHaveLength(3);
+    expect(tools).toHaveLength(5);
     expect(tools.every((t) => t.serverName === 'echo')).toBe(true);
   });
 

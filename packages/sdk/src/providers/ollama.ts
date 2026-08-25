@@ -16,6 +16,11 @@ import type { ProviderRequest, ToolSchema, Transport } from './types.js';
 type OllamaMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content?: string | null;
+  /** Ollama's native vision channel: bare base64 payloads (NO data-URL
+   *  prefix) alongside the text, rather than OpenAI's `image_url` parts. The
+   *  shared `messagesToOpenAI` emits the OpenAI shape, so this provider
+   *  translates it back on the way out. */
+  images?: string[];
   tool_call_id?: string;
   tool_calls?: Array<{
     function: { name: string; arguments: unknown };
@@ -90,7 +95,15 @@ export class OllamaProvider
 
   toProviderMessages(messages: Message[], system: SystemSegment[] = []): OllamaMessage[] {
     return messagesToOpenAI(messages, system).map((message) => {
-      if (!message.tool_calls) return message as OllamaMessage;
+      // A multimodal message arrives as OpenAI content parts; Ollama wants text
+      // in `content` and bare base64 in `images`.
+      const { content, images } = splitOpenAIContent(message.content);
+      if (!message.tool_calls) {
+        const plain: OllamaMessage = { role: message.role };
+        if (content !== undefined) plain.content = content;
+        if (images.length > 0) plain.images = images;
+        return plain;
+      }
       const converted: OllamaMessage = {
         role: message.role,
         tool_calls: message.tool_calls.map((call) => ({
@@ -100,7 +113,8 @@ export class OllamaProvider
           },
         })),
       };
-      if (message.content !== undefined) converted.content = message.content;
+      if (content !== undefined) converted.content = content;
+      if (images.length > 0) converted.images = images;
       return converted;
     });
   }
@@ -251,4 +265,29 @@ async function safeErrorText(response: Response): Promise<string> {
   } catch {
     return `${response.status} ${response.statusText}`;
   }
+}
+
+/** Translate the shared OpenAI-format `content` into Ollama's split shape:
+ *  joined text in `content`, bare base64 (data-URL prefix stripped) in `images`.
+ *  A plain-string content passes through untouched, so a text-only turn is
+ *  byte-identical to before. */
+function splitOpenAIContent(
+  content:
+    | string
+    | Array<{ type: string; text?: string; image_url?: { url: string } }>
+    | null
+    | undefined,
+): { content: string | null | undefined; images: string[] } {
+  if (!Array.isArray(content)) return { content, images: [] };
+  const texts: string[] = [];
+  const images: string[] = [];
+  for (const part of content) {
+    if (part.type === 'text' && typeof part.text === 'string') texts.push(part.text);
+    else if (part.type === 'image_url' && typeof part.image_url?.url === 'string') {
+      const url = part.image_url.url;
+      const comma = url.indexOf(',');
+      images.push(url.startsWith('data:') && comma !== -1 ? url.slice(comma + 1) : url);
+    }
+  }
+  return { content: texts.length > 0 ? texts.join('\n\n') : undefined, images };
 }

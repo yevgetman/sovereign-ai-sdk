@@ -3,6 +3,8 @@
 //   - `echo`: returns whatever string was passed in.
 //   - `boom`: always returns an isError result (used to verify error path).
 //   - `slow`: sleeps for ms before returning (used to verify abort path).
+//   - `shot`: returns a text block AND a real image block (the vision path).
+//   - `huge`: returns an image over the size cap (verifies the drop notice).
 //
 // Run via `bun tests/mcp/fixtures/echo-server.ts` — the spawned subprocess
 // the test pool connects to.
@@ -41,8 +43,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['ms'],
       },
     },
+    {
+      name: 'shot',
+      description: 'Returns a text block and an image block',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'huge',
+      description: 'Returns an image past the size cap',
+      inputSchema: { type: 'object', properties: {} },
+    },
   ],
 }));
+
+// A 1x1 PNG — the smallest thing that is unambiguously a real image.
+const TINY_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const { name, arguments: args } = req.params;
@@ -54,6 +70,20 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     return {
       content: [{ type: 'text', text: 'something went wrong' }],
       isError: true,
+    };
+  }
+  if (name === 'shot') {
+    return {
+      content: [
+        { type: 'text', text: 'rendered' },
+        { type: 'image', data: TINY_PNG, mimeType: 'image/png' },
+      ],
+    };
+  }
+  if (name === 'huge') {
+    // Comfortably past any sane per-image cap.
+    return {
+      content: [{ type: 'image', data: 'A'.repeat(12_000_000), mimeType: 'image/png' }],
     };
   }
   if (name === 'slow') {

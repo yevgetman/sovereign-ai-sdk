@@ -98,13 +98,31 @@ export type McpClientPool = {
   shutdown(): Promise<void>;
 };
 
+/** One image a tool returned, ready to become a content block. */
+export type McpImage = {
+  /** Base64 payload, exactly as the server sent it. */
+  data: string;
+  /** e.g. `image/png`. */
+  mimeType: string;
+};
+
 /** Subset of the SDK's CallToolResult that the harness uses. The SDK
  *  returns content as a discriminated union of text/image/etc. blocks;
- *  we collapse to a flat string for the tool_result content and surface
- *  `isError` so the orchestrator can mark the result accordingly. */
+ *  we collapse the textual ones to a flat string for the tool_result content
+ *  and surface `isError` so the orchestrator can mark the result accordingly.
+ *
+ *  IMAGES ARE CARRIED, NOT FLATTENED. A `tool_result`'s content is a string, so
+ *  an image cannot live there — it rides `ToolResult.newMessages` instead (the
+ *  channel documented for "an image the model must see"). Collapsing them to a
+ *  placeholder made vision through MCP impossible: a tool could render a
+ *  screenshot and the model would receive the words "image content omitted". */
 export type McpCallResult = {
-  /** Joined textual content. Image / resource blocks render as a
-   *  placeholder line so the model knows something non-text was emitted. */
+  /** Joined textual content. Resource blocks — and images that could not be
+   *  carried — render as a placeholder line, so the model is told what it is
+   *  not seeing instead of silently assuming it saw everything. */
   text: string;
   isError: boolean;
+  /** Images the model should see, in server order. Absent when there are none,
+   *  so a text-only result is byte-identical to before. */
+  images?: readonly McpImage[];
 };

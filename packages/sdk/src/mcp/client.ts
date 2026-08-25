@@ -19,6 +19,7 @@ import { buildSafeFetch } from './safeFetch.js';
 import {
   type McpCallResult,
   type McpClientPool,
+  type McpImage,
   type McpRemoteServerFields,
   type McpServerConfig,
   type McpServerHandle,
@@ -517,13 +518,38 @@ type ParsedCallResult = {
   isError?: boolean | undefined;
 };
 
+/** Per-image base64 ceiling. Images are enormous next to text and every byte is
+ *  re-sent on each subsequent turn of the conversation, so an unbounded one
+ *  would blow the context window and the bill together. ~7 MB of base64 is
+ *  ~5 MB of pixels — comfortably above a full-page screenshot, well under any
+ *  provider's request cap. */
+const MAX_IMAGE_B64_BYTES = 7_000_000;
+
+/** Images carried from ONE tool call. A tool that returns a gallery is almost
+ *  certainly a bug, and each image costs real context. */
+const MAX_IMAGES_PER_CALL = 4;
+
 function flattenCallResult(result: ParsedCallResult): McpCallResult {
   const parts: string[] = [];
+  const images: McpImage[] = [];
   for (const block of result.content ?? []) {
     if (block.type === 'text' && typeof block.text === 'string') {
       parts.push(block.text);
     } else if (block.type === 'image') {
-      parts.push('[mcp:image content omitted]');
+      // Say what happened in every branch. A dropped image the model is not
+      // told about is the worst outcome here: it assumes it saw the render and
+      // describes it anyway.
+      const data = typeof block.data === 'string' ? block.data : '';
+      const mimeType = typeof block.mimeType === 'string' ? block.mimeType : '';
+      if (data.length === 0 || mimeType.length === 0) {
+        parts.push('[mcp:image content omitted — malformed image block]');
+      } else if (data.length > MAX_IMAGE_B64_BYTES) {
+        parts.push(`[mcp:image too large: ${data.length} bytes of base64 — not shown]`);
+      } else if (images.length >= MAX_IMAGES_PER_CALL) {
+        parts.push(`[mcp:image omitted — more than ${MAX_IMAGES_PER_CALL} images in one result]`);
+      } else {
+        images.push({ data, mimeType });
+      }
     } else if (block.type === 'resource') {
       parts.push('[mcp:resource content omitted]');
     } else {
@@ -533,5 +559,7 @@ function flattenCallResult(result: ParsedCallResult): McpCallResult {
   return {
     text: parts.join('\n'),
     isError: result.isError === true,
+    // Omitted entirely when empty, so a text-only result is byte-identical.
+    ...(images.length > 0 ? { images } : {}),
   };
 }
