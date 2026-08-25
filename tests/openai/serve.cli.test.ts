@@ -13,8 +13,29 @@
 
 import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+/** A port nothing else holds, right now. The test used to hard-code one, which
+ *  made it fail on any machine where an unrelated process happened to own it —
+ *  an environment collision reported as a product failure, and a hard stop on
+ *  the release gate. Asking the OS for a free port removes the whole class. */
+async function freePort(): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.once('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const addr = srv.address();
+      if (addr === null || typeof addr === 'string') {
+        srv.close(() => reject(new Error('no port assigned')));
+        return;
+      }
+      const { port } = addr;
+      srv.close(() => resolve(port));
+    });
+  });
+}
 
 async function waitForBoot(stdout: ReadableStream<Uint8Array>, port: number): Promise<void> {
   const stdoutReader = stdout.getReader();
@@ -46,9 +67,7 @@ async function waitForBoot(stdout: ReadableStream<Uint8Array>, port: number): Pr
 
 describe('sov serve CLI', () => {
   test('boots, /health responds, /v1/chat/completions works, shuts down cleanly on SIGTERM', async () => {
-    // 8766 avoids collision with the default 8765 in case a real `sov
-    // serve` is running on this machine.
-    const port = 8766;
+    const port = await freePort();
     const home = mkdtempSync(join(tmpdir(), 'sov-serve-test-'));
     const proc = Bun.spawn(
       ['bun', 'src/main.ts', 'serve', '--port', String(port), '--no-cron', '--no-preflight'],
