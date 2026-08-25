@@ -3,8 +3,10 @@
 // Usage: bun scripts/release-build-target.ts <target> <version>
 //
 // Compiles sov (Bun) + sov-tui (Go) for <target>, copies bundle-default
-// + LICENSE.txt + README + version into a staging dir, tars to
-// build/release/<version>/sov-<target>.tar.gz.
+// + LICENSE.txt + README + version into a staging dir, then packages it to
+// build/release/<version>/sov-<target>.tar.gz — or sov-<target>.zip for
+// windows-x64, where the binaries also carry `.exe` (see artifactName /
+// executableName in release-shared.ts).
 //
 // Required env:
 //   SOV_RELEASES_PATH — path to a sov-releases checkout (for LICENSE.txt)
@@ -12,7 +14,18 @@
 import { cpSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { exit } from 'node:process';
-import { TARGETS, type Target, die, note, repoRoot, run } from './release-shared';
+import {
+  TARGETS,
+  type Target,
+  archiveFormat,
+  artifactName,
+  die,
+  executableName,
+  note,
+  repoRoot,
+  run,
+} from './release-shared';
+import { writeZip } from './release-zip';
 
 export function resolveTarget(name: string): Target | null {
   return TARGETS.find((t) => t.name === name) ?? null;
@@ -67,28 +80,58 @@ export function validateBuildInputs(opts: {
   return { ok: true };
 }
 
-function buildOne(target: Target, version: string, publicRepoPath: string): string {
+/** The staged binary paths for a target: `bin/sov` + `bin/sov-tui`, with
+ *  `.exe` appended on windows. */
+export function stagedBinaryPaths(stageDir: string, target: Target): { sov: string; tui: string } {
+  return {
+    sov: join(stageDir, 'bin', executableName('sov', target)),
+    tui: join(stageDir, 'bin', executableName('sov-tui', target)),
+  };
+}
+
+/** Where the packaged artifact for a target lands inside the release dir. */
+export function archivePathFor(releaseDir: string, target: Target): string {
+  return join(releaseDir, artifactName(target));
+}
+
+/** Package a staged tree: zip on windows (no `tar` there), tar.gz elsewhere.
+ *  Both formats carry the identical internal layout (bin/, bundle-default/,
+ *  version, LICENSE.txt, README.md) rooted at the archive top level. */
+export function packageStage(target: Target, stageDir: string, archivePath: string): void {
+  if (archiveFormat(target) === 'zip') {
+    writeZip(archivePath, stageDir);
+    return;
+  }
+  run('tar', ['-czf', archivePath, '-C', stageDir, '.']);
+}
+
+function compileBinaries(target: Target, stageDir: string): void {
   const root = repoRoot();
-  const releaseDir = join(root, 'build', 'release', version);
-  const stageDir = join(releaseDir, target.name);
-  if (existsSync(stageDir)) rmSync(stageDir, { recursive: true, force: true });
-  mkdirSync(join(stageDir, 'bin'), { recursive: true });
+  const bins = stagedBinaryPaths(stageDir, target);
 
   note(`[${target.name}] bun build --compile...`);
   run('bun', [
     'build',
     '--compile',
     `--target=${target.bunTarget}`,
-    `--outfile=${join(stageDir, 'bin', 'sov')}`,
+    `--outfile=${bins.sov}`,
     'src/main.ts',
   ]);
 
   note(`[${target.name}] go build sov-tui (${target.goos}/${target.goarch})...`);
-  run('go', ['build', '-o', join(stageDir, 'bin', 'sov-tui'), './cmd/sov-tui'], {
+  run('go', ['build', '-o', bins.tui, './cmd/sov-tui'], {
     cwd: join(root, 'packages', 'tui'),
     env: { ...process.env, GOOS: target.goos, GOARCH: target.goarch },
   });
+}
 
+function stageBundleAndMetadata(
+  target: Target,
+  stageDir: string,
+  version: string,
+  publicRepoPath: string,
+): void {
+  const root = repoRoot();
   note(`[${target.name}] copying bundle-default/ (excluding runtime state/)...`);
   const bundleRoot = join(root, 'bundle-default');
   cpSync(bundleRoot, join(stageDir, 'bundle-default'), {
@@ -100,13 +143,23 @@ function buildOne(target: Target, version: string, publicRepoPath: string): stri
   cpSync(join(publicRepoPath, 'LICENSE.txt'), join(stageDir, 'LICENSE.txt'));
   cpSync(join(root, 'README.binary.md'), join(stageDir, 'README.md'));
   writeFileSync(join(stageDir, 'version'), `${version}\n`);
+}
 
-  const tarball = join(releaseDir, `sov-${target.name}.tar.gz`);
-  note(`[${target.name}] tarring → ${tarball}`);
-  run('tar', ['-czf', tarball, '-C', stageDir, '.']);
-  const size = statSync(tarball).size;
-  note(`[${target.name}] tarball size: ${(size / 1024 / 1024).toFixed(1)} MB`);
-  return tarball;
+function buildOne(target: Target, version: string, publicRepoPath: string): string {
+  const releaseDir = join(repoRoot(), 'build', 'release', version);
+  const stageDir = join(releaseDir, target.name);
+  if (existsSync(stageDir)) rmSync(stageDir, { recursive: true, force: true });
+  mkdirSync(join(stageDir, 'bin'), { recursive: true });
+
+  compileBinaries(target, stageDir);
+  stageBundleAndMetadata(target, stageDir, version, publicRepoPath);
+
+  const archive = archivePathFor(releaseDir, target);
+  note(`[${target.name}] packaging (${archiveFormat(target)}) → ${archive}`);
+  packageStage(target, stageDir, archive);
+  const size = statSync(archive).size;
+  note(`[${target.name}] artifact size: ${(size / 1024 / 1024).toFixed(1)} MB`);
+  return archive;
 }
 
 // CLI entry: only runs when invoked directly, not when imported by tests.

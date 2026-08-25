@@ -1,12 +1,32 @@
 import { describe, expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { deflateRawSync } from 'node:zlib';
 import {
+  archivePathFor,
+  packageStage,
   resolveTarget,
   shouldStageBundlePath,
+  stagedBinaryPaths,
   validateBuildInputs,
 } from '../../scripts/release-build-target';
+import { TARGETS, type Target } from '../../scripts/release-shared';
+import { collectZipEntries } from '../../scripts/release-zip';
+
+function target(name: Target['name']): Target {
+  const t = TARGETS.find((x) => x.name === name);
+  if (!t) throw new Error(`no target ${name}`);
+  return t;
+}
 
 describe('release-build-target — resolveTarget', () => {
   test('returns the target spec for a known name', () => {
@@ -19,9 +39,90 @@ describe('release-build-target — resolveTarget', () => {
     expect(t.goarch).toBe('arm64');
   });
 
+  test('resolves windows-x64 (Telekit for Windows)', () => {
+    const t = resolveTarget('windows-x64');
+    expect(t).toEqual({
+      name: 'windows-x64',
+      bunTarget: 'bun-windows-x64',
+      goos: 'windows',
+      goarch: 'amd64',
+    });
+  });
+
   test('returns null for an unknown target', () => {
-    expect(resolveTarget('windows-x64')).toBeNull();
+    expect(resolveTarget('freebsd-x64')).toBeNull();
     expect(resolveTarget('')).toBeNull();
+  });
+});
+
+describe('release-build-target — stagedBinaryPaths', () => {
+  test('windows binaries are sov.exe + sov-tui.exe under bin/', () => {
+    const bins = stagedBinaryPaths('/stage', target('windows-x64'));
+    expect(bins.sov).toBe(join('/stage', 'bin', 'sov.exe'));
+    expect(bins.tui).toBe(join('/stage', 'bin', 'sov-tui.exe'));
+  });
+
+  test('darwin + linux binaries stay extension-less', () => {
+    for (const name of ['darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64'] as const) {
+      const bins = stagedBinaryPaths('/stage', target(name));
+      expect(bins.sov).toBe(join('/stage', 'bin', 'sov'));
+      expect(bins.tui).toBe(join('/stage', 'bin', 'sov-tui'));
+    }
+  });
+});
+
+describe('release-build-target — archivePathFor', () => {
+  test('windows lands as sov-windows-x64.zip, others as .tar.gz', () => {
+    expect(archivePathFor('/rel', target('windows-x64'))).toBe(join('/rel', 'sov-windows-x64.zip'));
+    expect(archivePathFor('/rel', target('linux-x64'))).toBe(join('/rel', 'sov-linux-x64.tar.gz'));
+    expect(archivePathFor('/rel', target('darwin-arm64'))).toBe(
+      join('/rel', 'sov-darwin-arm64.tar.gz'),
+    );
+  });
+});
+
+describe('release-build-target — packageStage (windows zip)', () => {
+  test('zips a staged tree with the tarball layout rooted at the archive top', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'sov-pkg-win-'));
+    try {
+      const stage = join(tmp, 'windows-x64');
+      mkdirSync(join(stage, 'bin'), { recursive: true });
+      mkdirSync(join(stage, 'bundle-default', 'state'), { recursive: true });
+      writeFileSync(join(stage, 'bin', 'sov.exe'), 'MZ-sov');
+      writeFileSync(join(stage, 'bin', 'sov-tui.exe'), 'MZ-tui');
+      writeFileSync(join(stage, 'bundle-default', 'index.yaml'), 'projectId: x\n');
+      writeFileSync(join(stage, 'bundle-default', 'state', '.gitkeep'), '');
+      writeFileSync(join(stage, 'version'), 'v0.7.0\n');
+      writeFileSync(join(stage, 'LICENSE.txt'), 'beta');
+      writeFileSync(join(stage, 'README.md'), 'readme');
+
+      const archive = archivePathFor(tmp, target('windows-x64'));
+      packageStage(target('windows-x64'), stage, archive);
+
+      expect(existsSync(archive)).toBe(true);
+      expect(archive.endsWith('sov-windows-x64.zip')).toBe(true);
+      // Re-walk the stage through the same collector the zip used, and
+      // confirm the archive's first local header names the first entry.
+      const entries = collectZipEntries(stage).map((e) => e.path);
+      expect(entries).toEqual([
+        'LICENSE.txt',
+        'README.md',
+        'bin/sov-tui.exe',
+        'bin/sov.exe',
+        'bundle-default/index.yaml',
+        'bundle-default/state/.gitkeep',
+        'version',
+      ]);
+      const bytes = readFileSync(archive);
+      expect(bytes.readUInt32LE(0)).toBe(0x04034b50);
+      const nameLen = bytes.readUInt16LE(26);
+      expect(bytes.subarray(30, 30 + nameLen).toString('utf8')).toBe('LICENSE.txt');
+      const compressedLen = bytes.readUInt32LE(18);
+      const payload = bytes.subarray(30 + nameLen, 30 + nameLen + compressedLen);
+      expect(Buffer.from(deflateRawSync('beta', { level: 9 })).equals(payload)).toBe(true);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 
@@ -43,7 +144,7 @@ describe('release-build-target — validateBuildInputs', () => {
 
   test('returns error for an unknown target', () => {
     const r = validateBuildInputs({
-      target: 'windows-x64',
+      target: 'freebsd-x64',
       version: 'v0.6.0',
       publicRepoPath: '/some/path',
     });

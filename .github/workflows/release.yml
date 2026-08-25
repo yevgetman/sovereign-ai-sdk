@@ -173,9 +173,81 @@ jobs:
           path: build/release/${{ needs.preflight.outputs.version }}/sov-linux-*.tar.gz
           if-no-files-found: error
 
+  build-windows:
+    name: build-windows
+    needs: preflight
+    runs-on: windows-latest
+    timeout-minutes: 25
+    # Telekit for Windows (telekit specs/2026-08-24-windows-support-design.md
+    # §5.3). Built natively so the `--version` smoke below exercises the real
+    # `sov.exe` on Windows, and the zip is unpacked with Windows' own
+    # Expand-Archive to prove the hand-rolled writer (scripts/release-zip.ts)
+    # produces an archive a stock Windows box can open.
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout sovereign-ai-sdk
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.preflight.outputs.version }}
+      - name: Checkout sov-releases
+        uses: actions/checkout@v5
+        with:
+          repository: yevgetman/sov-releases
+          ref: main
+          path: sov-releases
+          token: ${{ secrets.SOV_RELEASES_TOKEN }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.0'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+      - run: bun install --frozen-lockfile
+      - name: Build windows-x64
+        env:
+          SOV_RELEASES_PATH: ${{ github.workspace }}/sov-releases
+        run: bun run release:build windows-x64 ${{ needs.preflight.outputs.version }}
+      - name: Native smoke (windows-x64 --version)
+        run: |
+          $V = "${{ needs.preflight.outputs.version }}"
+          $Out = (& ".\build\release\$V\windows-x64\bin\sov.exe" --version | Out-String).Trim()
+          Write-Host "smoke output: $Out"
+          # The version string starts with the bare semver (sans leading "v").
+          $Bare = $V.TrimStart('v')
+          if (-not $Out.StartsWith($Bare)) {
+            Write-Host "::error::--version output '$Out' does not start with $Bare"
+            exit 1
+          }
+          Write-Host "OK: --version starts with $Bare"
+      - name: Zip layout smoke (Expand-Archive)
+        run: |
+          $V = "${{ needs.preflight.outputs.version }}"
+          $Zip = ".\build\release\$V\sov-windows-x64.zip"
+          $Dest = Join-Path $env:RUNNER_TEMP "sov-zip-smoke"
+          Expand-Archive -Path $Zip -DestinationPath $Dest -Force
+          foreach ($p in @('bin\sov.exe', 'bin\sov-tui.exe', 'bundle-default\index.yaml', 'version', 'LICENSE.txt', 'README.md')) {
+            if (-not (Test-Path (Join-Path $Dest $p))) {
+              Write-Host "::error::zip is missing $p"
+              exit 1
+            }
+          }
+          $Extracted = (Get-Content (Join-Path $Dest 'version') -Raw).Trim()
+          if ($Extracted -ne $V) {
+            Write-Host "::error::extracted version '$Extracted' != $V"
+            exit 1
+          }
+          Write-Host "OK: zip layout matches the tarballs"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: tarballs-windows
+          path: build/release/${{ needs.preflight.outputs.version }}/sov-windows-*.zip
+          if-no-files-found: error
+
   release:
     name: release
-    needs: [build-darwin, build-linux, preflight]
+    needs: [build-darwin, build-linux, build-windows, preflight]
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
