@@ -113,15 +113,25 @@ export function openrouterModelSupportsReasoning(model: string): boolean {
 /**
  * OpenRouter's unified `reasoning` request param for an effort level. The
  * effort vocabulary maps 1:1 (OpenRouter accepts max/high/medium/low among
- * others); `off` never reaches the on-path (reasoningEnabled gates it), but is
- * mapped to an empty object for the same defensive shape as openAiReasoningFor.
+ * others); `off` is a REAL disable on this lane — `{ reasoning: { enabled:
+ * false } }`, not an omitted param.
+ *
+ * WHY `off` must send something: on OpenRouter the absence of the param does
+ * NOT mean "don't reason". Models that reason BY DEFAULT (z-ai/glm-5.x,
+ * DeepSeek R1, Qwen thinking, …) reason anyway, and for those binary-thinking
+ * families `low` is merely advisory. Measured on z-ai/glm-5.2 (2026-08-25, same
+ * prompt, max_tokens 400): **no `reasoning` param ⇒ 400 reasoning tokens and no
+ * answer** (the cap was exhausted mid-thought); **`{ enabled: false }` ⇒ 0
+ * reasoning tokens** and an answer in 27. The sov local lane already fixed the
+ * identical problem the identical way (`enable_thinking: false`).
+ * Spec: specs/2026-08-25-real-reasoning-control-design.md §1–§2.1.
  */
 export function openrouterReasoningFor(effort: ReasoningEffort): {
-  reasoning?: { effort: 'low' | 'medium' | 'high' | 'max' };
+  reasoning: { effort: 'low' | 'medium' | 'high' | 'max' } | { enabled: false };
 } {
   switch (effort) {
     case 'off':
-      return {};
+      return { reasoning: { enabled: false } };
     case 'low':
     case 'medium':
     case 'high':

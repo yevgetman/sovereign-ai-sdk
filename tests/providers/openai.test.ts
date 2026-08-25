@@ -378,16 +378,12 @@ describe('openrouter lane (unified reasoning + usage drift fixes, 2026-08-03)', 
     expect(body.max_tokens).toBe(100); // no max_completion_tokens swap for vendor ids
   });
 
-  test('effort off / non-reasoning model ⇒ byte-identical body (no reasoning key)', () => {
+  // The `off` half of this case CHANGED MEANING on 2026-08-25: `off` on a gated
+  // openrouter model is no longer "omit the param" (which let glm-5.2 reason
+  // anyway) — it now sends the explicit `{ enabled: false }` disable. Only the
+  // non-gated model still keeps a byte-identical body.
+  test('non-gated model ⇒ byte-identical body (no reasoning key), at any effort', () => {
     const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
-    const off = provider.buildKwargs({
-      model: 'z-ai/glm-5.2',
-      system: [],
-      messages: [],
-      maxTokens: 100,
-      effort: 'off',
-    });
-    expect(off.reasoning).toBeUndefined();
     const nonReasoning = provider.buildKwargs({
       model: 'moonshotai/kimi-k2.5',
       system: [],
@@ -396,6 +392,41 @@ describe('openrouter lane (unified reasoning + usage drift fixes, 2026-08-03)', 
       effort: 'high',
     });
     expect(nonReasoning.reasoning).toBeUndefined();
+    const nonReasoningOff = provider.buildKwargs({
+      model: 'moonshotai/kimi-k2.5',
+      system: [],
+      messages: [],
+      maxTokens: 100,
+      effort: 'off',
+    });
+    expect(nonReasoningOff.reasoning).toBeUndefined();
+  });
+
+  test('effort off on a curated reasoning model ⇒ explicit `reasoning: { enabled: false }`', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+    const body = provider.buildKwargs({
+      model: 'z-ai/glm-5.2',
+      system: [],
+      messages: [],
+      maxTokens: 100,
+      effort: 'off',
+    });
+    expect(body.reasoning).toEqual({ enabled: false });
+    // the disable shape ONLY — an effort dial alongside it would re-enable CoT
+    expect(body.reasoning !== undefined && 'effort' in body.reasoning).toBe(false);
+    expect(body.reasoning_effort).toBeUndefined();
+  });
+
+  test('undefined effort ⇒ no reasoning key (byte-identical legacy/preflight path)', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+    const body = provider.buildKwargs({
+      model: 'z-ai/glm-5.2',
+      system: [],
+      messages: [],
+      maxTokens: 100,
+    });
+    expect(body.reasoning).toBeUndefined();
+    expect(body.reasoning_effort).toBeUndefined();
   });
 
   test('openai proper NEVER gets the unified param (keeps reasoning_effort)', () => {
@@ -409,6 +440,20 @@ describe('openrouter lane (unified reasoning + usage drift fixes, 2026-08-03)', 
     });
     expect(body.reasoning).toBeUndefined();
     expect(body.reasoning_effort).toBe('high');
+  });
+
+  test('openai proper + off ⇒ unchanged (no unified param, no reasoning_effort)', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-test' });
+    const body = provider.buildKwargs({
+      model: 'gpt-5',
+      system: [],
+      messages: [],
+      maxTokens: 100,
+      effort: 'off',
+    });
+    // o-series/gpt-5 cannot be told not to reason — `off` stays "omit the dial".
+    expect(body.reasoning).toBeUndefined();
+    expect(body.reasoning_effort).toBeUndefined();
   });
 
   test("parses OpenRouter's `delta.reasoning` as thinking (fallback to reasoning_content)", async () => {

@@ -66,8 +66,9 @@ type OpenAIChatBody = {
   stream_options?: { include_usage: boolean };
   /** OpenAI reasoning-model effort dial (o1/o3/o4/gpt-5). */
   reasoning_effort?: string;
-  /** OpenRouter's unified reasoning param (openrouter lane ONLY). */
-  reasoning?: { effort: 'low' | 'medium' | 'high' | 'max' };
+  /** OpenRouter's unified reasoning param (openrouter lane ONLY). Either the
+   *  effort dial or the explicit `{ enabled: false }` disable that `off` sends. */
+  reasoning?: { effort: 'low' | 'medium' | 'high' | 'max' } | { enabled: false };
   /** sov/vLLM chat-template flag that toggles the thinking channel. */
   chat_template_kwargs?: Record<string, unknown>;
 };
@@ -205,10 +206,39 @@ export class OpenAIProvider
     );
   }
 
+  /** The reasoning wire params for this request — `{}` means a byte-identical
+   *  body (no reasoning key at all).
+   *
+   *  The openrouter lane is deliberately NOT gated on `reasoningEnabled()`: for a
+   *  curated reasoning model it sends the unified param for EVERY defined effort,
+   *  `off` included, because on that lane omitting the param is not a disable.
+   *  Models that reason by default (z-ai/glm-5.x, DeepSeek R1, Qwen thinking)
+   *  reason anyway when it's absent, and `low` is only advisory for those
+   *  binary-thinking families — measured on glm-5.2 (2026-08-25): no param ⇒ 400
+   *  reasoning tokens and no answer; `{ enabled: false }` ⇒ 0. Same precedent as
+   *  the sov lane's `chat_template_kwargs.enable_thinking: false` below.
+   *
+   *  `req.effort === undefined` (the host never set one — legacy callers and the
+   *  preflight probe) keeps the param omitted, byte-identical to before. Models
+   *  outside the curated gate keep it omitted too. Every other lane (openai
+   *  proper, sov, ollama, router) is unchanged: `reasoningEnabled()`-gated, so
+   *  `off` there still just omits the dial (o-series/gpt-5 cannot be told not to
+   *  reason — documented limit). */
+  protected reasoningParams(req: ProviderRequest): Partial<OpenAIChatBody> {
+    if (req.effort === undefined) return {};
+    if (this.name === 'openrouter') {
+      return openrouterModelSupportsReasoning(req.model) ? openrouterReasoningFor(req.effort) : {};
+    }
+    return this.reasoningEnabled(req) ? openAiReasoningFor(req.effort) : {};
+  }
+
   buildKwargs(req: ProviderRequest): OpenAIChatBody {
     const tools = this.toProviderTools(req.tools);
-    // Reasoning params only when an effort is set, it isn't `off`, and the model
-    // supports reasoning under this apiMode. Otherwise the body is unchanged.
+    // "CoT is on" for this request: an effort is set, it isn't `off`, and the
+    // model supports reasoning under this apiMode. Used for the sov chat-template
+    // flag below; the wire reasoning params come from reasoningParams (which the
+    // openrouter lane deliberately does NOT gate on this, so `off` can send an
+    // explicit disable).
     const reasoningOn = this.reasoningEnabled(req);
     // OpenAI's hosted reasoning models (o1/o3/o4/gpt-5) reject `max_tokens` (they
     // require `max_completion_tokens`) and reject a non-default temperature —
@@ -240,14 +270,11 @@ export class OpenAIProvider
         : {}),
       ...(tools !== undefined ? { tools } : {}),
       ...(req.toolChoice !== undefined ? { tool_choice: mapToolChoice(req.toolChoice) } : {}),
-      // narrows req.effort for the call below. The openrouter lane sends the
-      // unified `reasoning: { effort }` (OpenRouter normalizes per vendor);
-      // every other openai-mode lane keeps the OpenAI `reasoning_effort` dial.
-      ...(reasoningOn && req.effort !== undefined
-        ? this.name === 'openrouter'
-          ? openrouterReasoningFor(req.effort)
-          : openAiReasoningFor(req.effort)
-        : {}),
+      // The openrouter lane sends the unified `reasoning` param (OpenRouter
+      // normalizes it per vendor) — the effort dial, or `{ enabled: false }` for
+      // `off`; every other openai-mode lane keeps the OpenAI `reasoning_effort`
+      // dial. See reasoningParams for why `off` differs by lane.
+      ...this.reasoningParams(req),
       // The sov local engine (vLLM/MLX) toggles its thinking channel via the
       // chat-template flag. We ALWAYS send it for sov — `true` when reasoning is
       // on, `false` otherwise. Omitting it (the old behavior) let Qwen3's chat

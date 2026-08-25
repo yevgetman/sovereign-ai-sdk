@@ -208,8 +208,12 @@ describe('openrouterModelSupportsReasoning (curated gate)', () => {
 });
 
 describe('openrouterReasoningFor', () => {
-  test('off → empty object; levels map 1:1 (OpenRouter accepts max natively)', () => {
-    expect(openrouterReasoningFor('off')).toEqual({});
+  test('off → explicit disable; levels map 1:1 (OpenRouter accepts max natively)', () => {
+    // `off` used to omit the param. Measured on z-ai/glm-5.2 (2026-08-25, same
+    // prompt, max_tokens 400): no `reasoning` param ⇒ 400 reasoning tokens and NO
+    // answer; `{ enabled: false }` ⇒ 0 reasoning tokens. Omission is not a
+    // disable on this lane — the explicit flag is.
+    expect(openrouterReasoningFor('off')).toEqual({ reasoning: { enabled: false } });
     expect(openrouterReasoningFor('low')).toEqual({ reasoning: { effort: 'low' } });
     expect(openrouterReasoningFor('medium')).toEqual({ reasoning: { effort: 'medium' } });
     expect(openrouterReasoningFor('high')).toEqual({ reasoning: { effort: 'high' } });
