@@ -111,6 +111,30 @@ export function openrouterModelSupportsReasoning(model: string): boolean {
 }
 
 /**
+ * Whether `model` wants EXPLICIT Anthropic-style `cache_control` breakpoints
+ * when routed VIA OPENROUTER (the `openrouter` provider lane — apiMode
+ * 'openai', so the request travels the OpenAI-format transport, which by
+ * default emits no cache markers at all).
+ *
+ * CURATED, deliberately narrow — `anthropic/` ids only, because the marker is
+ * only ever a NO-OP-or-better there and pure noise everywhere else:
+ *  - **Anthropic models NEED it.** Anthropic caches nothing unless the request
+ *    carries breakpoints. Measured on this lane 2026-08-25: `anthropic/
+ *    claude-sonnet-5` ran at a 1.1% cached share (6.4M input tokens against
+ *    71K cache reads) — effectively uncached, ~10x overspend.
+ *  - **GLM / Kimi / DeepSeek cache IMPLICITLY**, regardless of request format
+ *    (measured 82–84% cached share on the same lane with no markers). Adding
+ *    breakpoints buys nothing and changes a body that works today.
+ *  - **OpenAI proper caches automatically** and has no notion of this marker,
+ *    so sending it would be noise on the wire.
+ * Everything else keeps a byte-identical request body.
+ * Spec: specs/2026-08-25-openrouter-cache-and-image-passthrough-design.md §2.2.
+ */
+export function openrouterModelSupportsPromptCaching(model: string): boolean {
+  return model.toLowerCase().startsWith('anthropic/');
+}
+
+/**
  * OpenRouter's unified `reasoning` request param for an effort level. The
  * effort vocabulary maps 1:1 (OpenRouter accepts max/high/medium/low among
  * others); `off` is a REAL disable on this lane — `{ reasoning: { enabled:

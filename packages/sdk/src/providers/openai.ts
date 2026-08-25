@@ -12,10 +12,12 @@ import type {
 import {
   modelSupportsReasoning,
   openAiReasoningFor,
+  openrouterModelSupportsPromptCaching,
   openrouterModelSupportsReasoning,
   openrouterReasoningFor,
 } from './effort.js';
 import { ProviderHttpError } from './errors.js';
+import { findLastCacheableSegment } from './promptCache.js';
 import type { ApiMode, ProviderRequest, ToolChoice, ToolSchema, Transport } from './types.js';
 
 /** A multimodal content part. Used ONLY when a message actually carries an
@@ -23,8 +25,26 @@ import type { ApiMode, ProviderRequest, ToolChoice, ToolSchema, Transport } from
  *  because every lane on this transport (sov/vLLM, Ollama, OpenAI proper) shares
  *  this serialisation and some are strict about the shape. */
 type OpenAIContentPart =
-  | { type: 'text'; text: string }
+  | {
+      type: 'text';
+      /** Anthropic-style prompt-cache breakpoint. Emitted ONLY on the
+       *  openrouter lane for a caching-gated model (see
+       *  `OpenAIProvider.supportsPromptCaching`); OpenRouter forwards it to
+       *  Anthropic verbatim. Every other lane omits the key entirely, keeping
+       *  a byte-identical body. */
+      text: string;
+      cache_control?: { type: 'ephemeral' };
+    }
   | { type: 'image_url'; image_url: { url: string } };
+
+/** Per-call switches for `messagesToOpenAI`. Default (`{}`) reproduces the
+ *  pre-2026-08-25 output byte-for-byte on every lane. */
+export type MessagesToOpenAIOptions = {
+  /** Place Anthropic-style `cache_control` breakpoints per the shared policy
+   *  in `providers/promptCache.ts`. Off unless the caller's lane+model gate
+   *  says the marker is meaningful. */
+  promptCache?: boolean;
+};
 
 type OpenAIMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -173,8 +193,12 @@ export class OpenAIProvider
     return headers;
   }
 
-  toProviderMessages(messages: Message[], system: SystemSegment[] = []): OpenAIMessage[] {
-    return messagesToOpenAI(messages, system);
+  toProviderMessages(
+    messages: Message[],
+    system: SystemSegment[] = [],
+    options: MessagesToOpenAIOptions = {},
+  ): OpenAIMessage[] {
+    return messagesToOpenAI(messages, system, options);
   }
 
   toProviderTools(tools?: ToolSchema[]): OpenAITool[] | undefined {
@@ -203,6 +227,29 @@ export class OpenAIProvider
       (this.name === 'openrouter'
         ? openrouterModelSupportsReasoning(req.model)
         : modelSupportsReasoning(req.model, this.apiMode))
+    );
+  }
+
+  /** Whether this request should carry Anthropic-style `cache_control`
+   *  breakpoints: the openrouter lane, a model whose vendor needs explicit
+   *  breakpoints, and caching not switched off by the host.
+   *
+   *  Same shape and same reason as `reasoningEnabled` above — the openrouter
+   *  lane shares apiMode 'openai' but carries `vendor/model` ids and vendor
+   *  behaviours the plain OpenAI path knows nothing about, so it gets its own
+   *  curated gate in effort.ts rather than a regex scattered here.
+   *
+   *  Everything outside the gate — openai proper, sov, vLLM/SGLang, ollama,
+   *  the router, and every non-Anthropic openrouter model — keeps a
+   *  BYTE-IDENTICAL body (spec §2.4): several of those lanes are strict about
+   *  message shape, and the implicitly-caching vendors gain nothing from a
+   *  marker. `req.cacheEnabled === false` (the `--no-cache` flag, the preflight
+   *  probe) suppresses it too, exactly as on the Anthropic transport. */
+  protected supportsPromptCaching(req: ProviderRequest): boolean {
+    return (
+      this.name === 'openrouter' &&
+      openrouterModelSupportsPromptCaching(req.model) &&
+      req.cacheEnabled !== false
     );
   }
 
@@ -254,7 +301,9 @@ export class OpenAIProvider
       this.apiMode === 'openai' && modelSupportsReasoning(req.model, this.apiMode);
     return {
       model: req.model,
-      messages: this.toProviderMessages(req.messages, req.system),
+      messages: this.toProviderMessages(req.messages, req.system, {
+        promptCache: this.supportsPromptCaching(req),
+      }),
       stream: true,
       // Ask for a final usage chunk so token/cost accounting isn't silently
       // zero for openai/openrouter (the chat-completions stream omits usage by
@@ -457,10 +506,12 @@ export async function* translateOpenAIStream(
 export function messagesToOpenAI(
   messages: Message[],
   system: SystemSegment[] = [],
+  options: MessagesToOpenAIOptions = {},
 ): OpenAIMessage[] {
   const out: OpenAIMessage[] = [];
-  const systemText = flattenSystem(system);
-  if (systemText.length > 0) out.push({ role: 'system', content: systemText });
+  const promptCache = options.promptCache === true;
+  const systemMessage = systemToOpenAI(system, promptCache);
+  if (systemMessage !== undefined) out.push(systemMessage);
 
   for (const message of messages) {
     if (message.role === 'user') {
@@ -555,11 +606,81 @@ export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerato
   }
 }
 
+/**
+ * The system wire message, or `undefined` when there is nothing to send.
+ *
+ * INVARIANT: the model sees the SAME system text either way — only the wire
+ * SHAPE differs. Concatenating the emitted part texts reproduces the flat
+ * string this transport has always sent, character for character. Caching must
+ * never change the prompt: a different prompt is a different behaviour AND a
+ * guaranteed cache miss.
+ *
+ * Default (and every non-caching lane): that flat trimmed string. A string
+ * `content` cannot carry `cache_control`, and several lanes on this transport
+ * are strict about message shape.
+ *
+ * With caching on and a cacheable segment present, it becomes AT MOST TWO
+ * parts and exactly ONE breakpoint — the cacheable prefix (segments up to and
+ * including the boundary) carrying the marker, then the volatile remainder.
+ * Not one part per segment: extra parts buy nothing (the marker is what
+ * matters) and multiply the ways the text can drift.
+ *
+ * Division of labour: WHICH segment is the boundary is the shared policy
+ * (`findLastCacheableSegment` — the same call the Anthropic transport's
+ * `systemToSdk` makes, so both lanes cut at the same segment for the same
+ * input); HOW the parts are laid out around it is this lane's business.
+ *
+ * The empty case is decided on the FLATTENED text, before the caching branch,
+ * so an all-whitespace system prompt is skipped identically whether or not
+ * caching is on.
+ */
+function systemToOpenAI(system: SystemSegment[], promptCache: boolean): OpenAIMessage | undefined {
+  const flat = flattenSystem(system);
+  if (flat.length === 0) return undefined;
+  const cacheBoundary = promptCache ? findLastCacheableSegment(system) : -1;
+  if (cacheBoundary === -1) return { role: 'system', content: flat };
+  const parts = systemCacheParts(system, cacheBoundary);
+  // No markable prefix (everything up to the boundary is whitespace) ⇒ the
+  // plain string, byte-identical to the caching-off path.
+  if (parts === undefined) return { role: 'system', content: flat };
+  return { role: 'system', content: parts };
+}
+
+/**
+ * The 1-or-2 marked content parts for a system prompt cut at `cacheBoundary`,
+ * or `undefined` when there is nothing worth marking.
+ *
+ * The trims are what preserve the text invariant: the flat form is the full
+ * `\n\n` join TRIMMED, so the first part drops the join's leading whitespace
+ * and the last part drops its trailing whitespace — concatenated, the parts
+ * equal the flat string exactly. An empty or whitespace-only part is never
+ * emitted (a bare `{ text: '' }` part is noise the marker cannot ride on, and
+ * some upstreams reject it).
+ */
+function systemCacheParts(
+  system: SystemSegment[],
+  cacheBoundary: number,
+): OpenAIContentPart[] | undefined {
+  const cacheable = joinSegmentText(system.slice(0, cacheBoundary + 1)).trimStart();
+  if (cacheable.length === 0) return undefined;
+  // The separator belongs to the volatile part: it sits INSIDE the cached
+  // prefix's boundary otherwise, and the prefix must end exactly where the
+  // cache does.
+  const volatileTail = `\n\n${joinSegmentText(system.slice(cacheBoundary + 1))}`.trimEnd();
+  if (volatileTail.length === 0) return [markedTextPart(cacheable.trimEnd())];
+  return [markedTextPart(cacheable), { type: 'text', text: volatileTail }];
+}
+
+function markedTextPart(text: string): OpenAIContentPart {
+  return { type: 'text', text, cache_control: { type: 'ephemeral' } };
+}
+
+function joinSegmentText(segments: SystemSegment[]): string {
+  return segments.map((s) => s.text).join('\n\n');
+}
+
 function flattenSystem(system: SystemSegment[]): string {
-  return system
-    .map((s) => s.text)
-    .join('\n\n')
-    .trim();
+  return joinSegmentText(system).trim();
 }
 
 function parseToolArgs(raw: string): unknown {

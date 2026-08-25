@@ -2,7 +2,8 @@
 // message/tool conversion and stream-chunk normalization.
 
 import { describe, expect, test } from 'bun:test';
-import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import { openrouterModelSupportsPromptCaching } from '@yevgetman/sov-sdk/providers/effort';
 import {
   type OpenAIChatChunk,
   OpenAIProvider,
@@ -496,5 +497,202 @@ describe('openrouter lane (unified reasoning + usage drift fixes, 2026-08-03)', 
         cacheCreationInputTokens: 55,
       },
     });
+  });
+});
+
+describe('openrouter lane: Anthropic prompt caching (2026-08-25)', () => {
+  /** The shared request under test: a 3-segment system prompt whose LAST
+   *  cacheable segment is the middle one, so a marker on the boundary is
+   *  visibly different from "mark the last segment". */
+  const CACHEABLE_SYSTEM = [
+    { text: 'a', cacheable: true },
+    { text: 'b', cacheable: true },
+    { text: 'c', cacheable: false },
+  ];
+  const USER_MESSAGES: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }];
+
+  function request(overrides: Record<string, unknown> = {}) {
+    return {
+      model: 'anthropic/claude-sonnet-5',
+      system: CACHEABLE_SYSTEM,
+      messages: USER_MESSAGES,
+      maxTokens: 100,
+      ...overrides,
+    };
+  }
+
+  function countCacheControl(body: unknown): number {
+    return JSON.stringify(body).split('"cache_control"').length - 1;
+  }
+
+  type WirePart = { type: string; text?: string; cache_control?: unknown };
+  type WireMessage = { role: string; content?: string | WirePart[] | null };
+
+  /** The system message's `content` exactly as it goes on the wire, or
+   *  `undefined` when no system message was emitted at all. */
+  function systemContent(body: unknown): string | WirePart[] | null | undefined {
+    const { messages } = JSON.parse(JSON.stringify(body)) as { messages: WireMessage[] };
+    return messages.find((m) => m.role === 'system')?.content;
+  }
+
+  /** The system content parts; fails loudly if the flat-string shape was emitted. */
+  function systemParts(body: unknown): WirePart[] {
+    const content = systemContent(body);
+    if (!Array.isArray(content)) throw new Error(`expected content parts, got ${typeof content}`);
+    return content;
+  }
+
+  // TWO parts, not one per segment: the cacheable prefix (through the boundary
+  // segment) carries the marker, the volatile remainder follows.
+  test('marks the LAST cacheable system segment for an anthropic/* model', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+    const body = provider.buildKwargs(request());
+    expect(body.messages[0]).toEqual({
+      role: 'system',
+      content: [
+        { type: 'text', text: 'a\n\nb', cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: '\n\nc' },
+      ],
+    });
+  });
+
+  test('emits exactly ONE breakpoint for the system message', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+    expect(countCacheControl(provider.buildKwargs(request()))).toBe(1);
+  });
+
+  test('no cacheable segment ⇒ the plain flattened string (nothing to cache)', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+    const body = provider.buildKwargs(
+      request({
+        system: [
+          { text: 'a', cacheable: false },
+          { text: 'b', cacheable: false },
+          { text: 'c', cacheable: false },
+        ],
+      }),
+    );
+    expect(body.messages[0]).toEqual({ role: 'system', content: 'a\n\nb\n\nc' });
+    expect(countCacheControl(body)).toBe(0);
+  });
+
+  // Spec §2.4 — the non-negotiable. The expected string is the body this exact
+  // request produced BEFORE the caching change (captured from the pre-change
+  // source), pinned as a literal: comparing two calls of the NEW code would
+  // pass even if both drifted together.
+  const PRE_CHANGE_BODY =
+    '{"model":"anthropic/claude-sonnet-5","messages":[{"role":"system","content":"a\\n\\nb\\n\\nc"},' +
+    '{"role":"user","content":"hi"}],"stream":true,"stream_options":{"include_usage":true},' +
+    '"max_tokens":100}';
+
+  test('openai proper ⇒ byte-identical body (the marker is noise there)', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-test' });
+    expect(JSON.stringify(provider.buildKwargs(request()))).toBe(PRE_CHANGE_BODY);
+  });
+
+  test('a non-Anthropic openrouter model ⇒ byte-identical body (it caches implicitly)', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+    const body = provider.buildKwargs(request({ model: 'z-ai/glm-5.2' }));
+    expect(body.messages[0]).toEqual({ role: 'system', content: 'a\n\nb\n\nc' });
+    expect(JSON.stringify(body)).toBe(
+      PRE_CHANGE_BODY.replace('anthropic/claude-sonnet-5', 'z-ai/glm-5.2'),
+    );
+  });
+
+  test('cacheEnabled: false ⇒ byte-identical body (the --no-cache / preflight path)', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+    const body = provider.buildKwargs(request({ cacheEnabled: false }));
+    expect(body.messages[0]).toEqual({ role: 'system', content: 'a\n\nb\n\nc' });
+    expect(JSON.stringify(body)).toBe(PRE_CHANGE_BODY);
+  });
+
+  test('messagesToOpenAI defaults to no caching (every existing caller unchanged)', () => {
+    expect(messagesToOpenAI(USER_MESSAGES, CACHEABLE_SYSTEM)[0]).toEqual({
+      role: 'system',
+      content: 'a\n\nb\n\nc',
+    });
+  });
+
+  // THE invariant: caching may change the wire SHAPE, never the prompt TEXT.
+  // A drifted prompt is both a behaviour change and a guaranteed cache miss.
+  test('part texts concatenate to exactly the flat string the off-path sends', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+    const mixed = [
+      { text: 'stable rules', cacheable: true },
+      { text: 'tool catalog\n', cacheable: true }, // trailing newline inside a segment
+      { text: 'volatile context', cacheable: false },
+      { text: 'the date', cacheable: false },
+    ];
+    const cached = provider.buildKwargs(request({ system: mixed }));
+    const off = provider.buildKwargs(request({ system: mixed, cacheEnabled: false }));
+
+    const flat = systemContent(off);
+    // asserts the off-path shape AND narrows it for the equality below
+    if (typeof flat !== 'string') throw new Error('expected the off-path to send a flat string');
+    expect(
+      systemParts(cached)
+        .map((part) => part.text ?? '')
+        .join(''),
+    ).toBe(flat);
+    expect(countCacheControl(cached)).toBe(1);
+    // and the marker sits on the cacheable prefix, not the volatile tail
+    expect(systemParts(cached)[0]?.cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  test('an empty trailing segment ⇒ ONE part, marked, with no empty part emitted', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+    const body = provider.buildKwargs(
+      request({
+        system: [
+          { text: 'x', cacheable: true },
+          { text: '', cacheable: false },
+        ],
+      }),
+    );
+    expect(body.messages[0]).toEqual({
+      role: 'system',
+      content: [{ type: 'text', text: 'x', cache_control: { type: 'ephemeral' } }],
+    });
+  });
+
+  test('a whitespace-only system prompt ⇒ no system message (same as caching off)', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+    const system = [{ text: '  ', cacheable: true }];
+    expect(systemContent(provider.buildKwargs(request({ system })))).toBeUndefined();
+    expect(
+      systemContent(provider.buildKwargs(request({ system, cacheEnabled: false }))),
+    ).toBeUndefined();
+  });
+
+  test('a whitespace-only cacheable prefix ⇒ plain string (nothing worth marking)', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+    const body = provider.buildKwargs(
+      request({
+        system: [
+          { text: '  ', cacheable: true },
+          { text: 'real', cacheable: false },
+        ],
+      }),
+    );
+    expect(body.messages[0]).toEqual({ role: 'system', content: 'real' });
+    expect(countCacheControl(body)).toBe(0);
+  });
+
+  test('no system segments at all ⇒ no system message', () => {
+    const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+    const body = provider.buildKwargs(request({ system: [] }));
+    expect(systemContent(body)).toBeUndefined();
+    expect(countCacheControl(body)).toBe(0);
+  });
+
+  test('openrouterModelSupportsPromptCaching gates on the anthropic/ vendor prefix', () => {
+    expect(openrouterModelSupportsPromptCaching('anthropic/claude-sonnet-5')).toBe(true);
+    expect(openrouterModelSupportsPromptCaching('anthropic/claude-opus-4.6')).toBe(true);
+    // implicit cachers — a marker buys nothing and would change a working body
+    expect(openrouterModelSupportsPromptCaching('z-ai/glm-5.2')).toBe(false);
+    expect(openrouterModelSupportsPromptCaching('moonshotai/kimi-k2.7-code')).toBe(false);
+    expect(openrouterModelSupportsPromptCaching('openai/gpt-5')).toBe(false);
+    // no vendor prefix ⇒ not an openrouter id ⇒ no marker
+    expect(openrouterModelSupportsPromptCaching('claude-sonnet-5')).toBe(false);
   });
 });
