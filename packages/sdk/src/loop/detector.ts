@@ -386,7 +386,7 @@ function groupCalls(calls: readonly ObservedCall[]): CallGroup[] {
 
 function describeContentLoop(chunk: ContentChunk | undefined, count: number): string {
   const quoted = chunk === undefined ? '' : ` — "${chunk.preview}"`;
-  return `The same block of your reply repeated ${count}× in a row${quoted}.`;
+  return `The same block of your reply appeared ${count}× in your recent output${quoted}.`;
 }
 
 function sha256(input: string): string {

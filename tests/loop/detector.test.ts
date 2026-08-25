@@ -559,7 +559,7 @@ describe('LoopDetectorState — content-loop', () => {
     }
     expect(detection?.detector).toBe('content-loop');
     expect(detection?.repetitionCount).toBeGreaterThanOrEqual(8);
-    expect(detection?.reason).toContain('repeated');
+    expect(detection?.reason).toContain('appeared');
   });
 
   test('does not fire when chunks differ', () => {
