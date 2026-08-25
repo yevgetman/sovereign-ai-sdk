@@ -1,5 +1,34 @@
 # Changelog
 
+## harness 0.6.71 — Real reasoning control: `off` disables, effort is settable per turn - 2026-08-25
+
+sdk 0.10.0 -> 0.10.1 (additive: `PostTurnRequest.effort`; `OpenAIChatBody.reasoning` widened to `{ effort } | { enabled: false }`).
+
+**On the OpenRouter lane, `effort: 'off'` was not an off switch.** It omitted the
+unified `reasoning` param, and models that reason by default (z-ai/glm-5.x, DeepSeek
+R1, Qwen thinking, …) then reasoned anyway; `low` is advisory for those families.
+Measured on z-ai/glm-5.2 (2026-08-25, same prompt, max_tokens 400): no param ⇒ 400
+reasoning tokens and NO answer; `effort: low` ⇒ 332 reasoning tokens; `exclude: true`
+⇒ 258 (hidden, still paid); **`enabled: false` ⇒ 0**. In production a tailor turn
+under `thinking.effort: low` spent 191 s of a 201 s run generating reasoning — ~90% of
+its 15.3K output tokens. Spec: `specs/2026-08-25-real-reasoning-control-design.md`.
+
+(1) **`off` is now an explicit disable.** `openrouterReasoningFor('off')` returns
+`{ reasoning: { enabled: false } }`, and `buildKwargs` sends the unified param for
+EVERY defined effort — including `off` — when the model is in the curated
+reasoning gate (`openrouterModelSupportsReasoning`). `effort: undefined` (a host that
+never set one) still omits the param, so the legacy/preflight body is byte-identical;
+non-gated models and every other lane (openai proper, sov, ollama) are unchanged.
+Same principle as the sov local lane's `enable_thinking: false`. Known limit: OpenAI
+o-series/gpt-5 cannot disable reasoning — `off` there still omits the dial.
+(2) **Per-turn effort over the gateway.** `POST /sessions/:id/turns` accepts
+`effort` (`off|low|medium|high|max`); it wins over the session's `/effort` /
+`thinking.effort` for THIS turn only and never mutates the session. Unlike `model` /
+`instructions`, an invalid value is a **400** (`effort must be one of
+off|low|medium|high|max`) rather than a silent fallback — a dropped effort degrades
+to the opposite of what the caller asked for, invisibly except in the bill. Absent ⇒
+byte-identical to today.
+
 ## harness 0.6.70 — Progress-aware loop guard - 2026-08-25
 
 sdk 0.9.3 -> 0.10.0 (breaking: `'action-stagnation'` removed from the `LoopDetection` and `loop_detected` detector unions; additive: `loop/options`, `QueryParams.loop`, `AgentConfig.loop`, `PerTurn.loop`, `loop_detector_error`).

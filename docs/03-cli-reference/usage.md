@@ -1729,6 +1729,21 @@ Available config fields (top-level unless noted):
 | `gateway.channels.telegram` | object | — | Inbound Telegram channel: `{ enabled?, principalId, botToken?, permissionMode? }`. Secret env-first (`SOV_TELEGRAM_BOT_TOKEN`). |
 | `gateway.channels.slack` | object | — | Inbound Slack channel: `{ enabled?, principalId, signingSecret?, botToken?, permissionMode? }`. Secrets env-first (`SOV_SLACK_SIGNING_SECRET`, `SOV_SLACK_BOT_TOKEN`). |
 
+### Reasoning effort — `thinking.effort`, `/effort`, and per-turn `effort`
+
+`thinking.effort` (`off` | `low` | `medium` | `high` | `max`, default `off`) is the boot
+default; `/effort <level>` changes it for the current session. A gateway client can set
+it for ONE turn by adding `effort` to the turn body: `POST /sessions/:id/turns
+{ "text": "...", "effort": "off" }`. The per-turn value wins for that turn and never
+changes the session. An invalid value is rejected with **400** — it is not coerced.
+
+**`off` is a real disable.** On the OpenRouter lane, models that reason by default
+(z-ai/glm-5.x, DeepSeek R1, Qwen thinking) now receive `reasoning: { enabled: false }`;
+`low` on those families is advisory (measured: glm-5.2 still reasons at `low`). Anthropic
+models do not think unless asked, so `off` there simply omits thinking. OpenAI
+o-series / gpt-5 cannot disable reasoning. `HARNESS`-level detail and the measurements:
+`specs/2026-08-25-real-reasoning-control-design.md`.
+
 ### The `loop` block — progress-aware loop guard
 
 The loop guard stops a session that is spinning. It watches three patterns: the same tool call repeated, tool calls that stop returning anything new, and the same block of reply text repeating. Every field is optional. An unset field means the detector's own default, shown here:
