@@ -32,7 +32,7 @@ releases; commit + push to `master` only. Version bump staged in the changelog.
 
 ## Tasks
 
-**Status: complete (2026-08-25)** — shipped to `master` in commits `62be417`, `c44e4a2`, `2b2ec4e`, `aa24a38`. Release 0.6.72 staged, not cut (CEO instruction). Task 4 result: tool-role parts array and assistant text-parts+tool_calls both accepted by OpenRouter; e2e through `buildKwargs` = 4 breakpoints, 7,125-token cache write then read.
+**Status: complete (2026-08-25)** — shipped to `master` in commits `62be417`, `c44e4a2`, `2b2ec4e`, `aa24a38`. Release **v0.6.72 cut and published** 2026-08-25 on the CEO's later instruction (sov-releases, 5 targets + SHA256SUMS); platform pinned (`511ed0c`) and live on app.appleo.ai. Task 4 result: tool-role parts array and assistant text-parts+tool_calls both accepted by OpenRouter; e2e through `buildKwargs` = 4 breakpoints, 7,125-token cache write then read.
 
 - [x] **1 — shared policy module** (`packages/sdk/src/providers/promptCache.ts`, new;
   `providers/anthropic.ts`; new `tests/providers/promptCache.test.ts`).

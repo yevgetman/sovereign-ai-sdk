@@ -4,8 +4,8 @@
 
 sdk 0.10.1 -> 0.10.2 (additive: `messagesToOpenAI(messages, system, { promptCache })`;
 new deep module `providers/promptCache` — the shared cache policy; text content parts may
-carry `cache_control`). **Release staged, not cut** — the CEO paused release cuts on
-2026-08-25; the platform picks this up on the next cut or via its local-binary override.
+carry `cache_control`). Released 2026-08-25 (the CEO's earlier release pause was lifted the
+same evening); the platform is pinned to it.
 
 **Anthropic models on the openrouter lane paid full input price on every turn.** The
 OpenAI-format transport flattened every system segment into ONE string, and a string
