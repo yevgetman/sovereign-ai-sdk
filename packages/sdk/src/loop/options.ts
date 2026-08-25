@@ -26,7 +26,9 @@ export type LoopOptions = {
   maxStrikes?: number;
 };
 
-export const DEFAULT_LOOP_OPTIONS: Readonly<Required<Omit<LoopOptions, 'sideEffectTools'>> & { sideEffectTools: readonly string[] }> = {
+export const DEFAULT_LOOP_OPTIONS: Readonly<
+  Required<Omit<LoopOptions, 'sideEffectTools'>> & { sideEffectTools: readonly string[] }
+> = {
   mode: 'enforce',
   consecutiveIdenticalThreshold: 4,
   noProgressWindow: 8,
