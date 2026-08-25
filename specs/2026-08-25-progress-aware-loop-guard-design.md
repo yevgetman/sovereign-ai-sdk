@@ -1,6 +1,6 @@
 # Progress-aware loop guard — design
 
-**Status:** DRAFT — awaiting CEO green-light (org:build-a-codebase: spec → green-light → autonomous build)
+**Status:** GREEN-LIT 2026-08-25 by the CEO ("go, your recos on all points"): §7 Q1 remove outright, Q2 enforce + 2 strikes, Q3 K=8 / identical=4. Plan: `plans/2026-08-25-progress-aware-loop-guard.md`.
 **Date:** 2026-08-25
 **Author:** the Kernel agent, appleo node, for a sovereign-ai-sdk session
 **Origin:** production tailor runs on app.appleo.ai killed by `action-stagnation`
