@@ -78,15 +78,20 @@ const createSessionRespConforms: AssertEq<CreateSessionResponseRecorded, CreateS
   true;
 
 // POST /sessions/:id/turns — turns.ts:177 body cast { text?: string; kind?: string;
-// model?: string; instructions?: string }; turns.ts:291 returns { accepted: true }.
+// model?: string; instructions?: string; effort?: string }; turns.ts:291 returns
+// { accepted: true }.
 // `model` is the additive optional per-turn model override (absent → configured
 // global model); `instructions` is the additive optional per-turn system
-// instruction (absent → base system prompt unchanged, byte-identical to today).
+// instruction (absent → base system prompt unchanged, byte-identical to today);
+// `effort` is the additive optional per-turn reasoning depth from the
+// REASONING_EFFORTS vocabulary (absent → the session's own effort; an
+// out-of-vocabulary value → 400, never a silent fallback).
 type PostTurnRequestRecorded = {
   text?: string;
   kind?: string;
   model?: string;
   instructions?: string;
+  effort?: string;
 };
 type PostTurnResponseRecorded = { accepted: boolean };
 const postTurnReqConforms: AssertEq<PostTurnRequestRecorded, PostTurnRequest> = true;

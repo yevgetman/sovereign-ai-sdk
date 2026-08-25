@@ -39,6 +39,7 @@ import { buildCanUseTool } from '@yevgetman/sov-sdk/permissions/canUseTool';
 import { wrapCanUseToolWithTransformers } from '@yevgetman/sov-sdk/permissions/inputTransformer';
 import { redactSecretsTransformer } from '@yevgetman/sov-sdk/permissions/redactSecretsTransformer';
 import type { CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
+import { REASONING_EFFORTS, type ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { isContextOverflowError } from '@yevgetman/sov-sdk/providers/errors';
 import { estimateCostUsd } from '@yevgetman/sov-sdk/providers/pricing';
 import { expandSkillPrompt } from '@yevgetman/sov-sdk/skills/loader';
@@ -71,6 +72,17 @@ type PendingToolUse = {
   input: unknown;
   renderHint: RenderHint;
 };
+
+/** Type-guard narrowing an UNTRUSTED wire value to a known effort level.
+ *  Takes `unknown` (not `string`) because `PostTurnRequest.effort` is typed on
+ *  the protocol but the parsed JSON body is whatever the client sent — a
+ *  number, an object, or null all have to fail closed here rather than at the
+ *  provider. Mirrors the guard in `src/commands/effortControl.ts` (the
+ *  `/effort` slash command), which validates the same vocabulary for the
+ *  session-wide level. */
+function isReasoningEffort(value: unknown): value is ReasoningEffort {
+  return typeof value === 'string' && (REASONING_EFFORTS as readonly string[]).includes(value);
+}
 
 /** Publish a `compaction_complete` SSE event for the given parent → child hop.
  *
@@ -187,6 +199,36 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
     }
     const rawText = typeof body.text === 'string' ? body.text : '';
     if (rawText === '') return c.json({ error: 'text is required' }, 400);
+
+    // Per-turn reasoning depth (PostTurnRequest.effort) — additive + optional,
+    // but STRICTLY validated. Absent/undefined → undefined → the PerTurn slice
+    // below falls back to `sessionCtx.effort` (the session's own level, set by
+    // `/effort` or the `thinking.effort` config), byte-identical to today. A
+    // string inside the REASONING_EFFORTS vocabulary → that level for THIS turn.
+    //
+    // ANYTHING else — an empty string, a misspelling ('huge'), a non-string —
+    // is a 400. This is deliberately UNLIKE the tolerant `model` /
+    // `instructions` guards below, which coerce junk to undefined: those degrade
+    // to a sane default, whereas a dropped `effort` degrades to the OPPOSITE of
+    // what the caller asked for. A client posting `effort: 'off'` to stop a
+    // reasoning model from burning thousands of thinking tokens must never have
+    // a typo silently become "no control at all" — that is the exact failure the
+    // feature exists to remove, and it is invisible except in the bill.
+    //
+    // Emitted HERE — right after the `text is required` guard and BEFORE the
+    // skill-expansion block (which can create a bus, mark a turn start, and
+    // publish a turn_error) — so a rejected body touches NO turn state at all,
+    // mirroring the `kind: skill requires text to start with /` 400.
+    //
+    // Widened to `unknown` before the guard: the field is TYPED `string` on
+    // PostTurnRequest, but the body is untrusted JSON that can carry any value.
+    const rawEffort: unknown = body.effort;
+    const perTurnEffort: ReasoningEffort | undefined = isReasoningEffort(rawEffort)
+      ? rawEffort
+      : undefined;
+    if (rawEffort !== undefined && perTurnEffort === undefined) {
+      return c.json({ error: `effort must be one of ${REASONING_EFFORTS.join('|')}` }, 400);
+    }
 
     // M8 T5 — skill-as-slash dispatch. When the client (Go TUI) recognises
     // the leading slash as a known skill name, it POSTs with `kind: 'skill'`
@@ -333,6 +375,7 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
       skillScope,
       perTurnModel,
       gatedPerTurnInstructions,
+      perTurnEffort,
     ).catch((err) => {
       // Defense in depth: runTurnInBackground catches errors inside its try and
       // publishes turn_error, but a throw in its pre-try setup would otherwise
@@ -486,6 +529,14 @@ async function runTurnInBackground(
   // is omitted and the turn uses the unchanged base `config.systemPrompt`,
   // byte-identical to today. Turn-local; never mutates runtime.systemSegments.
   perTurnInstructions?: string,
+  // Per-turn reasoning depth (PostTurnRequest.effort). A level from the
+  // REASONING_EFFORTS vocabulary, already validated at the route boundary (an
+  // out-of-vocabulary value never reaches here — it is a 400). It WINS over the
+  // session's own level for THIS turn via the PerTurn slice below
+  // (`perTurnEffort ?? sessionCtx.effort`); undefined → the session level,
+  // byte-identical to today. Turn-local: `sessionCtx.effort` is never mutated,
+  // so the next turn without an `effort` field is back on the session level.
+  perTurnEffort?: ReasoningEffort,
 ): Promise<void> {
   // Phase B T3 — mark the turn boundary on the bus BEFORE this turn stamps
   // its first event (the status_update{streaming:true} below is the first
@@ -961,12 +1012,21 @@ async function runTurnInBackground(
               ],
             }
           : {}),
-        // Reasoning-depth for THIS session, mutated live by `/effort`
-        // (backlog #57 — per-session on the SessionContext). 'off' (the
-        // default) → createAgent omits the key → query() byte-identical
-        // request. sessionCtx is re-fetched across the compaction-retry hop,
-        // so this stays correct.
-        effort: sessionCtx.effort,
+        // Reasoning depth for this turn. Base level is THIS session's, mutated
+        // live by `/effort` (backlog #57 — per-session on the SessionContext).
+        // The per-lane meaning of each level (including what `off` puts on the
+        // wire) is the adapters' business, not the gateway's. sessionCtx is
+        // re-fetched across the compaction-retry hop, so the session level
+        // stays correct.
+        //
+        // The per-turn override (PostTurnRequest.effort) WINS when present.
+        // Written as a `??` fallback rather than a conditional spread because
+        // PerTurn.effort must ALWAYS be set here — the session level is the
+        // meaningful default, and omitting the key would drop it. Turn-local
+        // and stable across the compaction-retry hop (like perTurnModel): the
+        // override lives in this function's parameter, so `sessionCtx.effort`
+        // is never mutated and the next turn is back on the session's level.
+        effort: perTurnEffort ?? sessionCtx.effort,
         // Backlog #43 (D6 fix) — MEMORY.md injection on the server surface.
         // `sessionCtx.memoryManager` is always present (built unconditionally
         // in buildSessionContext).

@@ -36,7 +36,7 @@ export interface CreateSessionResponse {
 }
 
 // --- POST /sessions/:id/turns -----------------------------------------------
-// Body { text, kind, model, instructions }. 202 → { accepted: true }.
+// Body { text, kind, model, instructions, effort }. 202 → { accepted: true }.
 // `kind: 'skill'` opts into server-side skill expansion (text must start with
 // `/`). `model` is an ADDITIVE, OPTIONAL per-turn override: when present the
 // gateway runs THIS turn on that model (via PerTurn.model) without a new
@@ -46,6 +46,16 @@ export interface CreateSessionResponse {
 // base system prompt with it for THIS turn only (via PerTurn.systemPrompt, base
 // segments + the instruction appended, cacheable:false) and it is NEVER
 // persisted in session history; when ABSENT the turn is byte-identical to today.
+// `effort` is an ADDITIVE, OPTIONAL per-turn reasoning-depth override drawn
+// from the REASONING_EFFORTS vocabulary (`off | low | medium | high | max`):
+// when present the gateway runs THIS turn at that depth (via PerTurn.effort)
+// and NEVER mutates the session's own level; when ABSENT the turn uses the
+// session's effort (set by the `/effort` slash command or the `thinking.effort`
+// config), byte-identical to today. Unlike `model`/`instructions` it is
+// validated STRICTLY at the boundary — a value outside the vocabulary (a typo,
+// an empty string, a non-string) is a 400, never a silent fallback, because
+// silently dropping it would turn "disable reasoning for this turn" into "no
+// control at all".
 // Like `kind`, each is a plain string the handler validates at the boundary —
 // the locked prefix ({ text, kind }) is preserved for older clients.
 
@@ -54,6 +64,7 @@ export interface PostTurnRequest {
   kind?: string;
   model?: string;
   instructions?: string;
+  effort?: string;
 }
 
 export interface PostTurnResponse {
