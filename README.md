@@ -41,7 +41,7 @@ The binary install lands at `~/.sov/bin/sov`; (A) and (B) land at `~/.bun/bin/so
 curl -fsSL https://raw.githubusercontent.com/yevgetman/sov-releases/main/install.sh | bash
 ```
 
-This installs a compiled `sov` + `sov-tui` + `bundle-default/` under `~/.sov/` and appends `~/.sov/bin` to your shell's `PATH`. Supported platforms: `darwin-arm64`, `darwin-x64`, `linux-x64`. Re-run anytime to upgrade. Public repo: [yevgetman/sov-releases](https://github.com/yevgetman/sov-releases).
+This installs a compiled `sov` + `sov-tui` + `bundle-default/` under `~/.sov/` and appends `~/.sov/bin` to your shell's `PATH`. Supported platforms: `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`; `windows-x64` ships as `sov-windows-x64.zip` for the Telekit Windows installer (early access — the curl installer above is POSIX-only). Re-run anytime to upgrade. Public repo: [yevgetman/sov-releases](https://github.com/yevgetman/sov-releases).
 
 `sov upgrade` auto-detects this install layout and re-runs the installer; in source-mode installs it preserves the existing `bun install -g` flow. Single binary at `~/.sov/bin/sov`, no Bun runtime required on the host.
 

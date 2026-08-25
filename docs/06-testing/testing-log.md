@@ -7287,3 +7287,15 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 **Live wake test:** Deferred to user — requires real LLM turn. One-time manual verification: `sov mission init /tmp/sov-test-wake-mission --goal "Count files in /tmp and write count.txt" && sov chat --agent scheduled-mission --state-dir /tmp/sov-test-wake-mission`. Expected: auto-wake runs, wake_log.jsonl written, state.json updated.
 
 **Regressions:** None observed.
+
+## 2026-08-24 — windows-x64 release target + Windows-safe runtime paths/shells
+
+**Scope:** `scripts/release-*.ts` (windows-x64 target, deterministic zip writer, zip-aware upload), `.github/workflows/release.yml` (build-windows job), `packages/sdk/src/util/platform.ts` + call sites (exeName, homeDir, shell resolution bash → pwsh → powershell), cron `.sh` guard, splash path separators, Windows binary-mode upgrade message. Basis: telekit spec `2026-08-24-windows-support-design.md` §3.3/§5.3.
+
+**Automated:** `bun run lint` (3 pre-existing format errors in committed `packages/sdk` files, unrelated), `bun run boundary` clean (185 modules), `bun run typecheck` clean, `SOV_SKIP_FLAKY=1 bun run test` → 5226 pass / 39 skip / 1 fail (`tests/openai/serve.cli.test.ts`: port 8766 held by unrelated processes on the build Mac — environmental). New: 49 tests across `tests/scripts/*`, 23 in `tests/util/platform.test.ts`, 6 in `tests/cli/upgrade.windows.test.ts`, 3 in `tests/cron/wiring.test.ts`.
+
+**Manual:** the zip writer's output verified with `unzip -t`, `ditto -x -k`, and Go `archive/zip` on a sample tree (names, bytes, CRCs, `bin/*` modes 0755).
+
+**Not run:** anything on real Windows. The `build-windows` CI job is the first native smoke (`sov.exe --version`, layout check); the M7/M8 real smokes on Windows need `ANTHROPIC_API_KEY` as a repo secret and a `USERPROFILE` fallback for the config path. Known follow-ups: `src/cron/wiring.ts` `.py` → `python3` (Windows uses `python`/`py`); PATH ordering can pick the WSL `bash.exe` before Git bash.
+
+**Regressions:** none observed; POSIX argv and darwin/linux artifacts byte-identical by test.

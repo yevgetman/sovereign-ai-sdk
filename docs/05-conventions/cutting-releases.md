@@ -35,6 +35,7 @@ The tag-push triggers `.github/workflows/release.yml` in the private repo, which
 - preflight (ubuntu): re-runs `bun run lint && bun run typecheck && bun run test`, asserts `package.json` version matches the tag
 - build-darwin (macos-14): cross-compiles `darwin-arm64` + `darwin-x64` tarballs in parallel with the linux job; native-smokes the arm64 binary's `--version`
 - build-linux (ubuntu): builds the `linux-x64` tarball; native-smokes its `--version`
+- build-windows (windows-latest): builds `sov-windows-x64.zip` (`sov.exe` + `sov-tui.exe`, a deterministic zip — `scripts/release-zip.ts`); native-smokes `sov.exe --version` and the archive layout
 - release (ubuntu): downloads artifacts, computes `SHA256SUMS`, runs `gh release create` against `yevgetman/sov-releases` using the `SOV_RELEASES_TOKEN` fine-grained PAT
 
 Wall time ~4-12 minutes (v0.6.0 first cut was ~4 min). Watch via `gh run watch -R yevgetman/sovereign-ai-sdk`.
