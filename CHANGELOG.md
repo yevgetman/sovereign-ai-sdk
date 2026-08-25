@@ -1,5 +1,83 @@
 # Changelog
 
+## harness 0.6.70 — Progress-aware loop guard - 2026-08-25
+
+sdk 0.9.3 -> 0.10.0 (breaking: `'action-stagnation'` removed from the `LoopDetection` and `loop_detected` detector unions; additive: `loop/options`, `QueryParams.loop`, `AgentConfig.loop`, `PerTurn.loop`, `loop_detector_error`).
+
+**Behaviour change: the `action-stagnation` detector is removed.** It counted
+consecutive calls of the same tool *name* and treated the count as the signal,
+so for any turn whose tool scope is a single tool it measured turn LENGTH, not
+stuckness — twelve distinct, productive reads looked exactly like twelve
+identical retries, and because a detector clears its history after firing, such
+a turn died at ~12 + 12 calls. Production evidence: every glm-5.2 tailor run on
+app.appleo.ai tripped strike 1 and 16 sessions since 2026-08-05 were killed at
+strike 2; the trace that forced this change (session `009343da`, 2026-08-25)
+shows 24 tool calls, 24 distinct commands, 24 distinct results and zero errors,
+aborted as a loop. Progress is now judged on what comes BACK from a call, not on
+what was sent. Spec:
+`specs/2026-08-25-progress-aware-loop-guard-design.md`.
+
+(1) **New `no-progress` detector.** Each dispatched tool call is observed after
+dispatch and recorded in a per-session result-novelty ledger. A call is
+*productive* when its result hash (`ok|error` + the first 64 KiB of the
+`tool_result` text) is new to this session, or when it is a successful
+side-effect tool (`FileEdit`, `FileWrite`, `memory`, `memory_propose`, plus
+anything the host adds via `loop.sideEffectTools`). The detector fires only when
+the last **K = 8** observed calls were ALL unproductive — the model is
+re-reading, re-running or re-failing with nothing new coming back — regardless
+of which tool it used or how many calls the turn has made. Seen results are an
+insertion-ordered LRU capped at 2 000 hashes. Detection still runs pre-dispatch,
+so a no-progress verdict lands one turn late by design: the strike-1 guidance
+path still merges into the `tool_result` user message and the strike-2 abort
+still synthesizes `tool_result`s for pending `tool_use` blocks, leaving the
+message-ordering invariants from the `loop-detector-orphaned-tool-use`
+postmortem untouched. (2) **`consecutive-identical` (same tool name + input, 4
+in a row) and `content-loop` (one chunk of assistant text repeating 8× inside a
+`ceil(8 × 1.5)` window) are unchanged in behaviour** and are now configurable.
+Priority when several arm on one check: identical > no-progress > content.
+
+(3) **New `loop` config block** — strict, every field optional, unset meaning
+"the detector's own default": `mode` (`enforce` | `warn` | `off`, default
+`enforce`), `consecutiveIdenticalThreshold` (4), `noProgressWindow` (8),
+`contentChunkSize` (200), `contentRepeatThreshold` (8),
+`contentWindowMultiplier` (1.5), `sideEffectTools` (additive to the built-in
+set), `maxStrikes` (2). `enforce` injects guidance while the strike count is
+below `maxStrikes` and aborts on the strike that reaches it; `warn` guides on
+every detection and never aborts; `off` disables detection entirely. The same
+shape is available per turn: `AgentConfig.loop` is the standing policy,
+`PerTurn.loop` overrides it (`perTurn.loop ?? config.loop`), and both land on
+`QueryParams.loop`. The gateway lifts the block into `ServerRuntime.loop` at
+boot — captured like `effort`, so a `/config loop.*` edit takes effect next
+session — and the HTTP turn body is unchanged (a host needing per-turn policy
+passes it through the embedded API). Every hop is a conditional spread, so a
+host that configures nothing leaves the field absent end to end and gets
+byte-identical behaviour. `HARNESS_LOOP_DETECTOR=off` stays and still wins over
+any configured mode.
+
+(4) **Every fire is now explainable.** `loop_detected` (stream event + trace)
+gains `reason` — one sentence naming what repeated, e.g. *"Your last 8 tool
+calls returned nothing new — `Bash resume show work/icims-inc` (result already
+seen, 3×), `Bash resume edit skills/1-…` (same error 5×: …)"* — plus `action`
+(`guidance` | `abort` | `warn`), the `mode` in force, and, for no-progress, a
+`window { size, unproductive }`. `detector`, `hash`, `repetitionCount` and (on
+the stream event) `occurrence` are unchanged; the `detector` union swaps
+`action-stagnation` for `no-progress`. The injected guidance now names the
+pattern instead of saying "the same action is repeating", and an abort fails
+with `aborted by loop guard (<detector>): <reason>` rather than a bare stop, so
+a host can surface why the turn ended. A new `loop_detector_error` trace event
+records any throw inside the detector: the guard is advisory infrastructure, so
+an exception is caught and treated as "no detection" for that turn rather than
+failing the turn. `sov trace show` renders both events, reason included.
+
+(5) **Surfaces.** `/config` (and `sov config set`) exposes `loop.mode`,
+`loop.noProgressWindow`, `loop.consecutiveIdenticalThreshold` and
+`loop.maxStrikes` in the General group — restart-scoped, matching the
+boot-captured runtime field; the content-loop knobs and `sideEffectTools` are
+config-file only. Docs: `docs/03-cli-reference/usage.md` gains a `loop`
+config-block section, and the loop-detection paragraph in
+`docs/02-architecture/runtime-architecture.md` is rewritten (it still described
+the removed detector, at a threshold that was already stale).
+
 ## harness 0.6.68 — OpenRouter lane refresh: reasoning control, thinking capture, cache-write accounting - 2026-08-03
 
 The openrouter lane shipped with the multi-provider core and had not been

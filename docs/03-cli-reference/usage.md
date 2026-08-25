@@ -1675,6 +1675,10 @@ Available config fields (top-level unless noted):
 | `permissionMode` | enum | `default` | `default` \| `ask` \| `bypass` |
 | `thinking.effort` | enum | `off` | `off` \| `low` \| `medium` \| `high` \| `max` — boot default for reasoning depth (extended thinking). `off` ⇒ request byte-identical. Overridden per session by `/effort`. See [`/effort` — reasoning depth](#effort--reasoning-depth). |
 | `maxTurns` | int | `100` | runaway-loop circuit breaker, not a task ceiling |
+| `loop.mode` | enum | `enforce` | `enforce` \| `warn` \| `off` — loop-guard policy. See [The `loop` block — progress-aware loop guard](#the-loop-block--progress-aware-loop-guard). |
+| `loop.noProgressWindow` | int > 0 | `8` | fire when the last K tool calls all came back with nothing new |
+| `loop.consecutiveIdenticalThreshold` | int > 0 | `4` | fire when the same tool + same input repeats this many times in a row |
+| `loop.maxStrikes` | int > 0 | `2` | detections before `enforce` aborts the turn — earlier strikes only inject guidance |
 | `verbose` | bool | `false` | show full tool-result preview blocks |
 | `providers.<name>.model` | string | — | provider-specific model override |
 | `providers.<name>.baseUrl` | url | provider default | e.g. `http://localhost:11434` for ollama |
@@ -1724,6 +1728,48 @@ Available config fields (top-level unless noted):
 | `gateway.channels.webhook` | object | — | Inbound generic-webhook channel: `{ enabled?, principalId, secret?, permissionMode? }`. Secret env-first (`SOV_WEBHOOK_SECRET`). See [Channels](#channels). |
 | `gateway.channels.telegram` | object | — | Inbound Telegram channel: `{ enabled?, principalId, botToken?, permissionMode? }`. Secret env-first (`SOV_TELEGRAM_BOT_TOKEN`). |
 | `gateway.channels.slack` | object | — | Inbound Slack channel: `{ enabled?, principalId, signingSecret?, botToken?, permissionMode? }`. Secrets env-first (`SOV_SLACK_SIGNING_SECRET`, `SOV_SLACK_BOT_TOKEN`). |
+
+### The `loop` block — progress-aware loop guard
+
+The loop guard stops a session that is spinning. It watches three patterns: the same tool call repeated, tool calls that stop returning anything new, and the same block of reply text repeating. Every field is optional. An unset field means the detector's own default, shown here:
+
+```json
+{
+  "loop": {
+    "mode": "enforce",
+    "consecutiveIdenticalThreshold": 4,
+    "noProgressWindow": 8,
+    "contentChunkSize": 200,
+    "contentRepeatThreshold": 8,
+    "contentWindowMultiplier": 1.5,
+    "sideEffectTools": [],
+    "maxStrikes": 2
+  }
+}
+```
+
+- `mode` — the policy in force. `enforce`, `warn`, or `off` (table below).
+- `consecutiveIdenticalThreshold` — fire when the same tool is called with the same input this many times in a row.
+- `noProgressWindow` — fire when the last K tool calls all came back with nothing new.
+- `contentChunkSize` — size, in characters, of the reply-text chunks the content detector hashes.
+- `contentRepeatThreshold` — fire when one chunk repeats this many times inside the window.
+- `contentWindowMultiplier` — the content window is `ceil(contentRepeatThreshold × this)`.
+- `sideEffectTools` — extra tool names whose successful call always counts as progress. Added to the built-in set (`FileEdit`, `FileWrite`, `memory`, `memory_propose`); it never replaces it.
+- `maxStrikes` — how many detections it takes to abort the turn in `enforce` mode.
+
+| `mode` | What a detection does |
+|---|---|
+| `enforce` (default) | Injects guidance while the strike count is below `maxStrikes`. The strike that reaches it aborts the turn with `aborted by loop guard (<detector>): <reason>`. |
+| `warn` | Injects guidance on every detection. Never aborts the turn. |
+| `off` | No detection at all. |
+
+Kill switch: `HARNESS_LOOP_DETECTOR=off sov`. It disables the guard for the whole process and wins over any configured `mode`.
+
+"Nothing new" is judged on what comes back, not on what was sent. A call counts as progress when its result is new to this session, or when it is a successful side-effect tool. So a long run of distinct, productive calls never fires — however many calls it makes, and however few tools it uses.
+
+**When to tune.** Raise `noProgressWindow` for a skill that works through a single tool, or for an audit that legitimately re-runs the same checks, since both can return an already-seen result several calls in a row without being stuck. Set `mode: "warn"` when you want the signal in the trace but not the kill.
+
+`loop.*` is read at boot, so a change applies to the next session, not the running one. `/config` exposes `loop.mode`, `loop.noProgressWindow`, `loop.consecutiveIdenticalThreshold`, and `loop.maxStrikes` in the General group; the content-loop knobs and `sideEffectTools` are config-file only. Design: `specs/2026-08-25-progress-aware-loop-guard-design.md`.
 
 ## Learning recall
 
