@@ -30,6 +30,24 @@ This file is a **lean router** — purpose, standing rules, and the session-boot
 
 ---
 
+## ⚠ SPECCED AND WAITING — OpenRouter cache + MCP image passthrough (2026-08-25)
+
+Two production defects in **this repo's** provider/MCP layer, found from the `appleo` node,
+specced end-to-end and **awaiting a CEO green-light** (SOP-12). Read the spec before touching
+`providers/openai.ts` or `mcp/client.ts` — a change in either file likely collides with it.
+
+- **Backlog #63 — the openrouter lane never emits `cache_control`.** Anthropic models pay full
+  input price on every turn; measured **~10x** on an identical request. Contained fix.
+- **Backlog #64 — MCP image blocks are discarded** (`flattenCallResult` → `[mcp:image content
+  omitted]`), so vision through MCP tools is impossible. Already blocking shipped downstream
+  work. **Carries a founder-reserved one-way-door decision** on `tool_result.content` — do not
+  start that build before it is made.
+
+**Spec:** [`specs/2026-08-25-openrouter-cache-and-image-passthrough-design.md`](specs/2026-08-25-openrouter-cache-and-image-passthrough-design.md) ·
+**Backlog:** [`docs/08-roadmap/backlog/post-phase-13-4.md`](docs/08-roadmap/backlog/post-phase-13-4.md) (P0)
+
+---
+
 ## Session boot
 
 1. **This file** (`CLAUDE.md`) — router and standing rules.

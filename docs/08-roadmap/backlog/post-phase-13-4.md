@@ -11,6 +11,9 @@ These items are deliberately NOT in `~/code/sovereign-ai-docs/harness/docs/runti
 ## Priority order
 
 P0 (correctness / data integrity):
+63. **OpenRouter lane never emits `cache_control` — Anthropic models pay full input price every turn.** Measured **~10x** overspend on an identical request ($0.03614 → $0.0037). The OpenAI-format transport (`providers/openai.ts` → `messagesToOpenAI` / `flattenSystem`) flattens the system prompt to a plain string, which cannot carry a cache marker; the Anthropic transport already does this correctly (`providers/anthropic.ts` → `systemToSdk` / `messagesToSdk`). Confirmed against appleo production traffic: `anthropic/claude-sonnet-5` at 1.1% cached vs GLM/Kimi at 82–84% (those providers cache implicitly). OpenRouter honours the marker on both wire formats — verified live. **Status: open.** Spec: [`specs/2026-08-25-openrouter-cache-and-image-passthrough-design.md`](../../../specs/2026-08-25-openrouter-cache-and-image-passthrough-design.md) §2. Awaiting CEO green-light.
+64. **MCP image content is discarded — vision through MCP tools is impossible.** `mcp/client.ts` → `flattenCallResult()` replaces every image block with the literal `[mcp:image content omitted]` (verified in the deployed v0.6.53 binary). `core/types.ts` compounds it: `tool_result.content` is typed `string`, so an image has nowhere to live even if preserved; and `providers/openai.ts` drops user-message images as `[image omitted]`. Already blocking shipped downstream work — the appleo Theme Studio renders a screenshot of the résumé for its theme agent and the harness throws it away, so that agent still designs blind. **Contains a founder-reserved one-way-door decision** (widen `tool_result.content` vs a companion image message) — do not start the build before it is made. **Status: open.** Spec: [`specs/2026-08-25-openrouter-cache-and-image-passthrough-design.md`](../../../specs/2026-08-25-openrouter-cache-and-image-passthrough-design.md) §3.
+
 1. ~~MEMORY.md cap enforcement on `/review approve`~~ **— closed `f7c9c69`**
 2. ~~Auto-promote provenance preservation gap audit~~ **— closed `47993ec` (no real gap; C2 fix verified)**
 
@@ -676,6 +679,7 @@ Two follow-ups surfaced during the M7 Hermes-layer parity work. Neither blocked 
 ## How to use this document
 
 Pick any item by priority + effort match for your session length:
+- **Highest value right now: items 63 + 64** — both specced end-to-end in `specs/2026-08-25-openrouter-cache-and-image-passthrough-design.md` with measured evidence and a test plan. 63 is a contained cost fix; 64 needs the founder's type decision first.
 - 10-min slot: item 49 (Node-20 GitHub Actions deprecation — pure CI hygiene)
 - Half-day slot: item 54 (recall on the other surfaces — mirror the turns-route wiring) or item 52 (synthesizer onto Reason)
 - Multi-day: item 17, or the Learning-loop spike Phase-2 cluster (items 50–53)
