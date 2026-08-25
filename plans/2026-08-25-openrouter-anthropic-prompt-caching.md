@@ -32,13 +32,15 @@ releases; commit + push to `master` only. Version bump staged in the changelog.
 
 ## Tasks
 
-- [ ] **1 — shared policy module** (`packages/sdk/src/providers/promptCache.ts`, new;
+**Status: complete (2026-08-25)** — shipped to `master` in commits `62be417`, `c44e4a2`, `2b2ec4e`, `aa24a38`. Release 0.6.72 staged, not cut (CEO instruction). Task 4 result: tool-role parts array and assistant text-parts+tool_calls both accepted by OpenRouter; e2e through `buildKwargs` = 4 breakpoints, 7,125-token cache write then read.
+
+- [x] **1 — shared policy module** (`packages/sdk/src/providers/promptCache.ts`, new;
   `providers/anthropic.ts`; new `tests/providers/promptCache.test.ts`).
   Lift `findLastCacheableSegment`, the last-3 window (`RECENT_MESSAGE_CACHE_WINDOW = 3`,
   `recentMessageCacheFrom(len)`), and a generic `lastCacheableIndex<T>(items, isCacheable)`
   into the module. `anthropic.ts` imports them; **zero behaviour change** there
   (`tests/providers/anthropic.test.ts` stays green untouched). Unit-test the module directly.
-- [ ] **2 — openrouter gate + system-message breakpoint** (`providers/effort.ts`,
+- [x] **2 — openrouter gate + system-message breakpoint** (`providers/effort.ts`,
   `providers/openai.ts`, `tests/providers/openai.test.ts`).
   `openrouterModelSupportsPromptCaching(model)` in effort.ts (curated, `anthropic/` only).
   `protected supportsPromptCaching(req)` on `OpenAIProvider`: name gate ∧ model gate ∧
@@ -50,7 +52,7 @@ releases; commit + push to `master` only. Version bump staged in the changelog.
   `anthropic/claude-sonnet-5` on openrouter; no cacheable segment ⇒ plain string; openai
   proper ⇒ **`JSON.stringify` byte-identical** to today for the same input; `z-ai/glm-5.2`
   on openrouter ⇒ byte-identical; `cacheEnabled: false` ⇒ byte-identical.
-- [ ] **3 — recent-message breakpoints + anti-drift + usage** (`providers/openai.ts`,
+- [x] **3 — recent-message breakpoints + anti-drift + usage** (`providers/openai.ts`,
   `tests/providers/openai.test.ts`, `tests/providers/promptCache.test.ts`).
   Apply `recentMessageCacheFrom` to the internal message list; for each internal message in
   the window, mark the last cacheable wire message it produced (user text ⇒ parts array with
@@ -60,17 +62,17 @@ releases; commit + push to `master` only. Version bump staged in the changelog.
   long tool loop; a user message with 3 tool_results gets exactly one marker; usage: a
   response with `prompt_tokens_details.cached_tokens` meters as `cacheReadInputTokens`, not
   input (may already exist — verify, add if missing).
-- [ ] **4 — live verification** (no code): run one real `anthropic/claude-sonnet-5` request
+- [x] **4 — live verification** (no code): run one real `anthropic/claude-sonnet-5` request
   twice through `buildKwargs` + the openrouter endpoint with a >1024-token cacheable system
   prompt and a short tool loop; assert `cached_tokens > 0` on the second and that the
   `tool`-role parts array is accepted. Record the numbers in the changelog entry. If no
   OpenRouter credential is reachable, say so — do not fake the result.
-- [ ] **5 — docs + changelog + version** (`CHANGELOG.md`,
+- [x] **5 — docs + changelog + version** (`CHANGELOG.md`,
   `docs/02-architecture/runtime-architecture.md` §segment cacheable marker,
   `docs/04-extending/metering-an-agent.md` if the write-phase note needs the marker context,
   `package.json` 0.6.71 → 0.6.72, `packages/sdk/package.json` 0.10.1 → 0.10.2 (additive:
   `messagesToOpenAI` options, new `promptCache` module — check the barrel/surface tests).
   Changelog entry states the release is **staged, not cut**.
-- [ ] **6 — gate + ship**: full gate green; one commit per task; push `master`. Do NOT tag,
+- [x] **6 — gate + ship**: full gate green; one commit per task; push `master`. Do NOT tag,
   do NOT publish to sov-releases. Report to the CEO: the lane is fixed in source; the platform
   picks it up on the next release cut (staged) or via the local-binary override.
