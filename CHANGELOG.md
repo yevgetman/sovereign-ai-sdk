@@ -1,5 +1,62 @@
 # Changelog
 
+## harness 0.6.72 — Anthropic prompt caching on the OpenRouter lane - 2026-08-25
+
+sdk 0.10.1 -> 0.10.2 (additive: `messagesToOpenAI(messages, system, { promptCache })`;
+new deep module `providers/promptCache` — the shared cache policy; text content parts may
+carry `cache_control`). **Release staged, not cut** — the CEO paused release cuts on
+2026-08-25; the platform picks this up on the next cut or via its local-binary override.
+
+**Anthropic models on the openrouter lane paid full input price on every turn.** The
+OpenAI-format transport flattened every system segment into ONE string, and a string
+cannot carry a `cache_control` marker; Anthropic caches only at explicit breakpoints,
+so the lane sent none. Production spans: `anthropic/claude-sonnet-5` 6.4M input tokens
+at a **1.1% cached share**, against 82–84% for glm/kimi (their providers cache
+implicitly). Live-measured 2026-08-25 on an 18K-token system prompt: identical request
+**$0.0361 uncached vs $0.0037 cached — ~10x**. Spec:
+`specs/2026-08-25-openrouter-cache-and-image-passthrough-design.md` §2 (gap 1 only;
+gap 2 — MCP image passthrough — holds a founder-reserved decision and is untouched).
+
+(1) **One cache policy, shared by both transports.** `providers/promptCache.ts` now
+owns what the Anthropic transport had privately: mark the LAST cacheable system segment;
+mark the last cacheable block of each of the LAST 3 messages
+(`RECENT_MESSAGE_CACHE_WINDOW`); never exceed Anthropic's **4 breakpoints per request**
+(`MAX_CACHE_BREAKPOINTS`, enforced by `recentMessageCacheBudget`). `anthropic.ts` imports
+it — zero behaviour change there — so the two lanes cannot drift; an anti-drift test
+pins that both lanes mark the same internal messages for the same history.
+(2) **The openrouter lane applies it for `anthropic/*` models.** Gate:
+`this.name === 'openrouter'` ∧ `openrouterModelSupportsPromptCaching(model)` (curated,
+`anthropic/` prefix, next to the reasoning gate in `effort.ts`) ∧ `cacheEnabled !== false`
+(`--no-cache` and the preflight probe stay uncached). When on: the system message becomes
+two text parts — the cacheable prefix with the marker, then the volatile tail — whose
+texts **concatenate to exactly the flat string** the off path sends, so the model sees
+the same prompt either way; then each of the last 3 internal messages gets ONE marker on
+the last cacheable wire message it produced (user text, tool result, assistant text; a
+user message with N tool_results marks only the last `tool` message; pure `tool_calls`
+turns, image-only messages and empty content are never marked; `image_url` parts never
+carry a marker).
+(3) **Every other lane, model and flag is byte-identical to before.** OpenAI proper
+(caches automatically — the marker would be noise), non-Anthropic openrouter models
+(implicit caching), sov/vLLM, Ollama, the router lane, `cacheEnabled: false`, and every
+legacy two-argument `messagesToOpenAI` caller: pinned against literals generated from
+the pre-change source, not against the new code.
+(4) **Usage accounting was already right** — `prompt_tokens_details.cached_tokens` →
+`cacheReadInputTokens` (subtracted from input), `cache_write_tokens` →
+`cacheCreationInputTokens`; the four phases stay disjoint and additive. Verified by the
+existing tests; no change.
+
+**Live verification (2026-08-25, `anthropic/claude-sonnet-5` via OpenRouter, raw wire
+shapes):** system parts + `tool`-role parts array + user parts, four breakpoints —
+request 1 `cache_write 9,093 / cached 0`, request 2 `cached 9,093 / cache_write 0`,
+HTTP 200 both. Assistant text parts + `tool_calls` (the other in-window shape) —
+request 1 `cache_write 7,114`, request 2 `cached 7,114`, HTTP 200. End-to-end through
+the real `buildKwargs` (cacheable system segment + volatile tail, user → assistant
+text+tool_use → tool_result → user): 4 breakpoints in the body, request 1
+`cache_write 7,125 / cached 0`, request 2 `cached 7,125 / cache_write 0`, HTTP 200 both.
+
+Non-goals: TTL strategy (`ephemeral` 5-minute only — revisit with data), implicit-caching
+providers, the Anthropic transport's own caching, and gap 2.
+
 ## harness 0.6.71 — Real reasoning control: `off` disables, effort is settable per turn - 2026-08-25
 
 sdk 0.10.0 -> 0.10.1 (additive: `PostTurnRequest.effort`; `OpenAIChatBody.reasoning` widened to `{ effort } | { enabled: false }`).

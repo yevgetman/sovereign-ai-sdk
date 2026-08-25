@@ -65,7 +65,7 @@ System prompt assembly lives under `src/context/`. New sessions freeze a static-
 - runtime facts such as cwd, OS, shell, date, and git status
 - local user/project context from `AGENTS.md`, `CONTEXT.md`, `.cursorrules`, and user context files
 
-Each segment has a `cacheable` marker. Providers that support prompt caching translate this into provider-specific cache controls; other providers concatenate the text and ignore the marker.
+Each segment has a `cacheable` marker. Providers that support prompt caching translate this into provider-specific cache controls; other providers concatenate the text and ignore the marker. The policy itself — mark the last cacheable system segment, mark the last cacheable block of each of the last 3 messages, never more than 4 breakpoints per request — lives once in `packages/sdk/src/providers/promptCache.ts` and is applied by the Anthropic transport and by the OpenAI-format transport's **openrouter lane for `anthropic/*` models** (gated in `providers/effort.ts`, honouring `cacheEnabled` / `--no-cache`). Every other lane and model produces a byte-identical request body with no markers.
 
 On resume, the session reuses the exact frozen system prompt from SQLite. Runtime facts and local context are not rebuilt for an existing session.
 
