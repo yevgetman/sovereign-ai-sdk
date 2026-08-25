@@ -78,6 +78,8 @@ export function describeScope(scope: ApplyScope): ScopeMessage {
 // ──────────────────────────────────────────────────────────────────────
 
 const SETTING_SCOPES: Readonly<Record<string, ApplyScope>> = Object.freeze({
+  // ── restart: boot-captured into Runtime.loop like `effort` (loop-guard spec §3.6) ──
+  'loop.': 'restart',
   // ── green: live (per-turn read, mutated directly) ──
   permissionMode: 'live',
   verbose: 'live',

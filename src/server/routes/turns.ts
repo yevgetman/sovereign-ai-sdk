@@ -842,6 +842,10 @@ async function runTurnInBackground(
       // onto sessionCtx.conduct. Conditional spread keeps the field ABSENT when
       // unbound → createAgent's null provider (byte-identical, exactOptional).
       ...(runtime.conduct !== undefined ? { conduct: runtime.conduct } : {}),
+      // Loop guard (spec 2026-08-25-progress-aware-loop-guard-design §3.6) —
+      // the standing `loop` config block. Absent block ⇒ absent field ⇒ the
+      // detector's own defaults, byte-identical to before the block existed.
+      ...(runtime.loop !== undefined ? { loop: runtime.loop } : {}),
     });
 
     // M6 T4 — overflow auto-recovery (M6-02 retry-once). Run the

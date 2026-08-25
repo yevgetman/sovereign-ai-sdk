@@ -77,6 +77,35 @@ describe('config catalog', () => {
     if (parent) expect(parent.id).toBe('general');
   });
 
+  // T4 (progress-aware loop guard, 2026-08-25) — the four operator-facing
+  // knobs of the `loop` block are reachable from /config. The remaining
+  // LoopSchema fields (content-loop tuning, sideEffectTools) are deliberately
+  // NOT catalogued — they are expert-level and fall through to
+  // `Advanced (unmanaged)`. Spec: §3.4.
+  test('the loop-guard knobs are catalogued under General', () => {
+    const paths = [
+      'loop.mode',
+      'loop.noProgressWindow',
+      'loop.consecutiveIdenticalThreshold',
+      'loop.maxStrikes',
+    ];
+    for (const path of paths) {
+      const item = findItem(path);
+      expect(item, `${path} should be catalogued`).toBeDefined();
+      expect(findGroupForItem(path)?.id).toBe('general');
+    }
+    const mode = findItem('loop.mode');
+    expect(mode?.editor.kind).toBe('enum');
+    if (mode?.editor.kind === 'enum') {
+      expect([...mode.editor.choices]).toEqual(['enforce', 'warn', 'off']);
+    }
+    for (const path of paths.filter((p) => p !== 'loop.mode')) {
+      const item = findItem(path);
+      expect(item?.editor.kind, `${path} should be a number editor`).toBe('number');
+      if (item?.editor.kind === 'number') expect(item.editor.min).toBe(1);
+    }
+  });
+
   test('lane model pickers scope choices to the lane provider (sov → real model id)', () => {
     const item = findItem('taskRouting.lanes.cheap-task.model');
     expect(item?.editor.kind).toBe('string');

@@ -94,6 +94,8 @@ const THEME_CHOICES = ['dark', 'light', 'no-color'] as const;
 const ROUTER_LANE_CHOICES = ['local', 'frontier'] as const;
 const ROUTER_ESCALATION_CHOICES = ['ask', 'auto', 'never'] as const;
 const WEBSEARCH_PROVIDER_CHOICES = ['tavily', 'brave'] as const;
+// Loop-guard mode. Mirrors `LoopMode` in packages/sdk/src/loop/options.ts.
+const LOOP_MODE_CHOICES = ['enforce', 'warn', 'off'] as const;
 // Subscription-executor enums. Mirror the `subscriptionExecutor` block in
 // src/config/schema.ts. `permissionMode` is DELIBERATELY a different set from
 // the top-level `PERMISSION_MODE_CHOICES` — it maps to the spawned subprocess's
@@ -221,6 +223,37 @@ const GENERAL_GROUP: ConfigGroup = {
       description:
         'Pause the turn loop after this many tool calls and ask the user before continuing. Default unset (no limit).',
       editor: { kind: 'number', min: 1 },
+    },
+    // Loop guard. Spec: specs/2026-08-25-progress-aware-loop-guard-design.md
+    // §3.4. Every field is optional and unset means "the detector's own
+    // default" — nothing here is written unless the operator sets it.
+    {
+      path: 'loop.mode',
+      label: 'loop.mode',
+      description:
+        'Loop-guard policy. enforce (default) = guidance, then abort at maxStrikes; warn = guidance every time, never abort; off = no detection. HARNESS_LOOP_DETECTOR=off still wins.',
+      editor: { kind: 'enum', choices: LOOP_MODE_CHOICES },
+    },
+    {
+      path: 'loop.noProgressWindow',
+      label: 'loop.noProgressWindow',
+      description:
+        'Fire when the last K tool calls all came back with nothing new (result already seen this session, and not a successful side-effect tool). Default 8.',
+      editor: { kind: 'number', min: 1, placeholder: '8' },
+    },
+    {
+      path: 'loop.consecutiveIdenticalThreshold',
+      label: 'loop.consecutiveIdenticalThreshold',
+      description:
+        'Fire when the same tool is called with the same input this many times in a row. Default 4.',
+      editor: { kind: 'number', min: 1, placeholder: '4' },
+    },
+    {
+      path: 'loop.maxStrikes',
+      label: 'loop.maxStrikes',
+      description:
+        'Detections before the turn is aborted in enforce mode — earlier strikes only inject guidance. Default 2.',
+      editor: { kind: 'number', min: 1, placeholder: '2' },
     },
   ],
 };

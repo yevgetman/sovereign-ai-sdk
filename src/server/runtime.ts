@@ -39,6 +39,7 @@ import type { SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import { buildConsentChecker, buildFileConsentStore } from '@yevgetman/sov-sdk/hooks/consent';
 import { buildHookRunner } from '@yevgetman/sov-sdk/hooks/runner';
 import type { HookRunner } from '@yevgetman/sov-sdk/hooks/types';
+import { type LoopOptions, buildLoopOptions } from '@yevgetman/sov-sdk/loop/options';
 import { serializeMcpServerConfig } from '@yevgetman/sov-sdk/mcp/auth';
 import { buildMcpClientPool } from '@yevgetman/sov-sdk/mcp/client';
 import { wrapMcpTools } from '@yevgetman/sov-sdk/mcp/toolWrapper';
@@ -413,6 +414,16 @@ export type Runtime = {
    *  principal's `/effort` from leaking to other principals / cron / channels.
    *  (`model` above is still global — that sibling gap is tracked separately.) */
   effort: ReasoningEffort;
+  /** Loop-guard policy BOOT DEFAULT, lifted from the `loop` config block via
+   *  `buildLoopOptions` (undefined keys dropped, defaults NOT merged). Read by
+   *  the turns route, which spreads it onto each turn's `createAgent` config,
+   *  so a host that configured nothing leaves the field ABSENT and the detector
+   *  keeps its own defaults — byte-identical to pre-`loop`-block behaviour.
+   *  Captured at boot like `effort`: live-reload does not rebuild it (see
+   *  `reresolveProvider` / `rebuildTaskRouting`, which touch provider/model/
+   *  segments/hooks only), so a `/config loop.*` edit lands next session.
+   *  Spec: specs/2026-08-25-progress-aware-loop-guard-design.md §3.6. */
+  loop?: LoopOptions;
   agents: AgentRegistry;
   bundle: Bundle | null;
   cwd: string;
@@ -1960,6 +1971,15 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     getSession: (id) => sessionDb.getSession(id),
   });
 
+  // Loop-guard policy from the `loop` config block. Tolerates an absent block
+  // by construction — same defensiveness `effort`'s `?.` buys, since the
+  // missing-config early-return hands back a bare `{}` — because the
+  // normalizer takes `null | undefined` as "nothing configured". It drops
+  // undefined keys and returns undefined for an absent/empty block, so the
+  // conditional spread below keeps the field ABSENT rather than
+  // `undefined`-valued (exactOptionalPropertyTypes).
+  const loop = buildLoopOptions(userSettings.loop);
+
   const runtime: Runtime = {
     sessionDb,
     transcripts: transcriptStore,
@@ -1973,6 +1993,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     // (the schema default only materializes on the parse path). 'off' = no
     // extended thinking = byte-identical provider requests.
     effort: opts.effort ?? userSettings.thinking?.effort ?? 'off',
+    // Loop-guard boot default (see the `loop` field doc). Conditional spread —
+    // no block, or a block with no defined key, means NO field, which is what
+    // makes the turns route's createAgent call byte-identical when unconfigured.
+    ...(loop !== undefined ? { loop } : {}),
     agents,
     bundle,
     cwd: opts.cwd,
