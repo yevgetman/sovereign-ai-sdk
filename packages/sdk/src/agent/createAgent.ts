@@ -70,6 +70,7 @@ import {
   finalizeUsage,
 } from '../core/usageAccumulator.js';
 import type { HookRunner } from '../hooks/types.js';
+import type { LoopOptions } from '../loop/options.js';
 import type { MemoryRuntime } from '../memory/provider.js';
 import type { CanUseTool } from '../permissions/types.js';
 import type { SessionStore } from '../persistence/sessionStore.js';
@@ -160,6 +161,10 @@ export type AgentConfig = {
   /** Pause the turn loop after this many cumulative tool calls, returning
    *  terminal reason 'checkin'. Omit → no check-in. */
   maxToolCallsBeforeCheckin?: number;
+  /** Standing progress-aware loop guard policy, threaded to `QueryParams.loop`
+   *  (query() builds the detector from it). Omit → the detector's defaults.
+   *  Spec: specs/2026-08-25-progress-aware-loop-guard-design.md §3.4/§3.6 */
+  loop?: LoopOptions;
   microcompactConfig?: MicrocompactConfig;
   maxTokens?: number;
   maxTurns?: number;
@@ -190,6 +195,8 @@ export type PerTurn = Partial<{
   temperature: number;
   cacheEnabled: boolean;
   maxToolCallsBeforeCheckin: number;
+  /** Per-turn override of the standing loop guard policy (see AgentConfig). */
+  loop: LoopOptions;
   memoryManager: MemoryRuntime;
   recall: RecallTurn;
   pollSteering: () => Promise<string | null>;
@@ -367,6 +374,7 @@ export function createAgent(config: AgentConfig): Agent {
     const cacheEnabled = perTurn.cacheEnabled ?? config.cacheEnabled;
     const maxToolCallsBeforeCheckin =
       perTurn.maxToolCallsBeforeCheckin ?? config.maxToolCallsBeforeCheckin;
+    const loop = perTurn.loop ?? config.loop;
     const maxTokens = config.maxTokens ?? DEFAULT_MAX_TOKENS;
     // Error-propagation mode: per-turn override wins, else standing config,
     // else `false` (convert-to-terminal — byte-identical to today).
@@ -405,6 +413,7 @@ export function createAgent(config: AgentConfig): Agent {
         ...(temperature !== undefined ? { temperature } : {}),
         ...(cacheEnabled !== undefined ? { cacheEnabled } : {}),
         ...(maxToolCallsBeforeCheckin !== undefined ? { maxToolCallsBeforeCheckin } : {}),
+        ...(loop !== undefined ? { loop } : {}),
         ...(tools !== undefined ? { tools } : {}),
         ...(toolContext !== undefined ? { toolContext } : {}),
         ...(canUseTool !== undefined ? { canUseTool } : {}),

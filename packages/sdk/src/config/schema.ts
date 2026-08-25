@@ -181,6 +181,41 @@ const BehaviorSchema = z
   })
   .strict();
 
+/** Progress-aware loop guard policy — the Zod mirror of `LoopOptions`
+ *  (`packages/sdk/src/loop/options.ts`), which is the ONE shape shared by the
+ *  detector, `QueryParams.loop`, `AgentConfig.loop` and `PerTurn.loop`.
+ *  Every field is optional: a host that sets nothing gets DEFAULT_LOOP_OPTIONS
+ *  (enforce mode, identical ≥ 4, no-progress window 8, 2 strikes). Strict, so a
+ *  typo'd knob fails config load instead of silently doing nothing.
+ *  Spec: specs/2026-08-25-progress-aware-loop-guard-design.md §3.4 (policy
+ *  shape) and §3.6 (config → createAgent → QueryParams plumbing). */
+const LoopSchema = z
+  .object({
+    /** `enforce` (default) = guidance, then abort at `maxStrikes`; `warn` =
+     *  guidance every time, never abort; `off` = no detection at all.
+     *  `HARNESS_LOOP_DETECTOR=off` still wins over any mode. */
+    mode: z.enum(['enforce', 'warn', 'off']).optional(),
+    /** Same tool name + same input N times in a row. Default 4. */
+    consecutiveIdenticalThreshold: z.number().int().positive().optional(),
+    /** Fire when the last K observed tool calls were ALL unproductive
+     *  (result already seen this session, and not a successful side-effect
+     *  tool). Default 8. */
+    noProgressWindow: z.number().int().positive().optional(),
+    /** Content-loop chunk size in characters. Default 200. */
+    contentChunkSize: z.number().int().positive().optional(),
+    /** Content-loop repeat threshold inside the window. Default 8. */
+    contentRepeatThreshold: z.number().int().positive().optional(),
+    /** Content-loop window = ceil(threshold * multiplier). Default 1.5 —
+     *  fractional by design, so this is a positive number, not an int. */
+    contentWindowMultiplier: z.number().positive().optional(),
+    /** Tools whose successful call always counts as progress. ADDITIVE to the
+     *  built-in set (FileEdit, FileWrite, memory, memory_propose). */
+    sideEffectTools: z.array(z.string().min(1)).optional(),
+    /** Detections before an abort in enforce mode. Default 2. */
+    maxStrikes: z.number().int().positive().optional(),
+  })
+  .strict();
+
 /** Phase 1 — multi-provider task-routing config. The smart-router
  *  delegator + cost-lane sub-agents (`cheap-task`, `moderate-task`,
  *  `frontier-task`) read this block to resolve provider/model per lane.
@@ -445,6 +480,12 @@ export const SettingsSchema = z
       .strict()
       .optional(),
     behavior: BehaviorSchema.optional(),
+    /** Progress-aware loop guard policy (top-level, peer of `behavior` /
+     *  `thinking`). Flows config → `createAgent` → `QueryParams.loop`, where
+     *  query() uses it to construct the loop detector; a per-turn `PerTurn.loop`
+     *  overrides it. Omitted → the detector's built-in defaults.
+     *  Spec: specs/2026-08-25-progress-aware-loop-guard-design.md §3.4/§3.6 */
+    loop: LoopSchema.optional(),
     ui: UiSchema.optional(),
     /** M9.5 — the Go TUI persists the active theme name as a top-level
      *  `theme` field in `~/.harness/config.json` (Go-side `internal/app/

@@ -5,6 +5,7 @@
 // Source of pattern: Claude Code (agent-harness-design-lessons.md § Lesson 1-6;
 // harness-build-plan.md § 0.3).
 
+import type { LoopOptions } from '../loop/options.js';
 import type { RecallResult } from './recallPort.js';
 
 export type Role = 'user' | 'assistant';
@@ -123,6 +124,12 @@ export type QueryParams = {
    *  and returns terminal reason 'checkin'. The caller (REPL) surfaces a
    *  prompt and resumes via a follow-up query() call. Default unset. */
   maxToolCallsBeforeCheckin?: number;
+  /** Progress-aware loop guard policy, consumed by query() to construct the
+   *  loop detector. Absent ⇒ the detector's defaults (enforce mode, identical
+   *  ≥ 4, no-progress window 8, 2 strikes) — byte-identical to a host that
+   *  configures nothing. `HARNESS_LOOP_DETECTOR=off` still wins over any mode.
+   *  Spec: specs/2026-08-25-progress-aware-loop-guard-design.md §3.4/§3.6 */
+  loop?: LoopOptions;
   /** AbortSignal for interruption. */
   signal?: AbortSignal;
   /** Permission decider invoked before every tool dispatch. When omitted,

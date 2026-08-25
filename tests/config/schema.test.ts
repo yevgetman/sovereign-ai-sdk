@@ -6,6 +6,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { SettingsSchema } from '@yevgetman/sov-sdk/config/schema';
+import type { LoopOptions } from '@yevgetman/sov-sdk/loop/options';
 import { REASONING_EFFORTS } from '@yevgetman/sov-sdk/providers/effort';
 
 describe('SettingsSchema — strict mode', () => {
@@ -363,6 +364,115 @@ describe('SettingsSchema — behavior block', () => {
 
   test('rejects unknown keys under behavior (strict mode)', () => {
     expect(() => SettingsSchema.parse({ behavior: { unknownField: true } })).toThrow();
+  });
+});
+
+// Progress-aware loop guard (T2) — the top-level `loop` block.
+// The Zod mirror of `LoopOptions` (packages/sdk/src/loop/options.ts); strict,
+// every field optional, so a host that sets nothing keeps the defaults.
+// Spec: specs/2026-08-25-progress-aware-loop-guard-design.md §3.4/§3.6
+describe('SettingsSchema — loop block', () => {
+  test('accepts a full valid block', () => {
+    const parsed = SettingsSchema.parse({
+      loop: {
+        mode: 'warn',
+        consecutiveIdenticalThreshold: 4,
+        noProgressWindow: 8,
+        contentChunkSize: 200,
+        contentRepeatThreshold: 8,
+        contentWindowMultiplier: 1.5,
+        sideEffectTools: ['Bash', 'resume_write'],
+        maxStrikes: 2,
+      },
+    });
+    expect(parsed.loop?.mode).toBe('warn');
+    expect(parsed.loop?.noProgressWindow).toBe(8);
+    expect(parsed.loop?.contentWindowMultiplier).toBe(1.5);
+    expect(parsed.loop?.sideEffectTools).toEqual(['Bash', 'resume_write']);
+  });
+
+  test('accepts every mode of the enum', () => {
+    for (const mode of ['enforce', 'warn', 'off'] as const) {
+      expect(SettingsSchema.parse({ loop: { mode } }).loop?.mode).toBe(mode);
+    }
+  });
+
+  test('accepts an empty block (every field optional)', () => {
+    expect(SettingsSchema.parse({ loop: {} }).loop).toEqual({});
+  });
+
+  test('a settings object without loop still parses; loop is undefined', () => {
+    const parsed = SettingsSchema.parse({ behavior: { maxToolCallsBeforeCheckin: 3 } });
+    expect(parsed.loop).toBeUndefined();
+  });
+
+  test('rejects an unknown key inside loop (strict mode)', () => {
+    expect(() => SettingsSchema.parse({ loop: { noProgresWindow: 8 } })).toThrow();
+  });
+
+  test('rejects mode: maybe (not in the enum)', () => {
+    expect(() => SettingsSchema.parse({ loop: { mode: 'maybe' } })).toThrow();
+  });
+
+  test('rejects noProgressWindow: 0 (must be a positive int)', () => {
+    expect(() => SettingsSchema.parse({ loop: { noProgressWindow: 0 } })).toThrow();
+  });
+
+  test('rejects non-integer / non-positive counters', () => {
+    expect(() => SettingsSchema.parse({ loop: { consecutiveIdenticalThreshold: 0 } })).toThrow();
+    expect(() => SettingsSchema.parse({ loop: { noProgressWindow: 2.5 } })).toThrow();
+    expect(() => SettingsSchema.parse({ loop: { contentChunkSize: -1 } })).toThrow();
+    expect(() => SettingsSchema.parse({ loop: { contentRepeatThreshold: 0 } })).toThrow();
+    expect(() => SettingsSchema.parse({ loop: { maxStrikes: 0 } })).toThrow();
+  });
+
+  test('contentWindowMultiplier must be positive but may be fractional', () => {
+    expect(
+      SettingsSchema.parse({ loop: { contentWindowMultiplier: 1.5 } }).loop
+        ?.contentWindowMultiplier,
+    ).toBe(1.5);
+    expect(() => SettingsSchema.parse({ loop: { contentWindowMultiplier: 0 } })).toThrow();
+  });
+
+  test('the block mirrors LoopOptions key-for-key (compile-time contract)', () => {
+    // `LoopOptions` (packages/sdk/src/loop/options.ts) is the ONE shape shared
+    // by the detector, QueryParams, AgentConfig and PerTurn; this Zod block is
+    // its mirror. The two annotations below are the pin: `tsc --noEmit` fails
+    // the moment either side gains or loses a knob.
+    //
+    // Value-level assignability is deliberately NOT asserted — Zod infers
+    // `k?: T | undefined`, which `exactOptionalPropertyTypes` rejects against
+    // `k?: T`. Hosts bridge that with a builder (the `buildMicrocompactConfig`
+    // pattern), not by loosening either type.
+    type SchemaLoop = NonNullable<ReturnType<typeof SettingsSchema.parse>['loop']>;
+    const schemaKeys: Record<keyof SchemaLoop, true> = {
+      mode: true,
+      consecutiveIdenticalThreshold: true,
+      noProgressWindow: true,
+      contentChunkSize: true,
+      contentRepeatThreshold: true,
+      contentWindowMultiplier: true,
+      sideEffectTools: true,
+      maxStrikes: true,
+    };
+    const optionsKeys: Record<keyof LoopOptions, true> = schemaKeys;
+    expect(Object.keys(optionsKeys).sort()).toEqual(Object.keys(schemaKeys).sort());
+  });
+
+  test('a hand-written LoopOptions value round-trips through the schema', () => {
+    const options: LoopOptions = { mode: 'off', maxStrikes: 3, sideEffectTools: ['Bash'] };
+    expect(SettingsSchema.parse({ loop: options }).loop).toEqual({
+      mode: 'off',
+      maxStrikes: 3,
+      sideEffectTools: ['Bash'],
+    });
+  });
+
+  test('rejects an empty string in sideEffectTools', () => {
+    expect(() => SettingsSchema.parse({ loop: { sideEffectTools: [''] } })).toThrow();
+    expect(SettingsSchema.parse({ loop: { sideEffectTools: [] } }).loop?.sideEffectTools).toEqual(
+      [],
+    );
   });
 });
 
