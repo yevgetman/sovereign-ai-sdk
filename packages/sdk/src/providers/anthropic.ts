@@ -30,6 +30,7 @@ import type {
 } from '../core/types.js';
 import { anthropicThinkingFor, modelSupportsReasoning } from './effort.js';
 import { ProviderHttpError } from './errors.js';
+import { findLastCacheableSegment, lastIndexWhere, recentMessageCacheFrom } from './promptCache.js';
 import type { ProviderRequest, ToolSchema, Transport } from './types.js';
 
 /** Beta flag that keeps reasoning persistent across tool-use turns. */
@@ -323,15 +324,8 @@ export function systemToSdk(
   );
 }
 
-function findLastCacheableSegment(segments: SystemSegment[]): number {
-  for (let i = segments.length - 1; i >= 0; i--) {
-    if (segments[i]?.cacheable) return i;
-  }
-  return -1;
-}
-
 export function messagesToSdk(messages: Message[], cacheEnabled = true): MessageParam[] {
-  const cacheFrom = Math.max(0, messages.length - 3);
+  const cacheFrom = recentMessageCacheFrom(messages.length);
   return messages.map((m, index) => ({
     role: m.role,
     content: withOptionalCacheMarker(
@@ -363,14 +357,12 @@ function withOptionalCacheMarker(
   shouldCache: boolean,
 ): ContentBlockParam[] {
   if (!shouldCache || blocks.length === 0) return blocks;
+  const boundary = lastIndexWhere(blocks, isCacheableMessageBlock);
+  const block = blocks[boundary];
+  if (block === undefined) return blocks;
   const marked = [...blocks];
-  for (let i = marked.length - 1; i >= 0; i--) {
-    const block = marked[i];
-    if (!block || !isCacheableMessageBlock(block)) continue;
-    marked[i] = { ...block, cache_control: { type: 'ephemeral' } } as ContentBlockParam;
-    return marked;
-  }
-  return blocks;
+  marked[boundary] = { ...block, cache_control: { type: 'ephemeral' } } as ContentBlockParam;
+  return marked;
 }
 
 function isCacheableMessageBlock(block: ContentBlockParam): boolean {
