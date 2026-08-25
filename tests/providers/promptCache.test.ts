@@ -13,6 +13,7 @@ import {
   RECENT_MESSAGE_CACHE_WINDOW,
   findLastCacheableSegment,
   lastIndexWhere,
+  recentMessageCacheBudget,
   recentMessageCacheFrom,
 } from '@yevgetman/sov-sdk/providers/promptCache';
 
@@ -139,5 +140,50 @@ describe('lastIndexWhere', () => {
   test('skips trailing null AND undefined elements alike', () => {
     const nullish: (number | null | undefined)[] = [1, 2, null, undefined, null];
     expect(lastIndexWhere(nullish, () => true)).toBe(1);
+  });
+});
+
+describe('recentMessageCacheBudget', () => {
+  test('a system marker leaves exactly the recent window', () => {
+    expect(recentMessageCacheBudget(1)).toBe(RECENT_MESSAGE_CACHE_WINDOW);
+  });
+
+  test('no system marker leaves the whole per-request limit', () => {
+    expect(recentMessageCacheBudget(0)).toBe(MAX_CACHE_BREAKPOINTS);
+  });
+
+  // It is a RETUNE TRIPWIRE, not a live limiter: for both reachable inputs it
+  // is at least a window wide, and the caller never walks more than a window's
+  // worth of messages — so today it cannot bind.
+  test('never binds for a reachable system-marker count (0 or 1)', () => {
+    for (const systemMarkers of [0, 1]) {
+      expect(recentMessageCacheBudget(systemMarkers)).toBeGreaterThanOrEqual(
+        RECENT_MESSAGE_CACHE_WINDOW,
+      );
+    }
+  });
+
+  // THE invariant the budget exists to guarantee: whatever a transport spends
+  // on the system prompt plus whatever this allows it to spend on messages can
+  // never exceed Anthropic's hard per-request limit.
+  test('system markers + message budget never exceed MAX_CACHE_BREAKPOINTS', () => {
+    // 1 + the window IS the policy's budget — the assertion the whole module
+    // is arranged around.
+    expect(1 + RECENT_MESSAGE_CACHE_WINDOW).toBeLessThanOrEqual(MAX_CACHE_BREAKPOINTS);
+    for (const systemMarkers of [0, 1, 2, 3, 4, 9]) {
+      const spent = Math.min(systemMarkers, MAX_CACHE_BREAKPOINTS);
+      expect(spent + recentMessageCacheBudget(systemMarkers)).toBeLessThanOrEqual(
+        MAX_CACHE_BREAKPOINTS,
+      );
+    }
+  });
+
+  test('an over-spent budget clamps to 0 rather than going negative', () => {
+    expect(recentMessageCacheBudget(MAX_CACHE_BREAKPOINTS)).toBe(0);
+    expect(recentMessageCacheBudget(MAX_CACHE_BREAKPOINTS + 5)).toBe(0);
+  });
+
+  test('a nonsensical negative count is treated as zero spent', () => {
+    expect(recentMessageCacheBudget(-3)).toBe(MAX_CACHE_BREAKPOINTS);
   });
 });

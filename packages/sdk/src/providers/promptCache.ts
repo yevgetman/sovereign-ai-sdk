@@ -89,3 +89,25 @@ export function lastIndexWhere<T>(items: readonly T[], predicate: (item: T) => b
 export function findLastCacheableSegment(segments: SystemSegment[]): number {
   return lastIndexWhere(segments, (segment) => segment.cacheable);
 }
+
+/**
+ * How many recent-message breakpoints a transport may still place, given how
+ * many it has already spent on the system prompt (0 or 1) — the breakpoints
+ * left over from `MAX_CACHE_BREAKPOINTS`.
+ *
+ * This is a RETUNE TRIPWIRE, and it is where `MAX_CACHE_BREAKPOINTS` is
+ * load-bearing rather than a comment. For every input reachable today it is
+ * wide enough never to bind — one system marker leaves exactly
+ * `RECENT_MESSAGE_CACHE_WINDOW`, none leaves `MAX_CACHE_BREAKPOINTS` — because
+ * `1 + RECENT_MESSAGE_CACHE_WINDOW === MAX_CACHE_BREAKPOINTS` and the caller
+ * already walks at most a window's worth of messages. It starts binding the
+ * moment either constant is retuned, which is precisely when an un-guarded
+ * transport would begin emitting a body Anthropic 400s on.
+ *
+ * A negative or absurd `systemMarkers` can never widen the result: it is
+ * clamped at 0 from below and at `MAX_CACHE_BREAKPOINTS` from above.
+ */
+export function recentMessageCacheBudget(systemMarkers: number): number {
+  const spent = Math.max(0, systemMarkers);
+  return Math.max(0, MAX_CACHE_BREAKPOINTS - spent);
+}

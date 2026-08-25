@@ -17,7 +17,12 @@ import {
   openrouterReasoningFor,
 } from './effort.js';
 import { ProviderHttpError } from './errors.js';
-import { findLastCacheableSegment } from './promptCache.js';
+import {
+  findLastCacheableSegment,
+  lastIndexWhere,
+  recentMessageCacheBudget,
+  recentMessageCacheFrom,
+} from './promptCache.js';
 import type { ApiMode, ProviderRequest, ToolChoice, ToolSchema, Transport } from './types.js';
 
 /** A multimodal content part. Used ONLY when a message actually carries an
@@ -512,64 +517,202 @@ export function messagesToOpenAI(
   const promptCache = options.promptCache === true;
   const systemMessage = systemToOpenAI(system, promptCache);
   if (systemMessage !== undefined) out.push(systemMessage);
+  // Where each internal message's wire messages begin. One internal Message
+  // can fan out to several wire messages (a user turn carrying N tool_results
+  // becomes N `tool` messages plus maybe a `user` message), so "the last
+  // cacheable wire message THIS message produced" is only answerable by
+  // recording the runs as we build them — never by re-parsing the output.
+  const runStarts: number[] = [];
 
   for (const message of messages) {
-    if (message.role === 'user') {
-      const textParts: string[] = [];
-      // Images are collected separately: OpenAI-format vision is `image_url`
-      // content parts, and a message only switches to the parts array when it
-      // actually has one. Flattening them to "[image omitted]" is what made a
-      // tool-rendered screenshot unreachable no matter what the tool returned.
-      const images: OpenAIContentPart[] = [];
-      for (const block of message.content) {
-        if (block.type === 'text') textParts.push(block.text);
-        else if (block.type === 'image') {
-          images.push({
-            type: 'image_url',
-            image_url: { url: `data:${block.source.media_type};base64,${block.source.data}` },
-          });
-        } else if (block.type === 'tool_result') {
-          out.push({
-            role: 'tool',
-            tool_call_id: block.tool_use_id,
-            content: block.content,
-          });
-        }
-      }
-      if (images.length > 0) {
-        const text = textParts.join('\n\n');
-        out.push({
-          role: 'user',
-          content: [...(text.length > 0 ? [{ type: 'text' as const, text }] : []), ...images],
-        });
-      } else if (textParts.length > 0) {
-        out.push({ role: 'user', content: textParts.join('\n\n') });
-      }
-      continue;
-    }
-
-    const text = message.content
-      .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
-      .map((b) => b.text)
-      .join('\n\n');
-    const toolCalls = message.content
-      .filter((b): b is Extract<ContentBlock, { type: 'tool_use' }> => b.type === 'tool_use')
-      .map(
-        (b): OpenAIToolCall => ({
-          id: b.id,
-          type: 'function',
-          function: { name: b.name, arguments: JSON.stringify(b.input ?? {}) },
-        }),
-      );
-
-    if (toolCalls.length > 0) {
-      out.push({ role: 'assistant', content: text || null, tool_calls: toolCalls });
-    } else {
-      out.push({ role: 'assistant', content: text });
-    }
+    runStarts.push(out.length);
+    out.push(...(message.role === 'user' ? userToOpenAI(message) : assistantToOpenAI(message)));
   }
 
+  if (!promptCache) return out;
+  // A marked system message is emitted as content parts; a flat string means
+  // no system breakpoint was spent (spec §2.2 item 2).
+  const systemMarkers = Array.isArray(systemMessage?.content) ? 1 : 0;
+  return withRecentMessageMarkers(out, runStarts, systemMarkers);
+}
+
+/**
+ * The wire messages one internal USER message becomes: its `tool_result`
+ * blocks as `tool` messages IN BLOCK ORDER, then — last — a single `user`
+ * message carrying the turn's text and images, if it has either.
+ *
+ * That ordering is the pre-existing wire contract (a tool result must follow
+ * the assistant turn that called for it, before any new user text), and it is
+ * also what makes "mark the LAST cacheable wire message" land on the user's
+ * own text rather than on a tool result when a turn carries both.
+ */
+function userToOpenAI(message: Message): OpenAIMessage[] {
+  const out: OpenAIMessage[] = [];
+  const textParts: string[] = [];
+  // Images are collected separately: OpenAI-format vision is `image_url`
+  // content parts, and a message only switches to the parts array when it
+  // actually has one. Flattening them to "[image omitted]" is what made a
+  // tool-rendered screenshot unreachable no matter what the tool returned.
+  const images: OpenAIContentPart[] = [];
+  for (const block of message.content) {
+    if (block.type === 'text') textParts.push(block.text);
+    else if (block.type === 'image') {
+      images.push({
+        type: 'image_url',
+        image_url: { url: `data:${block.source.media_type};base64,${block.source.data}` },
+      });
+    } else if (block.type === 'tool_result') {
+      out.push({ role: 'tool', tool_call_id: block.tool_use_id, content: block.content });
+    }
+  }
+  if (images.length > 0) {
+    const text = textParts.join('\n\n');
+    out.push({
+      role: 'user',
+      content: [...(text.length > 0 ? [{ type: 'text' as const, text }] : []), ...images],
+    });
+  } else if (textParts.length > 0) {
+    out.push({ role: 'user', content: textParts.join('\n\n') });
+  }
   return out;
+}
+
+/**
+ * The single wire message one internal ASSISTANT message becomes: its text
+ * joined, plus any `tool_use` blocks as `tool_calls`. A tool-calling turn with
+ * no preamble sends `content: null` — the shape this transport has always sent
+ * and the one several strict lanes expect. Always exactly one message, so the
+ * array return is purely for a uniform call site.
+ */
+function assistantToOpenAI(message: Message): OpenAIMessage[] {
+  const text = message.content
+    .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
+    .map((b) => b.text)
+    .join('\n\n');
+  const toolCalls = message.content
+    .filter((b): b is Extract<ContentBlock, { type: 'tool_use' }> => b.type === 'tool_use')
+    .map(
+      (b): OpenAIToolCall => ({
+        id: b.id,
+        type: 'function',
+        function: { name: b.name, arguments: JSON.stringify(b.input ?? {}) },
+      }),
+    );
+  if (toolCalls.length > 0) {
+    return [{ role: 'assistant', content: text || null, tool_calls: toolCalls }];
+  }
+  return [{ role: 'assistant', content: text }];
+}
+
+/**
+ * The wire messages with the recent-message breakpoints applied — the second
+ * half of the shared policy (spec §2.2 item 3), and what lets a long
+ * tool-calling turn cache its own growing history instead of only the system
+ * prompt.
+ *
+ * Exactly ONE marker per internal message in the window, on the LAST cacheable
+ * wire message that message produced — mirroring `withOptionalCacheMarker` on
+ * the Anthropic lane, which marks the last cacheable BLOCK of the same
+ * message. An internal message that produced nothing cacheable (an assistant
+ * turn that is pure tool_calls, an image-only user turn) simply gets no
+ * marker; a marker is never "borrowed" by an earlier message, because a
+ * breakpoint further back caches strictly less.
+ *
+ * BUDGET: `systemMarkers` (≤1) + at most `RECENT_MESSAGE_CACHE_WINDOW` here,
+ * capped by `recentMessageCacheBudget` so the total can never exceed
+ * `MAX_CACHE_BREAKPOINTS` — Anthropic's hard per-request limit. The window is
+ * walked NEWEST-FIRST so that if the budget ever binds (it cannot today:
+ * 1 + 3 === 4) the markers that survive are the most recent, which is where
+ * the next turn's cache hit comes from.
+ *
+ * Pure: `wire` and its messages are never mutated; marked messages are new
+ * objects in a new array.
+ */
+function withRecentMessageMarkers(
+  wire: OpenAIMessage[],
+  runStarts: number[],
+  systemMarkers: number,
+): OpenAIMessage[] {
+  const from = recentMessageCacheFrom(runStarts.length);
+  let budget = recentMessageCacheBudget(systemMarkers);
+  const marked = [...wire];
+  for (let i = runStarts.length - 1; i >= from && budget > 0; i--) {
+    const start = runStarts[i] ?? wire.length;
+    const run = wire.slice(start, runStarts[i + 1] ?? wire.length);
+    const offset = lastIndexWhere(run, isCacheableWireMessage);
+    // Nothing this internal message produced can carry a marker (a pure
+    // tool_calls turn, an image-only turn, a turn that emitted no wire message
+    // at all): no marker, and no budget spent.
+    if (offset === -1) continue;
+    const target = run[offset];
+    // Unreachable — `offset` came from this same array. Present only to narrow
+    // the checked index access.
+    if (target === undefined) continue;
+    marked[start + offset] = markedWireMessage(target);
+    budget -= 1;
+  }
+  return marked;
+}
+
+/**
+ * Whether a wire message can carry a breakpoint. Mirrors
+ * `isCacheableMessageBlock` on the Anthropic lane — text and tool_result only
+ * — translated into this transport's shapes: a `tool` message IS a
+ * tool_result, and a `user`/`assistant` message's text is its string content
+ * or its `text` parts.
+ *
+ * ONE DELIBERATE DIVERGENCE from the Anthropic lane: emptiness. A marker rides
+ * on a text part, and this lane must never invent an empty `{ text: '' }` part
+ * to hang one on — so empty string content (an assistant turn that is pure
+ * tool_calls, an empty tool result) is not cacheable here, where the Anthropic
+ * lane would mark an empty text/tool_result block. Marking an empty block
+ * caches nothing anyway; the divergence is in wire hygiene, not in policy.
+ *
+ * An `image_url` part is NEVER markable: `cache_control` on an image part is
+ * not the shape Anthropic accepts, so an image-only user message is skipped.
+ */
+function isCacheableWireMessage(message: OpenAIMessage): boolean {
+  if (message.role === 'system') return false;
+  const { content } = message;
+  if (typeof content === 'string') return content.length > 0;
+  if (!Array.isArray(content)) return false;
+  return lastIndexWhere(content, isMarkableTextPart) !== -1;
+}
+
+function isMarkableTextPart(part: OpenAIContentPart): boolean {
+  return part.type === 'text' && part.text.length > 0;
+}
+
+/**
+ * A copy of `message` carrying the breakpoint. String content becomes a
+ * one-element text-parts array — the shape live-verified against OpenRouter
+ * for the system role in spec §1.2, and live-verified 2026-08-25 for the two
+ * shapes this function adds (numbers recorded in CHANGELOG.md, harness
+ * 0.6.72):
+ *
+ *   - a `tool`-role message with a parts array + `cache_control` — accepted,
+ *     HTTP 200, cache write then a cache read of the same size;
+ *   - an `assistant` message carrying BOTH a text-parts array and `tool_calls`
+ *     — accepted, HTTP 200, 7,114-token cache write on request 1 and a
+ *     7,114-token cache read on request 2, with four breakpoints in the
+ *     request.
+ *
+ * Parts content — a user message carrying images — keeps its parts and marks
+ * the LAST text one, never an `image_url`.
+ */
+function markedWireMessage(message: OpenAIMessage): OpenAIMessage {
+  const { content } = message;
+  if (typeof content === 'string') return { ...message, content: [markedTextPart(content)] };
+  if (!Array.isArray(content)) return message;
+  const boundary = lastIndexWhere(content, isMarkableTextPart);
+  const part = content[boundary];
+  // The `type !== 'text'` half is unreachable via isMarkableTextPart; it is
+  // what narrows the union, and it keeps the marker off an image part even if
+  // the predicate is ever loosened.
+  if (part === undefined || part.type !== 'text') return message;
+  const parts = [...content];
+  parts[boundary] = markedTextPart(part.text);
+  return { ...message, content: parts };
 }
 
 // Exported for direct unit testing of the malformed-line tolerance (deep

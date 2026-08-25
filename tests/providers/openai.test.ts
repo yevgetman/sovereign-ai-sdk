@@ -3,6 +3,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import { messagesToSdk } from '@yevgetman/sov-sdk/providers/anthropic';
 import { openrouterModelSupportsPromptCaching } from '@yevgetman/sov-sdk/providers/effort';
 import {
   type OpenAIChatChunk,
@@ -11,6 +12,10 @@ import {
   parseSse,
   translateOpenAIStream,
 } from '@yevgetman/sov-sdk/providers/openai';
+import {
+  MAX_CACHE_BREAKPOINTS,
+  RECENT_MESSAGE_CACHE_WINDOW,
+} from '@yevgetman/sov-sdk/providers/promptCache';
 
 async function* iterate<T>(items: T[]): AsyncIterable<T> {
   for (const item of items) yield item;
@@ -535,6 +540,13 @@ describe('openrouter lane: Anthropic prompt caching (2026-08-25)', () => {
     return messages.find((m) => m.role === 'system')?.content;
   }
 
+  /** Breakpoints on the SYSTEM message only. The whole-body count stopped
+   *  being a proxy for "the system marker" once the recent-message half landed
+   *  (task 3) — these system-shape tests mean the system message specifically. */
+  function systemBreakpoints(body: unknown): number {
+    return countCacheControl(systemContent(body) ?? null);
+  }
+
   /** The system content parts; fails loudly if the flat-string shape was emitted. */
   function systemParts(body: unknown): WirePart[] {
     const content = systemContent(body);
@@ -558,7 +570,7 @@ describe('openrouter lane: Anthropic prompt caching (2026-08-25)', () => {
 
   test('emits exactly ONE breakpoint for the system message', () => {
     const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
-    expect(countCacheControl(provider.buildKwargs(request()))).toBe(1);
+    expect(systemBreakpoints(provider.buildKwargs(request()))).toBe(1);
   });
 
   test('no cacheable segment ⇒ the plain flattened string (nothing to cache)', () => {
@@ -573,7 +585,7 @@ describe('openrouter lane: Anthropic prompt caching (2026-08-25)', () => {
       }),
     );
     expect(body.messages[0]).toEqual({ role: 'system', content: 'a\n\nb\n\nc' });
-    expect(countCacheControl(body)).toBe(0);
+    expect(systemBreakpoints(body)).toBe(0);
   });
 
   // Spec §2.4 — the non-negotiable. The expected string is the body this exact
@@ -634,7 +646,7 @@ describe('openrouter lane: Anthropic prompt caching (2026-08-25)', () => {
         .map((part) => part.text ?? '')
         .join(''),
     ).toBe(flat);
-    expect(countCacheControl(cached)).toBe(1);
+    expect(systemBreakpoints(cached)).toBe(1);
     // and the marker sits on the cacheable prefix, not the volatile tail
     expect(systemParts(cached)[0]?.cache_control).toEqual({ type: 'ephemeral' });
   });
@@ -675,14 +687,14 @@ describe('openrouter lane: Anthropic prompt caching (2026-08-25)', () => {
       }),
     );
     expect(body.messages[0]).toEqual({ role: 'system', content: 'real' });
-    expect(countCacheControl(body)).toBe(0);
+    expect(systemBreakpoints(body)).toBe(0);
   });
 
   test('no system segments at all ⇒ no system message', () => {
     const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
     const body = provider.buildKwargs(request({ system: [] }));
     expect(systemContent(body)).toBeUndefined();
-    expect(countCacheControl(body)).toBe(0);
+    expect(systemBreakpoints(body)).toBe(0);
   });
 
   test('openrouterModelSupportsPromptCaching gates on the anthropic/ vendor prefix', () => {
@@ -694,5 +706,380 @@ describe('openrouter lane: Anthropic prompt caching (2026-08-25)', () => {
     expect(openrouterModelSupportsPromptCaching('openai/gpt-5')).toBe(false);
     // no vendor prefix ⇒ not an openrouter id ⇒ no marker
     expect(openrouterModelSupportsPromptCaching('claude-sonnet-5')).toBe(false);
+  });
+});
+
+// The second half of the caching policy: breakpoints on the RECENT messages,
+// which is what lets a long tool-calling turn cache its own growing history
+// instead of only the (already-marked) system prompt.
+// Spec §2.2 item 3; plan task 3.
+describe('openrouter lane: recent-message cache breakpoints (2026-08-25)', () => {
+  type WirePart = { type: string; text?: string; image_url?: unknown; cache_control?: unknown };
+  type WireMessage = {
+    role: string;
+    content?: string | WirePart[] | null;
+    tool_call_id?: string;
+    tool_calls?: unknown;
+  };
+
+  const CACHEABLE_SYSTEM = [
+    { text: 'stable rules', cacheable: true },
+    { text: 'the date', cacheable: false },
+  ];
+
+  /** A realistic tool loop: two tool round-trips, then plain conversation.
+   *  Eight internal messages, so the last-3 window (5, 6, 7) sits well clear of
+   *  the tool round-trips — a marker on message 4's `tool` output would be a
+   *  visible policy break, not an off-by-one. */
+  const TOOL_LOOP: Message[] = [
+    { role: 'user', content: [{ type: 'text', text: 'find the bug' }] },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'looking' },
+        { type: 'tool_use', id: 'c1', name: 'read', input: { path: 'a.ts' } },
+      ],
+    },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'c1', content: 'file a' }] },
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'c2', name: 'read', input: { path: 'b.ts' } }],
+    },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'c2', content: 'file b' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'found it' }] },
+    { role: 'user', content: [{ type: 'text', text: 'fix it' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'fixed' }] },
+  ];
+
+  function openrouter() {
+    return new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
+  }
+
+  function build(overrides: Record<string, unknown> = {}, provider = openrouter()) {
+    return provider.buildKwargs({
+      model: 'anthropic/claude-sonnet-5',
+      system: CACHEABLE_SYSTEM,
+      messages: TOOL_LOOP,
+      maxTokens: 100,
+      ...overrides,
+    });
+  }
+
+  /** The wire messages, round-tripped through JSON so tests see exactly what
+   *  goes on the wire (undefined keys dropped, nothing live). */
+  function wire(body: unknown): WireMessage[] {
+    return (JSON.parse(JSON.stringify(body)) as { messages: WireMessage[] }).messages;
+  }
+
+  function countCacheControl(body: unknown): number {
+    return JSON.stringify(body).split('"cache_control"').length - 1;
+  }
+
+  function hasMarker(message: WireMessage): boolean {
+    return JSON.stringify(message).includes('"cache_control"');
+  }
+
+  /** Indices (into the WIRE list) of every message carrying a breakpoint. */
+  function markedWireIndices(body: unknown): number[] {
+    return wire(body).flatMap((m, i) => (hasMarker(m) ? [i] : []));
+  }
+
+  test('a long tool loop marks only the last 3 internal messages, ≤ 4 breakpoints total', () => {
+    const body = build();
+    const messages = wire(body);
+    expect(countCacheControl(body)).toBeLessThanOrEqual(MAX_CACHE_BREAKPOINTS);
+    // 1 system + exactly the 3-message window, each fanning out to one wire message
+    expect(countCacheControl(body)).toBe(4);
+    expect(countCacheControl(messages[0])).toBe(1); // the system message
+    // wire: [system, user, assistant+tools, tool, assistant+tools, tool, …last 3]
+    expect(markedWireIndices(body)).toEqual([0, 6, 7, 8]);
+    expect(messages.slice(6).map((m) => (m.content as WirePart[])[0]?.text)).toEqual([
+      'found it',
+      'fix it',
+      'fixed',
+    ]);
+    // and nothing from the tool round-trips (internal messages 0–4) is marked
+    expect(messages.slice(1, 6).some(hasMarker)).toBe(false);
+  });
+
+  test('a marked message keeps its exact text, only switching string → text parts', () => {
+    const messages = wire(build());
+    expect(messages[7]).toEqual({
+      role: 'user',
+      content: [{ type: 'text', text: 'fix it', cache_control: { type: 'ephemeral' } }],
+    });
+  });
+
+  test('one user message with 3 tool_results ⇒ exactly one marker, on the LAST tool message', () => {
+    const messages: Message[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'c1', name: 'read', input: {} },
+          { type: 'tool_use', id: 'c2', name: 'read', input: {} },
+          { type: 'tool_use', id: 'c3', name: 'read', input: {} },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'c1', content: 'one' },
+          { type: 'tool_result', tool_use_id: 'c2', content: 'two' },
+          { type: 'tool_result', tool_use_id: 'c3', content: 'three' },
+        ],
+      },
+    ];
+    const body = build({ messages });
+    const tools = wire(body).filter((m) => m.role === 'tool');
+    expect(tools.map(hasMarker)).toEqual([false, false, true]);
+    expect(tools[2]).toEqual({
+      role: 'tool',
+      tool_call_id: 'c3',
+      content: [{ type: 'text', text: 'three', cache_control: { type: 'ephemeral' } }],
+    });
+    expect(countCacheControl(body)).toBe(2); // system + this one
+  });
+
+  test('an assistant turn that is pure tool_calls is not cacheable — content stays null', () => {
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'go' }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'c1', name: 'read', input: {} }] },
+    ];
+    const body = build({ messages });
+    const assistant = wire(body).find((m) => m.role === 'assistant');
+    expect(assistant?.content).toBeNull();
+    expect(hasMarker(assistant as WireMessage)).toBe(false);
+    // no marker is "borrowed" by an earlier message: only the user turn is marked
+    expect(countCacheControl(body)).toBe(2);
+  });
+
+  // The commonest shape in the window during a live tool loop: the assistant's
+  // preamble text plus its tool_calls. The text IS cacheable, and the marker
+  // must not disturb the tool_calls travelling with it.
+  test('an assistant turn with BOTH text and tool_calls is marked on its text', () => {
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'go' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'reading the file' },
+          { type: 'tool_use', id: 'c1', name: 'read', input: { path: 'a.ts' } },
+        ],
+      },
+    ];
+    const body = build({ messages });
+    expect(wire(body).find((m) => m.role === 'assistant')).toEqual({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'reading the file', cache_control: { type: 'ephemeral' } }],
+      tool_calls: [
+        { id: 'c1', type: 'function', function: { name: 'read', arguments: '{"path":"a.ts"}' } },
+      ],
+    });
+  });
+
+  test('an empty tool result is not cacheable (never emit an empty text part)', () => {
+    const messages: Message[] = [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'c1', name: 'read', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'c1', content: '' }] },
+    ];
+    const body = build({ messages });
+    expect(wire(body).find((m) => m.role === 'tool')?.content).toBe('');
+    expect(countCacheControl(body)).toBe(1); // the system message only
+  });
+
+  test('an image-carrying user message is marked on its last TEXT part, never the image', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'what is this' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+        ],
+      },
+    ];
+    const parts = wire(build({ messages })).find((m) => m.role === 'user')?.content as WirePart[];
+    expect(parts).toEqual([
+      { type: 'text', text: 'what is this', cache_control: { type: 'ephemeral' } },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+    ]);
+  });
+
+  test('an image-only user message is not cacheable (no text part to carry the marker)', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+        ],
+      },
+    ];
+    const body = build({ messages });
+    expect(wire(body).find((m) => m.role === 'user')?.content).toEqual([
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+    ]);
+    expect(countCacheControl(body)).toBe(1); // the system message only
+  });
+
+  // A `content: []` turn emits ZERO wire messages, so its run is empty. The run
+  // bookkeeping has to survive that (runStarts[i] === runStarts[i + 1]) and the
+  // markers must land on the messages that did survive — not slide onto a
+  // neighbour's wire message.
+  test('an internal message that emits no wire messages is skipped, markers land on the survivors', () => {
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'first' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'second' }] },
+      { role: 'user', content: [] },
+      { role: 'assistant', content: [{ type: 'text', text: 'fourth' }] },
+    ];
+    const body = build({ messages });
+    // window = internal {1, 2, 3}; message 2 emits nothing, so 1 and 3 are marked
+    expect(wire(body).map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'assistant']);
+    expect(markedWireIndices(body)).toEqual([0, 2, 3]);
+    expect(countCacheControl(body)).toBe(3);
+    // the out-of-window first message stays a plain string
+    expect(wire(body)[1]?.content).toBe('first');
+  });
+
+  test('a history shorter than the window marks every cacheable message, still ≤ 4', () => {
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'one' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'two' }] },
+    ];
+    const body = build({ messages });
+    expect(messages.length).toBeLessThan(RECENT_MESSAGE_CACHE_WINDOW);
+    expect(markedWireIndices(body)).toEqual([0, 1, 2]);
+    expect(countCacheControl(body)).toBeLessThanOrEqual(MAX_CACHE_BREAKPOINTS);
+  });
+
+  // ANTI-DRIFT. The two lanes reach the same Anthropic models; if they choose
+  // different messages the divergence is invisible per-lane and shows up only
+  // as a production cost regression. Same input ⇒ same set of INTERNAL message
+  // indices marked, on both transports.
+  describe('anti-drift vs the Anthropic transport', () => {
+    /** Every wire message this fixture produces carries the `#i` tag of the
+     *  internal message it came from, and no other — so a marked wire message
+     *  can be attributed back to its internal index without the transport
+     *  having to expose its internal bookkeeping. */
+    const TAGGED: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'q #0' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'a #1' },
+          { type: 'tool_use', id: 'c1', name: 'read', input: { tag: '#1' } },
+        ],
+      },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'c1', content: 'r #2' }] },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'c2', name: 'read', input: { tag: '#3' } }],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'c2', content: 'r #4' },
+          { type: 'text', text: 'more #4' },
+        ],
+      },
+      { role: 'assistant', content: [{ type: 'text', text: 'done #5' }] },
+    ];
+
+    function ownerIndex(message: WireMessage): number {
+      const tag = /#(\d+)/.exec(JSON.stringify(message));
+      if (tag?.[1] === undefined)
+        throw new Error(`untagged wire message: ${JSON.stringify(message)}`);
+      return Number(tag[1]);
+    }
+
+    function openrouterMarkedInternalIndices(): Set<number> {
+      const messages = wire(build({ messages: TAGGED }));
+      return new Set(messages.filter((m) => m.role !== 'system' && hasMarker(m)).map(ownerIndex));
+    }
+
+    function anthropicMarkedInternalIndices(): Set<number> {
+      return new Set(
+        messagesToSdk(TAGGED, true).flatMap((m, i) =>
+          JSON.stringify(m).includes('"cache_control"') ? [i] : [],
+        ),
+      );
+    }
+
+    test('both lanes mark the same internal messages for any history without empty text/tool_result blocks', () => {
+      expect(openrouterMarkedInternalIndices()).toEqual(anthropicMarkedInternalIndices());
+    });
+
+    // The ONE documented divergence, pinned so it stays deliberate. A marker
+    // rides on a text part, and this lane will not invent an empty
+    // `{ text: '' }` part to hang one on; the Anthropic lane marks the empty
+    // tool_result block, which caches nothing either way.
+    test('an EMPTY tool result is the one divergence: Anthropic marks it, this lane does not', () => {
+      const emptyResult: Message[] = [
+        { role: 'assistant', content: [{ type: 'tool_use', id: 'c1', name: 'read', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'c1', content: '' }] },
+      ];
+      const anthropic = new Set(
+        messagesToSdk(emptyResult, true).flatMap((m, i) =>
+          JSON.stringify(m).includes('"cache_control"') ? [i] : [],
+        ),
+      );
+      expect(anthropic).toEqual(new Set([1]));
+      const openrouterMessages = wire(build({ messages: emptyResult }));
+      expect(openrouterMessages.filter((m) => m.role !== 'system').some(hasMarker)).toBe(false);
+    });
+
+    test('and that set is the last-3 window minus the non-cacheable messages', () => {
+      // window = {3, 4, 5}; message 3 is pure tool_use, so it carries nothing
+      // a breakpoint can ride on.
+      expect(openrouterMarkedInternalIndices()).toEqual(new Set([4, 5]));
+    });
+  });
+
+  // Spec §2.4 — the non-negotiable, now covering the MESSAGE half too.
+  describe('every off-path lane keeps a byte-identical body', () => {
+    // Captured from the pre-change source (HEAD before task 3) for this exact
+    // request; a literal, not a second call of the new code.
+    const PRE_CHANGE_TOOL_LOOP_BODY =
+      '{"model":"anthropic/claude-sonnet-5","messages":[{"role":"system","content":"stable rules\\n\\nthe date"},' +
+      '{"role":"user","content":"find the bug"},{"role":"assistant","content":"looking","tool_calls":' +
+      '[{"id":"c1","type":"function","function":{"name":"read","arguments":"{\\"path\\":\\"a.ts\\"}"}}]},' +
+      '{"role":"tool","tool_call_id":"c1","content":"file a"},{"role":"assistant","content":null,"tool_calls":' +
+      '[{"id":"c2","type":"function","function":{"name":"read","arguments":"{\\"path\\":\\"b.ts\\"}"}}]},' +
+      '{"role":"tool","tool_call_id":"c2","content":"file b"},{"role":"assistant","content":"found it"},' +
+      '{"role":"user","content":"fix it"},{"role":"assistant","content":"fixed"}],"stream":true,' +
+      '"stream_options":{"include_usage":true},"max_tokens":100}';
+
+    /** Every message content is a plain string or null — the shape the strict
+     *  lanes on this transport (sov/vLLM, ollama) have always been sent. */
+    function everyContentIsStringOrNull(body: unknown): boolean {
+      return wire(body).every((m) => typeof m.content === 'string' || m.content === null);
+    }
+
+    test('openai proper ⇒ zero breakpoints, exactly the pre-change bytes', () => {
+      const body = build({}, new OpenAIProvider({ apiKey: 'sk-test' }));
+      expect(JSON.stringify(body)).toBe(PRE_CHANGE_TOOL_LOOP_BODY);
+      expect(countCacheControl(body)).toBe(0);
+      expect(everyContentIsStringOrNull(body)).toBe(true);
+    });
+
+    test('a non-Anthropic openrouter model ⇒ zero breakpoints, string content only', () => {
+      const body = build({ model: 'z-ai/glm-5.2' });
+      expect(countCacheControl(body)).toBe(0);
+      expect(everyContentIsStringOrNull(body)).toBe(true);
+      expect(JSON.stringify(body)).toBe(
+        PRE_CHANGE_TOOL_LOOP_BODY.replace('anthropic/claude-sonnet-5', 'z-ai/glm-5.2'),
+      );
+    });
+
+    test('cacheEnabled: false ⇒ zero breakpoints, string content only', () => {
+      const body = build({ cacheEnabled: false });
+      expect(countCacheControl(body)).toBe(0);
+      expect(everyContentIsStringOrNull(body)).toBe(true);
+      expect(JSON.stringify(body)).toBe(PRE_CHANGE_TOOL_LOOP_BODY);
+    });
+
+    test('messagesToOpenAI without options ⇒ zero breakpoints (every legacy caller)', () => {
+      const messages = messagesToOpenAI(TOOL_LOOP, CACHEABLE_SYSTEM);
+      expect(countCacheControl(messages)).toBe(0);
+    });
   });
 });
