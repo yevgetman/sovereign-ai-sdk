@@ -343,7 +343,14 @@ export function createTurnLogRecorder(opts: TurnLogRecorderOptions): TurnLogReco
         const content = unit.hasInput ? JSON.stringify(unit.input) : undefined;
         consider(unit.ordinal, 'tool_call', 'agent', content, unit.toolName, unit.ordinal);
       } else {
-        consider(unit.ordinal, 'tool_result', 'tool', unit.content, unit.toolName, unit.callOrdinal);
+        consider(
+          unit.ordinal,
+          'tool_result',
+          'tool',
+          unit.content,
+          unit.toolName,
+          unit.callOrdinal,
+        );
       }
     }
     // The agent message — ALWAYS last.
