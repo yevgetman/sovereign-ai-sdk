@@ -28,6 +28,7 @@ import {
 } from '../permissions/shellSemantics.js';
 import { buildTool } from '../tool/buildTool.js';
 import type { ToolContext, ToolObservation } from '../tool/types.js';
+import { shellCommand } from '../util/platform.js';
 import { spawnProc } from '../util/spawn.js';
 
 /** Bash commands deemed read-only and safe to run in parallel with other
@@ -355,12 +356,17 @@ async function runBash(
 
   const timeoutMs = input.timeout_ms ?? DEFAULT_TIMEOUT_MS;
 
+  // `bash -c` on POSIX; on Windows the resolved shell (Git bash, else pwsh,
+  // else powershell). Resolved before the timer so a missing shell throws
+  // without leaking it.
+  const shell = shellCommand(input.command);
+
   const timeoutCtl = new AbortController();
   const timer = setTimeout(() => timeoutCtl.abort(), timeoutMs);
 
   const signal = ctx.signal ? AbortSignal.any([ctx.signal, timeoutCtl.signal]) : timeoutCtl.signal;
 
-  const proc = spawnProc(['bash', '-c', input.command], {
+  const proc = spawnProc([shell.cmd, ...shell.args], {
     cwd: ctx.cwd,
     stdout: 'pipe',
     stderr: 'pipe',

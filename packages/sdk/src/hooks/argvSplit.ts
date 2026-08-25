@@ -10,10 +10,12 @@
 // substitution, globbing — those are shell features that belong inside the
 // user's hook script, not in the spawn argv.
 
+import { homeDir } from '../util/platform.js';
+
 export class ArgvSplitError extends Error {}
 
 export function argvSplit(input: string, opts: { home?: string } = {}): string[] {
-  const home = opts.home ?? process.env.HOME ?? '';
+  const home = opts.home ?? homeDir();
   const tokens: string[] = [];
   let current = '';
   let inSingle = false;

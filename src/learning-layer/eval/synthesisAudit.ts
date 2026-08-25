@@ -30,8 +30,9 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { homeDir } from '@yevgetman/sov-sdk/util/platform';
 import { InstinctStore } from '../../learning/instinctStore.js';
 import { GLOBAL_PROJECT_ID, observationsPath } from '../../learning/paths.js';
 import { runSynthesizer } from '../../learning/synthesizer.js';
@@ -256,7 +257,7 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
-  const liveHarnessHome = join(process.env.HOME ?? homedir(), '.harness');
+  const liveHarnessHome = join(homeDir(), '.harness');
   const bundleRoot = join(process.cwd(), 'bundle-default');
 
   const inventory = inventoryCorpus(liveHarnessHome);

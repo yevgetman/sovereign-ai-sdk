@@ -12,6 +12,12 @@
 // no-op on Windows (which only models the read-only bit) and can fail for a
 // non-owner, so a tightening failure NEVER turns a best-effort write into a
 // crash — the writers here are all documented as non-blocking (Invariant #10).
+//
+// Windows: both modes are effectively no-ops (chmod only models the read-only
+// bit), so the protection there is the per-user ACL on the profile directory
+// (%USERPROFILE%, where HARNESS_HOME lives by default) — other local accounts
+// are already denied. The modes are kept unchanged so the POSIX guarantee is
+// untouched; no Windows-specific ACL tightening is attempted here.
 
 import { chmodSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';

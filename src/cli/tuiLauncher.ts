@@ -20,7 +20,11 @@ import { type SpawnOptions, spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { exeName } from '@yevgetman/sov-sdk/util/platform';
 import { PreflightError, SessionNotFoundError } from '../server/errors.js';
+
+/** The TUI binary's on-disk name — `sov-tui.exe` on Windows. */
+const TUI_BINARY = exeName('sov-tui');
 
 /**
  * Walk up from `startDir` looking for a bin/sov-tui sibling.
@@ -38,7 +42,7 @@ export function findTuiBinaryFrom(startDir: string): string | null {
   try {
     let dir = startDir;
     for (let i = 0; i < 6; i++) {
-      const candidate = join(dir, 'bin', 'sov-tui');
+      const candidate = join(dir, 'bin', TUI_BINARY);
       if (existsSync(candidate)) return candidate;
       const parent = dirname(dir);
       if (parent === dir) break;
@@ -73,7 +77,7 @@ export function findTuiBinary(opts: { execPath?: string } = {}): string | null {
   try {
     const execPath = opts.execPath ?? process.execPath;
     const execDir = dirname(realpathSync(execPath));
-    const sibling = join(execDir, 'sov-tui');
+    const sibling = join(execDir, TUI_BINARY);
     if (existsSync(sibling)) return sibling;
   } catch {
     // fall through

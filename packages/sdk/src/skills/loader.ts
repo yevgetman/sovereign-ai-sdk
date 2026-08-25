@@ -7,6 +7,7 @@ import { readFile, readdir, realpath } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { shellCommand } from '../util/platform.js';
 import { spawnProc } from '../util/spawn.js';
 import { splitCommaList, splitFrontmatter } from './frontmatter.js';
 import { formatGuardBlockMessage, guardSkillLoad } from './guard.js';
@@ -500,7 +501,10 @@ async function runInterpolationCommand(command: string, cwd: string): Promise<st
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), SHELL_TIMEOUT_MS);
   try {
-    const proc = spawnProc(['bash', '-lc', command], {
+    // `bash -lc` on POSIX; the platform-resolved shell on Windows. A missing
+    // shell throws here and surfaces as an inline-shell error like any other.
+    const shell = shellCommand(command, { login: true });
+    const proc = spawnProc([shell.cmd, ...shell.args], {
       cwd,
       stdout: 'pipe',
       stderr: 'pipe',

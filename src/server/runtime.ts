@@ -69,6 +69,7 @@ import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import type { HarnessInfoSnapshot } from '@yevgetman/sov-sdk/tools/HarnessInfoTool';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { FileTranscriptStore } from '@yevgetman/sov-sdk/transcript/store';
+import { homeDir } from '@yevgetman/sov-sdk/util/platform';
 import { SessionDb } from '../agent/sessionDb.js';
 import type { TurnEvidence } from '../attestation/turnEvidence.js';
 import type { CronRunner } from '../cron/runner.js';
@@ -1412,7 +1413,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const hookRunner = buildHookRunner({
     hooksByEvent: hookSettings.hooksByEvent,
     consent: hookConsent,
-    home: process.env.HOME,
+    home: homeDir(),
     logStderr: (msg: string) => process.stderr.write(`${msg}\n`),
   });
 
@@ -1865,7 +1866,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     runtime.hookRunner = buildHookRunner({
       hooksByEvent: freshHookSettings.hooksByEvent,
       consent: freshConsent,
-      home: process.env.HOME,
+      home: homeDir(),
       logStderr: (msg: string) => process.stderr.write(`${msg}\n`),
     });
   };

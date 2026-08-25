@@ -208,3 +208,19 @@ describe('createProductionCronRunner — end-to-end agent dispatch', () => {
     }
   });
 });
+
+describe('inferInterpreter — .sh on Windows (bash seam)', () => {
+  test('uses the resolved Git for Windows bash when present', () => {
+    const gitBash = 'C:\\Program Files\\Git\\bin\\bash.exe';
+    expect(inferInterpreter('/x/foo.sh', gitBash)).toEqual([gitBash, '/x/foo.sh']);
+  });
+
+  test('fails with an actionable error when no bash is available', () => {
+    expect(() => inferInterpreter('/x/foo.sh', null)).toThrow(/need bash on PATH/);
+  });
+
+  test('a null bash does not affect non-.sh scripts', () => {
+    expect(inferInterpreter('/x/foo.py', null)).toEqual(['python3', '/x/foo.py']);
+    expect(inferInterpreter('/x/foo', null)).toEqual(['/x/foo']);
+  });
+});

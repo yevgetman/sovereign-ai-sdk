@@ -29,7 +29,8 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
+import { isWindows } from '@yevgetman/sov-sdk/util/platform';
 
 export const DEFAULT_INSTALL_URL = 'git+ssh://git@github.com/yevgetman/sovereign-ai-sdk.git';
 
@@ -45,6 +46,13 @@ export const PACKAGE_NAME = '@yevgetman/sov';
 export const BINARY_INSTALLER_URL =
   'https://raw.githubusercontent.com/yevgetman/sov-releases/main/install.sh';
 
+/** Windows binary installs are laid down by the Telekit installer, not
+ *  install.sh — there is no `curl | bash` to re-run. Until a native
+ *  upgrade path exists, point the user at the app/installer. */
+export const WINDOWS_BINARY_UPGRADE_MESSAGE =
+  'sov upgrade: binary-mode self-upgrade is not supported on Windows yet.\n' +
+  'Upgrade sov through the Telekit app, or re-run the Telekit Windows installer.\n';
+
 /** Install-mode discriminator. 'binary' = installed under ~/.sov/bin/
  *  via the public installer; 'source' = anything else (Bun global
  *  install, `bun src/main.ts` dev loop, project-local bun, etc.). */
@@ -55,7 +63,7 @@ export type InstallMode = 'binary' | 'source';
  *  Binary mode = execPath starts with `${homedir}/.sov/bin/`. Anything
  *  else returns 'source'. */
 export function detectInstallMode(input: { execPath: string; homedir: string }): InstallMode {
-  const binaryRoot = `${join(input.homedir, '.sov', 'bin')}/`;
+  const binaryRoot = `${join(input.homedir, '.sov', 'bin')}${sep}`;
   // Prefix-string check is sufficient because the binary install
   // layout is fully under our control (we placed the binary there in
   // install.sh). No realpath needed — execPath is already canonical.
@@ -97,6 +105,9 @@ export type UpgradeOpts = {
    *  hatch); pass 'binary' to force the public-installer flow even on
    *  source installs (useful for testing). */
   mode?: InstallMode;
+  /** Test seam — overrides process.platform for the Windows binary-mode
+   *  short-circuit. Default: process.platform. */
+  platform?: NodeJS.Platform;
 };
 
 /** Resolve the effective cache-purge decision from the opt flags.
@@ -120,7 +131,8 @@ export type UpgradeResult = {
 
 /** Pure helper: produce the argv list(s) we'd spawn.
  *
- *  Binary mode: single command, `bash -c "curl -fsSL <URL> | bash"`.
+ *  Binary mode: single command, `bash -c "curl -fsSL <URL> | bash"` — or NO
+ *  commands on Windows, where binary-mode self-upgrade is not supported yet.
  *  Source mode: [uninstall, install] (or just [install] if skipUninstall).
  *
  *  Mode is taken from opts.mode if set, else auto-detected from
@@ -132,6 +144,8 @@ export function buildUpgradeCommands(
   const mode = opts.mode ?? detectInstallMode({ execPath: process.execPath, homedir: homedir() });
 
   if (mode === 'binary') {
+    // Windows: nothing to run — runUpgrade reports WINDOWS_BINARY_UPGRADE_MESSAGE.
+    if (isWindows(opts.platform)) return [];
     return [['bash', '-c', `curl -fsSL ${BINARY_INSTALLER_URL} | bash`]];
   }
 
@@ -170,6 +184,10 @@ export function runUpgrade(
   const commands = buildUpgradeCommands({ ...opts, mode });
 
   if (mode === 'binary') {
+    if (isWindows(opts.platform)) {
+      err.write(WINDOWS_BINARY_UPGRADE_MESSAGE);
+      return { exitCode: 1, commands };
+    }
     if (opts.dryRun === true) {
       for (const cmd of commands) out.write(`would run: ${cmd.join(' ')}\n`);
       return { exitCode: 0, commands };

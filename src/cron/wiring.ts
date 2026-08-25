@@ -40,6 +40,7 @@ import type { TranscriptStore } from '@yevgetman/sov-sdk/persistence/transcriptS
 import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
 import type { Tool } from '@yevgetman/sov-sdk/tool/types';
+import { bashPath } from '@yevgetman/sov-sdk/util/platform';
 import { buildSessionToolContext } from '../server/routes/turns.js';
 import type { Runtime } from '../server/runtime.js';
 import { buildCronJobExecutor } from './execute.js';
@@ -71,11 +72,26 @@ export function resolveScriptPath(harnessHome: string, scriptPath: string): stri
 
 /** Suffix-based interpreter inference. Returns the argv tuple to feed into
  *  `spawnSync`: `[interpreter, scriptPath]` for known suffixes, or just
- *  `[scriptPath]` (direct exec) for everything else. */
-export function inferInterpreter(scriptPath: string): readonly [string, ...string[]] {
+ *  `[scriptPath]` (direct exec) for everything else.
+ *
+ *  `bash` is a test seam: the bash to run `.sh` scripts with (default: the
+ *  platform's resolved bash — bare `bash` on POSIX, Git for Windows' bash on
+ *  Windows). PowerShell cannot run a `.sh` file, so a null bash throws rather
+ *  than misrunning the script. */
+export function inferInterpreter(
+  scriptPath: string,
+  bash: string | null = bashPath(),
+): readonly [string, ...string[]] {
   if (scriptPath.endsWith('.py')) return ['python3', scriptPath];
   if (scriptPath.endsWith('.ts') || scriptPath.endsWith('.js')) return ['bun', scriptPath];
-  if (scriptPath.endsWith('.sh')) return ['bash', scriptPath];
+  if (scriptPath.endsWith('.sh')) {
+    if (!bash) {
+      throw new Error(
+        `cron: cannot run ${scriptPath}: .sh scripts need bash on PATH (install Git for Windows)`,
+      );
+    }
+    return [bash, scriptPath];
+  }
   return [scriptPath];
 }
 

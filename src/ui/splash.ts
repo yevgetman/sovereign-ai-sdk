@@ -5,6 +5,7 @@
 // the operational details that the old multi-line banner carried
 // (permissions, tools, cache, session).
 
+import { sep } from 'node:path';
 import chalk from 'chalk';
 import { boxify, visibleWidth } from './box.js';
 import { theme } from './theme.js';
@@ -58,23 +59,24 @@ function renderCard(info: SplashInfo, maxWidth: number): string[] {
   return [title, auth, model, bundle];
 }
 
-/** Shorten a long bundle path by collapsing leading segments to "…/".
+/** Shorten a long bundle path by collapsing leading segments to "…/"
+ *  ("…\" on Windows — segments split and rejoin on `path.sep`).
  *  Keeps the last 1–2 path segments intact (the meaningful part to a
  *  user). Returns the path unchanged when it already fits. */
 function abbreviatePath(path: string, maxWidth: number): string {
   if (path.length <= maxWidth) return path;
-  const segments = path.split('/').filter((s) => s.length > 0);
+  const segments = path.split(sep).filter((s) => s.length > 0);
   if (segments.length === 0) return path;
   // Try keeping more and more trailing segments; pick the longest tail
   // that fits with the "…/" prefix.
   for (let keep = Math.min(segments.length, 3); keep >= 1; keep--) {
-    const tail = segments.slice(-keep).join('/');
-    const candidate = `…/${tail}`;
+    const tail = segments.slice(-keep).join(sep);
+    const candidate = `…${sep}${tail}`;
     if (candidate.length <= maxWidth) return candidate;
   }
   // Even one segment is too long — hard-truncate.
   const last = segments[segments.length - 1] ?? path;
-  return `…/${last.slice(0, Math.max(1, maxWidth - 2))}`;
+  return `…${sep}${last.slice(0, Math.max(1, maxWidth - 2))}`;
 }
 
 function padBlock(lines: string[], targetHeight: number, width: number): string[] {
