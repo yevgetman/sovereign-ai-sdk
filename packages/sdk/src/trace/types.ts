@@ -5,6 +5,7 @@
 // the writer and viewer can be schema-driven.
 
 import type { StopReason, Terminal, TokenUsage } from '../core/types.js';
+import type { LoopMode } from '../loop/options.js';
 
 export type PermissionDecision = 'allow' | 'deny' | 'ask';
 
@@ -89,11 +90,24 @@ export type TraceEvent =
   | { type: 'session_end'; reason: Terminal['reason']; iso: string }
   | {
       type: 'loop_detected';
-      detector: 'consecutive-identical' | 'action-stagnation' | 'content-loop';
+      detector: 'consecutive-identical' | 'no-progress' | 'content-loop';
       repetitionCount: number;
       hash: string;
+      /** Human-readable, one sentence: what repeated, with counts (spec §3.7). */
+      reason: string;
+      /** What the orchestrator did about it. */
+      action: 'guidance' | 'abort' | 'warn';
+      /** The loop-guard policy in force for this session. */
+      mode: LoopMode;
+      /** no-progress only: window size and how many of it were unproductive. */
+      window?: { size: number; unproductive: number };
       iso: string;
     }
+  /** The loop guard is advisory infrastructure: any throw inside the detector
+   *  is caught, recorded here, and treated as "no detection" for that turn
+   *  (spec §3.8). Its presence in a trace means the guard was blind, not that
+   *  the turn failed. */
+  | { type: 'loop_detector_error'; message: string; iso: string }
   | {
       type: 'stall_detected';
       /** Human-readable description of why stall was diagnosed. */

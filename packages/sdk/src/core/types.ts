@@ -5,7 +5,7 @@
 // Source of pattern: Claude Code (agent-harness-design-lessons.md § Lesson 1-6;
 // harness-build-plan.md § 0.3).
 
-import type { LoopOptions } from '../loop/options.js';
+import type { LoopMode, LoopOptions } from '../loop/options.js';
 import type { RecallResult } from './recallPort.js';
 
 export type Role = 'user' | 'assistant';
@@ -58,12 +58,23 @@ export type MicrocompactInfo = {
 };
 
 export type LoopDetectionInfo = {
-  detector: 'consecutive-identical' | 'action-stagnation' | 'content-loop';
+  detector: 'consecutive-identical' | 'no-progress' | 'content-loop';
   hash: string;
   repetitionCount: number;
-  /** 1 = first detection (orchestrator injects guidance and continues),
-   *  2 = second detection (orchestrator breaks the loop). */
+  /** 1 = first detection, 2 = second, … The orchestrator escalates on it:
+   *  in `enforce` mode, guidance while `occurrence < maxStrikes` and abort at
+   *  `maxStrikes`; in `warn` mode it only ever guides. */
   occurrence: number;
+  /** Human-readable, one sentence: what repeated, with counts. Carried into the
+   *  guidance message and the abort error so a kill is explainable from the log
+   *  (spec §3.7). */
+  reason: string;
+  /** What the orchestrator did about this detection. */
+  action: 'guidance' | 'abort' | 'warn';
+  /** The loop-guard policy in force for this session. */
+  mode: LoopMode;
+  /** no-progress only: the window size and how many of it were unproductive. */
+  window?: { size: number; unproductive: number };
 };
 
 export type RouteDecisionInfo = {

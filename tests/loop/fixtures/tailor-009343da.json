@@ -1,0 +1,176 @@
+{
+  "description": "Synthetic replay of the production tailor run killed by the old action-stagnation detector (session 009343da, run a0a7dc89, 2026-08-25 18:53 UTC). Shape, not content: 24 sequential Bash calls, 24 DISTINCT `resume show <section>/<slug>` inputs, 24 DISTINCT non-error results, zero errors, then a text-only final answer. Under the progress-aware guard this must produce ZERO loop_detected events - that is the acceptance test for spec goal 1.",
+  "spec": "specs/2026-08-25-progress-aware-loop-guard-design.md",
+  "toolName": "Bash",
+  "calls": [
+    {
+      "id": "toolu_tailor_0001",
+      "input": {
+        "command": "resume show work/entry-1"
+      },
+      "result": "name: Entry 1\nsection: work\nsummary: worked on platform and kubernetes for engagement 1\nkeywords: [platform, kubernetes]\n"
+    },
+    {
+      "id": "toolu_tailor_0002",
+      "input": {
+        "command": "resume show skills/entry-2"
+      },
+      "result": "name: Entry 2\nsection: skills\nsummary: worked on typescript and node for engagement 2\nkeywords: [typescript, node]\n"
+    },
+    {
+      "id": "toolu_tailor_0003",
+      "input": {
+        "command": "resume show projects/entry-3"
+      },
+      "result": "name: Entry 3\nsection: projects\nsummary: worked on hiring and mentoring for engagement 3\nkeywords: [hiring, mentoring]\n"
+    },
+    {
+      "id": "toolu_tailor_0004",
+      "input": {
+        "command": "resume show basics/entry-4"
+      },
+      "result": "name: Entry 4\nsection: basics\nsummary: worked on postgres and sql for engagement 4\nkeywords: [postgres, sql]\n"
+    },
+    {
+      "id": "toolu_tailor_0005",
+      "input": {
+        "command": "resume show work/entry-5"
+      },
+      "result": "name: Entry 5\nsection: work\nsummary: worked on observability and tracing for engagement 5\nkeywords: [observability, tracing]\n"
+    },
+    {
+      "id": "toolu_tailor_0006",
+      "input": {
+        "command": "resume show skills/entry-6"
+      },
+      "result": "name: Entry 6\nsection: skills\nsummary: worked on stripe and billing for engagement 6\nkeywords: [stripe, billing]\n"
+    },
+    {
+      "id": "toolu_tailor_0007",
+      "input": {
+        "command": "resume show projects/entry-7"
+      },
+      "result": "name: Entry 7\nsection: projects\nsummary: worked on react and design-systems for engagement 7\nkeywords: [react, design-systems]\n"
+    },
+    {
+      "id": "toolu_tailor_0008",
+      "input": {
+        "command": "resume show basics/entry-8"
+      },
+      "result": "name: Entry 8\nsection: basics\nsummary: worked on python and pandas for engagement 8\nkeywords: [python, pandas]\n"
+    },
+    {
+      "id": "toolu_tailor_0009",
+      "input": {
+        "command": "resume show work/entry-9"
+      },
+      "result": "name: Entry 9\nsection: work\nsummary: worked on terraform and aws for engagement 9\nkeywords: [terraform, aws]\n"
+    },
+    {
+      "id": "toolu_tailor_0010",
+      "input": {
+        "command": "resume show skills/entry-10"
+      },
+      "result": "name: Entry 10\nsection: skills\nsummary: worked on grpc and protobuf for engagement 10\nkeywords: [grpc, protobuf]\n"
+    },
+    {
+      "id": "toolu_tailor_0011",
+      "input": {
+        "command": "resume show projects/entry-11"
+      },
+      "result": "name: Entry 11\nsection: projects\nsummary: worked on redis and caching for engagement 11\nkeywords: [redis, caching]\n"
+    },
+    {
+      "id": "toolu_tailor_0012",
+      "input": {
+        "command": "resume show basics/entry-12"
+      },
+      "result": "name: Entry 12\nsection: basics\nsummary: worked on kafka and streaming for engagement 12\nkeywords: [kafka, streaming]\n"
+    },
+    {
+      "id": "toolu_tailor_0013",
+      "input": {
+        "command": "resume show work/entry-13"
+      },
+      "result": "name: Entry 13\nsection: work\nsummary: worked on platform and kubernetes for engagement 13\nkeywords: [platform, kubernetes]\n"
+    },
+    {
+      "id": "toolu_tailor_0014",
+      "input": {
+        "command": "resume show skills/entry-14"
+      },
+      "result": "name: Entry 14\nsection: skills\nsummary: worked on typescript and node for engagement 14\nkeywords: [typescript, node]\n"
+    },
+    {
+      "id": "toolu_tailor_0015",
+      "input": {
+        "command": "resume show projects/entry-15"
+      },
+      "result": "name: Entry 15\nsection: projects\nsummary: worked on hiring and mentoring for engagement 15\nkeywords: [hiring, mentoring]\n"
+    },
+    {
+      "id": "toolu_tailor_0016",
+      "input": {
+        "command": "resume show basics/entry-16"
+      },
+      "result": "name: Entry 16\nsection: basics\nsummary: worked on postgres and sql for engagement 16\nkeywords: [postgres, sql]\n"
+    },
+    {
+      "id": "toolu_tailor_0017",
+      "input": {
+        "command": "resume show work/entry-17"
+      },
+      "result": "name: Entry 17\nsection: work\nsummary: worked on observability and tracing for engagement 17\nkeywords: [observability, tracing]\n"
+    },
+    {
+      "id": "toolu_tailor_0018",
+      "input": {
+        "command": "resume show skills/entry-18"
+      },
+      "result": "name: Entry 18\nsection: skills\nsummary: worked on stripe and billing for engagement 18\nkeywords: [stripe, billing]\n"
+    },
+    {
+      "id": "toolu_tailor_0019",
+      "input": {
+        "command": "resume show projects/entry-19"
+      },
+      "result": "name: Entry 19\nsection: projects\nsummary: worked on react and design-systems for engagement 19\nkeywords: [react, design-systems]\n"
+    },
+    {
+      "id": "toolu_tailor_0020",
+      "input": {
+        "command": "resume show basics/entry-20"
+      },
+      "result": "name: Entry 20\nsection: basics\nsummary: worked on python and pandas for engagement 20\nkeywords: [python, pandas]\n"
+    },
+    {
+      "id": "toolu_tailor_0021",
+      "input": {
+        "command": "resume show work/entry-21"
+      },
+      "result": "name: Entry 21\nsection: work\nsummary: worked on terraform and aws for engagement 21\nkeywords: [terraform, aws]\n"
+    },
+    {
+      "id": "toolu_tailor_0022",
+      "input": {
+        "command": "resume show skills/entry-22"
+      },
+      "result": "name: Entry 22\nsection: skills\nsummary: worked on grpc and protobuf for engagement 22\nkeywords: [grpc, protobuf]\n"
+    },
+    {
+      "id": "toolu_tailor_0023",
+      "input": {
+        "command": "resume show projects/entry-23"
+      },
+      "result": "name: Entry 23\nsection: projects\nsummary: worked on redis and caching for engagement 23\nkeywords: [redis, caching]\n"
+    },
+    {
+      "id": "toolu_tailor_0024",
+      "input": {
+        "command": "resume show basics/entry-24"
+      },
+      "result": "name: Entry 24\nsection: basics\nsummary: worked on kafka and streaming for engagement 24\nkeywords: [kafka, streaming]\n"
+    }
+  ],
+  "finalText": "Read all 24 resume entries; the tailored resume is ready for review."
+}

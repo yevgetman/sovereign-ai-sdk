@@ -32,6 +32,7 @@ import { injectRecallIntoLatestUserMessage } from './recallInjection.js';
 import type {
   AssistantMessage,
   ContentBlock,
+  LoopDetectionInfo,
   Message,
   QueryParams,
   StopReason,
@@ -71,6 +72,39 @@ function mergeUsage(prev: TokenUsage | undefined, delta: TokenUsage): TokenUsage
 }
 
 type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>;
+type ToolResultBlock = Extract<ContentBlock, { type: 'tool_result' }>;
+
+/** Index a runTools output message's `tool_result` blocks by `tool_use_id`, so
+ *  each of this turn's `tool_use` blocks can be paired with what it returned. */
+function collectToolResults(message: Message | undefined): Map<string, ToolResultBlock> {
+  const byId = new Map<string, ToolResultBlock>();
+  if (message === undefined || message.role !== 'user') return byId;
+  for (const block of message.content) {
+    if (block.type === 'tool_result') byId.set(block.tool_use_id, block);
+  }
+  return byId;
+}
+
+/** Flatten `tool_result` content to the text the loop guard hashes. This SDK's
+ *  canonical shape is a plain string, but history can arrive from a host that
+ *  kept Anthropic's array form — so accept both, join text blocks, and give a
+ *  non-text block a stable marker (`[image]`) rather than dropping it, which
+ *  would make two different results hash equal. Typed `unknown` on purpose:
+ *  the array branch is unreachable for well-typed history and this is the
+ *  boundary that must not trust it. */
+function flattenToolResultText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.map(flattenContentBlock).join('\n');
+}
+
+function flattenContentBlock(block: unknown): string {
+  if (typeof block === 'string') return block;
+  if (block === null || typeof block !== 'object' || !('type' in block)) return '';
+  const typed = block as { type: unknown; text?: unknown };
+  if (typed.type === 'text' && typeof typed.text === 'string') return typed.text;
+  return `[${String(typed.type)}]`;
+}
 
 /** Run one user turn, including provider streaming and tool-use continuation turns. */
 export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | Message, Terminal> {
@@ -96,7 +130,23 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   const sessionId = params.sessionId ?? toolCtx?.sessionId;
   const cwd = params.cwd ?? toolCtx?.cwd;
   const recordTrace = makeTraceRecorder(params.traceRecorder);
-  const loopDetector = new LoopDetectorState();
+  const loopDetector = new LoopDetectorState(params.loop);
+  /** The loop guard is advisory: a throw inside it must never fail the turn.
+   *  Any exception is recorded as a `loop_detector_error` trace event and the
+   *  call yields `fallback` — "no detection" for a check, nothing for an
+   *  observation (spec §3.8). */
+  const guarded = <T>(fn: () => T, fallback: T): T => {
+    try {
+      return fn();
+    } catch (err) {
+      recordTrace({
+        type: 'loop_detector_error',
+        message: err instanceof Error ? err.message : String(err),
+        iso: nowIso(),
+      });
+      return fallback;
+    }
+  };
   let loopDetectionCount = 0;
   let totalToolCallCount = 0;
   // Phase 13.3 — sliding window of TurnSummary records for stall detection.
@@ -368,13 +418,23 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
 
     const toolUseBlocks = assistant.content.filter((b): b is ToolUseBlock => b.type === 'tool_use');
 
-    // Loop detection runs once per turn. Snapshot = this turn's tool calls
-    // + the concatenated assistant text. The first detection injects a
-    // guidance message and continues; the second terminates the run.
-    const detection = loopDetector.addAndCheck({
-      toolCalls: toolUseBlocks.map((b) => ({ name: b.name, input: b.input })),
-      assistantText: assistantText(assistant),
-    });
+    // Loop detection runs once per turn, PRE-dispatch. Snapshot = this turn's
+    // tool calls + the concatenated assistant text. What happens next is the
+    // policy in `loopDetector.mode`: in `enforce`, guidance while
+    // `occurrence < maxStrikes` and an abort at `maxStrikes`; in `warn`,
+    // guidance every time and never an abort; in `off` the detector already
+    // returned null. The productivity ledger that feeds `no-progress` is
+    // filled POST-dispatch (see `observeResults` below), so a no-progress
+    // verdict surfaces on the check that FOLLOWS the Kth unproductive
+    // result — one turn late, deliberately (spec §3.3).
+    const detection = guarded(
+      () =>
+        loopDetector.addAndCheck({
+          toolCalls: toolUseBlocks.map((b) => ({ name: b.name, input: b.input })),
+          assistantText: assistantText(assistant),
+        }),
+      null,
+    );
     // `pendingGuidanceText` carries the loop-detector guidance into the next
     // user message we emit this turn. Anthropic requires that an assistant
     // message containing `tool_use` be IMMEDIATELY followed by a user message
@@ -396,47 +456,43 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
 
     if (detection) {
       loopDetectionCount++;
-      const info = {
+      // `warn` never aborts — it guides on every detection. `enforce` guides
+      // while the strike count is below `maxStrikes` and aborts on the strike
+      // that reaches it (spec §3.4).
+      const isAbort =
+        loopDetector.mode === 'enforce' && loopDetectionCount >= loopDetector.maxStrikes;
+      const action: LoopDetectionInfo['action'] =
+        loopDetector.mode === 'warn' ? 'warn' : isAbort ? 'abort' : 'guidance';
+      const info: LoopDetectionInfo = {
         detector: detection.detector,
         hash: detection.hash,
         repetitionCount: detection.repetitionCount,
         occurrence: loopDetectionCount,
-      } as const;
+        reason: detection.reason,
+        action,
+        mode: loopDetector.mode,
+        ...(detection.window !== undefined ? { window: detection.window } : {}),
+      };
       yield { type: 'loop_detected', info } as StreamEvent;
       recordTrace({
         type: 'loop_detected',
         detector: detection.detector,
         repetitionCount: detection.repetitionCount,
         hash: detection.hash,
+        reason: detection.reason,
+        action,
+        mode: loopDetector.mode,
+        ...(detection.window !== undefined ? { window: detection.window } : {}),
         iso: nowIso(),
       });
-      if (loopDetectionCount === 1) {
-        // First strike: carry guidance into THIS turn's next user message
-        // (the tool_result emitted after dispatch), so the loop continues
-        // with a course-correction nudge. On a content-only turn there are
-        // no tool_use blocks to dispatch — so this turn TERMINATES below at
-        // the `toolUseBlocks.length === 0` branch (a content-only turn never
-        // continues). Pushing a standalone guidance user message here would
-        // leave history ending on a user message that can never be acted on;
-        // the NEXT user turn would then append a second consecutive user
-        // message → Anthropic 400 "roles must alternate" → session broken.
-        // So we only set pendingGuidanceText when there IS a continuation
-        // (tool_use present); the loop_detected event + trace above still
-        // fire either way, preserving the telemetry.
-        if (toolUseBlocks.length > 0) {
-          pendingGuidanceText =
-            'It looks like the same action is repeating. Stop and try a different approach: ' +
-            'check whether the prior step actually achieved the goal, change your tool, change ' +
-            'your inputs, or ask for clarification before continuing.';
-        }
-      } else {
-        // Second-strike abort: if this turn's assistant message contained
-        // tool_use blocks, we must yield matching tool_result blocks before
-        // returning. Anthropic requires every tool_use to be IMMEDIATELY
-        // followed by a tool_result; without this the persisted history
-        // (REPL turnMessages, sessionDb) is left in a 400-rejected state
-        // and the next user message is unrecoverable. Mirrors the
-        // signal-aborted dispatch path below.
+      if (isAbort) {
+        // Abort strike: if this turn's assistant message contained tool_use
+        // blocks, we must yield matching tool_result blocks before returning.
+        // Anthropic requires every tool_use to be IMMEDIATELY followed by a
+        // tool_result; without this the persisted history (REPL turnMessages,
+        // sessionDb) is left in a 400-rejected state and the next user message
+        // is unrecoverable. Mirrors the signal-aborted dispatch path below.
+        // See docs/07-history/postmortems/loop-detector-orphaned-tool-use.md.
         if (toolUseBlocks.length > 0) {
           const msg = synthesizeToolResultMessage(
             toolUseBlocks,
@@ -448,10 +504,23 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         await maybeFireStop('error');
         return {
           reason: 'error',
-          error: new Error(
-            `aborted by loop detector after ${loopDetectionCount} detections (${detection.detector})`,
-          ),
+          error: new Error(`aborted by loop guard (${detection.detector}): ${detection.reason}`),
         };
+      }
+      // Guidance strike: carry the nudge into THIS turn's next user message
+      // (the tool_result emitted after dispatch), so the loop continues with a
+      // course correction. On a content-only turn there are no tool_use blocks
+      // to dispatch — so this turn TERMINATES below at the
+      // `toolUseBlocks.length === 0` branch (a content-only turn never
+      // continues). Pushing a standalone guidance user message here would leave
+      // history ending on a user message that can never be acted on; the NEXT
+      // user turn would then append a second consecutive user message →
+      // Anthropic 400 "roles must alternate" → session broken. So we only set
+      // pendingGuidanceText when there IS a continuation (tool_use present);
+      // the loop_detected event + trace above still fire either way,
+      // preserving the telemetry.
+      if (toolUseBlocks.length > 0) {
+        pendingGuidanceText = `Loop guard: ${detection.reason} Change what you send, verify the earlier result, or stop and report.`;
       }
     }
 
@@ -570,6 +639,30 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       // batch. Sub-agent calls are silently no-op'd by the session-id
       // guard inside ReviewManager, so this unconditional call is safe.
       toolCtx.reviewManager?.onToolIteration(toolCtx.sessionId);
+      // Progress-aware loop guard, POST-dispatch (spec §3.3 step 2). One entry
+      // per tool_use block of this turn, paired by `tool_use_id` with the
+      // `tool_result` blocks runTools just emitted (the message pushed last).
+      // This only feeds the productivity ledger — it never fires; the verdict
+      // lands on the NEXT pre-dispatch check.
+      {
+        const resultsById = collectToolResults(history[history.length - 1]);
+        const observed = toolUseBlocks.flatMap((block) => {
+          const result = resultsById.get(block.id);
+          // A tool_use with no tool_result cannot happen via runTools (it
+          // synthesizes one for every block). Skipping rather than inventing an
+          // empty result keeps the ledger honest if that ever changes.
+          if (result === undefined) return [];
+          return [
+            {
+              name: block.name,
+              input: block.input,
+              text: flattenToolResultText(result.content),
+              isError: result.is_error === true,
+            },
+          ];
+        });
+        guarded(() => loopDetector.observeResults(observed), undefined);
+      }
       // Phase 13.3 — stall / no-op detection. Tracks file edits, memory
       // writes, decisions, and tool errors per turn over a 3-turn sliding
       // window. Emits an advisory trace event on stall — never blocks.
