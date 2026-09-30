@@ -83,7 +83,7 @@ export function note(msg: string): void {
 export function run(
   bin: string,
   args: string[],
-  opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv; throwOnError?: boolean } = {},
 ): void {
   const result = spawnSync(bin, args, {
     stdio: 'inherit',
@@ -91,7 +91,11 @@ export function run(
     env: opts.env ?? process.env,
   });
   if (result.status !== 0) {
-    die(`${bin} ${args.join(' ')} → exit ${result.status}`);
+    const msg = `${bin} ${args.join(' ')} → exit ${result.status}`;
+    // process.exit (via die) skips finally, so callers that must clean up
+    // pass throwOnError and handle the error themselves.
+    if (opts.throwOnError === true) throw new Error(msg);
+    die(msg);
   }
 }
 

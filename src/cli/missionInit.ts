@@ -80,8 +80,8 @@ export function formatMissionInitResult(result: MissionInitResult): string {
     '  1. Edit plan.md — add phased steps with acceptance criteria.',
     '  2. Run a wake manually:',
     `     sov mission run --state-dir ${result.missionDir}`,
-    '  3. Schedule later wakes with sov itself:',
-    '     sov mission --help',
+    '  3. Schedule later wakes with launchd, cron, or systemd:',
+    `     sov mission run --state-dir ${result.missionDir}`,
     '',
   ];
   return `${lines.join('\n')}\n`;

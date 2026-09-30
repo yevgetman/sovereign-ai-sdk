@@ -2,21 +2,28 @@ import { describe, expect, test } from 'bun:test';
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { join, sep } from 'node:path';
 import { deflateRawSync } from 'node:zlib';
 import {
   archivePathFor,
+  compileBinaries,
+  findBuilderLeak,
   packageStage,
   resolveTarget,
   shouldStageBundlePath,
   stagedBinaryPaths,
+  unsafeCompileDirReason,
   validateBuildInputs,
 } from '../../scripts/release-build-target';
 import { TARGETS, type Target } from '../../scripts/release-shared';
@@ -235,6 +242,194 @@ describe('release-build-target — shouldStageBundlePath (audit C1: no state lea
       expect(existsSync(join(dest, 'state', 'artifacts'))).toBe(false);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('release-build-target — builder path leak scan', () => {
+  test('rejects the current home prefix and the bytes ~/code', () => {
+    expect(findBuilderLeak(Buffer.from('clean binary'), '/Users/example')).toBeNull();
+    expect(findBuilderLeak(Buffer.from('x /Users/example/code/repo y'), '/Users/example')).toBe(
+      '/Users/example',
+    );
+    expect(findBuilderLeak(Buffer.from('x /home/example/proj y'), '/home/example')).toBe(
+      '/home/example',
+    );
+    expect(findBuilderLeak(Buffer.from('see ~/code/foo'), '/Users/example')).toBe('~/code');
+
+    const home = homedir().replace(/[\\/]+$/, '');
+    const marked = Buffer.from(`prefix ${home}/code suffix`);
+    if (home === '/Users/runner' || home === '/home/runner') {
+      expect(findBuilderLeak(marked, home)).toBeNull();
+    } else {
+      expect(findBuilderLeak(marked, home)).toBe(home);
+    }
+  });
+
+  test('allows exactly the runner account, whose prefix Bun already embeds', () => {
+    const webkit = Buffer.from('/Users/runner/work/_temp/webkit-release/JavaScriptCore');
+    expect(findBuilderLeak(webkit, '/Users/runner')).toBeNull();
+    expect(findBuilderLeak(Buffer.from('/home/runner/work/repo'), '/home/runner')).toBeNull();
+    expect(findBuilderLeak(Buffer.from('~/code'), '/Users/runner')).toBe('~/code');
+    // A different builder still fails if their own home is present, and the
+    // runner prefix alone is not their home.
+    expect(findBuilderLeak(webkit, '/Users/example')).toBeNull();
+    expect(findBuilderLeak(Buffer.from('/Users/example/work'), '/Users/runner/')).toBeNull();
+  });
+});
+
+describe('release-build-target — bun compile dir must be under /tmp', () => {
+  test('rejects $HOME and /var/folders, accepts /tmp and /private/tmp', () => {
+    expect(unsafeCompileDirReason('/var/folders/xx/T/abc', '/Users/example')).toMatch(
+      /var\/folders/,
+    );
+    expect(unsafeCompileDirReason('/Users/example/tmp/abc', '/Users/example')).toMatch(/home/);
+    expect(unsafeCompileDirReason('/home/example/tmp/abc', '/home/example')).toMatch(/home/);
+    expect(unsafeCompileDirReason('/tmp', '/Users/example')).toMatch(/not under \/tmp/);
+    expect(unsafeCompileDirReason('/private/tmp/sov-bun-compile-abc', '/Users/example')).toBeNull();
+    expect(unsafeCompileDirReason('/tmp/sov-bun-compile-abc', '/home/example')).toBeNull();
+    expect(unsafeCompileDirReason('C:/tmp/sov-bun-compile-abc', 'C:/Users/example')).toBeNull();
+  });
+});
+
+describe('release-build-target — compileBinaries cwd and post-scan', () => {
+  type Run = (
+    bin: string,
+    args: string[],
+    opts?: { cwd?: string; env?: NodeJS.ProcessEnv; throwOnError?: boolean },
+  ) => void;
+
+  function fixture(): { root: string; outside: string; cleanup: () => void } {
+    const root = mkdtempSync(join(tmpdir(), 'sov-compile-src-'));
+    const outside = mkdtempSync(join(tmpdir(), 'sov-compile-out-'));
+    mkdirSync(join(root, 'src'));
+    mkdirSync(join(root, 'packages', 'tui'), { recursive: true });
+    mkdirSync(join(root, '.git'));
+    mkdirSync(join(root, 'build'));
+    writeFileSync(join(root, 'src', 'main.ts'), 'console.log(1)\n');
+    writeFileSync(join(root, '.git', 'config'), 'gitdir');
+    writeFileSync(join(root, 'build', 'old-bin'), 'stale');
+    writeFileSync(join(outside, 'esc.ts'), 'escaped-body');
+    symlinkSync(join(outside, 'esc.ts'), join(root, 'src', 'escaped.ts'));
+    return {
+      root,
+      outside,
+      cleanup: () => {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outside, { recursive: true, force: true });
+      },
+    };
+  }
+
+  test('bun cwd is a 0700 /tmp copy with symlinks dereferenced, then the dir is removed', () => {
+    const fix = fixture();
+    const stage = mkdtempSync(join(tmpdir(), 'sov-compile-stage-'));
+    mkdirSync(join(stage, 'bin'), { recursive: true });
+    const calls: { bin: string; args: string[]; cwd?: string }[] = [];
+    try {
+      const fake: Run = (bin, args, opts) => {
+        calls.push({ bin, args, ...(opts?.cwd !== undefined ? { cwd: opts.cwd } : {}) });
+        expect(opts?.throwOnError).toBe(true);
+        if (bin !== 'bun') return;
+        const cwd = opts?.cwd ?? '';
+        const real = realpathSync(cwd);
+        expect(real.startsWith(`${realpathSync('/tmp')}${sep}`)).toBe(true);
+        expect(real.includes(`${sep}var${sep}folders${sep}`)).toBe(false);
+        const home = homedir();
+        expect(real === home || real.startsWith(`${home}${sep}`)).toBe(false);
+        expect(unsafeCompileDirReason(real, home)).toBeNull();
+        expect(statSync(cwd).mode & 0o777).toBe(0o700);
+        expect(existsSync(join(cwd, '.git'))).toBe(false);
+        expect(existsSync(join(cwd, 'build'))).toBe(false);
+        expect(existsSync(join(cwd, 'src', 'main.ts'))).toBe(true);
+        const copied = join(cwd, 'src', 'escaped.ts');
+        expect(lstatSync(copied).isSymbolicLink()).toBe(false);
+        expect(readFileSync(copied, 'utf8')).toBe('escaped-body');
+        const outfile = args.find((a) => a.startsWith('--outfile='))?.slice('--outfile='.length);
+        if (!outfile) throw new Error('missing --outfile');
+        writeFileSync(outfile, 'clean-sov');
+      };
+      compileBinaries(target('darwin-arm64'), stage, {
+        run: fake,
+        root: fix.root,
+        home: homedir(),
+      });
+      const bunCall = calls.find((c) => c.bin === 'bun');
+      const goCall = calls.find((c) => c.bin === 'go');
+      expect(bunCall?.cwd).toBeTruthy();
+      expect(existsSync(bunCall?.cwd ?? '')).toBe(false);
+      expect(goCall?.args.slice(0, 3)).toEqual(['build', '-trimpath', '-ldflags=-s -w']);
+      expect(goCall?.cwd).toBe(join(fix.root, 'packages', 'tui'));
+      expect(bunCall?.args).toContain('src/main.ts');
+      expect(bunCall?.args).toContain('--compile');
+    } finally {
+      fix.cleanup();
+      rmSync(stage, { recursive: true, force: true });
+    }
+  });
+
+  test('fails the build when bin/sov contains the home prefix or ~/code, and still removes the copy', () => {
+    const fix = fixture();
+    const stage = mkdtempSync(join(tmpdir(), 'sov-compile-stage-'));
+    mkdirSync(join(stage, 'bin'), { recursive: true });
+    let cwd = '';
+    let goCalls = 0;
+    try {
+      const fake: Run = (bin, args, opts) => {
+        if (bin === 'go') goCalls += 1;
+        if (bin !== 'bun') return;
+        cwd = opts?.cwd ?? '';
+        const outfile = args.find((a) => a.startsWith('--outfile='))?.slice('--outfile='.length);
+        if (!outfile) throw new Error('missing --outfile');
+        writeFileSync(outfile, 'leaked /Users/example/code/sdk and ~/code/ops');
+      };
+      expect(() =>
+        compileBinaries(target('linux-x64'), stage, {
+          run: fake,
+          root: fix.root,
+          home: '/Users/example',
+        }),
+      ).toThrow(/\/Users\/example/);
+      expect(cwd).not.toBe('');
+      expect(existsSync(cwd)).toBe(false);
+      expect(goCalls).toBe(0);
+
+      const fakeTilde: Run = (bin, args) => {
+        if (bin !== 'bun') return;
+        const outfile = args.find((a) => a.startsWith('--outfile='))?.slice('--outfile='.length);
+        if (!outfile) throw new Error('missing --outfile');
+        writeFileSync(outfile, 'schedule ~/code/mission');
+      };
+      expect(() =>
+        compileBinaries(target('linux-x64'), stage, {
+          run: fakeTilde,
+          root: fix.root,
+          home: '/Users/runner',
+        }),
+      ).toThrow(/~\/code/);
+    } finally {
+      fix.cleanup();
+      rmSync(stage, { recursive: true, force: true });
+    }
+  });
+
+  test('removes the /tmp copy when bun fails', () => {
+    const fix = fixture();
+    const stage = mkdtempSync(join(tmpdir(), 'sov-compile-stage-'));
+    let cwd = '';
+    try {
+      const fake: Run = (_bin, _args, opts) => {
+        cwd = opts?.cwd ?? '';
+        throw new Error('bun failed');
+      };
+      expect(() =>
+        compileBinaries(target('darwin-arm64'), stage, { run: fake, root: fix.root }),
+      ).toThrow(/bun failed/);
+      expect(cwd).not.toBe('');
+      expect(existsSync(cwd)).toBe(false);
+    } finally {
+      fix.cleanup();
+      rmSync(stage, { recursive: true, force: true });
     }
   });
 });

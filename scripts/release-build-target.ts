@@ -11,8 +11,20 @@
 // Required env:
 //   SOV_RELEASES_PATH — path to a sov-releases checkout (for LICENSE.txt)
 
-import { cpSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { homedir } from 'node:os';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { exit } from 'node:process';
 import {
   TARGETS,
@@ -107,24 +119,143 @@ export function packageStage(target: Target, stageDir: string, archivePath: stri
   });
 }
 
-function compileBinaries(target: Target, stageDir: string): void {
-  const root = repoRoot();
-  const bins = stagedBinaryPaths(stageDir, target);
+/**
+ * Bun 1.3.13 embeds `/Users/runner/work/_temp/webkit-release/...` inside the
+ * runtime that `bun build --compile` links in. A builder whose home is exactly
+ * that account cannot treat the prefix as a leak signal. Any other home can.
+ */
+const RUNNER_ACCOUNT_HOMES = new Set(['/Users/runner', '/home/runner']);
 
-  note(`[${target.name}] bun build --compile...`);
-  run('bun', [
-    'build',
-    '--compile',
-    `--target=${target.bunTarget}`,
-    `--outfile=${bins.sov}`,
-    'src/main.ts',
-  ]);
+function canonicalHome(home: string): string {
+  return home.replace(/[\\/]+$/, '').replace(/\\/g, '/');
+}
 
-  note(`[${target.name}] go build sov-tui (${target.goos}/${target.goarch})...`);
-  run('go', ['build', '-trimpath', '-ldflags=-s -w', '-o', bins.tui, './cmd/sov-tui'], {
-    cwd: join(root, 'packages', 'tui'),
-    env: { ...process.env, GOOS: target.goos, GOARCH: target.goarch },
+/** Byte strings that must not survive in a published `bin/sov`. */
+export function findBuilderLeak(bytes: Buffer, home: string): string | null {
+  const prefix = home.replace(/[\\/]+$/, '');
+  const markers: string[] = [];
+  if (prefix.length > 1 && !RUNNER_ACCOUNT_HOMES.has(canonicalHome(prefix))) {
+    markers.push(prefix);
+  }
+  markers.push('~/code');
+  for (const marker of markers) {
+    if (bytes.includes(marker)) return marker;
+  }
+  return null;
+}
+
+/**
+ * `realDir` is a realpath. Reject $HOME and /var/folders (both contain the
+ * username on macOS). Accept only a directory under /tmp, which realpaths to
+ * /private/tmp on macOS. Windows Node maps `/tmp` to `<drive>:\tmp`.
+ */
+export function unsafeCompileDirReason(realDir: string, home: string): string | null {
+  const dir = canonicalHome(realDir);
+  const homePrefix = canonicalHome(home);
+  if (homePrefix.length > 1 && (dir === homePrefix || dir.startsWith(`${homePrefix}/`))) {
+    return `inside home ${homePrefix}`;
+  }
+  if (dir === '/var/folders' || dir.startsWith('/var/folders/')) return 'under /var/folders';
+  const underTmp =
+    dir.startsWith('/tmp/') || dir.startsWith('/private/tmp/') || /^[A-Za-z]:\/tmp\//.test(dir);
+  if (!underTmp) return 'not under /tmp';
+  return null;
+}
+
+function bunCompileTempParent(): string {
+  // Never os.tmpdir(): on macOS that is /var/folders/<...>/<user>/T.
+  if (!existsSync('/tmp')) {
+    if (process.platform !== 'win32') throw new Error('bun compile requires /tmp');
+    mkdirSync('/tmp', { recursive: true });
+  }
+  const parent = realpathSync('/tmp');
+  const why = unsafeCompileDirReason(join(parent, 'sov-bun-compile-probe'), homedir());
+  if (why !== null) throw new Error(`refusing bun compile temp parent ${parent}: ${why}`);
+  return parent;
+}
+
+function shouldCopyForBunCompile(root: string, srcPath: string): boolean {
+  const rel = relative(root, srcPath);
+  if (rel === '' || rel === '.') return true;
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return false;
+  const parts = rel.split(sep);
+  if (parts.some((part) => part === '.git')) return false;
+  if (parts[0] === 'build') return false;
+  return true;
+}
+
+/** Dereference so bun's realpath cannot escape back to the checkout. */
+function copyForBunCompile(root: string, dest: string): void {
+  cpSync(root, dest, {
+    recursive: true,
+    dereference: true,
+    filter: (src) => shouldCopyForBunCompile(root, src),
   });
+}
+
+function assertNoBuilderPathLeak(binaryPath: string, home: string): void {
+  if (!existsSync(binaryPath)) {
+    throw new Error(`bun compile did not produce ${binaryPath}`);
+  }
+  const leak = findBuilderLeak(readFileSync(binaryPath), home);
+  if (leak !== null) {
+    throw new Error(`bin/sov contains builder path ${JSON.stringify(leak)}`);
+  }
+}
+
+/**
+ * Compile sov + sov-tui into `stageDir`.
+ *
+ * `bun build --compile` (1.3.13) writes every bundled file's path into the
+ * executable as a `// <path>` banner, relative to cwd, after realpath. Build
+ * from a mode-0700 copy under /tmp so the banner cannot name the checkout,
+ * then refuse to continue if `bin/sov` still contains the builder's home
+ * prefix or the bytes `~/code`.
+ */
+export function compileBinaries(
+  target: Target,
+  stageDir: string,
+  opts: {
+    run?: typeof run;
+    root?: string;
+    home?: string;
+  } = {},
+): void {
+  const exec = opts.run ?? run;
+  const root = opts.root ?? repoRoot();
+  const home = opts.home ?? homedir();
+  const bins = stagedBinaryPaths(stageDir, target);
+  const scratch = mkdtempSync(join(bunCompileTempParent(), 'sov-bun-compile-'));
+  try {
+    chmodSync(scratch, 0o700);
+    const compileDir = realpathSync(scratch);
+    const why = unsafeCompileDirReason(compileDir, homedir());
+    if (why !== null) throw new Error(`bun compile dir ${compileDir} is unsafe: ${why}`);
+    copyForBunCompile(root, compileDir);
+
+    note(`[${target.name}] bun build --compile...`);
+    exec(
+      'bun',
+      [
+        'build',
+        '--compile',
+        `--target=${target.bunTarget}`,
+        `--outfile=${bins.sov}`,
+        'src/main.ts',
+      ],
+      { cwd: compileDir, throwOnError: true },
+    );
+    assertNoBuilderPathLeak(bins.sov, home);
+
+    note(`[${target.name}] go build sov-tui (${target.goos}/${target.goarch})...`);
+    exec('go', ['build', '-trimpath', '-ldflags=-s -w', '-o', bins.tui, './cmd/sov-tui'], {
+      cwd: join(root, 'packages', 'tui'),
+      env: { ...process.env, GOOS: target.goos, GOARCH: target.goarch },
+      throwOnError: true,
+    });
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 }
 
 function stageBundleAndMetadata(
@@ -153,7 +284,11 @@ function buildOne(target: Target, version: string, publicRepoPath: string): stri
   if (existsSync(stageDir)) rmSync(stageDir, { recursive: true, force: true });
   mkdirSync(join(stageDir, 'bin'), { recursive: true });
 
-  compileBinaries(target, stageDir);
+  try {
+    compileBinaries(target, stageDir);
+  } catch (err) {
+    die(err instanceof Error ? err.message : String(err));
+  }
   stageBundleAndMetadata(target, stageDir, version, publicRepoPath);
 
   const archive = archivePathFor(releaseDir, target);

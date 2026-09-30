@@ -93,5 +93,13 @@ describe('formatMissionInitResult', () => {
     const output = formatMissionInitResult(result);
     expect(output).toContain(`sov mission run --state-dir ${missionDir}`);
     expect(output).not.toContain('sov chat');
+    // Wakes are an external timer invoking `sov mission run`. There is no
+    // schedule/install subcommand (main.ts registers only init and run).
+    expect(output).toContain('launchd, cron, or systemd');
+    expect(output).not.toContain('sov mission --help');
+    expect(output).not.toContain('sov mission install');
+    expect(output).not.toContain('install.sh');
+    expect(output).not.toContain('sovereign-ai-ops');
+    expect(output).not.toContain('with sov itself');
   });
 });
