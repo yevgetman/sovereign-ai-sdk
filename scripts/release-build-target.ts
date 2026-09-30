@@ -102,7 +102,9 @@ export function packageStage(target: Target, stageDir: string, archivePath: stri
     writeZip(archivePath, stageDir);
     return;
   }
-  run('tar', ['-czf', archivePath, '-C', stageDir, '.']);
+  run('tar', ['-czf', archivePath, '-C', stageDir, '.'], {
+    env: { ...process.env, COPYFILE_DISABLE: '1' },
+  });
 }
 
 function compileBinaries(target: Target, stageDir: string): void {
@@ -119,7 +121,7 @@ function compileBinaries(target: Target, stageDir: string): void {
   ]);
 
   note(`[${target.name}] go build sov-tui (${target.goos}/${target.goarch})...`);
-  run('go', ['build', '-o', bins.tui, './cmd/sov-tui'], {
+  run('go', ['build', '-trimpath', '-ldflags=-s -w', '-o', bins.tui, './cmd/sov-tui'], {
     cwd: join(root, 'packages', 'tui'),
     env: { ...process.env, GOOS: target.goos, GOARCH: target.goarch },
   });

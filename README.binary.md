@@ -42,4 +42,4 @@ rm -rf ~/.sov
 
 ## Support
 
-This is a personal beta. For issues or feedback: **yevgetman@gmail.com**.
+For issues or feedback, contact the party who provided this build.

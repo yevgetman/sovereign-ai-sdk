@@ -100,7 +100,7 @@ function readSeedReadme(cwd: string, projectName: string): string {
     '',
     "_This file is the bundle's tier-1 entry point. The runtime reads it on every session start. Edit freely — replace this stub with your project's actual context (architecture, conventions, key files, anything you'd tell a new contributor)._",
     '',
-    'See `~/code/sovereign-ai-sdk/src/bundle/README.md` for the bundle-as-data contract.',
+    'See the bundle contract shipped with sov, in `bundle-default/`.',
     '',
   ].join('\n');
 }
