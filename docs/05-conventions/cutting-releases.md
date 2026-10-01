@@ -72,3 +72,58 @@ The rule was added after the user filed a "Fix A is still there in `0.2.1`" bug.
 - `scripts/release.ts` — the release orchestrator.
 - `specs/2026-05-21-binary-distribution-design.md` — the Phase 21 design that introduced the binary-install path.
 - `docs/07-history/state/2026-05-22-phase-21-m1.md` — the Phase 21 M1 close-out detailing the public-repo layout.
+
+## Fresh-install package verification
+
+The package builder keeps the approved npm and Go publishing identities. Generic
+relative examples and the replaceable Julie default are permitted. Builder home
+paths, private routing/contact data, captured state, and owner-specific prompts
+are prohibited. The shared scanner checks known residue; it is not general secret
+detection.
+
+Local build requirements are Bun, Go, and Python 3.9 or newer (`python3` on Unix,
+`python` on Windows). CI installs Python 3.12. The scanner and its policy are a
+pinned build-only snapshot under `scripts/fresh_install/`; their manifest records
+source revision and hashes. They are not included in consumer packages.
+
+The source checkout must be committed and clean. The builder copies only tracked
+`src/`, package source/manifests, default bundle inputs, the lockfile, TypeScript
+config, and consumer README. It excludes local configuration, source tests,
+private state, and old build outputs. Installed frozen-lockfile dependencies are
+an explicit input: they are dereferenced into the private mode-0700 temporary
+tree and measured by a byte inventory digest. Workspace dependencies resolve to
+the copied source. Both compilers use that tree; Go still uses `-trimpath`.
+Cleanup covers copying, compilation, and early scan failures.
+
+The consumer license comes from the exact revision and SHA-256 in
+`scripts/release-license.json`. Set `SOV_RELEASES_PATH` to a checkout of that
+revision before a local build. No new revision environment variable is required.
+Build CI checks out the pinned license revision; upload CI keeps its separate
+current changelog checkout. Updating the license pin requires reviewing the
+license diff; it does not change the legal terms automatically.
+
+The builder records source revision, tracked file digest, dependency digest,
+license revision/hash, target, and version in `build-inputs.json`. It scans the
+Bun binary, then the complete stage and final tar/ZIP with a required component
+inventory. Final tar ownership is numeric zero with empty owner/group names;
+AppleDouble sidecars and builder extended metadata are excluded. Modes and safe
+internal links remain intact. Upload rechecks every final archive's current bytes
+before checksums or publication; a stale receipt cannot authorize changed bytes.
+
+Scanner results are `clean` (0), `findings` (1), and `incomplete` (2). Both nonzero
+states stop the build/upload. Stage and archive receipts are sidecars outside the
+consumer tree. Receipts include coverage, limits, bounded rule-ID findings,
+errors, policy/scanner version, architecture, and measured hashes. File/rule
+pairs are the count unit. Missing Python, missing required components, and
+unsupported or malformed required archives are failures, not exclusions.
+
+`bundle-default/BUNDLE-CONTRACT.md` is the installed layout guide. The CLI embeds
+that same guide and `sov init` writes `harness/BUNDLE-CONTRACT.md` into a new bundle.
+Reinitializing a bundle preserves an edited contract. Mission guidance uses the
+real `sov mission run --state-dir` command with POSIX shell quoting; launchd or
+systemd argv configurations must pass the directory as one argument. This is
+scheduler guidance, not a new scheduling feature.
+
+Source/test PR acceptance is separate from release proof. Both-architecture
+candidate builds, binary/signature checks, final app assembly scans, and isolated
+installation behavior remain required before claiming a verified clean release.

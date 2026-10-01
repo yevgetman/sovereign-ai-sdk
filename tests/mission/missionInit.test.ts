@@ -1,10 +1,15 @@
 // tests/mission/missionInit.test.ts
 import { afterEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { formatMissionInitResult, runMissionInit } from '../../src/cli/missionInit.js';
+import {
+  formatMissionInitResult,
+  quoteMissionPath,
+  runMissionInit,
+} from '../../src/cli/missionInit.js';
 
 const dirsToClean: string[] = [];
 
@@ -91,7 +96,7 @@ describe('formatMissionInitResult', () => {
     const missionDir = join(parent, 'next-steps-mission');
     const result = runMissionInit({ dir: missionDir, goal: 'A goal.' });
     const output = formatMissionInitResult(result);
-    expect(output).toContain(`sov mission run --state-dir ${missionDir}`);
+    expect(output).toContain(`sov mission run --state-dir ${quoteMissionPath(missionDir)}`);
     expect(output).not.toContain('sov chat');
     // Wakes are an external timer invoking `sov mission run`. There is no
     // schedule/install subcommand (main.ts registers only init and run).
@@ -102,4 +107,28 @@ describe('formatMissionInitResult', () => {
     expect(output).not.toContain('sovereign-ai-ops');
     expect(output).not.toContain('with sov itself');
   });
+});
+
+test('manual guidance keeps spaces, apostrophes, and shell syntax in one path argument', () => {
+  const missionDir = join(makeTmpDir(), "mission space ' $(echo wrong)");
+  const result = runMissionInit({ dir: missionDir, goal: 'Test fresh path.' });
+  const output = formatMissionInitResult(result);
+  const command = output
+    .split('\n')
+    .find((line) => line.trim().startsWith('sov mission run'))
+    ?.trim();
+  expect(command).toBeDefined();
+  if (!command) throw new Error('missing manual mission command');
+  // Replace only the command name with printf. The shell must return one
+  // argument with the exact path, without evaluating anything inside it.
+  const parsed = spawnSync(
+    '/bin/sh',
+    ['-c', command.replace('sov mission run --state-dir', "printf '%s\\n'")],
+    { encoding: 'utf8' },
+  );
+  expect(parsed.status).toBe(0);
+  expect(parsed.stdout.trimEnd()).toBe(missionDir);
+  expect(JSON.parse(readFileSync(join(missionDir, 'state.json'), 'utf8')).goal).toBe(
+    'Test fresh path.',
+  );
 });

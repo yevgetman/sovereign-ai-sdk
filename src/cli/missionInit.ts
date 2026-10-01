@@ -66,6 +66,12 @@ export function runMissionInit(opts: MissionInitOpts): MissionInitResult {
   return { ok: true, missionDir: dir, written };
 }
 
+/** POSIX shell quoting for copyable manual commands. Schedulers that accept
+ * argv arrays must pass the directory as one argument instead of shell text. */
+export function quoteMissionPath(path: string): string {
+  return `'${path.replaceAll("'", "'\\''")}'`;
+}
+
 export function formatMissionInitResult(result: MissionInitResult): string {
   if (!result.ok) {
     return `sov mission-init: ${result.error}\n`;
@@ -79,9 +85,10 @@ export function formatMissionInitResult(result: MissionInitResult): string {
     'Next steps:',
     '  1. Edit plan.md — add phased steps with acceptance criteria.',
     '  2. Run a wake manually:',
-    `     sov mission run --state-dir ${result.missionDir}`,
+    `     sov mission run --state-dir ${quoteMissionPath(result.missionDir)}`,
+    '     (POSIX shell syntax; pass the directory as one argv item in launchd/systemd.)',
     '  3. Schedule later wakes with launchd, cron, or systemd:',
-    `     sov mission run --state-dir ${result.missionDir}`,
+    `     sov mission run --state-dir ${quoteMissionPath(result.missionDir)}`,
     '',
   ];
   return `${lines.join('\n')}\n`;

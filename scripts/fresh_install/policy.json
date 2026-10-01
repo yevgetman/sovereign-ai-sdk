@@ -1,0 +1,144 @@
+{
+  "version": "2026-10-01.1",
+  "description": "Known private residue; does not claim general secret detection.",
+  "rules": {
+    "operator-alert-routing": [
+      "julie-alerts"
+    ],
+    "private-integration": [
+      "kernel-runtime-airtable"
+    ],
+    "incident-secret-fixture": [
+      "sk-live-SUPERSECRET"
+    ],
+    "private-contact": [
+      "g.getman@",
+      "wajobi"
+    ],
+    "private-machine": [
+      "Julies-Mac-mini"
+    ],
+    "operator-namespace": [
+      "yevgetman"
+    ],
+    "builder-home": [],
+    "private-bot-handle": [
+      "juliewajo"
+    ],
+    "owner-bound-prompt": [
+      "CEO (Gene)",
+      "e.g. Gene",
+      "Gene's assistant",
+      "Gene\u2019s assistant",
+      "Gene's AI",
+      "Gene\u2019s AI"
+    ],
+    "private-checkout": [
+      "code/me"
+    ]
+  },
+  "exceptions": [
+    {
+      "type": "namespace",
+      "value": "github.com/yevgetman/sovereign-ai-sdk",
+      "suffix": "slash-delimited Go package path",
+      "reason": "Owner-approved published Go identity"
+    },
+    {
+      "type": "namespace",
+      "value": "@yevgetman/sov",
+      "suffix": "package delimiter or version suffix",
+      "reason": "Owner-approved npm identity"
+    },
+    {
+      "type": "home-account",
+      "value": "runner",
+      "reason": "Exact upstream CI runner account"
+    },
+    {
+      "type": "product-default",
+      "value": "Julie",
+      "reason": "Generic replaceable assistant persona"
+    },
+    {
+      "type": "relative-convention",
+      "value": "~/code",
+      "reason": "Configurable Assay default and generic examples; private-checkout dependencies require behavior review"
+    },
+    {
+      "type": "neutral-path",
+      "value": "/opt/builder",
+      "reason": "Neutral build remapping target"
+    },
+    {
+      "type": "namespace",
+      "value": "https://github.com/yevgetman/sovereign-ai-sdk",
+      "suffix": "public repository paths",
+      "reason": "Owner-approved Sov source identity"
+    },
+    {
+      "type": "namespace",
+      "value": "https://github.com/yevgetman/sov-releases",
+      "suffix": "public release and issue routes",
+      "reason": "Verified public Sov consumer publishing/support route"
+    },
+    {
+      "type": "namespace",
+      "value": "https://raw.githubusercontent.com/yevgetman/sov-releases",
+      "suffix": "public release installer path",
+      "reason": "Required Sov self-update source, public publishing identity"
+    },
+    {
+      "type": "namespace",
+      "value": "@yevgetman/sov-sdk",
+      "suffix": "exact package identity delimiter/version or repository route",
+      "reason": "Required Sov public publishing/dependency identity"
+    },
+    {
+      "type": "namespace",
+      "value": "@yevgetman/sov-protocol",
+      "suffix": "exact package identity delimiter/version or repository route",
+      "reason": "Required Sov public publishing/dependency identity"
+    },
+    {
+      "type": "namespace",
+      "value": "@yevgetman/sov-debug-console",
+      "suffix": "exact package identity delimiter/version or repository route",
+      "reason": "Required Sov public publishing/dependency identity"
+    },
+    {
+      "type": "namespace",
+      "value": "@yevgetman/decorum",
+      "suffix": "exact package identity delimiter/version or repository route",
+      "reason": "Required Sov public publishing/dependency identity"
+    },
+    {
+      "type": "namespace",
+      "value": "git+ssh://git@github.com/yevgetman/sovereign-ai-sdk.git",
+      "suffix": "exact package identity delimiter/version or repository route",
+      "reason": "Required Sov public publishing/dependency identity"
+    },
+    {
+      "type": "namespace",
+      "value": "https://github.com/yevgetman/sovereign-ai-sdk.git",
+      "suffix": "exact package identity delimiter/version or repository route",
+      "reason": "Required Sov public publishing/dependency identity"
+    }
+  ],
+  "ownership": {
+    "uid": 0,
+    "gid": 0,
+    "names": [
+      "",
+      "root"
+    ]
+  },
+  "encodings": [
+    "utf-8",
+    "utf-16-le",
+    "utf-16-be"
+  ],
+  "case_insensitive_rules": [
+    "private-bot-handle"
+  ]
+}

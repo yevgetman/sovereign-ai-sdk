@@ -1,3 +1,4 @@
+import { packageInventory, preflightPackageScanner, scanReleasePayload } from './release-scan';
 // scripts/release-upload.ts — Phase 21 M2 release upload step.
 //
 // Usage: bun scripts/release-upload.ts <version> [--dry-run]
@@ -94,6 +95,18 @@ function releaseExists(version: string): boolean {
   return r.status === 0;
 }
 
+/** Recheck downloaded/current bytes. A stale clean receipt never authorizes upload. */
+export function verifyUploadArtifacts(releaseDir: string): void {
+  preflightPackageScanner();
+  for (const target of TARGETS) {
+    const artifact = join(releaseDir, artifactName(target));
+    scanReleasePayload(artifact, target, {
+      required: packageInventory(target),
+      receipt: `${artifact}.scan.json`,
+    });
+  }
+}
+
 // CLI entry: only runs when invoked directly, not when imported by tests.
 if (import.meta.path === Bun.main) {
   const args = process.argv.slice(2);
@@ -109,6 +122,7 @@ if (import.meta.path === Bun.main) {
   const collected = collectArtifacts(releaseDir);
   if (!collected.ok) die(collected.error);
 
+  verifyUploadArtifacts(releaseDir);
   const sumsPath = generateSums(releaseDir, collected.artifacts);
   note(`wrote ${sumsPath}`);
 

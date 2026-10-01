@@ -24,8 +24,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { exit } from 'node:process';
+import { copyReviewedSources, reviewedInputs, reviewedLicense } from './release-inputs';
+import { packageInventory, preflightPackageScanner, scanReleasePayload } from './release-scan';
 import {
   TARGETS,
   type Target,
@@ -114,34 +116,13 @@ export function packageStage(target: Target, stageDir: string, archivePath: stri
     writeZip(archivePath, stageDir);
     return;
   }
-  run('tar', ['-czf', archivePath, '-C', stageDir, '.'], {
-    env: { ...process.env, COPYFILE_DISABLE: '1' },
+  run('python3', [join(import.meta.dir, 'release-package.py'), stageDir, archivePath], {
+    throwOnError: true,
   });
 }
 
-/**
- * Bun 1.3.13 embeds `/Users/runner/work/_temp/webkit-release/...` inside the
- * runtime that `bun build --compile` links in. A builder whose home is exactly
- * that account cannot treat the prefix as a leak signal. Any other home can.
- */
-const RUNNER_ACCOUNT_HOMES = new Set(['/Users/runner', '/home/runner']);
-
 function canonicalHome(home: string): string {
   return home.replace(/[\\/]+$/, '').replace(/\\/g, '/');
-}
-
-/** Byte strings that must not survive in a published `bin/sov`. */
-export function findBuilderLeak(bytes: Buffer, home: string): string | null {
-  const prefix = home.replace(/[\\/]+$/, '');
-  const markers: string[] = [];
-  if (prefix.length > 1 && !RUNNER_ACCOUNT_HOMES.has(canonicalHome(prefix))) {
-    markers.push(prefix);
-  }
-  markers.push('~/code');
-  for (const marker of markers) {
-    if (bytes.includes(marker)) return marker;
-  }
-  return null;
 }
 
 /**
@@ -174,35 +155,6 @@ function bunCompileTempParent(): string {
   return parent;
 }
 
-function shouldCopyForBunCompile(root: string, srcPath: string): boolean {
-  const rel = relative(root, srcPath);
-  if (rel === '' || rel === '.') return true;
-  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return false;
-  const parts = rel.split(sep);
-  if (parts.some((part) => part === '.git')) return false;
-  if (parts[0] === 'build') return false;
-  return true;
-}
-
-/** Dereference so bun's realpath cannot escape back to the checkout. */
-function copyForBunCompile(root: string, dest: string): void {
-  cpSync(root, dest, {
-    recursive: true,
-    dereference: true,
-    filter: (src) => shouldCopyForBunCompile(root, src),
-  });
-}
-
-function assertNoBuilderPathLeak(binaryPath: string, home: string): void {
-  if (!existsSync(binaryPath)) {
-    throw new Error(`bun compile did not produce ${binaryPath}`);
-  }
-  const leak = findBuilderLeak(readFileSync(binaryPath), home);
-  if (leak !== null) {
-    throw new Error(`bin/sov contains builder path ${JSON.stringify(leak)}`);
-  }
-}
-
 /**
  * Compile sov + sov-tui into `stageDir`.
  *
@@ -210,7 +162,7 @@ function assertNoBuilderPathLeak(binaryPath: string, home: string): void {
  * executable as a `// <path>` banner, relative to cwd, after realpath. Build
  * from a mode-0700 copy under /tmp so the banner cannot name the checkout,
  * then refuse to continue if `bin/sov` still contains the builder's home
- * prefix or the bytes `~/code`.
+ * prefix. The full package policy is applied after staging and packing.
  */
 export function compileBinaries(
   target: Target,
@@ -220,10 +172,10 @@ export function compileBinaries(
     root?: string;
     home?: string;
   } = {},
-): void {
+): { source: ReturnType<typeof reviewedInputs>; dependencyDigest: string } {
   const exec = opts.run ?? run;
   const root = opts.root ?? repoRoot();
-  const home = opts.home ?? homedir();
+  const source = reviewedInputs(root);
   const bins = stagedBinaryPaths(stageDir, target);
   const scratch = mkdtempSync(join(bunCompileTempParent(), 'sov-bun-compile-'));
   try {
@@ -231,7 +183,7 @@ export function compileBinaries(
     const compileDir = realpathSync(scratch);
     const why = unsafeCompileDirReason(compileDir, homedir());
     if (why !== null) throw new Error(`bun compile dir ${compileDir} is unsafe: ${why}`);
-    copyForBunCompile(root, compileDir);
+    const dependencyDigest = copyReviewedSources(root, compileDir, source.files);
 
     note(`[${target.name}] bun build --compile...`);
     exec(
@@ -245,33 +197,36 @@ export function compileBinaries(
       ],
       { cwd: compileDir, throwOnError: true },
     );
-    assertNoBuilderPathLeak(bins.sov, home);
+    scanReleasePayload(bins.sov, target);
 
     note(`[${target.name}] go build sov-tui (${target.goos}/${target.goarch})...`);
     exec('go', ['build', '-trimpath', '-ldflags=-s -w', '-o', bins.tui, './cmd/sov-tui'], {
-      cwd: join(root, 'packages', 'tui'),
+      cwd: join(compileDir, 'packages', 'tui'),
       env: { ...process.env, GOOS: target.goos, GOARCH: target.goarch },
       throwOnError: true,
     });
+    return { source, dependencyDigest };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
 }
 
-function stageBundleAndMetadata(
+export function stageBundleAndMetadata(
   target: Target,
   stageDir: string,
   version: string,
   publicRepoPath: string,
+  root = repoRoot(),
 ): void {
-  const root = repoRoot();
   note(`[${target.name}] copying bundle-default/ (excluding runtime state/)...`);
   const bundleRoot = join(root, 'bundle-default');
-  cpSync(bundleRoot, join(stageDir, 'bundle-default'), {
-    recursive: true,
-    // Never stage gitignored runtime state — it can carry captured secrets.
-    filter: (src) => shouldStageBundlePath(bundleRoot, src),
-  });
+  const source = reviewedInputs(root);
+  for (const file of source.files.filter((file) => file.startsWith('bundle-default/'))) {
+    if (!shouldStageBundlePath(bundleRoot, join(root, file))) continue;
+    const destination = join(stageDir, file);
+    mkdirSync(resolve(destination, '..'), { recursive: true });
+    cpSync(join(root, file), destination);
+  }
 
   cpSync(join(publicRepoPath, 'LICENSE.txt'), join(stageDir, 'LICENSE.txt'));
   cpSync(join(root, 'README.binary.md'), join(stageDir, 'README.md'));
@@ -279,21 +234,63 @@ function stageBundleAndMetadata(
 }
 
 function buildOne(target: Target, version: string, publicRepoPath: string): string {
+  preflightPackageScanner();
+  const sourceVersion = JSON.parse(readFileSync(join(repoRoot(), 'package.json'), 'utf8')).version;
+  if (version !== `v${sourceVersion}`)
+    throw new Error('requested release version differs from source manifest');
   const releaseDir = join(repoRoot(), 'build', 'release', version);
   const stageDir = join(releaseDir, target.name);
   if (existsSync(stageDir)) rmSync(stageDir, { recursive: true, force: true });
   mkdirSync(join(stageDir, 'bin'), { recursive: true });
 
+  const pin = JSON.parse(readFileSync(join(import.meta.dir, 'release-license.json'), 'utf8')) as {
+    revision: string;
+    license_sha256: string;
+  };
+  if (process.env.SOV_RELEASES_REVISION && process.env.SOV_RELEASES_REVISION !== pin.revision) {
+    throw new Error('license revision override differs from the reviewed build manifest');
+  }
+  const license = reviewedLicense(publicRepoPath, pin.revision);
+  if (license.sha256 !== pin.license_sha256)
+    throw new Error('license hash differs from reviewed build manifest');
+  let inputs: ReturnType<typeof compileBinaries>;
   try {
-    compileBinaries(target, stageDir);
+    inputs = compileBinaries(target, stageDir);
   } catch (err) {
     die(err instanceof Error ? err.message : String(err));
   }
   stageBundleAndMetadata(target, stageDir, version, publicRepoPath);
+  if (reviewedInputs(repoRoot()).digest !== inputs.source.digest)
+    throw new Error('source inputs changed during build');
+  if (reviewedLicense(publicRepoPath, license.revision).sha256 !== license.sha256)
+    throw new Error('license inputs changed during build');
+  writeFileSync(
+    join(stageDir, 'build-inputs.json'),
+    `${JSON.stringify(
+      {
+        schema: 1,
+        target: target.name,
+        version,
+        source: inputs.source,
+        dependencyDigest: inputs.dependencyDigest,
+        license,
+      },
+      null,
+      2,
+    )}\n`,
+  );
 
   const archive = archivePathFor(releaseDir, target);
+  scanReleasePayload(stageDir, target, {
+    required: packageInventory(target),
+    receipt: `${stageDir}.scan.json`,
+  });
   note(`[${target.name}] packaging (${archiveFormat(target)}) → ${archive}`);
   packageStage(target, stageDir, archive);
+  scanReleasePayload(archive, target, {
+    required: packageInventory(target),
+    receipt: `${archive}.scan.json`,
+  });
   const size = statSync(archive).size;
   note(`[${target.name}] artifact size: ${(size / 1024 / 1024).toFixed(1)} MB`);
   return archive;

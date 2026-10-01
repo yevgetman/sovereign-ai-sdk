@@ -139,3 +139,18 @@ describe('formatInitResult', () => {
     expect(out).toContain('already exists');
   });
 });
+
+test('init writes its referenced contract and preserves edits on force', () => {
+  const result = runInit({ cwd });
+  const contract = join(cwd, 'harness', 'BUNDLE-CONTRACT.md');
+  expect(result.written).toContain('harness/BUNDLE-CONTRACT.md');
+  expect(readFileSync(join(cwd, 'business', 'README.md'), 'utf8')).toContain(
+    '../harness/BUNDLE-CONTRACT.md',
+  );
+  expect(readFileSync(contract, 'utf8')).toBe(
+    readFileSync(new URL('../../bundle-default/BUNDLE-CONTRACT.md', import.meta.url), 'utf8'),
+  );
+  writeFileSync(contract, 'custom contract');
+  runInit({ cwd, force: true });
+  expect(readFileSync(contract, 'utf8')).toBe('custom contract');
+});

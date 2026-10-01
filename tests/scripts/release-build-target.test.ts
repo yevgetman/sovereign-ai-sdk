@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import {
   cpSync,
   existsSync,
@@ -6,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   statSync,
@@ -18,10 +20,10 @@ import { deflateRawSync } from 'node:zlib';
 import {
   archivePathFor,
   compileBinaries,
-  findBuilderLeak,
   packageStage,
   resolveTarget,
   shouldStageBundlePath,
+  stageBundleAndMetadata,
   stagedBinaryPaths,
   unsafeCompileDirReason,
   validateBuildInputs,
@@ -246,38 +248,6 @@ describe('release-build-target — shouldStageBundlePath (audit C1: no state lea
   });
 });
 
-describe('release-build-target — builder path leak scan', () => {
-  test('rejects the current home prefix and the bytes ~/code', () => {
-    expect(findBuilderLeak(Buffer.from('clean binary'), '/Users/example')).toBeNull();
-    expect(findBuilderLeak(Buffer.from('x /Users/example/code/repo y'), '/Users/example')).toBe(
-      '/Users/example',
-    );
-    expect(findBuilderLeak(Buffer.from('x /home/example/proj y'), '/home/example')).toBe(
-      '/home/example',
-    );
-    expect(findBuilderLeak(Buffer.from('see ~/code/foo'), '/Users/example')).toBe('~/code');
-
-    const home = homedir().replace(/[\\/]+$/, '');
-    const marked = Buffer.from(`prefix ${home}/code suffix`);
-    if (home === '/Users/runner' || home === '/home/runner') {
-      expect(findBuilderLeak(marked, home)).toBeNull();
-    } else {
-      expect(findBuilderLeak(marked, home)).toBe(home);
-    }
-  });
-
-  test('allows exactly the runner account, whose prefix Bun already embeds', () => {
-    const webkit = Buffer.from('/Users/runner/work/_temp/webkit-release/JavaScriptCore');
-    expect(findBuilderLeak(webkit, '/Users/runner')).toBeNull();
-    expect(findBuilderLeak(Buffer.from('/home/runner/work/repo'), '/home/runner')).toBeNull();
-    expect(findBuilderLeak(Buffer.from('~/code'), '/Users/runner')).toBe('~/code');
-    // A different builder still fails if their own home is present, and the
-    // runner prefix alone is not their home.
-    expect(findBuilderLeak(webkit, '/Users/example')).toBeNull();
-    expect(findBuilderLeak(Buffer.from('/Users/example/work'), '/Users/runner/')).toBeNull();
-  });
-});
-
 describe('release-build-target — bun compile dir must be under /tmp', () => {
   test('rejects $HOME and /var/folders, accepts /tmp and /private/tmp', () => {
     expect(unsafeCompileDirReason('/var/folders/xx/T/abc', '/Users/example')).toMatch(
@@ -304,13 +274,40 @@ describe('release-build-target — compileBinaries cwd and post-scan', () => {
     const outside = mkdtempSync(join(tmpdir(), 'sov-compile-out-'));
     mkdirSync(join(root, 'src'));
     mkdirSync(join(root, 'packages', 'tui'), { recursive: true });
-    mkdirSync(join(root, '.git'));
+    mkdirSync(join(root, 'node_modules'));
+    writeFileSync(join(root, '.gitignore'), 'node_modules/\nbuild/\n');
+    writeFileSync(join(root, 'bun.lock'), '{}');
+    mkdirSync(join(root, 'bundle-default', 'state'), { recursive: true });
+    writeFileSync(join(root, 'bundle-default', 'index.yaml'), 'repo: portable');
+    writeFileSync(join(root, 'bundle-default', 'state', '.gitkeep'), '');
+    writeFileSync(
+      join(root, 'bundle-default', 'BUNDLE-CONTRACT.md'),
+      readFileSync(new URL('../../bundle-default/BUNDLE-CONTRACT.md', import.meta.url)),
+    );
+    writeFileSync(join(root, 'README.binary.md'), 'portable binary help');
     mkdirSync(join(root, 'build'));
     writeFileSync(join(root, 'src', 'main.ts'), 'console.log(1)\n');
-    writeFileSync(join(root, '.git', 'config'), 'gitdir');
+    writeFileSync(join(root, 'packages/tui/go.mod'), 'module build-test\n');
     writeFileSync(join(root, 'build', 'old-bin'), 'stale');
     writeFileSync(join(outside, 'esc.ts'), 'escaped-body');
-    symlinkSync(join(outside, 'esc.ts'), join(root, 'src', 'escaped.ts'));
+    symlinkSync(join(outside, 'esc.ts'), join(root, 'node_modules', 'escaped.ts'));
+    for (const args of [
+      ['init', '-q'],
+      ['add', '.'],
+      [
+        '-c',
+        'user.name=Build Test',
+        '-c',
+        'user.email=build@example.invalid',
+        '-c',
+        'commit.gpgsign=false',
+        'commit',
+        '-qm',
+        'fixture',
+      ],
+    ]) {
+      expect(spawnSync('git', ['-C', root, ...args]).status).toBe(0);
+    }
     return {
       root,
       outside,
@@ -342,7 +339,7 @@ describe('release-build-target — compileBinaries cwd and post-scan', () => {
         expect(existsSync(join(cwd, '.git'))).toBe(false);
         expect(existsSync(join(cwd, 'build'))).toBe(false);
         expect(existsSync(join(cwd, 'src', 'main.ts'))).toBe(true);
-        const copied = join(cwd, 'src', 'escaped.ts');
+        const copied = join(cwd, 'node_modules', 'escaped.ts');
         expect(lstatSync(copied).isSymbolicLink()).toBe(false);
         expect(readFileSync(copied, 'utf8')).toBe('escaped-body');
         const outfile = args.find((a) => a.startsWith('--outfile='))?.slice('--outfile='.length);
@@ -359,7 +356,7 @@ describe('release-build-target — compileBinaries cwd and post-scan', () => {
       expect(bunCall?.cwd).toBeTruthy();
       expect(existsSync(bunCall?.cwd ?? '')).toBe(false);
       expect(goCall?.args.slice(0, 3)).toEqual(['build', '-trimpath', '-ldflags=-s -w']);
-      expect(goCall?.cwd).toBe(join(fix.root, 'packages', 'tui'));
+      expect(goCall?.cwd).toBe(join(bunCall?.cwd ?? '', 'packages', 'tui'));
       expect(bunCall?.args).toContain('src/main.ts');
       expect(bunCall?.args).toContain('--compile');
     } finally {
@@ -368,7 +365,7 @@ describe('release-build-target — compileBinaries cwd and post-scan', () => {
     }
   });
 
-  test('fails the build when bin/sov contains the home prefix or ~/code, and still removes the copy', () => {
+  test('fails the build when bin/sov contains the home prefix, and still removes the copy', () => {
     const fix = fixture();
     const stage = mkdtempSync(join(tmpdir(), 'sov-compile-stage-'));
     mkdirSync(join(stage, 'bin'), { recursive: true });
@@ -389,24 +386,60 @@ describe('release-build-target — compileBinaries cwd and post-scan', () => {
           root: fix.root,
           home: '/Users/example',
         }),
-      ).toThrow(/\/Users\/example/);
+      ).toThrow(/python3/);
       expect(cwd).not.toBe('');
       expect(existsSync(cwd)).toBe(false);
       expect(goCalls).toBe(0);
+    } finally {
+      fix.cleanup();
+      rmSync(stage, { recursive: true, force: true });
+    }
+  });
 
-      const fakeTilde: Run = (bin, args) => {
-        if (bin !== 'bun') return;
-        const outfile = args.find((a) => a.startsWith('--outfile='))?.slice('--outfile='.length);
-        if (!outfile) throw new Error('missing --outfile');
-        writeFileSync(outfile, 'schedule ~/code/mission');
-      };
+  test('consumer staging copies the tracked installed contract while excluding captured state', () => {
+    const fix = fixture();
+    const stage = mkdtempSync(join(tmpdir(), 'sov-bundle-stage-'));
+    try {
+      writeFileSync(join(fix.root, 'bundle-default', 'state', 'session.json'), 'private session');
+      writeFileSync(join(fix.outside, 'LICENSE.txt'), 'reviewed legal terms');
+      stageBundleAndMetadata(target('darwin-arm64'), stage, 'v0.7.0', fix.outside, fix.root);
+      expect(readFileSync(join(stage, 'bundle-default', 'BUNDLE-CONTRACT.md'), 'utf8')).toContain(
+        '# Harness bundle contract',
+      );
+      expect(existsSync(join(stage, 'bundle-default', 'state', '.gitkeep'))).toBe(true);
+      expect(existsSync(join(stage, 'bundle-default', 'state', 'session.json'))).toBe(false);
+      expect(readFileSync(join(stage, 'LICENSE.txt'), 'utf8')).toBe('reviewed legal terms');
+      expect(readFileSync(join(stage, 'version'), 'utf8')).toBe('v0.7.0\n');
+      expect(existsSync(join(stage, 'scripts', 'fresh_install'))).toBe(false);
+    } finally {
+      fix.cleanup();
+      rmSync(stage, { recursive: true, force: true });
+    }
+  });
+
+  test('cleans the private scratch tree when source/dependency copying fails', () => {
+    const fix = fixture();
+    const stage = mkdtempSync(join(tmpdir(), 'sov-copy-failure-'));
+    const before = new Set(
+      readdirSync('/tmp').filter((name) => name.startsWith('sov-bun-compile-')),
+    );
+    let calls = 0;
+    try {
+      rmSync(join(fix.root, 'node_modules'), { recursive: true, force: true });
       expect(() =>
-        compileBinaries(target('linux-x64'), stage, {
-          run: fakeTilde,
+        compileBinaries(target('darwin-arm64'), stage, {
           root: fix.root,
-          home: '/Users/runner',
+          run: () => {
+            calls += 1;
+          },
         }),
-      ).toThrow(/~\/code/);
+      ).toThrow(/installed frozen-lockfile dependencies/);
+      expect(calls).toBe(0);
+      expect(
+        readdirSync('/tmp').filter(
+          (name) => name.startsWith('sov-bun-compile-') && !before.has(name),
+        ),
+      ).toEqual([]);
     } finally {
       fix.cleanup();
       rmSync(stage, { recursive: true, force: true });
@@ -432,4 +465,40 @@ describe('release-build-target — compileBinaries cwd and post-scan', () => {
       rmSync(stage, { recursive: true, force: true });
     }
   });
+});
+
+test('tar packaging clears ownership and extended metadata after final packing', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sov-tar-'));
+  try {
+    const stage = join(root, 'stage');
+    mkdirSync(stage);
+    writeFileSync(join(stage, 'README.md'), 'consumer');
+    writeFileSync(join(stage, '._README.md'), 'sidecar');
+    symlinkSync('README.md', join(stage, 'guide'));
+    const archive = join(root, 'artifact.tar.gz');
+    packageStage(target('linux-x64'), stage, archive);
+    const check = spawnSync(
+      'python3',
+      [
+        '-c',
+        `import tarfile,sys,json
+with tarfile.open(sys.argv[1]) as t:
+ print(json.dumps([{"name": i.name, "uid": i.uid, "gid": i.gid, "uname": i.uname, "gname": i.gname, "link": i.linkname, "pax": i.pax_headers} for i in t]))`,
+        archive,
+      ],
+      { encoding: 'utf8' },
+    );
+    expect(check.status).toBe(0);
+    const headers = JSON.parse(check.stdout);
+    expect(headers.map((header: { name: string }) => header.name)).toEqual(['README.md', 'guide']);
+    for (const header of headers) {
+      expect([header.uid, header.gid, header.uname, header.gname]).toEqual([0, 0, '', '']);
+      expect(
+        Object.keys(header.pax).every((key) => ['path', 'linkpath', 'size'].includes(key)),
+      ).toBe(true);
+    }
+    expect(headers[1].link).toBe('README.md');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
