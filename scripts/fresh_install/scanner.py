@@ -19,7 +19,7 @@ import tarfile
 import tempfile
 import zipfile
 
-SCANNER_VERSION = "1.0.0"
+SCANNER_VERSION = "1.0.1"
 DEFAULT_LIMITS = dict(chunk_size=1024 * 1024, max_depth=12, max_members=200000,
                       max_expanded_bytes=32 * 1024**3, max_temporary_bytes=32 * 1024**3,
                       max_diagnostics=200, max_metadata_bytes=16 * 1024**2)
@@ -105,6 +105,8 @@ class Matcher:
     def approved_span(cls, buf, idx, encoding):
         if cls._approved(buf, idx, encoding):
             return True
+        if encoding == "utf-8" and cls._approved_go(buf, idx):
+            return True
         # ASCII UTF-16 tokens can match in both endian encodings shifted by a
         # byte. Check the corresponding span instead of inventing a second
         # namespace from the padding byte before the actual encoded text.
@@ -114,6 +116,63 @@ class Matcher:
             for shifted in (idx - 1, idx + 1):
                 if shifted >= 0 and buf[shifted:shifted + len(needle)] == needle and cls._approved(buf, shifted, alternate):
                     return True
+        return False
+
+    @staticmethod
+    def _approved_go(buf, idx):
+        """Recognize only explicitly approved Go symbol/import-name formats.
+
+        Go internal/abi.Name stores flags, canonical unsigned varint length,
+        then the exact name bytes. Import-path records have flags zero. Unlike
+        a text boundary exception, this validates the entire bounded record.
+        References: Go src/internal/abi/type.go and cmd/compile/reflectdata.
+        """
+        for exception in POLICY["exceptions"]:
+            kind = exception["type"]
+            if kind not in ("go-import-name", "go-equality-symbol"):
+                continue
+            text = exception["value"]
+            token = text.encode("utf-8")
+            begin = idx - text.index("yevgetman")
+            if begin < 0 or buf[begin:begin + len(token)] != token:
+                continue
+            if kind == "go-equality-symbol":
+                prefix = b"type:.eq."
+                start = begin - len(prefix)
+                if start < 0 or buf[start:begin] != prefix or (start and buf[start - 1] != 0):
+                    continue
+                end = buf.find(b"\0", begin, begin + 1025)
+                if end < 0:
+                    continue
+                suffix = buf[begin + len(token):end]
+                # Go compiler types/fmt.go appends middle-dot plus digits to
+                # function-scope type names (for example laneEntry\u00b71).
+                if re.fullmatch(rb"(?:/[A-Za-z0-9_-]+)+(?:\.[A-Za-z0-9_]+)+(?:\xc2\xb7[0-9]+)?", suffix):
+                    return True
+                continue
+            for width in (1, 2):
+                header = begin - width - 1
+                if header < 0 or buf[header] != 0:
+                    continue
+                encoded = buf[header + 1:begin]
+                if any(byte < 128 for byte in encoded[:-1]) or encoded[-1] >= 128:
+                    continue
+                length = sum((byte & 127) << (7 * shift) for shift, byte in enumerate(encoded))
+                if length > 1024 or length < len(token) or (width > 1 and length < 128):
+                    continue
+                end = begin + length
+                if end > len(buf):
+                    continue
+                name = buf[begin:end]
+                suffix = name[len(token):]
+                if not re.fullmatch(rb"(?:/[A-Za-z0-9_-]+)*", suffix):
+                    continue
+                # A corrupt shorter length must not manufacture a boundary in
+                # the middle of a longer import path. Adjacent encoded records
+                # start with a control-valued flags byte, not path characters.
+                if end < len(buf) and (buf[end:end + 1].isalnum() or buf[end] in b"._/-@"):
+                    continue
+                return True
         return False
 
     @staticmethod
@@ -127,6 +186,17 @@ class Matcher:
             begin = idx - offset
             if begin < 0 or buf[begin:begin + len(token)] != token:
                 continue
+            # A multi-byte Go Name length must not fall back to text-token
+            # approval when its final byte is NUL or invalid UTF-8. The typed
+            # validator below decides canonical length and complete record.
+            if encoding == "utf-8" and text.startswith("github.com/"):
+                binary_length = any(
+                    begin >= width + 1 and buf[begin - width - 1] == 0
+                    and all(byte & 128 for byte in buf[begin - width:begin - 1])
+                    for width in range(2, 6)
+                )
+                if binary_length:
+                    continue
             unit = 1 if encoding == "utf-8" else 2
             before = buf[max(0, begin - unit):begin].decode(encoding, errors="ignore")
             after = buf[begin + len(token):begin + len(token) + unit].decode(encoding, errors="ignore")

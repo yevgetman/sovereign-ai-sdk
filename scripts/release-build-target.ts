@@ -212,6 +212,16 @@ export function compileBinaries(
       env: { ...process.env, GOOS: target.goos, GOARCH: target.goarch },
       throwOnError: true,
     });
+    if (target.goos === 'darwin' && process.platform === 'darwin') {
+      // Cross-compiled Bun output can retain the upstream runtime's invalid
+      // signature. Sign the actual final executable bytes before package scans.
+      for (const [name, binary] of [['sov', bins.sov], ['sov-tui', bins.tui]] as const) {
+        exec('codesign', ['--force', '--sign', '-', '--identifier', name, binary], {
+          throwOnError: true,
+        });
+        exec('codesign', ['--verify', '--strict', binary], { throwOnError: true });
+      }
+    }
     return { source, dependencyDigest };
   } finally {
     rmSync(scratch, { recursive: true, force: true });

@@ -99,6 +99,13 @@ whitespace minification drops generated source-banner comments without renaming
 identifiers or changing the approved publishing identities. Release v0.6.73 uses
 the verified official Bun 1.4.2 runtime; older compiler runtimes can themselves
 contain upstream build-account paths and must pass the same residue checks.
+Both Mac executables receive an ad hoc signature and strict signature verification
+after compilation, before the complete-stage and final archive scans. This
+replaces any inherited upstream Bun signature; it does not claim Developer ID
+signing or notarization. The Go TUI keeps the public TOML module identity with
+a minimal locked production source copy under `packages/tui/vendor-toml/`. Only
+the upstream account-specific Windows error-help examples change to portable
+paths; parser code and the upstream license remain unchanged.
 
 The consumer license comes from the exact revision and SHA-256 in
 `scripts/release-license.json`. Set `SOV_RELEASES_PATH` to a checkout of that

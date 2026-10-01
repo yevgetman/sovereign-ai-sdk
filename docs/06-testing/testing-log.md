@@ -7326,3 +7326,10 @@ Both Mac candidates and the remaining configured platform archives must pass fin
 ### Release compiler verification
 
 The Bun 1.3.13 candidate failed the unchanged residue gate because its upstream runtime contains a build-account path. Official Bun 1.4.2 arm64 and x64 base binaries pass the same scanner; the downloaded archives match their GitHub asset digests. Whitespace minification removes generated dependency source-banner comments without identifier or syntax minification. An actual CLI probe then passes with zero findings/coverage errors and reports version 0.6.73. With Bun 1.4.2 and frozen hoisted dependencies, lint/typecheck pass and the complete suite passes 5401 tests, with 22 skipped and zero failed (89.55 seconds). SDK package bytes remain unchanged.
+
+
+### Final component source gate
+
+The complete-stage scan exposed the Go TOML dependency's account-specific Windows error-help example and Go compiler metadata forms of the approved publishing identity. A minimal v1.6.0 production source copy keeps all parser bytes and the COPYING license unchanged except those two help examples. The locked upstream module and original package tests pass verification; the complete Go TUI suite passes. Canonical scanner 1.0.1 / policy 2026-10-01.2 recognizes only bounded Go equality symbols and complete length-prefixed Go names for the same approved identity. Its 29-case conformance suite passes, including the large artifact coverage fixture. The actual neutral Go TUI probe now scans clean; the old account example still fails.
+
+Mac cross-compilation can retain an invalid upstream Bun signature. Both final Mac executables now receive ad hoc signing and strict signature verification before the complete stage and final archive scans. Full final configured gate with Bun 1.4.2: lint/typecheck pass; 5401 Bun tests passed, 22 skipped, zero failed (86.27 seconds). The unchanged SDK tarball remains clean under the new scanner and keeps SHA-256 680361d8865a9a9e439d503ce721ed224da56c360d0a0c9bcf6ac36d0f1f0286.
