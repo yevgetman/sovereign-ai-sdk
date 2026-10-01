@@ -93,7 +93,12 @@ private state, and old build outputs. Installed frozen-lockfile dependencies are
 an explicit input: they are dereferenced into the private mode-0700 temporary
 tree and measured by a byte inventory digest. Workspace dependencies resolve to
 the copied source. Both compilers use that tree; Go still uses `-trimpath`.
-Cleanup covers copying, compilation, and early scan failures.
+Cleanup covers copying, compilation, and early scan failures. Install frozen
+dependencies with the hoisted linker for the dereferenced source copy. Bun
+whitespace minification drops generated source-banner comments without renaming
+identifiers or changing the approved publishing identities. Release v0.6.73 uses
+the verified official Bun 1.4.2 runtime; older compiler runtimes can themselves
+contain upstream build-account paths and must pass the same residue checks.
 
 The consumer license comes from the exact revision and SHA-256 in
 `scripts/release-license.json`. Set `SOV_RELEASES_PATH` to a checkout of that
