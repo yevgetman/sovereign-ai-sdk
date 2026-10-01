@@ -148,7 +148,7 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
 - **The package entry (`@yevgetman/sov-sdk`) is the semver'd public API.** Its
   export names are frozen by a surface-snapshot test; removals/renames are
   breaking.
-- **Deep subpaths (`@yevgetman/sov-sdk/*`) ship in the tarball but are
+- **Deep module paths ship in the tarball but are
   internal and unstable** — they exist so the private wrapper and tests can
   reach every module, carry no semver coverage, and may change or disappear in
   any release.

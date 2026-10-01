@@ -1,4 +1,4 @@
-// `@yevgetman/sov-sdk/debug` — the server half of the debug console.
+// The SDK debug subpath provides the server half of the debug console.
 //
 // A SUBPATH, not part of the root barrel: this is an optional organ, and a host
 // that never mounts a console should not carry it. Pair it with the browser

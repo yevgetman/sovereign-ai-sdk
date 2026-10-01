@@ -1,7 +1,7 @@
 // packages/sdk/src/core/conductPort.ts — the vendor-neutral Conduct Port.
 //
-// Agent-plane governance choke points (Conduct & Persona Engine spec §6.1,
-// ~/code/me/specs/2026-07-08-sov-conduct-module-design.md). The SDK ships the
+// Agent-plane governance choke points (Conduct & Persona Engine spec §6.1).
+// The SDK ships the
 // PORT + seams only; any engine (our decorum, or a third party) implements
 // this interface. ALL capabilities are optional — one interface, optional
 // capability slices (resolves spec §10 item 9) — and an ABSENT provider (or an
