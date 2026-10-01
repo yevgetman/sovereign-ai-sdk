@@ -166,7 +166,8 @@ function bunCompileTempParent(): string {
  * `bun build --compile` (1.3.13) writes every bundled file's path into the
  * executable as a `// <path>` banner, relative to cwd, after realpath. Build
  * from a mode-0700 copy under /tmp so the banner cannot name the checkout,
- * then refuse to continue if `bin/sov` still contains the builder's home
+ * then drop compiler source-banner comments with whitespace minification.
+ * Refuse to continue if `bin/sov` still contains the builder's home
  * prefix. The full package policy is applied after staging and packing.
  */
 export function compileBinaries(
@@ -196,6 +197,7 @@ export function compileBinaries(
       [
         'build',
         '--compile',
+        '--minify-whitespace',
         `--target=${target.bunTarget}`,
         `--outfile=${bins.sov}`,
         'src/main.ts',
