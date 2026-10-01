@@ -106,7 +106,8 @@ The builder records source revision, tracked file digest, dependency digest,
 license revision/hash, target, and version in `build-inputs.json`. It scans the
 Bun binary, then the complete stage and final tar/ZIP with a required component
 inventory. The final receipt must also retain every staged file and link, with
-the same content and link target hashes. Tar file modes must match; Windows ZIP
+the same content, original path identity, and link target hashes. Unicode paths
+are retained; ZIP headers declare UTF-8 filenames. Tar file modes must match; Windows ZIP
 has no POSIX mode contract. A clean but incomplete copy cannot pass this check.
 Final tar ownership is numeric zero with empty owner/group names;
 AppleDouble sidecars and builder extended metadata are excluded. Modes and safe

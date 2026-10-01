@@ -82,6 +82,7 @@ describe('shared package scan adapter', () => {
         stage(input, packageInventory(candidate));
         const optional = join(input, 'bundle-default', 'optional-guide.md');
         writeFileSync(optional, 'portable guide');
+        writeFileSync(join(input, 'bundle-default', 'café.md'), 'portable Unicode guide');
         if (candidate.goos !== 'windows')
           symlinkSync('optional-guide.md', join(input, 'bundle-default', 'guide'));
         const archive = join(root, artifactName(candidate));

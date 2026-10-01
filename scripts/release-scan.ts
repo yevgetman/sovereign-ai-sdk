@@ -97,6 +97,7 @@ export interface ScanReceipt {
   exit_code: number;
   inventory: Array<{
     path: string;
+    path_sha256?: string;
     kind: string;
     sha256?: string;
     size?: number;
@@ -116,6 +117,26 @@ export function verifyPackagedInventory(
     throw new Error('package inventory requires both complete scan receipts');
   const prefix = `${basename(archive).replace(/\.gz$/, '')}!`;
   const wrappers = new Set([basename(archive), basename(archive).replace(/\.gz$/, '')]);
+  function originalPath(path: string): string {
+    // Reverse only the scanner's diagnostic escapes, then check its raw hash.
+    const short: Record<string, string> = {
+      '\\': '\\',
+      a: '\x07',
+      b: '\b',
+      f: '\f',
+      n: '\n',
+      r: '\r',
+      t: '\t',
+      v: '\v',
+    };
+    return path.replace(
+      /\\(?:U([0-9a-fA-F]{8})|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|([\\abfnrtv]))/g,
+      (_match, wide: string, unicode: string, byte: string, escaped: string) =>
+        escaped
+          ? (short[escaped] ?? '')
+          : String.fromCodePoint(Number.parseInt(wide ?? unicode ?? byte, 16)),
+    );
+  }
   function entries(receipt: ScanReceipt, archived: boolean): Map<string, string> {
     const result = new Map<string, string>();
     for (const entry of receipt.inventory) {
@@ -126,6 +147,12 @@ export function verifyPackagedInventory(
       }
       const path = archived ? entry.path.slice(prefix.length) : entry.path;
       if (!path || result.has(path)) throw new Error('ambiguous package inventory');
+      const rawPath = originalPath(path);
+      const identity = createHash('sha256')
+        .update((archived ? prefix : '') + rawPath)
+        .digest('hex');
+      if (entry.path_sha256 !== identity)
+        throw new Error('package path identity cannot be verified');
       // ZIP on Windows has no POSIX execution contract. Tar must retain each
       // top-level resource's mode; nested archive members retain their own bytes.
       const mode = target.goos === 'windows' ? undefined : entry.mode;
