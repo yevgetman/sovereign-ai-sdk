@@ -4,13 +4,13 @@
     "__init__.py": "8a79c4b7b570ec56f0444f0d7c7310d2ff39db35a726fab1ec3c6ef3420a4dbe",
     "__main__.py": "935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d",
     "cli.py": "e906995688999771b1c98bfc2ccf429eecafbfe2ff577aba6b7e527f86e5296a",
-    "policy.json": "6f32343d8e04ef8cb15e4532b087fe4468c048304f196b7ce7cf00a550d77c0d",
-    "scanner.py": "d8f5492c81980662cbe0795551bb8d6f33d3ea4d1c99410754dd6205c89b5a4b"
+    "policy.json": "8e04fd1980cd9a1a534eaa51e993f632a79f62b603efabaf99cbf6c65a95e1c2",
+    "scanner.py": "af9b724f62b0738bc7f858331e04d4f3511426462e4bd86f204c31d47d5666c5"
   },
-  "policy_version": "2026-10-01.1",
-  "scanner_version": "1.0.0",
+  "policy_version": "2026-10-01.2",
+  "scanner_version": "1.0.1",
   "schema_version": 1,
   "source_base_commit": "cf34a2e59527cedc7464e1be2f91712f39874312",
   "source_repository": "https://github.com/yevgetman/kernel-installer",
-  "source_revision": "sha256:207843c776cd0c406b37467e37f7f210910b0c25987e69040913013a0ce8ffeb"
+  "source_revision": "sha256:c1fe691f2ab9352bd4332b302e46b38743b41fac39f19190416705c2e6878a8d"
 }

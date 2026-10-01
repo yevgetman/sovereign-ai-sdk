@@ -1,0 +1,26 @@
+{
+  "module": "github.com/BurntSushi/toml",
+  "version": "v1.6.0",
+  "upstream_sha256": {
+    "encode.go": "58a56b13bd439028abbd5c4371df20e6087e6e0cf934e0a0335e2d1a98833189",
+    "error.go": "ec5b3f9f5f128097c082e587c87da4516891898544b95d9907c21ade7a42a778",
+    "lex.go": "8cfc6b34a572e0ea1c8c4d4422c57f2cb177e7c6a57099b62d2d69074a6e8a97",
+    "type_toml.go": "55baa835e33c33796ef34be6b26f73182ebc14ca038a3de63d26298f93c10311",
+    "deprecated.go": "ee4c75313fabce09bf33996e5d35a35fe8a3ac5c334658c143225286ae93cdf8",
+    "doc.go": "a180bddf47208d81d4b4fb5caa83413bc2be484e14ad91af1b40ff63365317d9",
+    "type_fields.go": "b557f6362f1ffee1f5e07dda1b7be72c7579be465d0916e70e7a327129c86000",
+    "meta.go": "66ef26394dca6d8b430ef70ad974020e215254a55d1ef0996ced059635c619d8",
+    "decode.go": "4f9aa86faf2339423f39b6000f7499b0d5530be77ab71fac6f9142c101a74956",
+    "parse.go": "4f5858c81cdef2d5cc07d764e491788e5965f631e3a955385471921dcc70ddf3",
+    "go.mod": "45d78b80571999b6a258da0f21673da39e6b501349c033a4acd169437411d733",
+    "COPYING": "d21cb1c60785d6d3a84a7059323ccafc45c645b1bbda281c76a62d66ad2d7dc3",
+    "internal/tz.go": "9d644e853a886015b23adc65a7dcb4eb954087fb906d9200ed984435739de075"
+  },
+  "patch": "Replace account-specific Windows path examples in error help with C:/path/to/file. Parser behavior is unchanged.",
+  "patched_sha256": "df93b0f2fda258a381efc86635d46830a3db551d923c61c00d2bde07a4791ba1",
+  "upstream_module_checksums": [
+    "github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=",
+    "github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho="
+  ],
+  "upstream_module_verification": "go mod verify with the original go.mod and go.sum: all modules verified"
+}

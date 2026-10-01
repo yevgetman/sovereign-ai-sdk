@@ -1,5 +1,5 @@
 {
-  "version": "2026-10-01.1",
+  "version": "2026-10-01.2",
   "description": "Known private residue; does not claim general secret detection.",
   "rules": {
     "operator-alert-routing": [
@@ -43,6 +43,18 @@
       "value": "github.com/yevgetman/sovereign-ai-sdk",
       "suffix": "slash-delimited Go package path",
       "reason": "Owner-approved published Go identity"
+    },
+    {
+      "type": "go-import-name",
+      "value": "github.com/yevgetman/sovereign-ai-sdk",
+      "format": "Go ABI Name: flags zero, canonical varint byte length, complete import path, maximum 1024 bytes",
+      "reason": "Owner-approved published Go identity in typed binary import-path records"
+    },
+    {
+      "type": "go-equality-symbol",
+      "value": "github.com/yevgetman/sovereign-ai-sdk",
+      "format": "NUL-bounded type:.eq. symbol with complete package and type suffix, maximum 1024 bytes",
+      "reason": "Owner-approved published Go identity in compiler equality symbols"
     },
     {
       "type": "namespace",
