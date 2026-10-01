@@ -27,7 +27,12 @@ import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { exit } from 'node:process';
 import { copyReviewedSources, reviewedInputs, reviewedLicense } from './release-inputs';
-import { packageInventory, preflightPackageScanner, scanReleasePayload } from './release-scan';
+import {
+  packageInventory,
+  preflightPackageScanner,
+  scanReleasePayload,
+  verifyPackagedInventory,
+} from './release-scan';
 import {
   TARGETS,
   type Target,
@@ -281,16 +286,17 @@ function buildOne(target: Target, version: string, publicRepoPath: string): stri
   );
 
   const archive = archivePathFor(releaseDir, target);
-  scanReleasePayload(stageDir, target, {
+  const stagedReceipt = scanReleasePayload(stageDir, target, {
     required: packageInventory(target),
     receipt: `${stageDir}.scan.json`,
   });
   note(`[${target.name}] packaging (${archiveFormat(target)}) → ${archive}`);
   packageStage(target, stageDir, archive);
-  scanReleasePayload(archive, target, {
+  const packedReceipt = scanReleasePayload(archive, target, {
     required: packageInventory(target),
     receipt: `${archive}.scan.json`,
   });
+  verifyPackagedInventory(stagedReceipt, packedReceipt, archive, target);
   const size = statSync(archive).size;
   note(`[${target.name}] artifact size: ${(size / 1024 / 1024).toFixed(1)} MB`);
   return archive;

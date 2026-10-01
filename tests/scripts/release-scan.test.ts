@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  chmodSync,
   cpSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -16,9 +18,10 @@ import {
   preflightPackageScanner,
   scanReleasePayload,
   validateScannerSnapshot,
+  verifyPackagedInventory,
 } from '../../scripts/release-scan';
 import { TARGETS, artifactName, sha256 } from '../../scripts/release-shared';
-import { verifyUploadArtifacts } from '../../scripts/release-upload';
+import { verifyArtifactReleaseMetadata, verifyUploadArtifacts } from '../../scripts/release-upload';
 
 const target = TARGETS[0];
 if (!target) throw new Error('missing test target');
@@ -31,7 +34,95 @@ function stage(root: string, paths: string[]): void {
   }
 }
 
+function releaseMetadata(root: string, name: string, version = 'v0.7.0'): void {
+  writeFileSync(join(root, 'version'), `${version}\n`);
+  writeFileSync(join(root, 'build-inputs.json'), JSON.stringify({ version, target: name }));
+}
+
 describe('shared package scan adapter', () => {
+  test('old clean artifacts renamed into a new release cannot authorize publication', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sov-version-binding-'));
+    try {
+      const newRelease = join(root, 'v0.8.0');
+      mkdirSync(newRelease);
+      for (const candidate of TARGETS) {
+        const input = join(root, candidate.name);
+        stage(input, packageInventory(candidate));
+        releaseMetadata(input, candidate.name, 'v0.7.0');
+        const archive = join(newRelease, artifactName(candidate));
+        packageStage(candidate, input, archive);
+        expect(() =>
+          verifyArtifactReleaseMetadata(archive, 'v0.7.0', candidate.name),
+        ).not.toThrow();
+        expect(() => verifyArtifactReleaseMetadata(archive, 'v0.8.0', candidate.name)).toThrow(
+          /exit 1/,
+        );
+        // Changing the plain version sidecar alone must not mask old provenance.
+        writeFileSync(join(input, 'version'), 'v0.8.0\n');
+        packageStage(candidate, input, archive);
+        expect(() => verifyArtifactReleaseMetadata(archive, 'v0.8.0', candidate.name)).toThrow(
+          /exit 1/,
+        );
+        releaseMetadata(input, candidate.name, 'v0.7.0');
+        packageStage(candidate, input, archive);
+      }
+      expect(() => verifyUploadArtifacts(newRelease, 'v0.8.0')).toThrow(/exit 1/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  for (const name of ['linux-x64', 'windows-x64']) {
+    const candidate = TARGETS.find((item) => item.name === name);
+    if (!candidate) throw new Error('missing packaging test target');
+    test(`${name} final inventory retains optional resources and rejects loss or changed bytes`, () => {
+      const root = mkdtempSync(join(tmpdir(), 'sov-inventory-'));
+      try {
+        const input = join(root, 'stage');
+        stage(input, packageInventory(candidate));
+        const optional = join(input, 'bundle-default', 'optional-guide.md');
+        writeFileSync(optional, 'portable guide');
+        if (candidate.goos !== 'windows')
+          symlinkSync('optional-guide.md', join(input, 'bundle-default', 'guide'));
+        const archive = join(root, artifactName(candidate));
+        const before = scanReleasePayload(input, candidate, { receipt: join(root, 'stage.json') });
+        const packed = () => {
+          packageStage(candidate, input, archive);
+          return scanReleasePayload(archive, candidate, {
+            required: packageInventory(candidate),
+            receipt: join(root, 'packed.json'),
+          });
+        };
+        expect(() => verifyPackagedInventory(before, packed(), archive, candidate)).not.toThrow();
+        const extra = join(input, 'extra-resource.md');
+        writeFileSync(extra, 'clean but not staged');
+        expect(() => verifyPackagedInventory(before, packed(), archive, candidate)).toThrow(
+          /inventory differs/,
+        );
+        unlinkSync(extra);
+        writeFileSync(optional, 'a changed but clean guide');
+        expect(() => verifyPackagedInventory(before, packed(), archive, candidate)).toThrow(
+          /inventory differs/,
+        );
+        writeFileSync(optional, 'portable guide');
+        if (candidate.goos !== 'windows') {
+          chmodSync(optional, 0o755);
+          expect(() => verifyPackagedInventory(before, packed(), archive, candidate)).toThrow(
+            /inventory differs/,
+          );
+          chmodSync(optional, 0o644);
+          unlinkSync(join(input, 'bundle-default', 'guide'));
+        }
+        unlinkSync(optional);
+        expect(() => verifyPackagedInventory(before, packed(), archive, candidate)).toThrow(
+          /inventory differs/,
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+
   test('complete tar bytes and required inventory bind a clean receipt to the final hash', () => {
     const root = mkdtempSync(join(tmpdir(), 'sov-scan-'));
     try {
@@ -131,20 +222,21 @@ describe('shared package scan adapter', () => {
       for (const candidate of TARGETS) {
         const input = join(root, candidate.name);
         stage(input, packageInventory(candidate));
+        releaseMetadata(input, candidate.name);
         packageStage(candidate, input, join(root, artifactName(candidate)));
       }
-      verifyUploadArtifacts(root);
+      verifyUploadArtifacts(root, 'v0.7.0');
       const input = join(root, target.name);
       writeFileSync(join(input, 'bin/sov-tui'), '/Users/private-builder/workspace');
       packageStage(target, input, join(root, artifactName(target)));
-      expect(() => verifyUploadArtifacts(root)).toThrow(/exit 1/);
+      expect(() => verifyUploadArtifacts(root, 'v0.7.0')).toThrow(/exit 1/);
       const data = JSON.parse(
         readFileSync(join(root, `${artifactName(target)}.scan.json`), 'utf8'),
       );
       expect(data.result).toBe('findings');
       unlinkSync(join(input, 'bin/sov-tui'));
       packageStage(target, input, join(root, artifactName(target)));
-      expect(() => verifyUploadArtifacts(root)).toThrow(/exit 2/);
+      expect(() => verifyUploadArtifacts(root, 'v0.7.0')).toThrow(/exit 2/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

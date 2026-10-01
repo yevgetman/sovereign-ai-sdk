@@ -105,10 +105,16 @@ license diff; it does not change the legal terms automatically.
 The builder records source revision, tracked file digest, dependency digest,
 license revision/hash, target, and version in `build-inputs.json`. It scans the
 Bun binary, then the complete stage and final tar/ZIP with a required component
-inventory. Final tar ownership is numeric zero with empty owner/group names;
+inventory. The final receipt must also retain every staged file and link, with
+the same content and link target hashes. Tar file modes must match; Windows ZIP
+has no POSIX mode contract. A clean but incomplete copy cannot pass this check.
+Final tar ownership is numeric zero with empty owner/group names;
 AppleDouble sidecars and builder extended metadata are excluded. Modes and safe
 internal links remain intact. Upload rechecks every final archive's current bytes
 before checksums or publication; a stale receipt cannot authorize changed bytes.
+The packaged `version` and `build-inputs.json` must match the requested release
+version and target. Renaming an old artifact into a new release directory cannot
+pass. These metadata reads are bounded and never print their payloads.
 
 Scanner results are `clean` (0), `findings` (1), and `incomplete` (2). Both nonzero
 states stop the build/upload. Stage and archive receipts are sidecars outside the
