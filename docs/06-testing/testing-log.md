@@ -7312,3 +7312,12 @@ This is the deterministic path the integration test in `tests/server/turns.test.
 **Not run:** anything on real Windows. The `build-windows` CI job is the first native smoke (`sov.exe --version`, layout check); the M7/M8 real smokes on Windows need `ANTHROPIC_API_KEY` as a repo secret and a `USERPROFILE` fallback for the config path. Known follow-ups: `src/cron/wiring.ts` `.py` → `python3` (Windows uses `python`/`py`); PATH ordering can pick the WSL `bash.exe` before Git bash.
 
 **Regressions:** none observed; POSIX argv and darwin/linux artifacts byte-identical by test.
+
+
+## 2026-10-01 — fresh-install component release v0.6.73 / SDK 0.10.3
+
+Release preparation starts from merged PR #3. A clean frozen dependency install exposed the undeclared `bun-types` typecheck input; it is now an exact dev dependency at the already-locked version 1.3.14. Lockfile workspace versions match the SDK and debug-console manifests. SDK comments use portable design/path examples; publishing identities and runtime behavior remain unchanged.
+
+Configured lint and typecheck pass. Full Bun suite: 5401 passed, 22 skipped, 0 failed (5423 tests / 512 files). Go TUI tests pass across all seven packages. Open-core libraries build. The SDK 0.10.3 npm-format tarball has 506 packaged files and passes the pinned shared scanner with 508 inspected inventory entries, zero findings, and zero coverage errors. Required source, executable JavaScript, declarations, and package manifest are present. SDK SHA-256: `680361d8865a9a9e439d503ce721ed224da56c360d0a0c9bcf6ac36d0f1f0286`.
+
+Both Mac candidates and the remaining configured platform archives must pass final package scans and executable smokes before release publication. No live installation or profile was changed.

@@ -25,7 +25,7 @@ export function transcriptsRoot(base: string, userId?: string): string {
 /** Human-readable, browsable slug of a cwd (the Claude-Code rule): realpath-
  *  canonicalize (best-effort), NFC-normalize, then every non-alphanumeric → `-`.
  *  Long paths are truncated and suffixed with a stable hash so distinct deep
- *  paths don't collide. e.g. `/Users/x/code/foo` → `-Users-x-code-foo`. */
+ *  paths don't collide. e.g. `/workspace/project` → `-workspace-project`. */
 export function slugifyCwd(cwd: string): string {
   let canonical = cwd;
   try {
