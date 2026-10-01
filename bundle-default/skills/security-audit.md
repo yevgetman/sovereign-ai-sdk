@@ -88,7 +88,7 @@ Run these checks, **for the platform you confirmed in step 1**. Record the comma
 - `~/.kube/config` — check for inline tokens / certs
 - `~/.config/<vendor>/` — check for any vendor configs likely to hold tokens (stripe, lipost, etc.)
 - `~/.ssh/` — list keys; for each private key, run `ssh-keygen -y -P '' -f <path>` to test whether it has a passphrase. The exit code tells you (success = unencrypted)
-- Project `.env` files: `find ~/code ~/projects -maxdepth 4 \( -name '.env' -o -name '.env.*' \) -not -path '*/node_modules/*'`
+- Project `.env` files under the tree being audited. Set `AUDIT_ROOT` to that tree (default: the current directory): `find "${AUDIT_ROOT:-.}" -maxdepth 4 \( -name '.env' -o -name '.env.*' \) -not -path '*/node_modules/*'`
 - For each repo with a `.env`: check whether `.env` is in `.gitignore`, and whether it has ever been committed (`git log --all --full-history -- .env .env.local`)
 
 **System security state** (platform-specific):

@@ -122,7 +122,7 @@ function localHeader(c: CompressedEntry): Buffer {
   const h = Buffer.alloc(LOCAL_HEADER_BYTES);
   h.writeUInt32LE(LOCAL_HEADER_SIG, 0);
   h.writeUInt16LE(VERSION_NEEDED, 4);
-  h.writeUInt16LE(0, 6); // general-purpose flags
+  h.writeUInt16LE(0x0800, 6); // names are UTF-8, including non-ASCII bundle resources
   h.writeUInt16LE(METHOD_DEFLATE, 8);
   h.writeUInt16LE(DOS_EPOCH_TIME, 10);
   h.writeUInt16LE(DOS_EPOCH_DATE, 12);
@@ -139,7 +139,7 @@ function centralHeader(c: CompressedEntry, localOffset: number): Buffer {
   h.writeUInt32LE(CENTRAL_HEADER_SIG, 0);
   h.writeUInt16LE(VERSION_MADE_BY, 4);
   h.writeUInt16LE(VERSION_NEEDED, 6);
-  h.writeUInt16LE(0, 8); // general-purpose flags
+  h.writeUInt16LE(0x0800, 8); // UTF-8 filename encoding, same as the local header
   h.writeUInt16LE(METHOD_DEFLATE, 10);
   h.writeUInt16LE(DOS_EPOCH_TIME, 12);
   h.writeUInt16LE(DOS_EPOCH_DATE, 14);

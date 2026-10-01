@@ -12,6 +12,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { stringify as stringifyYaml } from 'yaml';
+import bundleContract from '../../bundle-default/BUNDLE-CONTRACT.md' with { type: 'text' };
 
 export type InitOpts = {
   /** Directory to initialize. Default: process.cwd(). */
@@ -65,6 +66,12 @@ export function runInit(opts: InitOpts = {}): InitResult {
     }
   }
 
+  const contractPath = join(cwd, 'harness', 'BUNDLE-CONTRACT.md');
+  if (!existsSync(contractPath)) {
+    writeFileSync(contractPath, bundleContract, 'utf8');
+    written.push('harness/BUNDLE-CONTRACT.md');
+  }
+
   // Manifest. Versioned because the loader reads `index.yaml` first.
   const indexYaml = renderIndexYaml(projectName);
   writeFileSync(indexPath, indexYaml, 'utf8');
@@ -100,7 +107,7 @@ function readSeedReadme(cwd: string, projectName: string): string {
     '',
     "_This file is the bundle's tier-1 entry point. The runtime reads it on every session start. Edit freely — replace this stub with your project's actual context (architecture, conventions, key files, anything you'd tell a new contributor)._",
     '',
-    'See `~/code/sovereign-ai-sdk/src/bundle/README.md` for the bundle-as-data contract.',
+    'See the bundle contract in `../harness/BUNDLE-CONTRACT.md`.',
     '',
   ].join('\n');
 }
@@ -151,6 +158,7 @@ export function formatInitResult(result: InitResult): string {
     ...result.written.map((f) => `  ${f}`),
     '',
     'Next steps:',
+    '  - Read harness/BUNDLE-CONTRACT.md for the bundle layout.',
     '  - Edit business/README.md to give the agent your project context.',
     '  - Add skills under skills/ (markdown with `name`, `description`, `whenToUse` frontmatter).',
     '  - Run `sov chat` from this directory; the upward walk picks up the new index.yaml.',

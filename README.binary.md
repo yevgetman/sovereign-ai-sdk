@@ -5,6 +5,7 @@ This tarball contains a compiled distribution of `sov`:
 - `bin/sov` — the agent runtime CLI (Bun-compiled standalone)
 - `bin/sov-tui` — the Bubble Tea TUI sibling binary
 - `bundle-default/` — the default agent bundle
+- `bundle-default/BUNDLE-CONTRACT.md` — installed bundle layout guide
 - `version` — the installed release tag
 - `LICENSE.txt` — beta evaluation license
 - `README.md` — this file
@@ -42,4 +43,5 @@ rm -rf ~/.sov
 
 ## Support
 
-This is a personal beta. For issues or feedback: **yevgetman@gmail.com**.
+For issues or feedback, use https://github.com/yevgetman/sov-releases/issues.
+For license permissions, contact the party who provided this build.

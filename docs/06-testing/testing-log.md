@@ -8,6 +8,19 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](docs/08-roadmap/backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](docs/08-roadmap/backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-10-01 — Fresh-install package remediation (PR #3)
+
+- Scope: tracked clean compile inputs, copied dependency provenance, reviewed license pin, neutral final tar headers, shared full-package/last-upload scan gates, installed bundle contract, and mission command quoting.
+- Environment: macOS arm64, Bun 1.3.13, Python 3.9.6. The PR worktree uses isolated dependency links into the existing installed dependency tree, with workspace SDK/protocol imports resolved to this PR's source. An ignored local TUI test binary was built with `go build -trimpath -o ../../bin/sov-tui ./cmd/sov-tui`; no live install or release ran.
+- `bun run lint`: passed, including the dependency boundary check.
+- `bun run typecheck`: passed after linking the existing debug-console test dependencies and correcting the new build manifest reader import.
+- `bun run test`: 5397 passed, 22 skipped, 0 failed across 512 files (95.33 seconds), after the final canonical scanner snapshot sync. Log: `/tmp/sov-remediation-final-complete-tests.log`.
+- `bun test tests/scripts/release-build-target.test.ts tests/scripts/release-inputs.test.ts tests/scripts/release-scan.test.ts tests/cli/init.test.ts tests/mission/missionInit.test.ts`: 51 passed, 0 failed. The later focused run includes staged contract/copy-failure cases and the final manifest schema, exact-file/hash, declared snapshot, and policy/scanner revision corruption cases. Log: `/tmp/sov-remediation-focused-final.log`.
+- The earlier full run had environment failures from missing local TUI/dependencies; the second run had one adapter failure before the scanner snapshot was vendored. The later manifest test initially lacked its copy helper import; that was corrected before the final focused/typecheck/lint pass. These failures are superseded by the successful full/focused runs above, not hidden as passes.
+- The exact reviewed consumer LICENSE and public release README passed the shared scanner: 2 files, 2707 bytes, clean. License SHA-256 matches `scripts/release-license.json`; terms and attribution are unchanged. Receipt: `/tmp/sov-license-source.scan.json`. GitHub repository metadata confirms the public release issue tracker is enabled.
+- Fixtures prove clean final tar and ZIP coverage, ownership normalization, preserved safe links, dirty and incomplete refusal, stale-receipt refusal after archive replacement, missing Python refusal, tracked installed contract staging, captured-state exclusion, cleanup on source copy or compile failure, preservation of an edited init contract, and mission paths containing spaces/apostrophes/shell syntax.
+- Pending release evidence: exact both-architecture builds, executable/signature checks, final Mac app assembly scans, and isolated installation behavior. These source/test checks do not prove a published release clean.
+
 ## 2026-07-09 — `sov run` deep testing/debugging pass (round 2)
 
 **Scope.** CEO-directed second deep round on the Phase 1 `sov run --json --stdin` machine surface, looking specifically for bugs, usability issues, data leakage, and security issues. Triage critical→low; fix critical→medium; note lows.

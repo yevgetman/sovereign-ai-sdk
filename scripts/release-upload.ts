@@ -1,3 +1,9 @@
+import {
+  packageInventory,
+  preflightPackageScanner,
+  scanReleasePayload,
+  scannerPython,
+} from './release-scan';
 // scripts/release-upload.ts — Phase 21 M2 release upload step.
 //
 // Usage: bun scripts/release-upload.ts <version> [--dry-run]
@@ -23,6 +29,7 @@ import {
   die,
   note,
   repoRoot,
+  run,
   sha256,
 } from './release-shared';
 
@@ -94,6 +101,37 @@ function releaseExists(version: string): boolean {
   return r.status === 0;
 }
 
+/** Recheck downloaded/current bytes. A stale clean receipt never authorizes upload. */
+export function verifyArtifactReleaseMetadata(
+  artifact: string,
+  version: string,
+  targetName: string,
+): void {
+  run(
+    scannerPython(),
+    [
+      join(import.meta.dir, 'release-package.py'),
+      '--verify-version',
+      artifact,
+      version,
+      targetName,
+    ],
+    { throwOnError: true },
+  );
+}
+
+export function verifyUploadArtifacts(releaseDir: string, version: string): void {
+  preflightPackageScanner();
+  for (const target of TARGETS) {
+    const artifact = join(releaseDir, artifactName(target));
+    scanReleasePayload(artifact, target, {
+      required: packageInventory(target),
+      receipt: `${artifact}.scan.json`,
+    });
+    verifyArtifactReleaseMetadata(artifact, version, target.name);
+  }
+}
+
 // CLI entry: only runs when invoked directly, not when imported by tests.
 if (import.meta.path === Bun.main) {
   const args = process.argv.slice(2);
@@ -109,6 +147,7 @@ if (import.meta.path === Bun.main) {
   const collected = collectArtifacts(releaseDir);
   if (!collected.ok) die(collected.error);
 
+  verifyUploadArtifacts(releaseDir, version);
   const sumsPath = generateSums(releaseDir, collected.artifacts);
   note(`wrote ${sumsPath}`);
 
