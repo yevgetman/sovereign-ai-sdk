@@ -1,19 +1,14 @@
 // Phase A T6 — `sov gateway` long-lived entrypoint serving the native HTTP+SSE protocol with auth + CORS.
 
-import type { AttestationManifest, ScopeOverlay } from '@yevgetman/decorum';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import { type Settings, SettingsSchema } from '@yevgetman/sov-sdk/config/schema';
 import { readRawConfig } from '@yevgetman/sov-sdk/config/store';
-import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
-import { repairOrphanTurnEvidence } from '../attestation/repair.js';
-import { createTurnEvidence, withEvidenceSink } from '../attestation/turnEvidence.js';
-import { AttestationWriter } from '../attestation/writer.js';
 import {
   type ChannelListeners,
   buildChannelListeners,
   resolveChannelsConfig,
 } from '../channels/listeners.js';
-import { createDecorumAdapter } from '../conduct/decorumAdapter.js';
+import { DECORUM_RETIRED } from '../conduct/decorumAdapter.js';
 import { assertGatewaySafe } from '../server/gatewaySafety.js';
 import { startServer } from '../server/index.js';
 import { buildRuntime } from '../server/runtime.js';
@@ -168,140 +163,15 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
     process.exit(1);
   }
 
-  // Conduct Port (spec D30) — when a `conduct` block is configured, build the
-  // decorum adapter and bind it as the runtime's ConductProvider. The adapter
-  // FAILS CLOSED at boot (throws on a missing/invalid pack); the top-level
-  // main() catch prints it to stderr and exits non-zero rather than booting a
-  // gateway into a no-governance state. ABSENT block ⇒ `conduct` stays
-  // undefined and every seam runs as the null provider (byte-identical).
-  // The audit inlet is late-bound: the adapter is constructed BEFORE the runtime
-  // exists, so it captures a `let runtime` that is assigned immediately after
-  // `buildRuntime`. The closure only fires during turns — long after boot — so
-  // `runtime` is always populated by the time an audit event flows through it.
-  let runtime: Awaited<ReturnType<typeof buildRuntime>> | undefined;
-  const conductAuditEnabled = config.observability?.conductAudit !== false; // default on
-
-  // Attestation evidence (spec 2026-07-19 §3.1/§3.2/§3.4) — OPT-IN via
-  // `conduct.attestation.enabled` (the schema superRefine already rejected an
-  // enabled block with no pack bound). The writer is constructed BEFORE the
-  // adapter so its records sink can ride into `createDecorumProvider`; the
-  // manifest getter is LATE-BOUND (the same idiom as the audit inlet's
-  // `runtime` above) to the post-overlay provider assigned right after the
-  // adapter returns — the SAME instance whose hooks run, so an overlay-scoped
-  // deployment snapshots its scoped hash, and a hot-reload recomposition reads
-  // fresh through the getter (§3.2). ABSENT block ⇒ no writer, no evidence
-  // coordinator, no wrapper — byte-identical. A bad `dir` (absolute / escaping
-  // HARNESS_HOME) throws HERE at construction: a boot-time config error, like
-  // a bad pack path. The warn channel is stderr — the per-session trace route
-  // is peek-only and a writer failure has no session to land in; stderr is the
-  // gateway's always-on operator channel (the writer keeps counting every
-  // subsequent failure in `failureCount`).
-  const attestationConfig = config.conduct?.attestation;
-  let attestedProvider:
-    | (ConductProvider & { readonly attestationManifest: AttestationManifest })
-    | undefined;
-  const attestationWriter =
-    attestationConfig?.enabled === true
-      ? new AttestationWriter({
-          harnessHome,
-          dir: attestationConfig.dir,
-          getManifest: () => {
-            if (attestedProvider === undefined) {
-              throw new Error('conduct provider not bound yet');
-            }
-            return attestedProvider.attestationManifest;
-          },
-          warn: (message) => process.stderr.write(`sov gateway: ${message}\n`),
-        })
-      : undefined;
-
-  // The adapter now returns the provider PLUS the overlay intake result (present
-  // only when `conduct.overlay` was supplied). The intake is content-free —
-  // counts + reason codes — and is served at GET /conduct/overlay so the host can
-  // tell a user their directive was refused rather than silently dropped.
-  const conductBinding =
-    config.conduct !== undefined
-      ? createDecorumAdapter({
-          ...(config.conduct.configPath !== undefined
-            ? { configPath: config.conduct.configPath }
-            : {}),
-          ...(config.conduct.packDir !== undefined ? { packDir: config.conduct.packDir } : {}),
-          ...(config.conduct.overlay !== undefined
-            ? { overlay: config.conduct.overlay as ScopeOverlay }
-            : {}),
-          ...(conductAuditEnabled
-            ? {
-                emitExternalTrace: (sessionId: string, event) =>
-                  runtime?.recordExternalTrace(sessionId, event),
-              }
-            : {}),
-          // Attestation §3.1 — the records sink, forwarded into
-          // createDecorumProvider exactly as auditSink is. Fire-and-forget:
-          // the writer never throws into decorum, and decorum's observation
-          // seam fails open anyway.
-          ...(attestationWriter !== undefined
-            ? { attestationSink: (record) => attestationWriter.record(record) }
-            : {}),
-        })
-      : undefined;
-  const baseConduct = conductBinding?.provider;
-  const overlayIntake = conductBinding?.intake;
-
-  // Attestation §3.2/§3.4 — bind the manifest getter to THE SAME provider
-  // instance the runtime mounts (post-overlay: `conductBinding.provider` IS the
-  // scoped provider when an overlay was folded, so a scoped deployment
-  // snapshots its scoped hash), take the boot-time manifest snapshot, and
-  // build the io evidence coordinator. decorum's base and scoped providers
-  // both carry the `attestationManifest` getter at runtime (provider.ts
-  // documents the superset); a provider WITHOUT it cannot attest, so refuse
-  // to boot rather than run evidence-blind (fail-fast, like a bad pack path).
-  let attestationEvidence: ReturnType<typeof createTurnEvidence> | undefined;
-  let conduct = baseConduct;
-  if (attestationWriter !== undefined && baseConduct !== undefined) {
-    const capable = baseConduct as ConductProvider & {
-      readonly attestationManifest?: AttestationManifest;
-    };
-    if (capable.attestationManifest === undefined) {
-      throw new Error(
-        'conduct.attestation is enabled but the bound conduct provider exposes no attestation manifest — evidence cannot be collected (decorum >= 0.10 required)',
-      );
-    }
-    attestedProvider = capable as ConductProvider & {
-      readonly attestationManifest: AttestationManifest;
-    };
-    attestationWriter.snapshotManifest();
-    attestationEvidence = createTurnEvidence({
-      writer: attestationWriter,
-      io: attestationConfig?.io === true,
-    });
-    // io mode mounts the evidenceSink wrapper (observed-turn capture at the
-    // SDK's onFinal seam); records-only mode mounts the provider UNWRAPPED —
-    // no turn text is ever captured without the deliberate `io: true`.
-    if (attestationEvidence.evidenceSink !== undefined) {
-      conduct = withEvidenceSink(baseConduct, attestationEvidence.evidenceSink);
-    }
-    // Crash-window repair (review fix wave) — a prior process that died hard
-    // (SIGKILL, power loss) may have left records with no io row: permanent
-    // floor-B orphans that fold every audit of the session INCOMPLETE.
-    // Backfill one delivered-omitted row per orphaned turnId NOW, before
-    // buildRuntime (cron ticks/channels start inside it), so no in-flight
-    // drive can race a duplicate row. io mode only: records-only attestation
-    // writes no io files by contract. Fails open; never blocks boot.
-    if (attestationConfig?.io === true) {
-      const repaired = await repairOrphanTurnEvidence(attestationWriter);
-      if (repaired > 0) {
-        process.stdout.write(
-          `sov gateway: attestation repair backfilled ${repaired} orphaned turn row(s) from a prior unclean shutdown\n`,
-        );
-      }
-    }
+  // Decorum is retired. A conduct block in config is ignored. The Conduct
+  // Port stays empty, so every seam runs as the null provider.
+  if (config.conduct !== undefined) {
+    process.stderr.write(`sov gateway: ${DECORUM_RETIRED}\n`);
   }
 
-  runtime = await buildRuntime({
+  const runtime = await buildRuntime({
     cwd: process.cwd(),
     harnessHome,
-    ...(conduct !== undefined ? { conduct } : {}),
-    ...(attestationEvidence !== undefined ? { attestationEvidence } : {}),
   });
 
   // Phase D — gateway-scoped session lifecycle. The SessionSupervisor sweeps
@@ -353,7 +223,6 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
     ...(principals !== undefined ? { principals } : token !== undefined ? { auth: token } : {}),
     ...(corsOrigins !== undefined ? { corsOrigins } : {}),
     ...(channels !== undefined ? { channels } : {}),
-    ...(overlayIntake !== undefined ? { overlayIntake } : {}),
   });
 
   process.stdout.write(`sov gateway: listening on http://${host}:${server.port}\n`);
@@ -421,23 +290,6 @@ export async function runGateway(opts: { host?: string; port?: number }): Promis
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       process.stderr.write(`runtime.dispose() failed: ${msg}\n`);
-    }
-    // Settle every still-pending minted turnId BEFORE the writer closes
-    // (review fix wave): runTurnInBackground drives are fire-and-forget, so a
-    // shutdown can land mid-turn — the turn's records are already enqueued,
-    // and a row recorded after close() is dropped. The sweep backfills each
-    // in-flight turn's io row (`delivered` OMITTED) so no record of this
-    // process can be a floor-B orphan. Idempotent, never throws (fails open).
-    attestationEvidence?.settleAll();
-    // Drain the attestation evidence queue LAST — the server + workers are
-    // stopped, so every turn's records/io lines are already enqueued; close()
-    // awaits the sequential write chain so the final lines land before exit.
-    // Fails open like every evidence path.
-    try {
-      await attestationWriter?.close();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`attestation writer close() failed: ${msg}\n`);
     }
     process.exit(0);
   };

@@ -3,8 +3,8 @@
 The **Conduct Port** is the SDK's vendor-neutral seam set for an *agent-behavior
 governance engine* — the choke points where persona, input gating, tool policy,
 and output delivery can be shaped by an external provider. The SDK owns the
-seams; a bound engine owns the policy. The first consumer is **decorum** (the
-Conduct & Persona Engine); the SDK imports nothing from it.
+seams. No engine is bound. **Decorum is deprecated** and is not a dependency.
+The gateway ignores a `conduct` block and leaves the port empty.
 
 The whole surface is one optional interface, `ConductProvider`
 (`packages/sdk/src/core/conductPort.ts:116`), barrel-exported from
