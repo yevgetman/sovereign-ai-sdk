@@ -31,6 +31,9 @@ The conceptual frame: what's settled and why.
 How the runtime is built.
 
 - [Runtime architecture](02-architecture/runtime-architecture.md) — request lifecycle, the **SDK substrate** (`createAgent`) every surface runs on + the machine-enforced **open/proprietary boundary** and the `sov-protocol` wire contract, system prompt, tools, permissions, persistence (the injectable `SessionStore` port), sub-agents, microcompaction, REPL/TUI layers, learning + review pipelines, trajectory capture, the OpenAI + native gateway server surfaces (auth, multi-client transport, supervisor, multi-user isolation, channels).
+- [Hermes loop reference](02-architecture/hermes-loop-reference.md) — snapshot of the Nous Hermes cycle and its subscription HTTP logins, cited to source. Reference only.
+- [SOV loop as built](02-architecture/sov-loop-as-built.md) — the in-process cycle, the eager tool pool, and the `claude -p` subscription path, for the headless-loop choice.
+- [Hermes → SOV gap](02-architecture/hermes-to-sov-gap.md) — the delta for that choice. **Not a spec.**
 - [Subsystems overview](02-architecture/subsystems-overview.md) — the component-level atlas: every region of the codebase named and placed, with the invariants that hold across them.
 - [conduct-port.md](02-architecture/conduct-port.md) — the Conduct Port: agent-behavior governance seams (1b)
 

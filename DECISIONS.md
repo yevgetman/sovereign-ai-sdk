@@ -2,6 +2,12 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## 2026-10-06 — Kernel calls this loop in-process. Hermes is the reference, not the runtime.
+
+Decision: recorded in the apex, not re-decided here. Canon is `~/code/me/ops/sov-headless-loop.md`. Kernel's headless turns call `createAgent().run()`. They do not adopt Hermes and they do not shell out to `claude -p`, Codex, Grok Build, `sov run`, or `hermes -z`. Three gaps are accepted as the next build and are **not** specified yet: subscription HTTP providers (ChatGPT, Claude Max, SuperGrok), a toolset chosen before the turn, and persist-before-run plus the existing step budget. `src/runtime/subprocessExecutor.ts` stays the attended opt-in it already is.
+
+Analysis: `docs/02-architecture/hermes-loop-reference.md`, `docs/02-architecture/sov-loop-as-built.md`, `docs/02-architecture/hermes-to-sov-gap.md`.
+
 ## 2026-06-24 — Direction: this harness becomes an open-core SDK
 
 Decision: per business ADR **B-0014** (`~/code/sovereign-ai-docs/business/decisions/0014-sdk-open-core-split.md`), this repo is re-oriented toward an **open-core SDK** — refining B-0013's "open-source the SDK" into a boundary. A code-level audit (vs. Anthropic's `claude-agent-sdk-typescript`) found the moat is execution/integration, not invention: most of the harness is reproducible commodity, four subsystems are genuinely differentiated. **OPEN CORE** = the `query()` agent-loop core + typed options, the `Tool<I,O>` factory + permissioned tool contract, the multi-provider (local-first) abstraction, MCP, and hooks/skills/memory + transcripts. **PROPRIETARY** (source-available or closed) = the learning layer (`src/learning*`), the gateway multi-tenancy (`src/server/` — SSE replay ring + human-in-the-loop approval queue + per-principal isolation), the workflow engine (`src/workflows/` — enforced parallel write-scoping), and the subscription-executor bridge (`src/runtime/subprocessExecutor.ts`).
