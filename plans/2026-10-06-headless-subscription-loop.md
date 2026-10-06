@@ -1,7 +1,7 @@
 # Headless subscription loop — plan
 
 **Spec:** `specs/2026-10-06-headless-subscription-loop-design.md` (master `44e04b9`).
-**Branch:** `feat/headless-subscription-loop`. Ship is a pull request. Do not merge.
+**Branch:** `feat/headless-subscription-loop`. Pull request: https://github.com/yevgetman/sovereign-ai-sdk/pull/7. Do not merge.
 
 ## Terms gate (Claude Max)
 

@@ -6,6 +6,7 @@ green-light: yes
 status: complete-awaiting-check
 branch: feat/headless-subscription-loop
 last-commit: 60dd8d9
+pr: https://github.com/yevgetman/sovereign-ai-sdk/pull/7
 ---
 
 # Handoff — headless subscription loop
@@ -28,7 +29,8 @@ last-commit: 60dd8d9
 
 ## Next
 
-- Owner review of the pull request. Do not merge from this session.
+- Owner review: https://github.com/yevgetman/sovereign-ai-sdk/pull/7
+- Do not merge from this session.
 
 ## Blockers
 
