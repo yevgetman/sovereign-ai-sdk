@@ -15,11 +15,11 @@ ChatGPT and SuperGrok follow the Hermes login endpoints read at that pin. This r
 
 ## Tasks
 
-- [ ] Credential port, resolver fence, Claude Max refusal
-- [ ] ChatGPT and SuperGrok providers, retries, login and logout
-- [ ] Toolset filter, deny wrapper, `maxTurns` defaults
-- [ ] Save the tool call before it runs, and the transcript prefix fix
-- [ ] Acceptance tests, docs, quality gate, pull request
+- [x] Credential port, resolver fence, Claude Max refusal
+- [x] ChatGPT and SuperGrok providers, retries, login and logout
+- [x] Toolset filter, deny wrapper, `maxTurns` defaults
+- [x] Save the tool call before it runs, and the transcript prefix fix
+- [x] Acceptance tests, docs, quality gate, pull request
 
 ## Decisions the spec already made
 
@@ -31,3 +31,10 @@ ChatGPT and SuperGrok follow the Hermes login endpoints read at that pin. This r
 - Retries live inside the subscription `stream()` only. Three attempts for 429 and 5xx. `Retry-After` over 10 seconds fails the turn. Grok HTTP 403 does not retry and does not use an API key.
 - A prompt that does not fit throws `ContextOverflowError`. That class must not start context compression.
 - With a session store, the unsaved transcript tail through the assistant tool call is written before `runTools`. `persistTurn` then continues from that prefix.
+- A conduct regenerate truncates that early write. The discarded tool call does not stay in the session store or the transcript.
+
+## Gate
+
+- `bun run typecheck` passed.
+- `bun run lint` passed (biome and the boundary check).
+- `bun test`: 5423 pass, 30 skip, 3 fail. The 3 failures are `tests/attestation/roundtrip.test.ts`. The sibling checkout `../decorum-verify` cannot load package `yaml`. This branch does not change that test or that repo.

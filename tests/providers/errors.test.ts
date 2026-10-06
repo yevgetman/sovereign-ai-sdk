@@ -6,9 +6,15 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
+  ContextOverflowError,
+  PersistBeforeRunError,
   ProviderHttpError,
+  SubscriptionAuthExpiredError,
+  SubscriptionTierBlockedError,
+  UnknownToolsetError,
   isBillingExhausted,
   isContextOverflowError,
+  isCredentialUnavailable,
   isModelUnavailable,
   isRateLimited,
 } from '@yevgetman/sov-sdk/providers/errors';
@@ -44,6 +50,22 @@ describe('isContextOverflowError', () => {
     expect(isContextOverflowError(new Error('unauthorized'))).toBe(false);
     expect(isContextOverflowError('not even an Error')).toBe(false);
     expect(isContextOverflowError(undefined)).toBe(false);
+  });
+
+  test('subscription overflow does not start compression', () => {
+    const err = new ContextOverflowError('chatgpt', 'prompt is too long: 9 tokens > 8 maximum');
+    expect(isContextOverflowError(err)).toBe(false);
+    expect(err.message).toBe('prompt is too long: 9 tokens > 8 maximum');
+  });
+});
+
+describe('subscription turn errors', () => {
+  test('do not rotate an API-key credential', () => {
+    expect(isCredentialUnavailable(new SubscriptionAuthExpiredError('chatgpt'))).toBe(false);
+    expect(isCredentialUnavailable(new SubscriptionTierBlockedError('grok'))).toBe(false);
+    expect(isCredentialUnavailable(new ContextOverflowError('chatgpt'))).toBe(false);
+    expect(isCredentialUnavailable(new UnknownToolsetError('chatty'))).toBe(false);
+    expect(isCredentialUnavailable(new PersistBeforeRunError())).toBe(false);
   });
 });
 

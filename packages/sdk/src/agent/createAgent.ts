@@ -21,19 +21,19 @@
 //      PERSISTENCE CONTRACT (Task 4.1): an input containing prior history is
 //      treated as REHYDRATION for an existing session — when the store already
 //      holds this sessionId's messages and the input's head matches that stored
-//      history verbatim, only the messages BEYOND the stored prefix (a trailing
-//      new user message + this run's generated messages) are persisted, so a
-//      stable-sessionId embedder never gets duplicate rows. A fresh session
-//      persists the full seed + generated messages (unchanged). A non-verbatim
-//      seed on an existing session persists everything (append; never a guess
-//      that drops content).
+//      history verbatim, only the messages BEYOND the stored prefix are
+//      persisted. The prefix is the full message list, not only the seed, so
+//      an assistant tool call saved before the tool runs is not written again.
+//      A fresh session persists the full seed + generated messages. A
+//      non-verbatim seed on an existing session persists everything.
 //   3. The `observe` adapter: a plain `(i: ObserveInput) => void` function is
 //      wrapped into a `LearningObserverPort` object and placed on the
 //      `ToolContext.learningObserver`, where the orchestrator calls it after
 //      each tool dispatch.
 //
 // Design invariants (load-bearing):
-//   - `query()` is UNCHANGED. `createAgent` is a composition over it, not a fork.
+//   - `query()` gains one optional callback, `persistBeforeTools`. Absent, the
+//     loop is unchanged. `createAgent` is a composition over it, not a fork.
 //   - Stream-passthrough: `run()` yields every `StreamEvent | Message` from
 //     `query()` UNCHANGED and in order — no buffering, coalescing, or reordering.
 //   - Immutability: the caller's `input` messages and `config` are never mutated.
@@ -76,10 +76,17 @@ import type { CanUseTool } from '../permissions/types.js';
 import type { SessionStore } from '../persistence/sessionStore.js';
 import type { TranscriptStore } from '../persistence/transcriptStore.js';
 import type { ReasoningEffort } from '../providers/effort.js';
+import { PersistBeforeRunError, UnknownToolsetError } from '../providers/errors.js';
 import { estimateCostUsd } from '../providers/pricing.js';
 import { resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
 import type { LearningObserverPort } from '../tool/ports.js';
+import {
+  defaultMaxTurns,
+  filterToolsForToolset,
+  isToolsetName,
+  wrapToolsetCanUseTool,
+} from '../tool/toolset.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { validateSessionId } from '../util/sessionId.js';
@@ -119,6 +126,11 @@ export type AgentConfig = {
   // embedder. Threaded as `Tool<any, any>[]` through the whole tool surface.
   // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8).
   tools?: Tool<any, any>[];
+  /**
+   * `chat`, `web`, `ops`, or `coding`. Omit to keep today's pool and
+   * `maxTurns`. An unknown string fails before the provider is called.
+   */
+  toolset?: string;
   /** A string is wrapped into a single non-cacheable `SystemSegment`. */
   systemPrompt?: SystemSegment[] | string;
   cwd?: string;
@@ -190,6 +202,8 @@ export type PerTurn = Partial<{
   model: string;
   // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see AgentConfig.tools.
   tools: Tool<any, any>[];
+  /** Per-turn toolset. Wins over `AgentConfig.toolset`. */
+  toolset: string;
   systemPrompt: SystemSegment[];
   effort: ReasoningEffort;
   temperature: number;
@@ -262,6 +276,20 @@ export function createAgent(config: AgentConfig): Agent {
     input: string | Message[],
     perTurn: PerTurn = {},
   ): AsyncGenerator<StreamEvent | Message, RunResult> {
+    const requestedToolset = perTurn.toolset ?? config.toolset;
+    if (requestedToolset !== undefined && !isToolsetName(requestedToolset)) {
+      const earlySessionId =
+        perTurn.sessionId !== undefined ? validateSessionId(perTurn.sessionId) : randomUUID();
+      return {
+        sessionId: earlySessionId,
+        terminal: { reason: 'error', error: new UnknownToolsetError(requestedToolset) },
+        iterationsUsed: 0,
+        toolCallCount: 0,
+        distinctToolNames: [],
+        messages: [],
+      };
+    }
+
     // 1. Provider + model: per-turn overrides win. A string config provider is
     //    resolved here; a concrete LLMProvider is used directly.
     const model = perTurn.model ?? config.model;
@@ -348,7 +376,15 @@ export function createAgent(config: AgentConfig): Agent {
     // 6. Tool pool + tool context. A host-supplied perTurn.toolContext is used
     //    verbatim; otherwise a MINIMAL context is built (cwd + sessionId + the
     //    observe adapter) when the turn needs one (tools present or observe set).
-    const tools = perTurn.tools ?? config.tools;
+    let tools = perTurn.tools ?? config.tools;
+    if (requestedToolset !== undefined && isToolsetName(requestedToolset)) {
+      tools =
+        requestedToolset === 'coding'
+          ? tools === undefined
+            ? undefined
+            : tools.slice()
+          : filterToolsForToolset(tools ?? [], requestedToolset);
+    }
     const cwd = config.cwd ?? process.cwd();
     const toolContext = resolveToolContext(
       perTurn.toolContext,
@@ -383,7 +419,21 @@ export function createAgent(config: AgentConfig): Agent {
     // 7b. Conduct tool policy (floors — every surface): deny-first wrapper
     //     around the per-turn canUseTool. Identity passthrough when the
     //     provider has no toolPolicy capability.
-    const canUseTool = composeConductCanUseTool(conduct, conductCtx, perTurn.canUseTool);
+    let canUseTool = composeConductCanUseTool(conduct, conductCtx, perTurn.canUseTool);
+    if (requestedToolset !== undefined && isToolsetName(requestedToolset)) {
+      canUseTool = wrapToolsetCanUseTool(canUseTool, tools ?? []);
+    }
+    const maxTurns =
+      config.maxTurns !== undefined
+        ? config.maxTurns
+        : requestedToolset !== undefined && isToolsetName(requestedToolset)
+          ? defaultMaxTurns(requestedToolset)
+          : undefined;
+    let messages: Message[] = [...seedMessages];
+    // Store length before this attempt's early tool-call write. A regenerate
+    // truncates back to it so the discarded call does not stay in history.
+    let attemptBaseline = 0;
+    let attemptTranscriptWrites = 0;
 
     // Restartable turn (1d): the query() invocation is hoisted into `startTurn`
     // so an output-gate `regenerate` verdict can re-run it with an extra
@@ -423,7 +473,23 @@ export function createAgent(config: AgentConfig): Agent {
         ...(config.hookRunner !== undefined ? { hookRunner: config.hookRunner } : {}),
         ...(traceRecorder !== undefined ? { traceRecorder } : {}),
         ...(microcompactConfig !== undefined ? { microcompactConfig } : {}),
-        ...(config.maxTurns !== undefined ? { maxTurns: config.maxTurns } : {}),
+        ...(maxTurns !== undefined ? { maxTurns } : {}),
+        ...(config.sessionStore !== undefined
+          ? {
+              persistBeforeTools: (assistant: AssistantMessage) => {
+                attemptTranscriptWrites += saveBeforeTools({
+                  store: config.sessionStore as SessionStore,
+                  transcripts: config.transcripts,
+                  sessionId,
+                  model,
+                  providerName: provider.name,
+                  systemPrompt: effectiveSystemPrompt,
+                  snapshot: messages,
+                  assistant,
+                });
+              },
+            }
+          : {}),
         ...(perTurn.signal !== undefined ? { signal: perTurn.signal } : {}),
         ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
       });
@@ -446,8 +512,6 @@ export function createAgent(config: AgentConfig): Agent {
       reason: 'error',
       error: new Error('createAgent: never terminated'),
     };
-    let messages: Message[] = [...seedMessages];
-
     try {
       // Attempt loop (1d): the single-pass drive, wrapped in a bounded retry on
       // an output-gate `regenerate` verdict (CONDUCT_REGENERATE_MAX). Without
@@ -482,6 +546,8 @@ export function createAgent(config: AgentConfig): Agent {
           evidenceCandidate = undefined;
           evidenceDelivered = undefined;
         }
+        attemptBaseline = config.sessionStore?.loadMessages(sessionId).length ?? 0;
+        attemptTranscriptWrites = 0;
         let regenerated = false;
         let regenerateReason: string | undefined;
         for (;;) {
@@ -640,6 +706,14 @@ export function createAgent(config: AgentConfig): Agent {
           yield ev;
         }
         if (!regenerated) break;
+        // The discarded attempt may already have saved its tool call. Put the
+        // store and the transcript back to the pre-attempt prefix.
+        if (config.sessionStore !== undefined) {
+          config.sessionStore.truncateMessages(sessionId, attemptBaseline);
+        }
+        if (attemptTranscriptWrites > 0) {
+          await config.transcripts?.rewindMessages?.(sessionId, attemptTranscriptWrites);
+        }
         // Re-run the turn ONCE with the content-free steering segment. Tear
         // down the discarded attempt's provider stream first (close its socket,
         // as the finally block does), then restart.
@@ -709,18 +783,23 @@ export function createAgent(config: AgentConfig): Agent {
 
     // Persistence — only when a port is supplied (no-disk default otherwise).
     if (config.sessionStore !== undefined || config.transcripts !== undefined) {
-      persistTurn({
-        sessionStore: config.sessionStore,
-        transcripts: config.transcripts,
-        sessionId,
-        model,
-        providerName: provider.name,
-        systemPrompt: effectiveSystemPrompt,
-        messages,
-        seedCount: seedMessages.length,
-        usage,
-        estimatedCostUsd,
-      });
+      try {
+        persistTurn({
+          sessionStore: config.sessionStore,
+          transcripts: config.transcripts,
+          sessionId,
+          model,
+          providerName: provider.name,
+          systemPrompt: effectiveSystemPrompt,
+          messages,
+          usage,
+          estimatedCostUsd,
+        });
+      } catch (err) {
+        const alreadySaved =
+          terminal.reason === 'error' && terminal.error instanceof PersistBeforeRunError;
+        if (!alreadySaved) throw err;
+      }
     }
 
     return {
@@ -823,8 +902,6 @@ function persistTurn(opts: {
   providerName: string;
   systemPrompt: SystemSegment[];
   messages: Message[];
-  /** Index where this run's NEW messages begin (the caller's seed length). */
-  seedCount: number;
   /** The run's finalized usage total (undefined → no usage reported). */
   usage: TokenUsage | undefined;
   /** The pre-computed cost for `usage` (undefined ⟺ `usage` is undefined),
@@ -840,7 +917,6 @@ function persistTurn(opts: {
     providerName,
     systemPrompt,
     messages,
-    seedCount,
     usage,
     estimatedCostUsd,
   } = opts;
@@ -858,7 +934,7 @@ function persistTurn(opts: {
   let persistFrom = 0;
   if (sessionStore !== undefined) {
     const stored = sessionStore.loadMessages(sessionId);
-    if (stored.length > 0 && isRehydratedPrefix(stored, messages, seedCount)) {
+    if (stored.length > 0 && isRehydratedPrefix(stored, messages)) {
       persistFrom = stored.length;
     }
   }
@@ -878,19 +954,11 @@ function persistTurn(opts: {
   }
 }
 
-/** True when the stored history is a VERBATIM prefix of this run's seed: every
- *  stored row matches the message at the same index by role + content (deep
- *  equality via JSON text — mirroring the store's own serialize/deserialize
- *  round-trip, so history rehydrated from `loadMessages` compares equal).
- *  Rehydration only makes sense within the SEED, so a stored history longer
- *  than the seed never matches — a short fresh input (e.g. a new string prompt
- *  under a reused sessionId) is new content to append, not a rehydration. */
-function isRehydratedPrefix(
-  stored: StoredMessage[],
-  messages: Message[],
-  seedCount: number,
-): boolean {
-  if (stored.length > seedCount) return false;
+/** True when every stored row matches the message at the same index.
+ *  The list may be longer than the original seed: a tool call is saved
+ *  before it runs, so the stored prefix includes that assistant row. */
+function isRehydratedPrefix(stored: StoredMessage[], messages: Message[]): boolean {
+  if (stored.length > messages.length) return false;
   return stored.every((row, i) => {
     const msg = messages[i];
     return (
@@ -899,4 +967,46 @@ function isRehydratedPrefix(
       JSON.stringify(msg.content) === JSON.stringify(row.content)
     );
   });
+}
+
+/** Write the unsaved transcript tail through the assistant tool call.
+ *  Returns how many transcript rows that write added. */
+function saveBeforeTools(opts: {
+  store: SessionStore;
+  transcripts: TranscriptStore | undefined;
+  sessionId: string;
+  model: string;
+  providerName: string;
+  systemPrompt: SystemSegment[];
+  snapshot: Message[];
+  assistant: AssistantMessage;
+}): number {
+  const { store, transcripts, sessionId, snapshot, assistant } = opts;
+  let transcriptWrites = 0;
+  store.upsertSession({
+    sessionId,
+    model: opts.model,
+    provider: opts.providerName,
+    ...(opts.systemPrompt.length > 0 ? { systemPrompt: opts.systemPrompt } : {}),
+  });
+  const stored = store.loadMessages(sessionId);
+  const write = (msg: Message): void => {
+    const toolCalls =
+      msg.role === 'assistant' ? msg.content.filter((block) => block.type === 'tool_use') : [];
+    const id = store.saveMessage(sessionId, {
+      role: msg.role,
+      content: msg.content,
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
+    });
+    if (transcripts !== undefined) {
+      transcripts.recordMessage(sessionId, msg.role, msg.content, id);
+      transcriptWrites += 1;
+    }
+  };
+  if (isRehydratedPrefix(stored, snapshot)) {
+    for (const msg of snapshot.slice(stored.length)) write(msg);
+    return transcriptWrites;
+  }
+  write(assistant);
+  return transcriptWrites;
 }

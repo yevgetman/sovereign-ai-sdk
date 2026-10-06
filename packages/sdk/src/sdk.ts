@@ -97,6 +97,14 @@ export type { SubdirectoryHintState } from './context/subdirectoryHints.js';
 // src/tool/toolScope.ts (formerly proprietary-by-location src/commands/).
 export { buildToolScope } from './tool/toolScope.js';
 export type { ToolScope } from './tool/toolScope.js';
+export {
+  TOOLSET_NAMES,
+  defaultMaxTurns,
+  filterToolsForToolset,
+  intersectToolNames,
+  isToolsetName,
+} from './tool/toolset.js';
+export type { ToolsetName } from './tool/toolset.js';
 // Canonical tool descriptors — the single source of truth for foreign→native
 // tool identity (aliases, input-key renames, noise-key drops). The proprietary
 // subscription-executor derives its observation canonicalization from these.
@@ -165,6 +173,16 @@ export type {
 
 // ── Providers (providers/) ──────────────────────────────────────────────────
 export { resolveProvider } from './providers/resolver.js';
+export { loadSubscriptionProvider } from './providers/subscription/load.js';
+export type { LoadSubscriptionOpts } from './providers/subscription/load.js';
+export {
+  ClaudeMaxTermsError,
+  ContextOverflowError,
+  PersistBeforeRunError,
+  SubscriptionAuthExpiredError,
+  SubscriptionTierBlockedError,
+  UnknownToolsetError,
+} from './providers/errors.js';
 export type {
   ProviderPurpose,
   ResolveProviderOpts,

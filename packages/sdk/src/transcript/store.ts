@@ -59,6 +59,15 @@ export class FileTranscriptStore implements TranscriptStore {
     writer?.appendMessage(role, content, seq);
   }
 
+  /** Drop the last `count` message rows for one session. No-op when transcripts
+   *  are off or this session has no writer yet. */
+  async rewindMessages(sessionId: string, count: number): Promise<void> {
+    if (!this.opts.enabled || count <= 0) return;
+    const writer = this.writers.get(sessionId);
+    if (writer == null) return;
+    await writer.rewindMessages(count);
+  }
+
   private createWriter(sessionId: string): TranscriptWriter | null {
     try {
       const session = this.opts.getSession(sessionId);

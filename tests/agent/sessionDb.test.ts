@@ -99,6 +99,20 @@ describe('saveMessage + loadMessages', () => {
     db.close();
   });
 
+  test('truncateMessages keeps the leading rows and drops the tail', () => {
+    const db = openMem();
+    const id = db.createSession({ model: 'm', provider: 'p' });
+    db.saveMessage(id, { role: 'user', content: [textBlock('keep')] });
+    db.saveMessage(id, { role: 'assistant', content: [textBlock('drop')] });
+    db.truncateMessages(id, 1);
+    const loaded = db.loadMessages(id);
+    expect(loaded).toHaveLength(1);
+    expect((loaded[0]?.content[0] as { text: string }).text).toBe('keep');
+    db.truncateMessages(id, 0);
+    expect(db.loadMessages(id)).toHaveLength(0);
+    db.close();
+  });
+
   test('preserves complex content (tool_use + tool_result blocks)', () => {
     const db = openMem();
     const id = db.createSession({ model: 'm', provider: 'p' });

@@ -178,6 +178,34 @@ async function main(argv: string[]): Promise<void> {
     );
 
   program
+    .command('login <provider>')
+    .description('Sign in to chatgpt, claude-max, or grok. The token stays in the Keychain.')
+    .action(async (provider: string) => {
+      const { defaultLoginIo, loginSubscription } = await import(
+        '@yevgetman/sov-sdk/providers/subscription/login'
+      );
+      const { macKeychainPort } = await import(
+        '@yevgetman/sov-sdk/providers/subscription/keychain'
+      );
+      const code = await loginSubscription(provider, macKeychainPort(), defaultLoginIo());
+      process.exit(code);
+    });
+
+  program
+    .command('logout <provider>')
+    .description('Remove a chatgpt, claude-max, or grok token from the Keychain.')
+    .action(async (provider: string) => {
+      const { defaultLoginIo, logoutSubscription } = await import(
+        '@yevgetman/sov-sdk/providers/subscription/login'
+      );
+      const { macKeychainPort } = await import(
+        '@yevgetman/sov-sdk/providers/subscription/keychain'
+      );
+      const code = await logoutSubscription(provider, macKeychainPort(), defaultLoginIo());
+      process.exit(code);
+    });
+
+  program
     .command('chat', { isDefault: true })
     .description(
       "[deprecated keyword — use bare 'sov'] Start an interactive chat session against a harness bundle (use --agent + --state-dir for scheduled-mission mode)",

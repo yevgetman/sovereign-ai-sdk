@@ -9,7 +9,7 @@
 // file-system error is logged (or swallowed) and NEVER blocks a turn.
 
 import { existsSync } from 'node:fs';
-import { appendFile } from 'node:fs/promises';
+import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { ContentBlock, Role } from '../core/types.js';
 import { redact } from '../trajectory/redact.js';
@@ -109,6 +109,45 @@ export class TranscriptWriter {
       message: { role, content },
     };
     this.enqueue(record);
+  }
+
+  /** Drop the last `count` message rows after queued appends land. The leading
+   *  session_meta line stays. */
+  async rewindMessages(count: number): Promise<void> {
+    if (count <= 0 || this.closed) return;
+    const done = this.writeChain.then(() => this.dropTail(count));
+    this.writeChain = done.then(
+      () => undefined,
+      (err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.opts.log?.(`[transcript] rewind failed at ${this.path}: ${msg}`);
+      },
+    );
+    await this.writeChain;
+  }
+
+  private async dropTail(count: number): Promise<void> {
+    if (!existsSync(this.path)) return;
+    const text = await readFile(this.path, 'utf8');
+    const lines = text.endsWith('\n') ? text.slice(0, -1).split('\n') : text.split('\n');
+    if (lines.length === 1 && lines[0] === '') return;
+    let dropped = 0;
+    while (lines.length > 0 && dropped < count) {
+      const last = lines[lines.length - 1];
+      if (last === undefined || last === '') break;
+      let kind = '';
+      try {
+        kind = (JSON.parse(last) as { type?: string }).type ?? '';
+      } catch {
+        break;
+      }
+      if (kind === 'session_meta') break;
+      lines.pop();
+      dropped += 1;
+    }
+    this.appended = Math.max(0, this.appended - dropped);
+    const next = lines.length === 0 ? '' : `${lines.join('\n')}\n`;
+    await writeFile(this.path, next, { encoding: 'utf8' });
   }
 
   private enqueue(record: SessionMetaRecord | TranscriptMessageRecord): void {

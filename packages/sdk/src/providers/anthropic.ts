@@ -85,7 +85,11 @@ export class AnthropicProvider
   readonly apiKey: string;
   private readonly client: Anthropic;
 
-  constructor(config: { apiKey: string; baseURL?: string }) {
+  constructor(config: {
+    apiKey: string;
+    baseURL?: string;
+    fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  }) {
     if (!config.apiKey) {
       throw new Error('AnthropicProvider requires apiKey');
     }
@@ -93,6 +97,7 @@ export class AnthropicProvider
     this.client = new Anthropic({
       apiKey: config.apiKey,
       ...(config.baseURL ? { baseURL: config.baseURL } : {}),
+      ...(config.fetch ? { fetch: config.fetch as typeof fetch } : {}),
     });
   }
 

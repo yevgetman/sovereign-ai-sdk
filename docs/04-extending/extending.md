@@ -67,6 +67,17 @@ Do not register ad hoc tool objects. Every tool goes through `buildTool()` so de
 
 The core runtime should not know provider-specific message shapes. If a change requires editing `src/core/query.ts` for a provider quirk, isolate the quirk in the provider adapter instead.
 
+## Subscription logins
+
+`chatgpt`, `claude-max`, and `grok` are not rows in `PROVIDER_REGISTRY`. They are the Owner's logins. Tokens stay in the Keychain. A failed login does not fall through to an API key.
+
+- `resolveProvider('chatgpt')` throws unless `allowSubscriptionAuth: true`. `createAgent` does not set that flag. The gateway does not set it.
+- `loadSubscriptionProvider(name, port)` is the local-owner path. Pass a principal and it refuses before the port is read.
+- `claude-max` refuses before any HTTP. Anthropic's consumer terms, checked 2026-10-06, allow that login only inside Claude Code and Anthropic apps.
+- `sov login <provider>` and `sov logout <provider>` are the attended commands. A headless turn never runs login.
+
+Do not add these names to the gateway provider list.
+
 If the provider supports extended thinking, fork the provider-neutral `req.effort` (`ReasoningEffort`) in `buildKwargs` using the helpers in `src/providers/effort.ts` (`modelSupportsReasoning` to gate it, then the level → your wire shape) — see how `anthropic.ts` / `openai.ts` do it. Keep `effort: 'off'`/undefined byte-identical to a no-thinking request. The `enable_thinking` chat-template flag is wired for the `sov` engine only; ollama reasoning is gated off in v1 (`modelSupportsReasoning('…', 'ollama') === false`) because its native `think: true` switch differs and needs per-model capability data not yet wired, so `/effort` is a no-op on ollama (planned fast-follow).
 
 ## Add A Slash Command

@@ -91,6 +91,28 @@ describe('FileTranscriptStore', () => {
     });
   });
 
+  test('rewindMessages drops the last message rows and keeps session_meta', async () => {
+    await withTmp(async (base) => {
+      const store = new FileTranscriptStore({
+        enabled: true,
+        base,
+        redactSecrets: true,
+        cwd: '/proj',
+        getSession: () => session(),
+      });
+      store.recordMessage('s1', 'user', [{ type: 'text', text: 'keep' }], 1);
+      store.recordMessage('s1', 'assistant', [{ type: 'text', text: 'drop' }], 2);
+      await store.rewindMessages('s1', 1);
+      const lines = readFileSync(join(base, 'projects', '-proj', 's1.jsonl'), 'utf8')
+        .trim()
+        .split('\n');
+      expect(lines).toHaveLength(2);
+      expect(lines[1]).toContain('keep');
+      expect(lines.join('\n')).not.toContain('drop');
+      await store.closeAll();
+    });
+  });
+
   test('projectsDir reflects enabled state', () => {
     const on = new FileTranscriptStore({
       enabled: true,

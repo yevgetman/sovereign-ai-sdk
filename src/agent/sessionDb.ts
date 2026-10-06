@@ -576,6 +576,24 @@ export class SessionDb implements SessionStore {
     return rows.map(rowToMessage);
   }
 
+  /** Keep the first `keep` messages and drop the rest. The messages DELETE
+   *  trigger keeps the search index in step. */
+  truncateMessages(sessionId: string, keep: number): void {
+    const retain = keep > 0 ? Math.floor(keep) : 0;
+    this.writeWithRetry(() => {
+      this.db.run(
+        `DELETE FROM messages
+         WHERE session_id = ?
+           AND id NOT IN (
+             SELECT id FROM (
+               SELECT id FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT ?
+             )
+           )`,
+        [sessionId, sessionId, retain],
+      );
+    });
+  }
+
   /** Recent sessions for the `/resume` picker. Ordered newest-first by
    *  `last_updated`. Title falls back to the first user message body
    *  (truncated) when the row's `title` column is null — matches what
