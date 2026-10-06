@@ -1,5 +1,20 @@
 # Changelog
 
+## harness 0.6.74 — subscription logins and an empty conduct port - 2026-10-06
+
+sdk 0.10.3 -> 0.11.0 (minor: new `.` entry exports for toolsets, subscription
+load, and the subscription error types).
+
+- Decorum no longer supplies conduct. The conduct port stays empty. A conduct
+  block in config is ignored.
+- ChatGPT and SuperGrok can sign in. Tokens stay in the Keychain. A failed
+  login does not switch to a paid API key. The gateway cannot use these logins.
+- Claude Max HTTP is refused. Anthropic consumer terms checked on 2026-10-06
+  allow that login only inside Claude Code and Anthropic apps.
+- Toolsets are chat, web, ops, and coding. An unknown name stops the turn
+  before the model runs. When a session store is set, the tool call is saved
+  before it runs.
+
 ## harness 0.6.72 — Anthropic prompt caching on the OpenRouter lane - 2026-08-25
 
 sdk 0.10.1 -> 0.10.2 (additive: `messagesToOpenAI(messages, system, { promptCache })`;
