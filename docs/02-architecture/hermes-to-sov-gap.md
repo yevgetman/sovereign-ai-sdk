@@ -3,6 +3,7 @@
 Status: gap report. **Not a spec. Not a plan. Do not implement from this file.**
 Written: 2026-10-06
 Apex lock: `~/code/me/ops/sov-headless-loop.md`
+Spec that decides the open questions below: `specs/2026-10-06-headless-subscription-loop-design.md`
 
 A later spec should be able to start from this page and from the two source maps it cites. This page stops at "what would have to change" and "what a spec must still decide."
 
@@ -47,7 +48,7 @@ In dependency order. Names are for the spec author, not milestones.
 
 ## What a spec still has to decide
 
-These are open on purpose.
+Decided in `specs/2026-10-06-headless-subscription-loop-design.md`. Kept here as the question list that spec closed.
 
 - Which Claude Max call shape is required (headers, system-prompt identity, beta flags), verified against current Anthropic terms, not copied blindly from `anthropic_adapter.py`.
 - What a 403 from xAI means for the caller.
@@ -58,6 +59,7 @@ These are open on purpose.
 
 ## Read next
 
+- `specs/2026-10-06-headless-subscription-loop-design.md` — the contract. Not a plan.
 - `docs/02-architecture/hermes-loop-reference.md`
 - `docs/02-architecture/sov-loop-as-built.md`
 - `docs/04-extending/extending.md` — how a provider is added today.

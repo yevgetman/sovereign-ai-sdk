@@ -4,7 +4,7 @@ This file records runtime-local design choices. Larger product and architecture 
 
 ## 2026-10-06 — Kernel calls this loop in-process. Hermes is the reference, not the runtime.
 
-Decision: recorded in the apex, not re-decided here. Canon is `~/code/me/ops/sov-headless-loop.md`. Kernel's headless turns call `createAgent().run()`. They do not adopt Hermes and they do not shell out to `claude -p`, Codex, Grok Build, `sov run`, or `hermes -z`. Three gaps are accepted as the next build and are **not** specified yet: subscription HTTP providers (ChatGPT, Claude Max, SuperGrok), a toolset chosen before the turn, and persist-before-run plus the existing step budget. `src/runtime/subprocessExecutor.ts` stays the attended opt-in it already is.
+Decision: recorded in the apex, not re-decided here. Canon is `~/code/me/ops/sov-headless-loop.md`. Kernel's headless turns call `createAgent().run()`. They do not adopt Hermes and they do not shell out to `claude -p`, Codex, Grok Build, `sov run`, or `hermes -z`. The three gaps are specified in `specs/2026-10-06-headless-subscription-loop-design.md` (spec only; not green-lit to code): subscription HTTP providers (`chatgpt`, `claude-max`, `grok`), a closed toolset on `PerTurn`, and persist-before-run plus the existing `maxTurns` budget. `src/runtime/subprocessExecutor.ts` stays the attended opt-in it already is.
 
 Analysis: `docs/02-architecture/hermes-loop-reference.md`, `docs/02-architecture/sov-loop-as-built.md`, `docs/02-architecture/hermes-to-sov-gap.md`.
 
