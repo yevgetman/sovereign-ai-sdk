@@ -43,7 +43,83 @@ export class NoAuxiliaryAvailableError extends Error {
   }
 }
 
+/** Refresh failed, or the model call returned 401 after one refresh. */
+export class SubscriptionAuthExpiredError extends Error {
+  constructor(
+    readonly provider: string,
+    message = `subscription login expired for ${provider}`,
+  ) {
+    super(message);
+    this.name = 'SubscriptionAuthExpiredError';
+  }
+}
+
+/** SuperGrok returned HTTP 403. The login tier cannot use this HTTP path. */
+export class SubscriptionTierBlockedError extends Error {
+  constructor(
+    readonly provider: string,
+    message = 'This login tier cannot use the HTTP path. An API-key provider is a separate explicit choice.',
+  ) {
+    super(message);
+    this.name = 'SubscriptionTierBlockedError';
+  }
+}
+
+/**
+ * The provider refused the prompt because it does not fit the model.
+ * This class must not start context compression. `isContextOverflowError`
+ * returns false for it on purpose.
+ */
+export class ContextOverflowError extends Error {
+  constructor(
+    readonly provider: string,
+    message = 'the prompt does not fit this model',
+  ) {
+    super(message);
+    this.name = 'ContextOverflowError';
+  }
+}
+
+/** `toolset` is not one of chat, web, ops, coding. */
+export class UnknownToolsetError extends Error {
+  constructor(readonly toolset: string) {
+    super(`unknown toolset ${JSON.stringify(toolset)}`);
+    this.name = 'UnknownToolsetError';
+  }
+}
+
+/** The pre-tool transcript write threw. The tool was not run. */
+export class PersistBeforeRunError extends Error {
+  constructor(message = 'tool call was not run: transcript write failed') {
+    super(message);
+    this.name = 'PersistBeforeRunError';
+  }
+}
+
+/**
+ * Anthropic's consumer terms, checked 2026-10-06, forbid a third-party HTTP
+ * call with a Claude Max login. This build does not send that call.
+ */
+export class ClaudeMaxTermsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ClaudeMaxTermsError';
+  }
+}
+
+function isSubscriptionTurnError(err: unknown): boolean {
+  return (
+    err instanceof SubscriptionAuthExpiredError ||
+    err instanceof SubscriptionTierBlockedError ||
+    err instanceof ContextOverflowError ||
+    err instanceof UnknownToolsetError ||
+    err instanceof PersistBeforeRunError ||
+    err instanceof ClaudeMaxTermsError
+  );
+}
+
 export function isCredentialUnavailable(err: unknown): boolean {
+  if (isSubscriptionTurnError(err)) return false;
   if (err instanceof CredentialUnavailableError) return true;
   if (err instanceof ProviderHttpError) return err.status === 401 || err.status === 403;
   return false;
@@ -94,6 +170,9 @@ export function isRateLimited(err: unknown): err is ProviderHttpError {
  * 'context length exceeded by N tokens'.
  */
 export function isContextOverflowError(err: unknown): boolean {
+  // Subscription overflow ends the turn. It must not start the gateway
+  // compression path, even when the upstream text would match below.
+  if (err instanceof ContextOverflowError) return false;
   if (err instanceof ProviderHttpError && err.status === 413) return true;
   const message = err instanceof Error ? err.message : String(err);
   const lower = message.toLowerCase();

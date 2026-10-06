@@ -20,7 +20,10 @@ import { OllamaProvider } from './ollama.js';
 import { OpenAIProvider } from './openai.js';
 import { RouterProvider } from './router.js';
 import { SovProvider } from './sov.js';
-import type { AuthType, ProviderRequest, ToolSchema, Transport } from './types.js';
+import { loadSubscriptionProvider } from './subscription/load.js';
+import { isSubscriptionName } from './subscription/names.js';
+import type { SubscriptionCredentialPort, SubscriptionFetch } from './subscription/port.js';
+import type { AuthType, LLMProvider, ProviderRequest, ToolSchema, Transport } from './types.js';
 
 /** Call-site purpose used for auxiliary fallback and provider metadata. */
 export type ProviderPurpose = 'main' | 'auxiliary' | 'compression' | 'title' | 'web-extract';
@@ -54,6 +57,17 @@ export type ResolveProviderOpts = {
    *  writes. The SDK embed path (`createAgent`) passes `'memory'` so a
    *  string-provider turn is fully disk-free (audit F6 / D2). */
   credentialState?: 'memory' | 'disk';
+  /**
+   * Subscription logins (`chatgpt`, `claude-max`, `grok`) resolve only when
+   * this is true. `createAgent` and the gateway leave it unset, so a string
+   * name fails before any HTTP and before the Keychain.
+   */
+  allowSubscriptionAuth?: boolean;
+  /** Injected Keychain. Required in tests. The Mac port is the default. */
+  subscriptionPort?: SubscriptionCredentialPort;
+  /** When set, this call is a gateway turn and cannot load a subscription login. */
+  principal?: string;
+  fetchImpl?: SubscriptionFetch;
 };
 
 type ProviderConfigMap = NonNullable<Settings['providers']>;
@@ -94,6 +108,9 @@ export function resolveProvider(
         purpose: opts.purpose ?? 'main',
       },
     };
+  }
+  if (name !== undefined && isSubscriptionName(name.toLowerCase())) {
+    return resolveSubscription(name.toLowerCase(), model, opts);
   }
   const settings = opts.settings ?? loadSettings({ env });
   const providerName = normalizeProviderName(name ?? settings.defaultProvider ?? 'anthropic');
@@ -138,6 +155,55 @@ export function resolveProvider(
       purpose: opts.purpose ?? 'main',
       ...(selected ? { credentialId: selected.id } : {}),
     },
+  };
+}
+
+function resolveSubscription(
+  name: string,
+  model: string | undefined,
+  opts: ResolveProviderOpts,
+): ResolvedProvider {
+  if (!opts.allowSubscriptionAuth) {
+    throw new CredentialUnavailableError(
+      name,
+      `subscription provider ${name} is not available on this path`,
+    );
+  }
+  const provider = loadSubscriptionProvider(name, opts.subscriptionPort, {
+    ...(opts.principal !== undefined ? { principal: opts.principal } : {}),
+    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+  });
+  const resolvedModel = model ?? (name === 'grok' ? 'grok-4.6' : 'gpt-5.3-codex');
+  const baseUrl = name === 'grok' ? 'https://api.x.ai/v1' : 'https://chatgpt.com/backend-api/codex';
+  return {
+    transport: subscriptionTransport(provider),
+    client: provider,
+    baseUrl,
+    model: resolvedModel,
+    contextLength: 128_000,
+    authType: 'oauth',
+    metadata: {
+      provider: name,
+      apiMode: 'openai',
+      purpose: opts.purpose ?? 'main',
+      auth: 'subscription',
+    },
+  };
+}
+
+/** Stream-only shim. Subscription providers do not use the API-key hardening wrapper. */
+function subscriptionTransport(provider: LLMProvider): Transport {
+  const directOnly = (): never => {
+    throw new Error('subscription providers stream directly');
+  };
+  return {
+    name: provider.name,
+    apiMode: 'openai',
+    stream: (req) => provider.stream(req),
+    toProviderMessages: directOnly,
+    toProviderTools: directOnly,
+    buildKwargs: directOnly,
+    normalizeResponse: directOnly,
   };
 }
 

@@ -23,6 +23,7 @@ import {
 import { LoopDetectorState } from '../loop/detector.js';
 import { toToolSchemas } from '../mcp/schemaSerialization.js';
 import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
+import { PersistBeforeRunError } from '../providers/errors.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { type TurnSummary, detectStall } from '../util/stall.js';
@@ -604,6 +605,26 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     // tools (BashTool's subprocess) and permission prompts can abort on
     // Ctrl-C. Phase 2 omitted this — latent until Phase 3 made it observable.
     const turnCtx: ToolContext = signal ? { ...toolCtx, signal } : toolCtx;
+
+    if (params.persistBeforeTools && assistant) {
+      try {
+        await params.persistBeforeTools(assistant);
+      } catch {
+        const msg = consumeGuidance(
+          synthesizeToolResultMessage(
+            toolUseBlocks,
+            'tool call was not run: transcript write failed',
+          ),
+        );
+        history.push(msg);
+        yield msg;
+        await maybeFireStop('error');
+        return {
+          reason: 'error',
+          error: new PersistBeforeRunError(),
+        };
+      }
+    }
 
     try {
       for await (const msg of runTools(

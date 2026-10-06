@@ -30,6 +30,11 @@ export interface TranscriptStore {
    *  must not break a turn. */
   recordMessage(sessionId: string, role: Role, content: ContentBlock[], seq: number): void;
 
+  /** Drop the last `count` message rows for one session. A conduct regenerate
+   *  calls this so a discarded tool call leaves the transcript. Append-only
+   *  sinks may omit it. */
+  rewindMessages?(sessionId: string, count: number): Promise<void>;
+
   /** Drain + drop the writer for one session (called on disposeSession). */
   closeSession(sessionId: string): Promise<void>;
 

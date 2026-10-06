@@ -193,4 +193,10 @@ export type QueryParams = {
    *  BEFORE its verdict applies; an observer — a throw is swallowed and never
    *  breaks the turn. Absent ⇒ byte-identical (no capture). */
   onConductGateInput?: (finalUserText: string) => void;
+  /**
+   * Write the assistant tool call before tools run. Absent means no early
+   * write. A throw stops the tool batch. The caller maps that throw to
+   * `PersistBeforeRunError`.
+   */
+  persistBeforeTools?: (assistant: AssistantMessage) => Promise<void> | void;
 };

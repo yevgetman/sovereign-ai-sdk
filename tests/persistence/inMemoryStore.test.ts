@@ -142,6 +142,17 @@ describe('createInMemorySessionStore', () => {
     expect(fresh).not.toBe('same');
   });
 
+  test('truncateMessages keeps the leading rows and drops the tail', () => {
+    const store = createInMemorySessionStore();
+    const id = store.createSession({ model: 'm', provider: 'p' });
+    store.saveMessage(id, { role: 'user', content: [textBlock('keep')] });
+    store.saveMessage(id, { role: 'assistant', content: [textBlock('drop')] });
+    store.truncateMessages(id, 1);
+    expect(store.loadMessages(id)).toHaveLength(1);
+    store.truncateMessages(id, 0);
+    expect(store.loadMessages(id)).toHaveLength(0);
+  });
+
   test('updateSessionModel persists a model change', () => {
     const store = createInMemorySessionStore();
     const id = store.createSession({ model: 'old', provider: 'p' });

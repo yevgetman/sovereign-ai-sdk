@@ -140,6 +140,13 @@ export function createInMemorySessionStore(): SessionStore {
     return (messagesBySession.get(sessionId) ?? []).map(deepCopy);
   }
 
+  function truncateMessages(sessionId: string, keep: number): void {
+    const list = messagesBySession.get(sessionId);
+    if (list === undefined) return;
+    const retain = keep > 0 ? Math.floor(keep) : 0;
+    messagesBySession.set(sessionId, list.slice(0, retain));
+  }
+
   function recordTokenUsage(sessionId: string, usage: TokenUsage, estimatedCostUsd: number): void {
     const session = sessions.get(sessionId);
     if (session === undefined) return;
@@ -163,6 +170,7 @@ export function createInMemorySessionStore(): SessionStore {
     updateSessionModel,
     saveMessage,
     loadMessages,
+    truncateMessages,
     recordTokenUsage,
   };
 }

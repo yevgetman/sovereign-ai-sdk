@@ -114,6 +114,7 @@ import type {
   LearningObserverPort,
   LearningSink,
   LoadSkillsOptions,
+  LoadSubscriptionOpts,
   LoopDetectionInfo,
   McpCallResult,
   McpClientPool,
@@ -206,6 +207,7 @@ import type {
   ToolResult,
   ToolSchema,
   ToolScope,
+  ToolsetName,
   TraceEvent,
   TraceSink,
   TranscriptStore,
@@ -231,13 +233,20 @@ import type {
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'ASSAY_WIRE_VERSION',
   'CANONICAL_TOOL_DESCRIPTORS',
+  'ClaudeMaxTermsError',
+  'ContextOverflowError',
   'DEFAULT_CONDUCT_REFUSAL',
   'LaneSemaphores',
   'PRICE_TABLE',
   'PRICING_VERSION',
   'PathLockManager',
+  'PersistBeforeRunError',
   'RouterProvider',
   'SubagentScheduler',
+  'SubscriptionAuthExpiredError',
+  'SubscriptionTierBlockedError',
+  'TOOLSET_NAMES',
+  'UnknownToolsetError',
   'accumulateUsage',
   'aliasToNativeName',
   'buildHookRunner',
@@ -252,15 +261,20 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'createNoopTranscriptStore',
   'createTurnLogRecorder',
   'createUsageAccumulator',
+  'defaultMaxTurns',
   'dropsFor',
   'estimateCostUsd',
   'expandSkillPrompt',
   'expandSkillText',
+  'filterToolsForToolset',
   'finalizeUsage',
   'findCapableModel',
   'formatUsd',
+  'intersectToolNames',
   'isRemoteMcpConfig',
+  'isToolsetName',
   'loadSkills',
+  'loadSubscriptionProvider',
   'query',
   'renamesFor',
   'resolveProvider',
@@ -383,6 +397,7 @@ type TypeSurfaceWitness = {
   learningSink?: LearningSink;
   llmProvider?: LLMProvider;
   loadSkillsOptions?: LoadSkillsOptions;
+  loadSubscriptionOpts?: LoadSubscriptionOpts;
   loopDetectionInfo?: LoopDetectionInfo;
   mcpCallResult?: McpCallResult;
   mcpClientPool?: McpClientPool;
@@ -475,6 +490,7 @@ type TypeSurfaceWitness = {
   toolResult?: ToolResult<unknown>;
   toolSchema?: ToolSchema;
   toolScope?: ToolScope;
+  toolsetName?: ToolsetName;
   traceEvent?: TraceEvent;
   traceSink?: TraceSink;
   transcriptStore?: TranscriptStore;

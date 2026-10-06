@@ -10,7 +10,7 @@
 // SCOPE — deliberately NARROW. This is exactly the turn-driving +
 // history-hydration subset the agent-turn path needs:
 //   • lifecycle: createSession / getSession / upsertSession / updateSessionModel
-//   • messages:  saveMessage / loadMessages
+//   • messages:  saveMessage / loadMessages / truncateMessages
 //   • usage:     recordTokenUsage
 // The full SessionDb admin/search/routing-atom/cleanup/metrics surface and the
 // raw `handle` getter are intentionally OFF the port — they're concrete-store
@@ -54,6 +54,11 @@ export interface SessionStore {
 
   /** Load a session's persisted messages in insertion (id-ascending) order. */
   loadMessages(sessionId: string): StoredMessage[];
+
+  /** Keep the first `keep` messages and drop the rest. `keep` of 0 drops every
+   *  message in the session. A conduct regenerate uses this to remove a tool
+   *  call that was saved before it ran and then discarded. */
+  truncateMessages(sessionId: string, keep: number): void;
 
   /** Accumulate token usage + estimated cost onto the session's running totals
    *  (additive — each call adds to the existing counters). */
