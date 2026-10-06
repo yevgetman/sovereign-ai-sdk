@@ -39,8 +39,8 @@ module.exports = {
       name: "no-open-to-engine",
       comment:
         "Open-core SDK code must not depend (value OR type) on the proprietary " +
-        "conduct engine @yevgetman/decorum — the SDK ships the vendor-neutral " +
-        "Conduct Port only; the root wrapper binds the engine via injection. " +
+        "conduct engine @yevgetman/decorum. Decorum is deprecated and is not a " +
+        "dependency. The SDK ships the vendor-neutral Conduct Port only. " +
         "Keep engine-shaped data at the port as plain strings (see " +
         "specs/2026-07-19-gateway-attestation-evidence-design.md §2/§3.4).",
       severity: "error",

@@ -50,7 +50,6 @@
 import { existsSync } from 'node:fs';
 import { appendFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
-import type { AttestationManifest, DecisionRecord } from '@yevgetman/decorum';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import { redact } from '@yevgetman/sov-sdk/trajectory/redact';
 import {
@@ -59,6 +58,20 @@ import {
   secureMkdir,
   secureWriteFileAtomic,
 } from '@yevgetman/sov-sdk/util/secureFs';
+
+/** A stored decision row. The writer keeps the object verbatim.
+ *  Decorum no longer defines this shape. */
+export type DecisionRecord = {
+  readonly sessionId: string;
+  readonly governanceHash: string;
+  readonly [key: string]: unknown;
+};
+
+/** A governance snapshot. The writer keys the file on `governanceHash`. */
+export type AttestationManifest = {
+  readonly governanceHash: string;
+  readonly [key: string]: unknown;
+};
 
 /** Conventional evidence dir name under HARNESS_HOME (spec §3). */
 const ATTESTATIONS_DIR_NAME = 'attestations';

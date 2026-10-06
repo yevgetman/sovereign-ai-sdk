@@ -788,32 +788,11 @@ export const SettingsSchema = z
       })
       .strict()
       .optional(),
-    /** Conduct Port binding (spec D30) — an OPTIONAL decorum conduct/persona
-     *  pack the `sov gateway` loads at boot and enforces via the Conduct Port.
-     *  `configPath` is a deployment-binding `conduct.yaml`; `packDir` is a
-     *  directory holding one (used only when `configPath` is unset —
-     *  `<packDir>/conduct.yaml`). ABSENT block = today's behavior EXACTLY: no
-     *  provider is constructed and every seam runs as the null provider
-     *  (byte-identical). When the block IS present the gateway builds the
-     *  decorum adapter and FAILS CLOSED at boot on a missing/invalid pack —
-     *  it never boots into a no-governance state. Both fields optional at the
-     *  schema layer; the adapter throws if neither is supplied.
-     *
-     *  `overlay` is the OPTIONAL directive-overlay scope (decorum's third
-     *  conduct layer — see decorum `docs/overlay-layer.md`): the runtime,
-     *  user-authored directives this gateway's tenant has configured. The
-     *  gateway binds it ONCE at boot via `provider.withOverlay`, so one gateway
-     *  process = one scope; a host that runs a gateway per tenant (the intended
-     *  shape) therefore never shares a session across two scopes, which decorum
-     *  forbids. Absent ⇒ the base provider is used unchanged (byte-identical).
-     *
-     *  The overlay can only ever TIGHTEN: decorum vets each free-text
-     *  instruction through the input gate at intake, compiles it to a
-     *  DISCRETIONARY (advisory, projection-only) rule, and refuses anything that
-     *  would loosen or pierce a base rule. Directives are still subject to the
-     *  binding's own `overlays:` envelope (enabled / allow_free_text /
-     *  max_rules) — an overlay sent to a binding that does not opt in is
-     *  rejected wholesale. */
+    /** Conduct block. Deprecated. The gateway still accepts these fields so an
+     *  old config parses, then ignores them. Decorum is not loaded. The Conduct
+     *  Port stays empty. `configPath` and `packDir` are retained as inert
+     *  strings. ABSENT block is the same empty port. `overlay` is kept so an
+     *  old config still parses. The gateway does not apply it. */
     conduct: z
       .object({
         configPath: z.string().min(1).optional(),
@@ -831,42 +810,14 @@ export const SettingsSchema = z
           })
           .strict()
           .optional(),
-        /** Attestation evidence capture — persists the artifacts decorum-verify's
-         *  `verify audit` consumes so a live deployment can be forensically
-         *  audited after the fact. `enabled` turns on the content-free evidence
-         *  (verbatim DecisionRecords + per-hash manifest snapshots); `io` is a
-         *  SEPARATE, deliberate flag for the content-bearing observed-io rows
-         *  (conversation text — never a surprise, hence its own switch). `dir`
-         *  resolves under HARNESS_HOME (containment-asserted by the writer).
-         *  ABSENT block ⇒ byte-identical gateway: no writer constructed, no
-         *  files, no behavior delta. Attestation is OBSERVATION and fails open
-         *  at runtime; the one hard check is config-shaped and parse-time:
-         *  `enabled: true` with neither `configPath` nor `packDir` is rejected
-         *  by the SettingsSchema superRefine (fail-fast at boot, like a bad
-         *  pack path — evidence without a governing pack attests nothing).
-         *
-         *  AUDITABILITY, honestly stated: only `enabled` + `io: true` (full
-         *  evidence) produces a set `verify audit` can render a verdict on —
-         *  the audit command REQUIRES an io file, and io-less records are
-         *  orphans under its completeness floor (INCOMPLETE by design).
-         *  Records-only mode (`io: false`) is forensic RAW MATERIAL — verbatim
-         *  decision records + manifests for record-keeping and integrity
-         *  checks — NOT an auditable mode. Deployments that want the audit
-         *  story must run full evidence. And the audit proves consistency of
-         *  what is PRESENT, never completeness of what is absent: evidence
-         *  files are host-owned JSONL, so a custodian who deletes a whole
-         *  turn's records AND its io row leaves a set that still verifies —
-         *  completeness needs external anchoring (backups, copies taken at
-         *  audit time), which stays the host's responsibility. */
+        /** Retired with Decorum. The fields still parse. The gateway does not
+         *  write evidence from them. `enabled: true` still requires a pack path
+         *  so an old config keeps the same shape. */
         attestation: z
           .object({
-            /** Persist `<sessionId>.records.jsonl` + `manifest-<hash12>.json`
-             *  (content-free). Default off — evidence is a deliberate act. */
+            /** Accepted and ignored. Default off. */
             enabled: z.boolean().default(false),
-            /** Persist `<sessionId>.io.jsonl` observed-turn rows
-             *  (CONTENT-BEARING). Default off; inert unless `enabled` — and
-             *  REQUIRED for auditability: without io rows `verify audit`
-             *  cannot run (records-only = raw material, see above). */
+            /** Accepted and ignored. Default off. */
             io: z.boolean().default(false),
             /** Evidence directory, resolved under HARNESS_HOME. */
             dir: z.string().min(1).default('attestations'),

@@ -33,11 +33,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   type AttestationManifest,
-  AttestationManifestSchema,
+  AttestationWriter,
   type DecisionRecord,
-  DecisionRecordSchema,
-} from '@yevgetman/decorum';
-import { AttestationWriter, type ObservedTurnRow } from '../../src/attestation/writer.js';
+  type ObservedTurnRow,
+} from '../../src/attestation/writer.js';
 import { ObservedTurnSchema } from './fixtures/verifierSchemas.js';
 
 let home: string;
@@ -151,12 +150,6 @@ function readLines(path: string): string[] {
 const SECRET = `sk-ant-api03-${'A'.repeat(98)}`;
 
 describe('fixtures are contract-valid', () => {
-  test('records/manifest fixtures parse under decorum’s own .strict() schemas', () => {
-    expect(() => DecisionRecordSchema.parse(makeRecord())).not.toThrow();
-    expect(() => DecisionRecordSchema.parse(makeOutputRecord())).not.toThrow();
-    expect(() => AttestationManifestSchema.parse(makeManifest(HASH_A))).not.toThrow();
-  });
-
   test('the copied verifier ObservedTurn schema accepts the aligned-fixture row shape', () => {
     expect(() =>
       ObservedTurnSchema.parse({
@@ -187,10 +180,6 @@ describe('AttestationWriter records stream', () => {
     // MONEY: byte-equality — no redaction, no injected keys, no reordering.
     expect(lines[0]).toBe(JSON.stringify(recA));
     expect(lines[1]).toBe(JSON.stringify(recB));
-    // And each line survives decorum's .strict() intake (what verify audit runs).
-    for (const line of lines) {
-      expect(() => DecisionRecordSchema.parse(JSON.parse(line ?? ''))).not.toThrow();
-    }
     expect(JSON.parse(lines[0] ?? '')).toEqual(recA);
     expect(JSON.parse(lines[1] ?? '')).toEqual(recB);
   });
@@ -372,7 +361,6 @@ describe('AttestationWriter manifest snapshots', () => {
     expect(snapshots).toHaveLength(1);
     const parsed = JSON.parse(readFileSync(file, 'utf8'));
     expect(parsed).toEqual(manifest);
-    expect(() => AttestationManifestSchema.parse(parsed)).not.toThrow();
   });
 
   test('hash drift: a recomposed manifest gets its OWN snapshot alongside the first', async () => {
