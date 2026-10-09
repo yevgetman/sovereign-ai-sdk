@@ -245,8 +245,9 @@ OpenAI-compatible responses require an explicit successful `finish_reason` (`sto
 prove the answer completed. Empty/truncated responses, invalid completion chunks,
 malformed JSON data frames (including a partial trailing data line), invalid UTF-8,
 explicit provider error envelopes, invalid reasoning channel types,
-and malformed or incomplete tool calls throw `ProviderStreamError` (importable from
-`@yevgetman/sov-sdk/providers/errors`). Partial deltas can remain visible, but no
+and malformed or incomplete tool calls throw `ProviderStreamError` (available from
+the `providers/errors` subpath of `@yevgetman/sov-sdk`). Partial deltas can remain
+visible, but no
 completed assistant message or executable tool call is emitted for these failures.
 `createAgent()` ends with terminal reason `error`; it does not replay the response.
 Engine-supplied tool IDs are preserved. If a compatible backend omits an ID, the

@@ -1,5 +1,9 @@
 # Testing Log
 
+## 2026-10-09 — SDK package scan and release layout correction
+
+The first unpublished SDK0.13.0 tarball scan rejected the README spelling of the valid providers/errors deep module under the pinned namespace-boundary rule. README now describes the same subpath without weakening the scanner or changing imports. Release jobs explicitly install frozen dependencies with the documented hoisted layout before the tracked-source compile copy. This matches the successfully tested local preparation. Configured lint/types and full Bun1.3.13 source suite pass: **5606 pass / 19 existing skip / zero fail**, 23049 assertions across531files (91.06s). Root repacks/rescans the corrected artifact before tagging and publication. Original local instructions were safely stashed for fast-forward pull and reapplied without conflict; source checkout now has the release code and retains its unstaged instruction edits.
+
 ## 2026-10-09 — Owner-authorized SDK 0.13.0 / SOV 0.6.76 release preparation
 
 Merged exact reviewed PR17–22 heads in dependency order; PR19/21/22 now target master. Additive documentation conflicts retain both histories. PR22 source conflicts use its exact approved implementation; the combined source, tests, scripts and package inputs match reviewed PR22 before version preparation. Each local merge ran configured lint/types/full source tests before commit: PR18: 5495 pass, PR19: 5498 pass, PR20: 5514 pass, PR21: 5527 pass, PR22: 5606 pass; all zero fail / 19 existing skips. GitHub recognizes all six PRs as merged.
