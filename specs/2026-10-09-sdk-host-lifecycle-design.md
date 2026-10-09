@@ -30,7 +30,7 @@ kills an isolated fixture subprocess after its assistant tool call is persisted
 in a temporary SQLite WAL store. A new subprocess repairs model context without
 rewriting raw history or rerunning the interrupted tool. No owner profile opens.
 
-A repeatable mock-provider benchmark records queue latency, total latency, RSS,
+A repeatable mock-provider benchmark, with an optional bounded-duration soak, records queue latency, total latency, RSS,
 event-loop delay samples, history size and peak admission for an explicit TEST
 envelope. This is local measurement, not a production capacity certification.
 Packed Node/Bun consumers exercise the additive public contract.
@@ -38,7 +38,7 @@ Packed Node/Bun consumers exercise the additive public contract.
 ## Limits and remaining decisions
 
 No distributed lease, async store, durable queue, crash-safe tool idempotency,
-production envelope or hard shutdown deadline is introduced. An uncooperative
+production envelope or hard shutdown deadline is introduced. The 30-second offline soak does not establish unlimited memory stability. An uncooperative
 callback keeps shutdown pending. SIGKILL necessarily prevents cooperative join;
 restart tests prove durable-history recovery, not completion of lost effects.
 SDK additive API additions require a minor release under the stability policy;
