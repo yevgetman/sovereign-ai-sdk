@@ -2,9 +2,11 @@
 // message/tool conversion and stream-chunk normalization.
 
 import { describe, expect, test } from 'bun:test';
+import { createAgent } from '@yevgetman/sov-sdk';
 import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import { messagesToSdk } from '@yevgetman/sov-sdk/providers/anthropic';
 import { openrouterModelSupportsPromptCaching } from '@yevgetman/sov-sdk/providers/effort';
+import { ProviderStreamError } from '@yevgetman/sov-sdk/providers/errors';
 import {
   type OpenAIChatChunk,
   OpenAIProvider,
@@ -16,6 +18,8 @@ import {
   MAX_CACHE_BREAKPOINTS,
   RECENT_MESSAGE_CACHE_WINDOW,
 } from '@yevgetman/sov-sdk/providers/promptCache';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import { z } from 'zod';
 
 async function* iterate<T>(items: T[]): AsyncIterable<T> {
   for (const item of items) yield item;
@@ -205,6 +209,413 @@ describe('parseSse', () => {
 });
 
 describe('translateOpenAIStream', () => {
+  test('requires an explicit valid completion, including empty and malformed streams', async () => {
+    for (const chunks of [[], [{ choices: [] }], [{ choices: [{ finish_reason: 'bogus' }] }]]) {
+      await expect(drainStream(chunks)).rejects.toBeInstanceOf(ProviderStreamError);
+    }
+    for (const finish_reason of ['stop', 'length']) {
+      const { yielded } = await drainStream([{ choices: [{ delta: {}, finish_reason }] }]);
+      expect(yielded).toContainEqual({
+        type: 'message_stop',
+        stop_reason: finish_reason === 'stop' ? 'end_turn' : 'max_tokens',
+      });
+    }
+  });
+
+  test('rejects malformed chunk shapes and content after completion', async () => {
+    const malformed = [
+      null,
+      { choices: {} },
+      { choices: [null] },
+      { choices: [{ delta: { content: 5 }, finish_reason: 'stop' }] },
+      { choices: [{ delta: { tool_calls: {} }, finish_reason: 'tool_calls' }] },
+    ];
+    for (const chunk of malformed) {
+      await expect(drainStream([chunk as unknown as OpenAIChatChunk])).rejects.toBeInstanceOf(
+        ProviderStreamError,
+      );
+    }
+    await expect(
+      drainStream([
+        { choices: [{ delta: {}, finish_reason: 'stop' }] },
+        { choices: [{ delta: { content: 'too late' } }] },
+      ]),
+    ).rejects.toBeInstanceOf(ProviderStreamError);
+  });
+
+  test('rejects incomplete or inconsistent tool calls without executable assistant output', async () => {
+    for (const [args, name, finish_reason] of [
+      ['{"x":', 'Echo', 'tool_calls'],
+      ['', 'Echo', 'tool_calls'],
+      ['{}', '', 'tool_calls'],
+      ['{}', 'Echo', 'stop'],
+      ['{"x":', 'Echo', 'length'],
+    ] as const) {
+      await expect(
+        drainStream([
+          {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [{ index: 0, id: 'c1', function: { name, arguments: args } }],
+                },
+                finish_reason,
+              },
+            ],
+          },
+        ]),
+      ).rejects.toBeInstanceOf(ProviderStreamError);
+    }
+    await expect(
+      drainStream([{ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }]),
+    ).rejects.toBeInstanceOf(ProviderStreamError);
+  });
+
+  test('rejects colliding tool ids and provider content filtering', async () => {
+    await expect(
+      drainStream([
+        {
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  { index: 0, id: 'duplicate', function: { name: 'Echo', arguments: '{}' } },
+                  { index: 1, id: 'duplicate', function: { name: 'Echo', arguments: '{}' } },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+        },
+      ]),
+    ).rejects.toBeInstanceOf(ProviderStreamError);
+    await expect(
+      drainStream([{ choices: [{ delta: {}, finish_reason: 'content_filter' }] }]),
+    ).rejects.toBeInstanceOf(ProviderStreamError);
+  });
+
+  test('generated tool ids remain distinct across responses and engine-supplied fallback-looking ids', async () => {
+    const chunks: OpenAIChatChunk[] = [
+      {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, function: { name: 'Echo', arguments: '{}' } },
+                { index: 1, id: 'tool_0', function: { name: 'Echo', arguments: '{}' } },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ];
+    const first = await drainStream(chunks);
+    const second = await drainStream(chunks);
+    const firstIds = first.returned.content
+      .filter((block) => block.type === 'tool_use')
+      .map((block) => block.id);
+    const secondIds = second.returned.content
+      .filter((block) => block.type === 'tool_use')
+      .map((block) => block.id);
+    expect(firstIds).toHaveLength(2);
+    expect(firstIds[0]).not.toBe(firstIds[1]);
+    expect(firstIds[0]).not.toBe(secondIds[0]);
+    expect(firstIds[1]).toBe('tool_0');
+    expect(secondIds[1]).toBe('tool_0');
+    const deltas = first.yielded.filter((event) => event.type === 'tool_use_delta');
+    expect(deltas.map((event) => event.id)).toEqual(firstIds);
+  });
+
+  test('createAgent preserves distinct generated tool identities across two real tool rounds', async () => {
+    let fetches = 0;
+    let effects = 0;
+    const requests: Array<Array<Record<string, unknown>>> = [];
+    const provider = new OpenAIProvider({
+      apiKey: 'offline',
+      fetchImpl: (async (_url, init) => {
+        requests.push(JSON.parse(String(init?.body)).messages);
+        fetches++;
+        const chunk =
+          fetches <= 2
+            ? {
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [{ index: 0, function: { name: 'Echo', arguments: '{}' } }],
+                    },
+                    finish_reason: 'tool_calls',
+                  },
+                ],
+              }
+            : { choices: [{ delta: { content: 'done' }, finish_reason: 'stop' }] };
+        return new Response(sseBody(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`));
+      }) as typeof fetch,
+    });
+    const tool = buildTool({
+      name: 'Echo',
+      description: () => 'authored offline fixture',
+      inputSchema: z.object({}),
+      async call() {
+        effects++;
+        return { data: `effect ${effects}` };
+      },
+    });
+    const run = createAgent({ provider, model: 'offline', tools: [tool], maxTurns: 3 }).run(
+      'fixture',
+    );
+    for (;;) {
+      const step = await run.next();
+      if (!step.done) continue;
+      expect(step.value.terminal.reason).toBe('completed');
+      const blocks = step.value.messages.flatMap((message) => message.content);
+      const ids = blocks.filter((block) => block.type === 'tool_use').map((block) => block.id);
+      expect(ids).toHaveLength(2);
+      expect(new Set(ids).size).toBe(2);
+      expect(
+        blocks.filter((block) => block.type === 'tool_result').map((block) => block.tool_use_id),
+      ).toEqual(ids);
+      const wireHistory = requests[2];
+      expect(
+        wireHistory
+          ?.filter((message) => message.role === 'tool')
+          .map((message) => message.tool_call_id),
+      ).toEqual(ids);
+      break;
+    }
+    expect(fetches).toBe(3);
+    expect(effects).toBe(2);
+  });
+
+  test('createAgent ends a truncated response as an error without replay or final assistant', async () => {
+    let fetches = 0;
+    const body = sseBody(
+      'data: {"choices":[{"delta":{"content":"partial"}}]}\n' +
+        'data: {"choices":[{"delta":{},"finish_reason": }}\n' +
+        'data: [DONE]\n',
+    );
+    const provider = new OpenAIProvider({
+      apiKey: 'test',
+      fetchImpl: (async () => {
+        fetches++;
+        return new Response(body);
+      }) as unknown as typeof fetch,
+    });
+    const gen = createAgent({
+      provider,
+      model: 'test',
+      systemPrompt: '',
+      maxTokens: 100,
+      tools: [],
+    }).run('hello');
+    const events = [];
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        expect(step.value.terminal.reason).toBe('error');
+        if (step.value.terminal.reason === 'error')
+          expect(step.value.terminal.error).toBeInstanceOf(ProviderStreamError);
+        expect(step.value.finalAssistant).toBeUndefined();
+        break;
+      }
+      events.push(step.value);
+    }
+    expect(events.some((event) => 'type' in event && event.type === 'text_delta')).toBe(true);
+    expect(events.some((event) => 'type' in event && event.type === 'assistant_message')).toBe(
+      false,
+    );
+    expect(fetches).toBe(1);
+    expect(body.locked).toBe(false);
+  });
+
+  test('malformed data cannot authorize a tool call even after a valid finish', async () => {
+    for (const damaged of [
+      'data: {"choices":[{"delta":{"tool_calls":[BROKEN]}}]}\n',
+      'data: {"choices":',
+    ]) {
+      let fetches = 0;
+      let calls = 0;
+      let cancelled = false;
+      const first =
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"Echo","arguments":"{}"}}]}}]}\n';
+      const finish = 'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n';
+      const wire = damaged.endsWith('\n')
+        ? `${first}${damaged}${finish}data: [DONE]\n`
+        : first + finish + damaged;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(wire));
+          if (!damaged.endsWith('\n')) controller.close();
+        },
+        cancel() {
+          cancelled = true;
+        },
+      });
+      const provider = new OpenAIProvider({
+        apiKey: 'offline',
+        fetchImpl: (async () => {
+          fetches++;
+          return new Response(body);
+        }) as unknown as typeof fetch,
+      });
+      const tool = buildTool({
+        name: 'Echo',
+        description: () => 'offline counter',
+        inputSchema: z.object({}),
+        async call() {
+          calls++;
+          return { data: 'called' };
+        },
+      });
+      const gen = createAgent({
+        provider,
+        model: 'offline',
+        systemPrompt: '',
+        maxTokens: 10,
+        tools: [tool],
+        maxTurns: 1,
+      }).run('hello');
+      const events = [];
+      for (;;) {
+        const step = await gen.next();
+        if (step.done) {
+          expect(step.value.terminal.reason).toBe('error');
+          if (step.value.terminal.reason === 'error')
+            expect(step.value.terminal.error).toBeInstanceOf(ProviderStreamError);
+          expect(step.value.finalAssistant).toBeUndefined();
+          break;
+        }
+        events.push(step.value);
+      }
+      expect(events.some((event) => 'type' in event && event.type === 'assistant_message')).toBe(
+        false,
+      );
+      expect(calls).toBe(0);
+      expect(fetches).toBe(1);
+      expect(body.locked).toBe(false);
+      if (damaged.endsWith('\n')) expect(cancelled).toBe(true);
+    }
+  });
+
+  async function assertRejectedWire(parts: Uint8Array[], close = false) {
+    let fetches = 0;
+    let calls = 0;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(part);
+        if (close) controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const provider = new OpenAIProvider({
+      apiKey: 'offline',
+      fetchImpl: (async () => {
+        fetches++;
+        return new Response(body);
+      }) as unknown as typeof fetch,
+    });
+    const tool = buildTool({
+      name: 'Echo',
+      description: () => 'authored offline fixture',
+      inputSchema: z.unknown(),
+      async call() {
+        calls++;
+        return { data: 'called' };
+      },
+    });
+    const gen = createAgent({ provider, model: 'offline', tools: [tool], maxTurns: 1 }).run(
+      'fixture',
+    );
+    const events = [];
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        expect(step.value.terminal.reason).toBe('error');
+        if (step.value.terminal.reason === 'error')
+          expect(step.value.terminal.error).toBeInstanceOf(ProviderStreamError);
+        expect(step.value.finalAssistant).toBeUndefined();
+        break;
+      }
+      events.push(step.value);
+    }
+    expect(events.some((e) => 'type' in e && e.type === 'assistant_message')).toBe(false);
+    expect(calls).toBe(0);
+    expect(fetches).toBe(1);
+    expect(body.locked).toBe(false);
+    if (!close) expect(cancelled).toBe(true);
+  }
+
+  test('explicit provider error envelopes invalidate otherwise complete tool output', async () => {
+    const call =
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"fixture","function":{"name":"Echo","arguments":"{}"}}]}}]}\n';
+    const finish = 'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n';
+    const error = 'data: {"error":{"message":"authored stream failure"}}\n';
+    for (const wire of [call + error + finish, call + finish + error]) {
+      await assertRejectedWire([new TextEncoder().encode(`${wire}data: [DONE]\n`)]);
+    }
+  });
+
+  test('strict production decoding rejects invalid and incomplete UTF-8 before tools dispatch', async () => {
+    const encode = (text: string) => new TextEncoder().encode(text);
+    const prefix = encode(
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"fixture","function":{"name":"Echo","arguments":"{\\"label\\":\\"',
+    );
+    const suffix = encode(
+      '\\"}"}}]}}]}\ndata: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\ndata: [DONE]\n',
+    );
+    await assertRejectedWire([prefix, new Uint8Array([0xff]), suffix]);
+    await assertRejectedWire([prefix, new Uint8Array([0xc3]), suffix]);
+    const complete = encode(
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"fixture","function":{"name":"Echo","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}\n',
+    );
+    await assertRejectedWire([complete, new Uint8Array([0xc3])], true);
+  });
+
+  test('strict decoding preserves valid UTF-8 characters split between byte chunks', async () => {
+    const wire = new TextEncoder().encode(
+      'data: {"choices":[{"delta":{"content":"héllo"},"finish_reason":"stop"}]}\ndata: [DONE]\n',
+    );
+    const split = wire.indexOf(0xc3) + 1;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(wire.slice(0, split));
+        controller.enqueue(wire.slice(split));
+      },
+    });
+    const chunks = [];
+    for await (const chunk of parseSse(body, { rejectMalformedData: true })) chunks.push(chunk);
+    const { returned } = await drainStream(chunks);
+    expect(returned.content).toEqual([{ type: 'text', text: 'héllo' }]);
+    expect(body.locked).toBe(false);
+  });
+
+  test('malformed reasoning channels cannot produce non-string public events', async () => {
+    for (const field of ['reasoning_content', 'reasoning']) {
+      await expect(
+        drainStream([
+          {
+            choices: [
+              {
+                delta: { [field]: { damaged: true } },
+                finish_reason: 'stop',
+              },
+            ],
+          },
+        ] as unknown as OpenAIChatChunk[]),
+      ).rejects.toBeInstanceOf(ProviderStreamError);
+    }
+  });
+
+  test('rejects truncated text without a completed assistant message', async () => {
+    const gen = translateOpenAIStream(iterate([{ choices: [{ delta: { content: 'partial' } }] }]));
+    expect((await gen.next()).value).toEqual({ type: 'message_start' });
+    expect((await gen.next()).value).toEqual({ type: 'text_delta', text: 'partial' });
+    await expect(gen.next()).rejects.toThrow('completion');
+  });
+
   test('assembles text and streamed tool calls', async () => {
     const chunks: OpenAIChatChunk[] = [
       { choices: [{ delta: { content: 'Hi ' } }] },
@@ -533,7 +944,7 @@ describe('openrouter lane (unified reasoning + usage drift fixes, 2026-08-03)', 
   test("parses OpenRouter's `delta.reasoning` as thinking (fallback to reasoning_content)", async () => {
     const { yielded, returned } = await drainStream([
       { choices: [{ delta: { reasoning: 'pondering… ' } }] },
-      { choices: [{ delta: { content: 'answer' } }] },
+      { choices: [{ delta: { content: 'answer' }, finish_reason: 'stop' }] },
     ]);
     expect(yielded).toContainEqual({ type: 'thinking_delta', thinking: 'pondering… ' });
     expect(returned.content[0]).toEqual({ type: 'thinking', thinking: 'pondering… ' });
@@ -542,7 +953,7 @@ describe('openrouter lane (unified reasoning + usage drift fixes, 2026-08-03)', 
 
   test('reasoning_content wins over `reasoning` when a lane emits both (no double count)', async () => {
     const { yielded } = await drainStream([
-      { choices: [{ delta: { reasoning_content: 'A', reasoning: 'B' } }] },
+      { choices: [{ delta: { reasoning_content: 'A', reasoning: 'B' }, finish_reason: 'stop' }] },
     ]);
     const thinks = yielded.filter((e) => e.type === 'thinking_delta');
     expect(thinks).toEqual([{ type: 'thinking_delta', thinking: 'A' }]);
@@ -550,7 +961,7 @@ describe('openrouter lane (unified reasoning + usage drift fixes, 2026-08-03)', 
 
   test('cache_write_tokens maps to the cacheCreation phase in usage_delta', async () => {
     const { yielded } = await drainStream([
-      { choices: [{ delta: { content: 'x' } }] },
+      { choices: [{ delta: { content: 'x' }, finish_reason: 'stop' }] },
       {
         choices: [],
         usage: {

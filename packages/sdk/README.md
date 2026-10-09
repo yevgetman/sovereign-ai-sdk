@@ -202,3 +202,17 @@ concurrent dispatch return before its started siblings settle.
 OpenAI-compatible streaming transports cancel unfinished response bodies when a consumer
 stops reading or receives `[DONE]`. Reader locks are released on EOF, abort, and errors;
 cleanup failures do not replace the original outcome.
+
+OpenAI-compatible responses require an explicit successful `finish_reason` (`stop`,
+`length`, or `tool_calls`/legacy `function_call`). A `[DONE]` marker alone does not
+prove the answer completed. Empty/truncated responses, invalid completion chunks,
+malformed JSON data frames (including a partial trailing data line), invalid UTF-8,
+explicit provider error envelopes, invalid reasoning channel types,
+and malformed or incomplete tool calls throw `ProviderStreamError` (importable from
+`@yevgetman/sov-sdk/providers/errors`). Partial deltas can remain visible, but no
+completed assistant message or executable tool call is emitted for these failures.
+`createAgent()` ends with terminal reason `error`; it does not replay the response.
+Engine-supplied tool IDs are preserved. If a compatible backend omits an ID, the
+transport generates a unique ID for that call so later tool rounds retain distinct
+identities in the transcript and provider history. Explicit duplicate IDs within
+a response are rejected.

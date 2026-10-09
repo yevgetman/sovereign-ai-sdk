@@ -1,6 +1,7 @@
 // OpenAI-compatible chat transport. Used for OpenAI proper and OpenRouter;
 // both share the Chat Completions streaming/tool-call shape.
 
+import { randomUUID } from 'node:crypto';
 import type {
   AssistantMessage,
   ContentBlock,
@@ -16,7 +17,7 @@ import {
   openrouterModelSupportsReasoning,
   openrouterReasoningFor,
 } from './effort.js';
-import { ProviderHttpError } from './errors.js';
+import { ProviderHttpError, ProviderStreamError } from './errors.js';
 import {
   findLastCacheableSegment,
   lastIndexWhere,
@@ -376,7 +377,9 @@ export class OpenAIProvider
     // assistant's response instead of dim "thinking". Only sov + thinking-off;
     // every other path keeps reasoning_content → thinking.
     const reasoningIsAnswer = this.apiMode === 'sov' && !this.reasoningEnabled(req);
-    return yield* this.normalizeResponse(parseSse(response.body), { reasoningIsAnswer });
+    return yield* this.normalizeResponse(parseSse(response.body, { rejectMalformedData: true }), {
+      reasoningIsAnswer,
+    });
   }
 }
 
@@ -401,13 +404,44 @@ export async function* translateOpenAIStream(
   const textParts: string[] = [];
   const reasoningParts: string[] = [];
   const toolCalls = new Map<number, { id: string; name: string; args: string }>();
-  let stopReason: StopReason = 'end_turn';
+  let stopReason: StopReason | undefined;
   let lastUsage: OpenAIChatChunk['usage'];
 
   for await (const chunk of raw) {
+    if (
+      !chunk ||
+      typeof chunk !== 'object' ||
+      ('error' in chunk && chunk.error != null) ||
+      (chunk.choices !== undefined && !Array.isArray(chunk.choices))
+    ) {
+      throw new ProviderStreamError('invalid_completion');
+    }
     if (chunk.usage) lastUsage = chunk.usage;
     const choice = chunk.choices?.[0];
-    if (!choice) continue;
+    if (!choice) {
+      if (chunk.choices?.length) throw new ProviderStreamError('invalid_completion');
+      continue;
+    }
+    if (
+      typeof choice !== 'object' ||
+      (choice.delta != null && typeof choice.delta !== 'object') ||
+      (choice.delta?.content != null && typeof choice.delta.content !== 'string') ||
+      (choice.delta?.reasoning_content != null &&
+        typeof choice.delta.reasoning_content !== 'string') ||
+      (choice.delta?.reasoning != null && typeof choice.delta.reasoning !== 'string') ||
+      (choice.delta?.tool_calls != null && !Array.isArray(choice.delta.tool_calls))
+    ) {
+      throw new ProviderStreamError('invalid_completion');
+    }
+    if (
+      stopReason !== undefined &&
+      (choice.delta?.content ||
+        choice.delta?.reasoning_content ||
+        choice.delta?.reasoning ||
+        choice.delta?.tool_calls?.length)
+    ) {
+      throw new ProviderStreamError('invalid_completion');
+    }
 
     // reasoning_content (vLLM/SGLang) first, OpenRouter's `reasoning` as the
     // fallback — `??` so a lane emitting both never double-counts.
@@ -430,8 +464,19 @@ export async function* translateOpenAIStream(
     }
 
     for (const call of choice.delta?.tool_calls ?? []) {
+      if (
+        !call ||
+        !Number.isInteger(call.index) ||
+        call.index < 0 ||
+        (call.id != null && typeof call.id !== 'string') ||
+        (call.function != null && typeof call.function !== 'object') ||
+        (call.function?.name != null && typeof call.function.name !== 'string') ||
+        (call.function?.arguments != null && typeof call.function.arguments !== 'string')
+      ) {
+        throw new ProviderStreamError('invalid_tool_call');
+      }
       const current = toolCalls.get(call.index) ?? {
-        id: call.id ?? `tool_${call.index}`,
+        id: call.id ?? `tool_${randomUUID()}`,
         name: '',
         args: '',
       };
@@ -444,7 +489,21 @@ export async function* translateOpenAIStream(
       toolCalls.set(call.index, current);
     }
 
-    if (choice.finish_reason) stopReason = mapOpenAIStopReason(choice.finish_reason);
+    if (choice.finish_reason != null) {
+      const mapped = mapOpenAIStopReason(choice.finish_reason);
+      if (mapped === 'error' || stopReason !== undefined) {
+        throw new ProviderStreamError('invalid_completion');
+      }
+      stopReason = mapped;
+    }
+  }
+
+  if (stopReason === undefined) throw new ProviderStreamError('missing_completion');
+  if (
+    (toolCalls.size > 0 && stopReason !== 'tool_use') ||
+    (toolCalls.size === 0 && stopReason === 'tool_use')
+  ) {
+    throw new ProviderStreamError('invalid_tool_call');
   }
 
   const content: ContentBlock[] = [];
@@ -452,12 +511,17 @@ export async function* translateOpenAIStream(
   // Thinking precedes text, matching the Anthropic block ordering.
   if (reasoning.length > 0) content.push({ type: 'thinking', thinking: reasoning });
   const text = textParts.join('');
+  const toolIds = new Set<string>();
   if (text.length > 0) content.push({ type: 'text', text });
   for (const [, call] of [...toolCalls.entries()].sort((a, b) => a[0] - b[0])) {
+    if (!call.name || !call.args || toolIds.has(call.id)) {
+      throw new ProviderStreamError('invalid_tool_call');
+    }
+    toolIds.add(call.id);
     content.push({
       type: 'tool_use',
       id: call.id,
-      name: call.name || 'unknown_tool',
+      name: call.name,
       input: parseToolArgs(call.args),
     });
   }
@@ -717,9 +781,12 @@ function markedWireMessage(message: OpenAIMessage): OpenAIMessage {
 
 // Exported for direct unit testing of the malformed-line tolerance (deep
 // internal subpath; not part of the frozen SDK barrel / semver surface).
-export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerator<OpenAIChatChunk> {
+export async function* parseSse(
+  body: ReadableStream<Uint8Array>,
+  options: { rejectMalformedData?: boolean } = {},
+): AsyncGenerator<OpenAIChatChunk> {
   const reader = body.getReader();
-  const decoder = new TextDecoder();
+  const decoder = new TextDecoder('utf-8', { fatal: options.rejectMalformedData === true });
   let buffer = '';
 
   let reachedEof = false;
@@ -728,9 +795,23 @@ export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerato
       const { done, value } = await reader.read();
       if (done) {
         reachedEof = true;
+        try {
+          buffer += decoder.decode();
+        } catch {
+          throw new ProviderStreamError('invalid_completion');
+        }
+        // A trailing partial data line may hide a lost argument or error frame.
+        // The production transport cannot claim completion after discarding it.
+        if (options.rejectMalformedData && buffer.trimStart().startsWith('data:')) {
+          throw new ProviderStreamError('invalid_completion');
+        }
         break;
       }
-      buffer += decoder.decode(value, { stream: true });
+      try {
+        buffer += decoder.decode(value, { stream: true });
+      } catch {
+        throw new ProviderStreamError('invalid_completion');
+      }
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? '';
       for (const line of lines) {
@@ -739,14 +820,14 @@ export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerato
         const payload = trimmed.slice('data:'.length).trim();
         if (payload === '[DONE]') return;
         if (payload.length === 0) continue;
-        // A single malformed `data:` line from a non-conformant OpenAI-compatible
-        // endpoint or proxy must NOT abort the whole turn with a raw SyntaxError
-        // (this path serves openai/openrouter/sov). Skip the unparseable chunk and
-        // keep streaming — mirrors the defensive parse in parseToolArgs below.
+        // Preserve permissive parsing for direct callers. The production
+        // transport rejects corrupt data: silently losing an argument frame
+        // could otherwise authorize a different tool input at a valid finish.
         let chunk: OpenAIChatChunk;
         try {
           chunk = JSON.parse(payload) as OpenAIChatChunk;
         } catch {
+          if (options.rejectMalformedData) throw new ProviderStreamError('invalid_completion');
           continue;
         }
         yield chunk;
@@ -843,11 +924,10 @@ function flattenSystem(system: SystemSegment[]): string {
 }
 
 function parseToolArgs(raw: string): unknown {
-  if (!raw) return {};
   try {
     return JSON.parse(raw) as unknown;
   } catch {
-    return { __parse_error: raw };
+    throw new ProviderStreamError('invalid_tool_call');
   }
 }
 

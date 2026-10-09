@@ -1,5 +1,38 @@
 # Testing Log
 
+## 2026-10-09 — PR21 round-three review: generated tool identity
+
+Fresh technical review of exact PR21 head `c1a90b5` against `fix/issue-10-sse-cleanup` confirmed one Medium finding before fixes: the index-based ID fallback reused `tool_0` across real tool rounds and could also reject a distinct engine-supplied `tool_0` in the same response. This reviewer authored the original issue #11 implementation; root cross-review remains independent. The compatible-backend contract already accepts omitted IDs, so the correction changes normalization rather than adding a new refusal rule.
+
+The transport now uses a portable `node:crypto` UUID fallback for each newly encountered call. Supplied IDs remain unchanged; explicit duplicates within a response remain rejected. Authored offline tests cover mixed generated/engine IDs, stable delta IDs, two executed tool rounds, matching tool-result identities, and the retained third-request provider history. The sequential public-agent regression fails against the original fallback (zero pass / one fail, 69 filtered); the mixed-ID regression also fails before the fix. With the fix, `bun test tests/providers/openai.test.ts` passes **70 tests / zero fail / 236 assertions** under Bun 1.3.13 on macOS arm64. Targeted Biome checks pass. Root owns full lint/types/build/packed/CI gates; none is claimed here. No live provider request, private data, owner-profile write, release or installation.
+
+Final root gate and separate cross-review approval: lint/boundary, typecheck, **5506 source tests pass / 19 existing skip / zero fail**, 22557 assertions across 523 files (83.02s); packed SDK/protocol Node/Bun consumers pass. The fetch fixture passes the configured Bun typecheck. No paid calls or installation.
+
+## 2026-10-09 — PR21 round-two final gate
+
+Root combined local validation: lint/boundary, typecheck and full source suite pass: **5,504 pass / 19 existing skip / zero fail**, 22,544 assertions across 523 files (84.85s). Packed SDK/protocol Node/Bun consumer checks pass. An independent second reviewer verified strict error/reasoning/UTF-8 failures and permissive parser compatibility. GitHub results are checked after push. No paid request, owner-profile write, master merge, release or installation.
+
+## 2026-10-09 — PR21 fresh review: error frames and strict byte decoding
+
+Independent review of PR21 head `75604d7` against `fix/issue-10-sse-cleanup` confirmed three Medium findings. An explicit provider error envelope after a valid tool finish was ignored; malformed UTF-8 in a tool argument was silently replaced and approved; object-valued reasoning emitted a non-string public event and fabricated completed text. Findings were reported before fixes. All fixtures are authored offline Echo/label counters with no private source or real side effects.
+
+Production parsing now uses fatal UTF-8 decoding and flushes the decoder at EOF. Decode failures become typed `ProviderStreamError` and retain reader cleanup. The direct parser's default permissive mode remains compatible. Explicit non-null provider error envelopes invalidate completion. Reasoning channels must be strings or null before an event is emitted; supported usage-only and ordinary metadata frames remain accepted.
+
+Before fixes, the focused provider suite recorded **65 pass / 3 fail**. After fixes, `bun test tests/providers/openai.test.ts` records **68 pass / zero fail / 223 assertions**. New public-agent regressions prove no completed assistant, no tool dispatch, one fetch without replay, cancellation for unfinished bodies, and reader unlock. They cover error envelopes before/after finish, invalid bytes within tool arguments, incomplete UTF-8 at EOF, and valid multibyte text split across byte chunks. Existing direct permissive malformed-JSON tests remain green. Lint/boundary and typecheck pass; root owns the final full/packed/CI gates. No full gate, publication or installed-runtime change is claimed here.
+
+## 2026-10-09 — PR21 independent review: reject damaged SSE data before tool dispatch
+
+The independent code review found one Medium defect: a corrupt JSON tool-argument frame followed by a valid finish, or a partial trailing data frame after a finish, could be discarded and still produce an executable assistant. The regression fails before the correction (63 pass / 1 fail). Production OpenAI-compatible transports now reject these frames with a generic typed `ProviderStreamError`; direct `parseSse()` callers retain permissive parsing. No raw provider payload appears in the error. The regression checks zero tool calls, one fetch, no final assistant, cancellation and released body locks. PR17 cleanup was reviewed separately with no confirmed finding; its unchanged provider tests pass (57 tests, 136 assertions).
+
+Bun 1.3.13, macOS arm64, offline fixtures with isolated existing profiles. Focused provider tests: 64 pass / zero fail, 180 assertions. `bun run lint`, `bun run typecheck` and the unskipped full suite pass: 5,500 pass / 19 skip / zero fail, 22,501 assertions across 523 files (85.23s). Built TUI was present. Package builds and packed SDK/protocol Node/Bun canaries pass. Additional packed SDK Node/Bun regressions verify typed damaged/trailing-data refusal, no final assistant, one fetch, released locks and permissive direct-parser compatibility. No paid provider calls, owner profile writes, release or runtime installation. Recall and synthesis were not assessed by this transport review.
+
+## 2026-10-09 — issue #11: reject incomplete OpenAI-compatible responses
+
+Offline fixtures on macOS arm64, Bun 1.3.13, Node 25.9.0, Go 1.26.1. The truncated-text regression fails before the fix (57 pass / 1 fail). Explicit completion validation now throws typed `ProviderStreamError` without creating a final assistant or replaying a response. Tests cover empty/EOF/DONE-only streams, malformed final JSON and chunk shapes, stop/length/tool_calls, usage-only trailing frames, partial tool JSON, missing tool names, content after finish and colliding tool IDs. Existing reasoning/usage fixtures now carry real finish reasons. Root reviewed the change; follow-up ID-collision coverage is included.
+
+`bun install --frozen-lockfile` builds the Go TUI. `bun run lint`, `bun run typecheck`, and unskipped `bun run test` pass: 5,499 pass / 19 skip / zero fail, 22,486 assertions across 523 files (84.69s). Focused provider file: 63 pass / zero fail, 165 assertions. Initial complete pass: 5,497 pass / 19 skip / zero fail. Final rerun includes the review follow-ups. `bun run canary` verifies packed SDK and protocol consumers under Node and Bun. Additional packed-SDK regressions verify successful completion, typed incomplete/invalid-tool errors and `createAgent()` terminal error with visible partial text, no final assistant and one fetch. Native-fetch abort cleanup also passes on Node and Bun against a local HTTP fixture using the #10 packed artifact. No paid calls, owner-profile writes, release or installation. Recall/synthesis behavior is not assessed by these transport tests.
+
+
 ## 2026-10-09 — PR20 third review: unreadable error and receipt containment
 
 Review of exact PR20 head `d645008` against current GitHub master `3709b25` reproduced two Medium paths around the dispatch failure boundary. An Error.message value with throwing string conversion escaped the guarded property read; malformed renderer content escaped when the saved receipt was interpolated. Both rejected a concurrent wave while a started gated sibling was still running. Findings were reported before fixes. Offline fixtures use authored callback values and counters, not private source or external effects.
