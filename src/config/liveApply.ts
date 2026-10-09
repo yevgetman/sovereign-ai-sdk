@@ -480,6 +480,7 @@ export const LIVE_APPLY_HOOKS: Readonly<Record<string, LiveApplyHook>> = Object.
   'providers.anthropic.model': makeProviderModelHook('anthropic'),
   'providers.openai.model': makeProviderModelHook('openai'),
   'providers.openrouter.model': makeProviderModelHook('openrouter'),
+  'providers.xai.model': makeProviderModelHook('xai'),
   'providers.ollama.model': makeProviderModelHook('ollama'),
   'providers.sov.model': makeProviderModelHook('sov'),
   // 2026-07-06 — the Manifest model-router lane. `model` (usually `auto`) +
@@ -493,6 +494,7 @@ export const LIVE_APPLY_HOOKS: Readonly<Record<string, LiveApplyHook>> = Object.
   'providers.openai.apiKey': reresolveProviderHook,
   'providers.openai.baseUrl': reresolveProviderHook,
   'providers.openrouter.apiKey': reresolveProviderHook,
+  'providers.xai.apiKey': reresolveProviderHook,
   'providers.ollama.baseUrl': reresolveProviderHook,
   'providers.ollama.numCtx': numCtxHook,
   'providers.sov.baseUrl': reresolveProviderHook,

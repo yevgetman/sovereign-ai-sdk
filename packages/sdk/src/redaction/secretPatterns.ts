@@ -134,6 +134,8 @@ export const PROVIDER_KEY_PATTERNS: readonly VendorSecretPattern[] = [
   // OpenAI (sk-, sk-proj-, sk-svcacct-). Generic `sk-` (hyphen) — deliberately
   // does NOT match the underscore Stripe `sk_` form.
   { name: 'openai', source: String.raw`\bsk-(?:proj-|svcacct-)?[a-zA-Z0-9_\-]{20,}\b` },
+  // xAI (xai-…). Distinct prefix, no overlap with the `sk-` forms.
+  { name: 'xai', source: String.raw`\bxai-[a-zA-Z0-9_\-]{20,}\b` },
   // Tavily.
   { name: 'tavily', source: String.raw`\btvly-[a-zA-Z0-9_\-]{16,}\b` },
   // Brave Search API.

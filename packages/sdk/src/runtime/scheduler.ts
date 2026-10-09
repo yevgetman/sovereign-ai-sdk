@@ -50,7 +50,12 @@ const SUBSCRIPTION_EXECUTOR_ROLE = 'subscription-executor';
 
 const DEFAULT_MAX_CHILDREN = 4;
 const DEFAULT_PER_TURN_TIMEOUT_MS = 60_000;
-const FRONTIER_PROVIDERS: ReadonlySet<string> = new Set(['anthropic', 'openai', 'openrouter']);
+const FRONTIER_PROVIDERS: ReadonlySet<string> = new Set([
+  'anthropic',
+  'openai',
+  'openrouter',
+  'xai',
+]);
 
 export type SubagentSchedulerOpts = {
   agents: AgentRegistry;

@@ -81,6 +81,7 @@ const PROVIDER_CHOICES = [
   'anthropic',
   'openai',
   'openrouter',
+  'xai',
   'ollama',
   'sov',
   'manifest',
@@ -124,6 +125,9 @@ const OPENROUTER_MODELS = [
   'z-ai/glm-5.2',
   'moonshotai/kimi-k2.5',
 ] as const;
+// Direct xAI API-key lane. Mirrors the `grok-api` route's known models
+// (packages/sdk/src/providers/routes/catalog.ts) — keep in sync.
+const XAI_MODELS = ['grok-4.6'] as const;
 const OLLAMA_MODELS = ['qwen2.5:7b', 'qwen2.5:3b', 'qwen2.5:14b', 'llama3.1:8b'] as const;
 // The local Sovereign engine advertises models under their real model id (the
 // served-model-name defaults to the model id itself — no alias), so you always
@@ -150,6 +154,8 @@ function modelsForProvider(provider: string | undefined): readonly string[] {
       return OPENAI_MODELS;
     case 'openrouter':
       return OPENROUTER_MODELS;
+    case 'xai':
+      return XAI_MODELS;
     case 'ollama':
       return OLLAMA_MODELS;
     case 'sov':
@@ -269,6 +275,7 @@ const PROVIDERS_ROOT_GROUP: ConfigGroup = {
     { label: 'Anthropic', targetGroupId: 'providers-anthropic' },
     { label: 'OpenAI', targetGroupId: 'providers-openai' },
     { label: 'OpenRouter', targetGroupId: 'providers-openrouter' },
+    { label: 'xAI (API key)', targetGroupId: 'providers-xai' },
     { label: 'Ollama', targetGroupId: 'providers-ollama' },
     { label: 'Sovereign (local)', targetGroupId: 'providers-sov' },
     { label: 'Manifest (model router)', targetGroupId: 'providers-manifest' },
@@ -337,6 +344,29 @@ const PROVIDERS_OPENROUTER_GROUP: ConfigGroup = {
       label: 'model',
       description: 'Default OpenRouter model. Live-applied when OpenRouter is the active provider.',
       editor: { kind: 'string', choices: OPENROUTER_MODELS },
+    },
+  ],
+};
+
+const PROVIDERS_XAI_GROUP: ConfigGroup = {
+  id: 'providers-xai',
+  label: 'Providers / xAI (API key)',
+  description:
+    'Direct xAI API-key lane (XAI_API_KEY, https://api.x.ai/v1). Separate from the grok ' +
+    'subscription login (`sov login grok`) and from OpenRouter-hosted Grok models.',
+  items: [
+    {
+      path: 'providers.xai.apiKey',
+      label: 'apiKey',
+      description: 'xAI API key (xai-...). XAI_API_KEY in the environment is also read.',
+      editor: { kind: 'secret' },
+      secret: true,
+    },
+    {
+      path: 'providers.xai.model',
+      label: 'model',
+      description: 'Default xAI model. Live-applied when xai is the active provider.',
+      editor: { kind: 'string', choices: XAI_MODELS },
     },
   ],
 };
@@ -1091,6 +1121,7 @@ export const CONFIG_CATALOG: readonly ConfigGroup[] = Object.freeze([
   PROVIDERS_ANTHROPIC_GROUP,
   PROVIDERS_OPENAI_GROUP,
   PROVIDERS_OPENROUTER_GROUP,
+  PROVIDERS_XAI_GROUP,
   PROVIDERS_OLLAMA_GROUP,
   PROVIDERS_SOV_GROUP,
   PROVIDERS_MANIFEST_GROUP,

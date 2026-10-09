@@ -26,6 +26,7 @@ const PROVIDER_MODELS: Record<string, string[]> = {
   ollama: ['qwen2.5:7b', 'qwen2.5:3b', 'qwen2.5:14b', 'llama3.1:8b'],
   openai: ['gpt-4o-mini', 'gpt-4o'],
   openrouter: ['anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5'],
+  xai: ['grok-4.6'],
 };
 
 export const resumeCommand: LocalCommand = {

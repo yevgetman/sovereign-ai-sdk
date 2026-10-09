@@ -41,6 +41,7 @@ const SHARED_SAMPLES: Record<string, string> = {
   anthropic: `sk-ant-api03-${'a'.repeat(24)}`,
   openrouter: `sk-or-${'a'.repeat(24)}`,
   openai: `sk-proj-${'a'.repeat(24)}`,
+  xai: `xai-${'a'.repeat(24)}`,
   tavily: `tvly-${'a'.repeat(20)}`,
   brave: `BSA${'a'.repeat(24)}`,
   bearer: `Bearer ${'a'.repeat(24)}`,
