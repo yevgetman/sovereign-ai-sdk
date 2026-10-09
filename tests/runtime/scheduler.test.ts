@@ -152,6 +152,46 @@ function makeCreateChildSession(
 }
 
 describe('SubagentScheduler', () => {
+  test.each(['agent-role', 'role-override'])(
+    'releases reservations after repeated throwing %s resolution',
+    async (source) => {
+      const records: SessionRecord[] = [];
+      let throws = true;
+      const scheduler = new SubagentScheduler({
+        agents: makeAgentRegistry([makeAgent({ role: 'frontier-task' })]),
+        laneSemaphores: new LaneSemaphores({ frontier: 1 }),
+        pathLock: new PathLockManager(),
+        resolveProvider: (_name, model) => makeFakeResolved(model ?? 'm'),
+        resolveLane: () => {
+          if (throws) throw new Error('lane resolver failed');
+          return undefined;
+        },
+        createChildSession: makeCreateChildSession(records),
+        defaultProvider: 'anthropic',
+        defaultModel: 'm',
+        maxChildrenPerParent: 1,
+        maxTokens: 100,
+      });
+      const input = {
+        agentName: 'explore',
+        prompt: 'work',
+        parentSessionId: 'parent',
+        parentToolPool: [],
+        parentToolContext: baseToolContext,
+        ...(source === 'role-override' ? { roleOverride: 'frontier-task' } : {}),
+      };
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await expect(scheduler.delegate(input)).rejects.toThrow('lane resolver failed');
+        expect(scheduler.activeChildren('parent')).toBe(0);
+        expect(records).toHaveLength(0);
+      }
+      throws = false;
+      expect((await scheduler.delegate(input)).terminal.reason).toBe('completed');
+      expect(records).toHaveLength(1);
+      expect(scheduler.activeChildren('parent')).toBe(0);
+    },
+  );
+
   test('delegates to a known agent and returns summary + lineage', async () => {
     const records: SessionRecord[] = [];
     const scheduler = new SubagentScheduler({

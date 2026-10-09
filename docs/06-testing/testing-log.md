@@ -1,5 +1,22 @@
 # Testing Log
 
+## 2026-10-09 — issue #13 child reservation cleanup
+
+Scope: the scheduler's parent child cap after host lane/role resolution fails.
+Environment: macOS arm64, Bun 1.3.13, scripted offline providers. TUI built in
+this isolated worktree; tests use isolated fixture profiles. No live provider,
+owner profile, runtime install, or release operation was used.
+
+Commands: `bun install --frozen-lockfile`, `bun run lint`, `bun run typecheck`,
+`bun run test`, `bun run build`, and `bun run canary`.
+Results: lint, boundary, typecheck, SDK/protocol builds, and packed Node/Bun
+consumers pass. Full suite: 5,490 pass, 19 skip, zero fail; 22,464 assertions.
+The two added regression cases each repeat three resolver failures at a child
+cap of one, assert no session and zero active children, then complete a retry.
+Self-review confirms every post-reservation operation now runs inside the
+existing release `finally`; the resolver error still propagates unchanged.
+No learning recall or synthesis is exercised by these offline fixtures.
+
 ## 2026-10-09 — correct the pre-existing TUI integration test's profile isolation
 
 Correction to the prior publication entry: the public installer itself did not change existing profile credentials or session rows. The separate unskipped source tests had a pre-existing bare TUI smoke that used the real default profile database. Three current-turn mock sessions and four fixture messages were added. Two sessions were empty; the four messages have exact fixture text, the mock Bash call, and its matching mock tool-result identity. No real-provider turn was involved.
