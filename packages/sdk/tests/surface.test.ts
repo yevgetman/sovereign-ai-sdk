@@ -81,6 +81,7 @@ import type {
   CapabilityProfile,
   CapabilityRole,
   ChildCompletionEvent,
+  ChildPolicy,
   ConductAuditEvent,
   ConductContext,
   ConductEvidenceEvent,
@@ -95,6 +96,7 @@ import type {
   DelegateInput,
   DelegateResult,
   DelegationLifecycleEvent,
+  EstimateRequestBudget,
   HookCommandSpec,
   HookConfig,
   HookConsentChecker,
@@ -152,6 +154,7 @@ import type {
   RecalledLesson,
   RemoteMcpServerConfig,
   RenderHint,
+  RequestBudgetEstimate,
   ResolveProviderOpts,
   ResolvedPermissionResult,
   ResolvedProvider,
@@ -200,6 +203,7 @@ import type {
   TokenPricesPerMillion,
   TokenUsage,
   Tool,
+  ToolCapabilityProfile,
   ToolChoice,
   ToolContext,
   ToolDef,
@@ -212,6 +216,8 @@ import type {
   TraceSink,
   TranscriptStore,
   Transport,
+  TreeBudgetLimits,
+  TreeBudgetSnapshot,
   TriageVerdict,
   TurnLogEvent,
   TurnLogKind,
@@ -233,6 +239,7 @@ import type {
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'ASSAY_WIRE_VERSION',
   'CANONICAL_TOOL_DESCRIPTORS',
+  'CapabilityProfileRegistry',
   'ClaudeMaxTermsError',
   'ContextOverflowError',
   'DEFAULT_CONDUCT_REFUSAL',
@@ -247,9 +254,12 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'SubscriptionAuthExpiredError',
   'SubscriptionTierBlockedError',
   'TOOLSET_NAMES',
+  'TreeBudget',
+  'TreeBudgetExceededError',
   'UnknownToolsetError',
   'accumulateUsage',
   'aliasToNativeName',
+  'budgetProvider',
   'buildHookRunner',
   'buildMcpClientPool',
   'buildSkillCommands',
@@ -271,6 +281,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'finalizeUsage',
   'findCapableModel',
   'formatUsd',
+  'intersectCanUseTool',
   'intersectToolNames',
   'isRemoteMcpConfig',
   'isToolsetName',
@@ -345,6 +356,13 @@ describe('sdk barrel — the 0.1.0 semver-contract surface snapshot', () => {
  *  compilation here — the type-surface half of the 0.1.0 contract (values are
  *  erased at runtime; types are not, so they need a compile-time pin). */
 type TypeSurfaceWitness = {
+  childPolicy?: ChildPolicy;
+  toolCapabilityProfile?: ToolCapabilityProfile;
+  treeBudgetLimits?: TreeBudgetLimits;
+  treeBudgetSnapshot?: TreeBudgetSnapshot;
+  requestBudgetEstimate?: RequestBudgetEstimate;
+  estimateRequestBudget?: EstimateRequestBudget;
+
   agent?: Agent;
   agentConfig?: AgentConfig;
   agentDefinition?: AgentDefinition;

@@ -344,3 +344,14 @@ export { findCapableModel } from './core/capabilities.js';
 // `CapabilityProfile` is findCapableModel's return type; `CapabilityRole` its
 // recommendedRoles element type (Task 2.9).
 export type { CapabilityProfile, CapabilityRole } from './core/capabilities.js';
+
+export { CapabilityProfileRegistry, intersectCanUseTool } from './tool/capabilityProfiles.js';
+export type { ToolCapabilityProfile } from './tool/capabilityProfiles.js';
+export type { ChildPolicy } from './runtime/childPolicy.js';
+export { TreeBudget, TreeBudgetExceededError, budgetProvider } from './runtime/treeBudget.js';
+export type {
+  TreeBudgetLimits,
+  TreeBudgetSnapshot,
+  RequestBudgetEstimate,
+  EstimateRequestBudget,
+} from './runtime/treeBudget.js';

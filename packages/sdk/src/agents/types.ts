@@ -22,6 +22,8 @@ export type AgentDefinition = {
   whenToUse?: string;
   systemPrompt: string;
   allowedTools: string[];
+  /** Optional host-registered capability profile; intersects the parent pool. */
+  capabilityProfile?: string;
   model?: string;
   role?: string;
   maxTurns: number;

@@ -29,7 +29,8 @@ export type SessionMetadata = {
   iterationsUsed: number;
   /** Estimated USD cost for the session (provider + compaction lanes
    *  combined). */
-  estimatedCostUsd: number;
+  /** Omitted when provider usage or pricing is unknown. */
+  estimatedCostUsd?: number;
 };
 
 export type TrajectoryRecord = {
@@ -42,7 +43,8 @@ export type TrajectoryRecord = {
   terminalReason: Terminal['reason'];
   toolCallCount: number;
   iterationsUsed: number;
-  estimatedCostUsd: number;
+  /** Omitted when provider usage or pricing is unknown. */
+  estimatedCostUsd?: number;
 };
 
 export type WriteOpts = {
@@ -81,7 +83,9 @@ export function buildTrajectoryRecord(opts: WriteOpts): TrajectoryRecord {
     terminalReason: terminal.reason,
     toolCallCount: metadata.toolCallCount,
     iterationsUsed: metadata.iterationsUsed,
-    estimatedCostUsd: metadata.estimatedCostUsd,
+    ...(metadata.estimatedCostUsd !== undefined
+      ? { estimatedCostUsd: metadata.estimatedCostUsd }
+      : {}),
   };
 }
 

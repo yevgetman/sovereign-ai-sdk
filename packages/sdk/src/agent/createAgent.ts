@@ -84,6 +84,7 @@ import {
 import { estimateCostUsd } from '../providers/pricing.js';
 import { resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
+import type { CapabilityProfileRegistry } from '../tool/capabilityProfiles.js';
 import type { LearningObserverPort } from '../tool/ports.js';
 import {
   defaultMaxTurns,
@@ -135,6 +136,8 @@ export type AgentConfig = {
    * `maxTurns`. An unknown string fails before the provider is called.
    */
   toolset?: string;
+  /** Host-owned custom profiles, additive to chat/web/ops/coding. */
+  capabilityProfiles?: CapabilityProfileRegistry;
   /** A string is wrapped into a single non-cacheable `SystemSegment`. */
   systemPrompt?: SystemSegment[] | string;
   cwd?: string;
@@ -290,7 +293,11 @@ export function createAgent(config: AgentConfig): Agent {
     perTurn: PerTurn = {},
   ): AsyncGenerator<StreamEvent | Message, RunResult> {
     const requestedToolset = perTurn.toolset ?? config.toolset;
-    if (requestedToolset !== undefined && !isToolsetName(requestedToolset)) {
+    if (
+      requestedToolset !== undefined &&
+      !isToolsetName(requestedToolset) &&
+      !config.capabilityProfiles?.has(requestedToolset)
+    ) {
       const earlySessionId =
         perTurn.sessionId !== undefined ? validateSessionId(perTurn.sessionId) : randomUUID();
       return {
@@ -416,7 +423,9 @@ export function createAgent(config: AgentConfig): Agent {
     //    verbatim; otherwise a MINIMAL context is built (cwd + sessionId + the
     //    observe adapter) when the turn needs one (tools present or observe set).
     let tools = perTurn.tools ?? config.tools;
-    if (requestedToolset !== undefined && isToolsetName(requestedToolset)) {
+    if (requestedToolset !== undefined && config.capabilityProfiles?.has(requestedToolset)) {
+      tools = config.capabilityProfiles.filter(requestedToolset, tools ?? []);
+    } else if (requestedToolset !== undefined && isToolsetName(requestedToolset)) {
       tools =
         requestedToolset === 'coding'
           ? tools === undefined
@@ -459,15 +468,17 @@ export function createAgent(config: AgentConfig): Agent {
     //     around the per-turn canUseTool. Identity passthrough when the
     //     provider has no toolPolicy capability.
     let canUseTool = composeConductCanUseTool(conduct, conductCtx, perTurn.canUseTool);
-    if (requestedToolset !== undefined && isToolsetName(requestedToolset)) {
+    if (requestedToolset !== undefined) {
       canUseTool = wrapToolsetCanUseTool(canUseTool, tools ?? []);
     }
     const maxTurns =
       config.maxTurns !== undefined
         ? config.maxTurns
-        : requestedToolset !== undefined && isToolsetName(requestedToolset)
-          ? defaultMaxTurns(requestedToolset)
-          : undefined;
+        : requestedToolset !== undefined && config.capabilityProfiles?.has(requestedToolset)
+          ? config.capabilityProfiles.maxTurns(requestedToolset)
+          : requestedToolset !== undefined && isToolsetName(requestedToolset)
+            ? defaultMaxTurns(requestedToolset)
+            : undefined;
     let messages: Message[] = [...seedMessages];
     // Store length before this attempt's early tool-call write. A regenerate
     // truncates back to it so the discarded call does not stay in history.

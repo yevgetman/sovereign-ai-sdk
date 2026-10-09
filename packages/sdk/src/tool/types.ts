@@ -72,8 +72,10 @@ export type ToolContext = {
   skills?: import('../skills/types.js').SkillRegistry;
   /** Phase 13 — sub-agent definitions available for delegation via AgentTool. */
   agents?: import('../agents/types.js').AgentRegistry;
-  /** Phase 13.5 — sub-agent scheduler. AgentTool reads this; when absent,
-   *  AgentTool throws a clear error rather than failing silently. */
+  /** Explicit inherited host policy and host-stamped recursion depth. */
+  childPolicy?: import('../runtime/childPolicy.js').ChildPolicy;
+  delegationDepth?: number;
+  /** AgentTool fails clearly when no scheduler is supplied. */
   subagentScheduler?: import('../runtime/scheduler.js').SubagentScheduler;
   /** Phase 13.2 — task system manager. Tools task_create / task_list /
    *  task_get / task_stop / task_output read this. When absent, those

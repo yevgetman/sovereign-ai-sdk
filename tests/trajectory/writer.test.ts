@@ -37,6 +37,17 @@ async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
 }
 
 describe('buildTrajectoryRecord', () => {
+  test('unknown cost is omitted instead of reported as zero', () => {
+    const { estimatedCostUsd: _cost, ...metadata } = META;
+    const record = buildTrajectoryRecord({
+      messages: SIMPLE_MESSAGES,
+      terminal: { reason: 'completed' },
+      metadata,
+      artifactsRoot: '/tmp/unused',
+    });
+    expect(record).not.toHaveProperty('estimatedCostUsd');
+  });
+
   test('flags completed: true on Terminal.reason === "completed"', () => {
     const r = buildTrajectoryRecord({
       messages: SIMPLE_MESSAGES,

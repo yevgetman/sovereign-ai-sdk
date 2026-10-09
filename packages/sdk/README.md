@@ -137,6 +137,9 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
   Child wall-clock deadlines include lane and write-lock queue time. Queue expiry
   rejects delegation before a child session or provider starts. Parent cancellation
   uses the same signal through queues and child execution.
+  Native children report optional `usage`, `usageStatus` (`complete`, `partial`, or
+  `unknown`), and optional `estimatedCostUsd`. Missing usage or unknown pricing is
+  not a zero-cost run. Trajectory cost metadata is likewise optional.
 - **MCP** — `buildMcpClientPool`, the `McpClientPoolFactory` port, and the
   server-config types (stdio / SSE / HTTP).
 - **Hooks** — `buildHookRunner` plus the hook event/config/consent types.
@@ -179,3 +182,62 @@ Full policy: [`STABILITY.md`](https://github.com/yevgetman/sovereign-ai-sdk/blob
 ## License
 
 MIT.
+
+## Capability profiles and native child policy
+
+`CapabilityProfileRegistry` adds host-named profiles to the compatible `chat`,
+`web`, `ops`, and `coding` toolsets. A custom profile lists canonical tool names,
+including external/MCP names explicitly. It filters the supplied pool; it does
+not create tools or grant permission. Pass it as `AgentConfig.capabilityProfiles`
+and select it with `toolset`, or put it on a scheduler `ChildPolicy`.
+
+The scheduler's optional `childPolicy` carries `inheritedConfig`: parent hooks,
+recall, observation, Conduct governance, context-management ports, reasoning and
+other agent settings. This configuration excludes provider/model, tools, caps,
+and persistence; the child owns those. Hosts must bind the policy from the
+parent's effective configuration. It is not inferred from a parent agent handle.
+The child context carries the policy, depth, narrowed tool pool and permission
+boundary to further delegations. Model-selected definitions may select a narrower
+`capabilityProfile`; they cannot restore tools absent from the parent pool.
+Allow-list patterns are enforced by the existing tool permission matcher.
+Malformed patterns fail before a child session starts. A child authorization
+policy can deny but cannot override a parent denial or rewrite parent-authorized
+inputs. Native policy cannot be enforced by a subprocess executor, so that
+combination rejects delegation.
+
+## Shared tree budgets
+
+Create one `TreeBudget` per host-controlled tree. Optional limits are `maxDepth`,
+`maxTotalChildren` (all reservation attempts, including failed setup),
+`maxConcurrentChildren` (including queued children), `maxTotalTokens`, and
+`maxEstimatedCostUsd`. Native children share it through `ChildPolicy.treeBudget`.
+Depth starts at one for a first child. Child reservations are atomic and release
+active counts exactly once; cumulative counts are not refunded.
+
+Token/cost limits require an explicit `estimateRequestBudget(request)` host
+callback with a conservative per-request upper bound. It must include input,
+cache and output tokens; its token bound must cover `request.maxTokens`.
+A cost limit also requires a cost bound. Do not substitute a rough text-length
+guess for a proven ceiling. Invalid or unavailable bounds reject before provider
+work. Unknown or partial provider usage conservatively consumes the reserved
+bound and increments `unknownRequests`; unknown model pricing never frees a cost
+reservation as zero. Reported bound violations exhaust the budget and stop later
+requests. Reasoning tokens are a subset of output and are not added twice.
+
+`budgetProvider(provider, budget, estimateRequestBudget)` applies the same contract
+to the parent or a context manager's provider. Use the same budget object for
+parent, child, retry and summarization calls to cover the entire tree. The SDK
+cannot account a provider that the host calls outside this wrapper. Native child
+providers are wrapped once by the scheduler; do not wrap them a second time.
+`budget.snapshot()` exposes accounted tokens, estimated cost, unknown requests,
+child counts, completeness flags and exhaustion. Unknown accounting remains an
+upper bound; `estimatedCostComplete: false` must never be reported as free work.
+
+These are in-process admission controls. A trusted provider/host estimator must
+honor its declared ceiling; the SDK cannot undo an external charge that exceeds
+it. Cost figures are estimates, not billed amounts. Wall-clock limits remain
+child delegation deadlines; a whole-tree deadline is the host's cancellation
+signal. Distributed leases, durable meters and OS sandboxing remain host duties.
+
+Read next: [Production review](https://github.com/yevgetman/sovereign-ai-sdk/issues/15),
+[Consumer contract](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/05-conventions/consumer-contract.md).
