@@ -1,42 +1,19 @@
 # Changelog
 
-## Unreleased — SDK production contracts and PR gates
+## harness 0.6.76 / SDK 0.13.0 — production contracts and lifecycle fixes - 2026-10-09
 
-- Add custom capability profiles, explicit native-child configuration and tool narrowing, shared tree budgets and child usage propagation.
-- Add bounded in-process session ownership with joined cancellation/shutdown; distributed persistence remains host-owned.
-- Run full runtime/Go PR tests with mandatory TUI builds, packed public contracts, advisory checks and a separate private consumer runner.
-- Declare the tested Node minimum 20.19.0; earlier Node 20 consumers must upgrade before adopting the next package release. Bun 1.2.0 remains supported.
-- No package/runtime publication or production deployment is included.
+- Add an injected context-management port with validated, bounded reductions and one overflow retry. Full stored transcripts stay separate from model context.
+- Add custom capability profiles, native-child policy narrowing, shared tree budgets and child usage reporting.
+- Add bounded session ownership with joined cancellation and shutdown. Distributed storage and external effects remain host responsibilities.
+- Join started tools before returning. Preserve completed receipts when host callbacks or rendering fail. Stop new tool effects once cancellation is observed.
+- Require valid OpenAI-compatible completion before accepting final answers or tool calls. Reject damaged frames, invalid UTF-8, provider errors and malformed reasoning. Generated tool IDs stay distinct across turns.
+- Apply child deadlines to lane and write-lock waiting. Release reservations when lane resolution fails.
+- Keep observed usage and conservative budget bounds after incomplete streams. Known context and retry charges remain visible; unknown billing stays unknown.
+- Support regular-file and pipe input for native and legacy headless commands on Linux.
 
-## Unreleased — SDK injected context-management port
+**Compatibility:** SDK 0.13.0 requires Node 20.19.0 or newer, or Bun 1.2.0 or newer. Compatible backends must send an explicit valid finish reason. Existing interfaces remain available. The context manager is host-supplied; the package adds no built-in summarizer.
 
-- Optional ContextManagementPort and ContextLimits configure host-supplied
-  reductions for embedded agents and explicit inherited native-child config.
-  No bundled summarizer or proprietary implementation moves into the SDK.
-- Full transcripts stay separate from model context. Replacements must shrink
-  and preserve tool adjacency and the latest message. Overflow recovery is
-  capped at one and never replays output or tool effects.
-- Additive context_management events report applied/rejected reductions and
-  separately priced host usage. Unknown summary cost stays unknown; the
-  numeric-only aggregate persistence write is skipped until a host can price it.
-- Legacy SessionStore adapters can omit truncateMessages. Regeneration that
-  needs rollback fails closed with a typed error; normal use remains compatible.
-  The built-in InMemorySessionStore retains the concrete required method.
-- New barrel exports/types and optional config/result fields are additive and
-  require a minor SDK release when publication is separately approved.
-
-## Unreleased — SDK OpenAI completion validation
-
-- OpenAI-compatible streams require an explicit valid choice `finish_reason`.
-  EOF or `[DONE]` alone cannot create a completed answer. Custom compatible
-  transports and test fixtures must emit the finish reason.
-- Incomplete/malformed responses and invalid tool arguments end with an error;
-  partial deltas remain observable, but no incomplete tool call runs and no
-  response is automatically replayed.
-- `ProviderStreamError` is available from the existing deep module
-  `@yevgetman/sov-sdk/providers/errors`. Its `reason` identifies missing
-  completion, invalid completion, or an invalid tool call. No pinned barrel
-  type or entry-point signature changes.
+The open MIT SDK is available as `yevgetman-sov-sdk-0.13.0.tgz`, with `SDK-SHA256SUMS`. SOV binaries and `SHA256SUMS` are separate assets. Validation uses offline fixtures; live provider eligibility depends on the account.
 
 ## harness 0.6.75 / SDK 0.12.0 — native SDK authentication routes - 2026-10-09
 

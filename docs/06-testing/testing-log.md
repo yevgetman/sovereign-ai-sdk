@@ -1,5 +1,13 @@
 # Testing Log
 
+## 2026-10-09 — Owner-authorized SDK 0.13.0 / SOV 0.6.76 release preparation
+
+Merged exact reviewed PR17–22 heads in dependency order; PR19/21/22 now target master. Additive documentation conflicts retain both histories. PR22 source conflicts use its exact approved implementation; the combined source, tests, scripts and package inputs match reviewed PR22 before version preparation. Each local merge ran configured lint/types/full source tests before commit: PR18: 5495 pass, PR19: 5498 pass, PR20: 5514 pass, PR21: 5527 pass, PR22: 5606 pass; all zero fail / 19 existing skips. GitHub recognizes all six PRs as merged.
+
+SDK0.12.0 →0.13.0 for additive ports/profiles/host interfaces; SOV0.6.75 →0.6.76 for runtime fixes. Protocol/debug-console versions stay unchanged. Existing release workflow used Bun1.2.0 for the full wrapper suite, which failed on the prior cut; preflight/upload now use the full-source tested1.3.13, and native compilers use verified1.4.2, matching the current public release compiler. SDK Bun1.2.0 support stays independently tested. Source review covers exact version/lock coherence and these five workflow pins; no confirmed above-Low defect in preparation.
+
+Final Bun1.4.2 local gate: lint/boundary, typecheck and **5606 source tests pass / 19 existing skip / zero fail**, 23048 assertions across531files (87.59s). TUI and all Go packages pass. Packed SDK/protocol Node/Bun contracts pass, including exact Node20.19.0/Bun1.2.0 floors. Actual Agent Casa typecheck and **1193 tests / zero pending / zero fail** pass against SDK0.13.0 on Node24.14.0 from source521a2ee, unchanged checkout. Dependency audit reports zero advisories. Public notes committed to sov-releases. Artifact builds/scans and public downloads are checked separately before claiming publication. No paid request or Kernel runtime release/install.
+
 ## 2026-10-09 — PR22 third review final combined gate
 
 Root integrated reviewed lifecycle base `5a5d8c7` via `a845366` and restored the failed-provider budget settlement correction. Separate read-only cross-review confirms exact pushed PR20/21 source/tests, combined query receipt/context accounting, all budget regressions and packed fixtures, and both README/log histories. All four new Medium findings in this round are corrected; the earlier Low comment remains outside the threshold.
