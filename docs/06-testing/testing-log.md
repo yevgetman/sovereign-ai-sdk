@@ -1,5 +1,41 @@
 # Testing Log
 
+## 2026-10-09 — stack child deadline PR on reservation cleanup
+
+Merged the reservation-cleanup branch into the child-deadline branch to resolve
+reviewer-facing scheduler conflicts before merge. Both regression blocks and
+documentation entries are preserved. Scheduler source and tests match the
+already validated composed lifecycle base `61c10c8` byte-for-byte.
+
+macOS arm64, Bun 1.3.13, offline fixture providers and isolated test profiles.
+`bun test tests/runtime/scheduler.test.ts`: 16 pass / zero fail, 69 assertions.
+`bun run lint`, `bun run typecheck`, and `bun run test` pass. Full suite:
+5,493 pass / 19 skip / zero fail, 22,487 assertions, 5,512 tests across 523 files
+(85.21 seconds). No master merge, runtime installation, or live provider calls.
+
+## 2026-10-09 — issue #12 complete child wall-clock deadlines
+
+Scope: lane and write-lock queue expiry, parent cancellation, and resource reuse
+in child delegation. Environment: macOS arm64, Bun 1.3.13, scripted offline
+providers; TUI built in this isolated worktree. Tests use temporary fixture
+profiles. No live provider, owner profile, runtime install, or release operation.
+
+Commands: `bun install --frozen-lockfile`,
+`bun test tests/runtime/scheduler.test.ts` (14 pass / zero fail),
+`bun run lint`, `bun run typecheck`, `bun run test`, `bun run build`, and
+`bun run canary`. Full suite: 5,491 pass / 19 skip / zero fail,
+22,463 assertions. Lint, boundary, typecheck, SDK/protocol builds, and packed
+Node/Bun consumers pass.
+
+The added queue tests hold real lane/write locks, use a per-call timeout shorter
+than the scheduler default, and require expiry before holder release. They assert
+zero sessions/provider starts, no active reservation, unchanged held locks, and
+a successful retry. Parent cancellation is checked independently. Root review
+confirmed deadline checks precede side effects and both waits share execution's
+composed signal. Queue abort listeners are one-shot; granted queue listeners are
+removed by the existing primitives. The scheduler uses native timeout signals
+and adds no custom timer or abort listener. No learning recall/synthesis runs.
+
 ## 2026-10-09 — issue #13 child reservation cleanup
 
 Scope: the scheduler's parent child cap after host lane/role resolution fails.
