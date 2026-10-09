@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — SDK OpenAI completion validation
+
+- OpenAI-compatible streams require an explicit valid choice `finish_reason`.
+  EOF or `[DONE]` alone cannot create a completed answer. Custom compatible
+  transports and test fixtures must emit the finish reason.
+- Incomplete/malformed responses and invalid tool arguments end with an error;
+  partial deltas remain observable, but no incomplete tool call runs and no
+  response is automatically replayed.
+- `ProviderStreamError` is available from the existing deep module
+  `@yevgetman/sov-sdk/providers/errors`. Its `reason` identifies missing
+  completion, invalid completion, or an invalid tool call. No pinned barrel
+  type or entry-point signature changes.
+
 ## harness 0.6.75 / SDK 0.12.0 — native SDK authentication routes - 2026-10-09
 
 - Six explicit routes share SOV’s SDK loop: OpenRouter, Anthropic, OpenAI and direct xAI keys; ChatGPT and Grok subscriptions.

@@ -2,9 +2,11 @@
 // message/tool conversion and stream-chunk normalization.
 
 import { describe, expect, test } from 'bun:test';
+import { createAgent } from '@yevgetman/sov-sdk';
 import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import { messagesToSdk } from '@yevgetman/sov-sdk/providers/anthropic';
 import { openrouterModelSupportsPromptCaching } from '@yevgetman/sov-sdk/providers/effort';
+import { ProviderStreamError } from '@yevgetman/sov-sdk/providers/errors';
 import {
   type OpenAIChatChunk,
   OpenAIProvider,
@@ -205,6 +207,139 @@ describe('parseSse', () => {
 });
 
 describe('translateOpenAIStream', () => {
+  test('requires an explicit valid completion, including empty and malformed streams', async () => {
+    for (const chunks of [[], [{ choices: [] }], [{ choices: [{ finish_reason: 'bogus' }] }]]) {
+      await expect(drainStream(chunks)).rejects.toBeInstanceOf(ProviderStreamError);
+    }
+    for (const finish_reason of ['stop', 'length']) {
+      const { yielded } = await drainStream([{ choices: [{ delta: {}, finish_reason }] }]);
+      expect(yielded).toContainEqual({
+        type: 'message_stop',
+        stop_reason: finish_reason === 'stop' ? 'end_turn' : 'max_tokens',
+      });
+    }
+  });
+
+  test('rejects malformed chunk shapes and content after completion', async () => {
+    const malformed = [
+      null,
+      { choices: {} },
+      { choices: [null] },
+      { choices: [{ delta: { content: 5 }, finish_reason: 'stop' }] },
+      { choices: [{ delta: { tool_calls: {} }, finish_reason: 'tool_calls' }] },
+    ];
+    for (const chunk of malformed) {
+      await expect(drainStream([chunk as unknown as OpenAIChatChunk])).rejects.toBeInstanceOf(
+        ProviderStreamError,
+      );
+    }
+    await expect(
+      drainStream([
+        { choices: [{ delta: {}, finish_reason: 'stop' }] },
+        { choices: [{ delta: { content: 'too late' } }] },
+      ]),
+    ).rejects.toBeInstanceOf(ProviderStreamError);
+  });
+
+  test('rejects incomplete or inconsistent tool calls without executable assistant output', async () => {
+    for (const [args, name, finish_reason] of [
+      ['{"x":', 'Echo', 'tool_calls'],
+      ['', 'Echo', 'tool_calls'],
+      ['{}', '', 'tool_calls'],
+      ['{}', 'Echo', 'stop'],
+      ['{"x":', 'Echo', 'length'],
+    ] as const) {
+      await expect(
+        drainStream([
+          {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [{ index: 0, id: 'c1', function: { name, arguments: args } }],
+                },
+                finish_reason,
+              },
+            ],
+          },
+        ]),
+      ).rejects.toBeInstanceOf(ProviderStreamError);
+    }
+    await expect(
+      drainStream([{ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }]),
+    ).rejects.toBeInstanceOf(ProviderStreamError);
+  });
+
+  test('rejects colliding tool ids and provider content filtering', async () => {
+    await expect(
+      drainStream([
+        {
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  { index: 0, function: { name: 'Echo', arguments: '{}' } },
+                  { index: 1, id: 'tool_0', function: { name: 'Echo', arguments: '{}' } },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+        },
+      ]),
+    ).rejects.toBeInstanceOf(ProviderStreamError);
+    await expect(
+      drainStream([{ choices: [{ delta: {}, finish_reason: 'content_filter' }] }]),
+    ).rejects.toBeInstanceOf(ProviderStreamError);
+  });
+
+  test('createAgent ends a truncated response as an error without replay or final assistant', async () => {
+    let fetches = 0;
+    const body = sseBody(
+      'data: {"choices":[{"delta":{"content":"partial"}}]}\n' +
+        'data: {"choices":[{"delta":{},"finish_reason": }}\n' +
+        'data: [DONE]\n',
+    );
+    const provider = new OpenAIProvider({
+      apiKey: 'test',
+      fetchImpl: (async () => {
+        fetches++;
+        return new Response(body);
+      }) as unknown as typeof fetch,
+    });
+    const gen = createAgent({
+      provider,
+      model: 'test',
+      systemPrompt: '',
+      maxTokens: 100,
+      tools: [],
+    }).run('hello');
+    const events = [];
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        expect(step.value.terminal.reason).toBe('error');
+        if (step.value.terminal.reason === 'error')
+          expect(step.value.terminal.error).toBeInstanceOf(ProviderStreamError);
+        expect(step.value.finalAssistant).toBeUndefined();
+        break;
+      }
+      events.push(step.value);
+    }
+    expect(events.some((event) => 'type' in event && event.type === 'text_delta')).toBe(true);
+    expect(events.some((event) => 'type' in event && event.type === 'assistant_message')).toBe(
+      false,
+    );
+    expect(fetches).toBe(1);
+    expect(body.locked).toBe(false);
+  });
+
+  test('rejects truncated text without a completed assistant message', async () => {
+    const gen = translateOpenAIStream(iterate([{ choices: [{ delta: { content: 'partial' } }] }]));
+    expect((await gen.next()).value).toEqual({ type: 'message_start' });
+    expect((await gen.next()).value).toEqual({ type: 'text_delta', text: 'partial' });
+    await expect(gen.next()).rejects.toThrow('completion');
+  });
+
   test('assembles text and streamed tool calls', async () => {
     const chunks: OpenAIChatChunk[] = [
       { choices: [{ delta: { content: 'Hi ' } }] },
@@ -533,7 +668,7 @@ describe('openrouter lane (unified reasoning + usage drift fixes, 2026-08-03)', 
   test("parses OpenRouter's `delta.reasoning` as thinking (fallback to reasoning_content)", async () => {
     const { yielded, returned } = await drainStream([
       { choices: [{ delta: { reasoning: 'pondering… ' } }] },
-      { choices: [{ delta: { content: 'answer' } }] },
+      { choices: [{ delta: { content: 'answer' }, finish_reason: 'stop' }] },
     ]);
     expect(yielded).toContainEqual({ type: 'thinking_delta', thinking: 'pondering… ' });
     expect(returned.content[0]).toEqual({ type: 'thinking', thinking: 'pondering… ' });
@@ -542,7 +677,7 @@ describe('openrouter lane (unified reasoning + usage drift fixes, 2026-08-03)', 
 
   test('reasoning_content wins over `reasoning` when a lane emits both (no double count)', async () => {
     const { yielded } = await drainStream([
-      { choices: [{ delta: { reasoning_content: 'A', reasoning: 'B' } }] },
+      { choices: [{ delta: { reasoning_content: 'A', reasoning: 'B' }, finish_reason: 'stop' }] },
     ]);
     const thinks = yielded.filter((e) => e.type === 'thinking_delta');
     expect(thinks).toEqual([{ type: 'thinking_delta', thinking: 'A' }]);
@@ -550,7 +685,7 @@ describe('openrouter lane (unified reasoning + usage drift fixes, 2026-08-03)', 
 
   test('cache_write_tokens maps to the cacheCreation phase in usage_delta', async () => {
     const { yielded } = await drainStream([
-      { choices: [{ delta: { content: 'x' } }] },
+      { choices: [{ delta: { content: 'x' }, finish_reason: 'stop' }] },
       {
         choices: [],
         usage: {

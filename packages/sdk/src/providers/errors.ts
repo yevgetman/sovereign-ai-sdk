@@ -256,3 +256,12 @@ export function isContextOverflowError(err: unknown): boolean {
     lower.includes('too many tokens')
   );
 }
+
+/** The transport ended without a usable, explicitly finished model response.
+ * Partial deltas may already have been observed; this error never requests replay. */
+export class ProviderStreamError extends Error {
+  constructor(readonly reason: 'missing_completion' | 'invalid_completion' | 'invalid_tool_call') {
+    super(`OpenAI-compatible stream failed completion validation (${reason})`);
+    this.name = 'ProviderStreamError';
+  }
+}

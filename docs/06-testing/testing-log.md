@@ -1,5 +1,12 @@
 # Testing Log
 
+## 2026-10-09 — issue #11: reject incomplete OpenAI-compatible responses
+
+Offline fixtures on macOS arm64, Bun 1.3.13, Node 25.9.0, Go 1.26.1. The truncated-text regression fails before the fix (57 pass / 1 fail). Explicit completion validation now throws typed `ProviderStreamError` without creating a final assistant or replaying a response. Tests cover empty/EOF/DONE-only streams, malformed final JSON and chunk shapes, stop/length/tool_calls, usage-only trailing frames, partial tool JSON, missing tool names, content after finish and colliding tool IDs. Existing reasoning/usage fixtures now carry real finish reasons. Root reviewed the change; follow-up ID-collision coverage is included.
+
+`bun install --frozen-lockfile` builds the Go TUI. `bun run lint`, `bun run typecheck`, and unskipped `bun run test` pass: 5,499 pass / 19 skip / zero fail, 22,486 assertions across 523 files (84.69s). Focused provider file: 63 pass / zero fail, 165 assertions. Initial complete pass: 5,497 pass / 19 skip / zero fail. Final rerun includes the review follow-ups. `bun run canary` verifies packed SDK and protocol consumers under Node and Bun. Additional packed-SDK regressions verify successful completion, typed incomplete/invalid-tool errors and `createAgent()` terminal error with visible partial text, no final assistant and one fetch. Native-fetch abort cleanup also passes on Node and Bun against a local HTTP fixture using the #10 packed artifact. No paid calls, owner-profile writes, release or installation. Recall/synthesis behavior is not assessed by these transport tests.
+
+
 ## 2026-10-09 — issue #10: OpenAI response reader cleanup
 
 Bun 1.3.13, macOS arm64, offline scripted streams. The early-return regression failed before implementation (52 pass / 1 fail), then the focused provider file passes (57 pass, 136 assertions). Tests cover early return, DONE with open source, EOF, malformed JSON, abort/read errors, and throwing cancel callbacks. Cleanup preserves the original outcome and releases the lock.

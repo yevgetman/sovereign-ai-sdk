@@ -178,3 +178,11 @@ MIT.
 OpenAI-compatible streaming transports cancel unfinished response bodies when a consumer
 stops reading or receives `[DONE]`. Reader locks are released on EOF, abort, and errors;
 cleanup failures do not replace the original outcome.
+
+OpenAI-compatible responses require an explicit successful `finish_reason` (`stop`,
+`length`, or `tool_calls`/legacy `function_call`). A `[DONE]` marker alone does not
+prove the answer completed. Empty/truncated responses, invalid completion chunks,
+and malformed or incomplete tool calls throw `ProviderStreamError` (importable from
+`@yevgetman/sov-sdk/providers/errors`). Partial deltas can remain visible, but no
+completed assistant message or executable tool call is emitted for these failures.
+`createAgent()` ends with terminal reason `error`; it does not replay the response.
