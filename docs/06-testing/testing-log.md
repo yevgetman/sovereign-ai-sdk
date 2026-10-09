@@ -1,5 +1,19 @@
 # Testing Log
 
+## 2026-10-09 — issue #15 portable host admission, shutdown and restart evidence
+
+Scope: additive public `SessionWorkQueue` utility, public agent/store integration, offline provider/store failures, isolated SQLite process restart, and a repeatable mock-provider load TEST envelope. Root independently reviewed queue reservation, cancellation, cap validation, shutdown escalation and join semantics; no blocker found. Owner explicitly requested native parallel Codex work. No production deployment decision was inferred.
+
+Environment: macOS arm64, Bun 1.3.13, Node 25.9.0, Go 1.26.1; isolated worktree and frozen dependency install. TUI built before the full suite. New persistence fixtures use in-memory stores or explicit temporary SQLite path/home. The restart test kills only its own fixture subprocess after the durable pre-tool boundary; it does not open the owner's profile.
+
+Commands: `bun install --ignore-scripts --frozen-lockfile`; `bun test tests/host packages/sdk/tests/surface.test.ts`; `bun run lint`; `bun run typecheck`; `bun run tui:build`; `bun run test`; `bun run canary`; `bun scripts/bench/host-lifecycle.ts`; `node scripts/bench/host-lifecycle.ts` (three fresh-process measurements per runtime).
+
+Results: focused plus public-surface tests **16 pass / zero fail**, 96 assertions. Full suite **5,500 pass / 19 skip / zero fail**, 5,519 tests across 525 files, 22,483 assertions, 85.00 seconds. Lint/boundary, typecheck, TUI build and packed Node/Bun consumers pass. Every load run completed 128 turns, peaked at four active and 124 queued jobs, and ended with zero active/queued work. Exact test envelope and latency/RSS/event-loop/history measurements are in [host lifecycle evidence](../07-history/audits/2026-10-09-host-lifecycle-evidence.md).
+
+Coverage: same-session FIFO, cross-session concurrency, both queue caps, queued cancellation, active cancellation, shutdown escalation and uncooperative callback joining, failed writes releasing ownership, provider error outcomes, serialized history hydration, and actual subprocess crash/restart with model-context transcript repair. Supplementary queue state and public named types have explicit surface/packed-consumer coverage. An early test fixture awaited a pending rejection before triggering cancellation; changed the fixture to capture then assert the rejection. No production hang was involved.
+
+Limits: the queue is optional and in-process; all host writers must share one instance and callbacks must await their own work. No distributed lease, durable admission, tool idempotency, sustained soak or production capacity claim. Shutdown remains pending for uncooperative callbacks. SIGKILL demonstrates durable transcript recovery, not completion of lost effects. No release, merge, global install or live provider call. No recall/synthesis quality claim is made.
+
 ## 2026-10-09 — correct the pre-existing TUI integration test's profile isolation
 
 Correction to the prior publication entry: the public installer itself did not change existing profile credentials or session rows. The separate unskipped source tests had a pre-existing bare TUI smoke that used the real default profile database. Three current-turn mock sessions and four fixture messages were added. Two sessions were empty; the four messages have exact fixture text, the mock Bash call, and its matching mock tool-result identity. No real-provider turn was involved.

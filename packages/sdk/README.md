@@ -174,3 +174,18 @@ Full policy: [`STABILITY.md`](https://github.com/yevgetman/sovereign-ai-sdk/blob
 ## License
 
 MIT.
+
+### Optional host session ownership
+
+`SessionWorkQueue` serializes callbacks for each session while admitting bounded
+parallel sessions. Its explicit `maxActiveSessions`, `maxQueued`, and
+`maxQueuedPerSession` limits prevent unbounded waiting work. Run the full agent
+and await its persistence inside `queue.submit(sessionId, callback, signal)`.
+Load persisted history inside that callback after ownership is acquired.
+`queue.shutdown()` closes admission, cancels queued work and signals active work;
+shutdown joins all started callbacks. `shutdown(false)` preserves active work.
+A callback must await all its own tasks; uncooperative work keeps shutdown pending.
+This helper is memory-only and optional. All writers must share one instance.
+It provides no cross-process lease, durable queue, automatic replay or
+exactly-once external effects. `SessionWorkQueueError.code` identifies admission
+and cancellation failures. `snapshot()` reports counts without owner content.
