@@ -1,5 +1,17 @@
 # Testing Log
 
+## 2026-10-09 — issue #15 combined integration gate
+
+All five lifecycle fixes (#10–#14), injected context management, child capability policy/tree budgets, bounded host ownership and production CI were tested together. Native subagents implemented independent portions; root reviewed the focused diffs and the workflows. The final rebase changed no file content. No merge, branch-rule activation, live paid request, release or installed runtime change was performed.
+
+On macOS arm64 with Bun 1.3.13, Node 25.9.0 and Go 1.26.1: frozen install, mandatory TUI build, lint/boundary/typecheck and the unskipped source suite pass: **5,563 pass / 19 skip / zero fail**, 22,795 assertions, 5,582 tests across 531 files, 88.59 seconds. Go suite passes. Packed SDK/protocol, public type/behavior fixtures and combined native-child context canaries pass on Node/Bun. The child fixture preserves one actual tool effect and marks input-only summary usage partial. Dependency audit reports zero advisories with an empty exception list.
+
+The actual Agent Casa committed-source snapshot passes its real typecheck and **1,193 tests / zero pending / zero failed** against the integrated packed SDK. The runner excludes credentials, leaves the source checkout and lockfile untouched, and emits only a result summary. This corrects the previously observed legacy SessionStore type break without claiming the private manual workflow has run.
+
+Bounded 30-second offline Node/Bun soak reports are separate artifacts. They rotate finite history cohorts, include injected disconnects and join all work. Their RSS growth is recorded; these tests do not certify memory stability, distributed deployment, paid-provider behavior or a production service level.
+
+Issue #15 remains open for the production storage/envelope and summarizer/license decisions, live-provider spend budget, private read-only CI token and post-merge effective PR rules. Completed contracts are reviewable without choosing those owner-level policies.
+
 ## 2026-10-09 — bounded 30-second host queue soak
 
 Owner follow-up: extend the subsecond load sample into a bounded offline soak. `scripts/bench/host-lifecycle.ts --duration-seconds 30` runs complete 128-job cohorts until the duration is reached, then joins shutdown. Each cohort rotates to a fresh in-memory store and 16 fresh session ids: 32 seeded messages and at most 48 stored messages per session. Telemetry retains at most 4,096 samples per metric while keeping full-run counters and maxima. Every 97th request injects an offline provider error. Count consistency, admission bounds, empty final queue, history limits and absence of unexpected failures are exit-status invariants. Root independently reviewed the script and requested these invariants.

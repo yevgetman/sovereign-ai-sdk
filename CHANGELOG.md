@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — SDK production contracts and PR gates
+
+- Add custom capability profiles, explicit native-child configuration and tool narrowing, shared tree budgets and child usage propagation.
+- Add bounded in-process session ownership with joined cancellation/shutdown; distributed persistence remains host-owned.
+- Run full runtime/Go PR tests with mandatory TUI builds, packed public contracts, advisory checks and a separate private consumer runner.
+- Declare the tested Node minimum 20.19.0; earlier Node 20 consumers must upgrade before adopting the next package release. Bun 1.2.0 remains supported.
+- No package/runtime publication or production deployment is included.
+
 ## Unreleased — SDK injected context-management port
 
 - Optional ContextManagementPort and ContextLimits configure host-supplied
