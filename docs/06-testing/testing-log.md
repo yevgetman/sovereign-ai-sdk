@@ -1,5 +1,17 @@
 # Testing Log
 
+## 2026-10-09 — PR21 round-two final gate
+
+Root combined local validation: lint/boundary, typecheck and full source suite pass: **5,504 pass / 19 existing skip / zero fail**, 22,544 assertions across 523 files (84.85s). Packed SDK/protocol Node/Bun consumer checks pass. An independent second reviewer verified strict error/reasoning/UTF-8 failures and permissive parser compatibility. GitHub results are checked after push. No paid request, owner-profile write, master merge, release or installation.
+
+## 2026-10-09 — PR21 fresh review: error frames and strict byte decoding
+
+Independent review of PR21 head `75604d7` against `fix/issue-10-sse-cleanup` confirmed three Medium findings. An explicit provider error envelope after a valid tool finish was ignored; malformed UTF-8 in a tool argument was silently replaced and approved; object-valued reasoning emitted a non-string public event and fabricated completed text. Findings were reported before fixes. All fixtures are authored offline Echo/label counters with no private source or real side effects.
+
+Production parsing now uses fatal UTF-8 decoding and flushes the decoder at EOF. Decode failures become typed `ProviderStreamError` and retain reader cleanup. The direct parser's default permissive mode remains compatible. Explicit non-null provider error envelopes invalidate completion. Reasoning channels must be strings or null before an event is emitted; supported usage-only and ordinary metadata frames remain accepted.
+
+Before fixes, the focused provider suite recorded **65 pass / 3 fail**. After fixes, `bun test tests/providers/openai.test.ts` records **68 pass / zero fail / 223 assertions**. New public-agent regressions prove no completed assistant, no tool dispatch, one fetch without replay, cancellation for unfinished bodies, and reader unlock. They cover error envelopes before/after finish, invalid bytes within tool arguments, incomplete UTF-8 at EOF, and valid multibyte text split across byte chunks. Existing direct permissive malformed-JSON tests remain green. Lint/boundary and typecheck pass; root owns the final full/packed/CI gates. No full gate, publication or installed-runtime change is claimed here.
+
 ## 2026-10-09 — PR21 independent review: reject damaged SSE data before tool dispatch
 
 The independent code review found one Medium defect: a corrupt JSON tool-argument frame followed by a valid finish, or a partial trailing data frame after a finish, could be discarded and still produce an executable assistant. The regression fails before the correction (63 pass / 1 fail). Production OpenAI-compatible transports now reject these frames with a generic typed `ProviderStreamError`; direct `parseSse()` callers retain permissive parsing. No raw provider payload appears in the error. The regression checks zero tool calls, one fetch, no final assistant, cancellation and released body locks. PR17 cleanup was reviewed separately with no confirmed finding; its unchanged provider tests pass (57 tests, 136 assertions).
