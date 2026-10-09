@@ -228,6 +228,7 @@ function providerConfigFor(
   if (providerName === 'anthropic') return providers.anthropic;
   if (providerName === 'openai') return providers.openai;
   if (providerName === 'openrouter') return providers.openrouter;
+  if (providerName === 'xai') return providers.xai;
   if (providerName === 'ollama') return providers.ollama;
   if (providerName === 'sov') return providers.sov;
   // manifest carries an extra `headers` field (RouterProviderConfig); it is

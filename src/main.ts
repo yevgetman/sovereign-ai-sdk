@@ -211,7 +211,7 @@ async function main(argv: string[]): Promise<void> {
       "[deprecated keyword — use bare 'sov'] Start an interactive chat session against a harness bundle (use --agent + --state-dir for scheduled-mission mode)",
     )
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
-    .option('--provider <name>', 'provider name: anthropic, openai, ollama, or openrouter')
+    .option('--provider <name>', 'provider name: anthropic, openai, ollama, openrouter, or xai')
     .option('-m, --model <name>', 'model name (overrides provider/config default)')
     .option('--max-tokens <n>', 'max tokens per turn', parsePositiveInt, DEFAULT_MAX_TOKENS)
     .option(
@@ -286,7 +286,7 @@ async function main(argv: string[]): Promise<void> {
       'Headless line-driven LLM conversation — boots the same Hono server as the TUI but emits plain-text events to stdout instead of rendering Bubble Tea. Reads one prompt per stdin line (slash commands routed through /sessions/:id/commands, free text through /sessions/:id/turns). Exits on EOF or /quit. Used by the semantic test suite and any other automation that needs to drive sov non-interactively.',
     )
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
-    .option('--provider <name>', 'provider name: anthropic, openai, ollama, or openrouter')
+    .option('--provider <name>', 'provider name: anthropic, openai, ollama, openrouter, or xai')
     .option('-m, --model <name>', 'model name (overrides provider/config default)')
     .option('--max-tokens <n>', 'max tokens per turn', parsePositiveInt, DEFAULT_MAX_TOKENS)
     .option(
@@ -317,7 +317,10 @@ async function main(argv: string[]): Promise<void> {
     .option('--json', 'emit newline-delimited JSON machine events')
     .option('--stdin', 'read the prompt from all of stdin')
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
-    .option('--provider <name>', 'provider name: anthropic, openai, ollama, openrouter, or mock')
+    .option(
+      '--provider <name>',
+      'provider name: anthropic, openai, ollama, openrouter, xai, or mock',
+    )
     .option('-m, --model <name>', 'model name (overrides provider/config default)')
     .option('--max-tokens <n>', 'max tokens per turn', parsePositiveInt, DEFAULT_MAX_TOKENS)
     .option(
@@ -375,7 +378,10 @@ async function main(argv: string[]): Promise<void> {
     )
     .option('--port <n>', 'port (default 8765, env SOV_OPENAI_PORT)', parsePositiveInt)
     .option('--host <addr>', 'host (default 127.0.0.1, env SOV_OPENAI_HOST)')
-    .option('--provider <name>', 'provider name: anthropic, openai, ollama, openrouter, or router')
+    .option(
+      '--provider <name>',
+      'provider name: anthropic, openai, ollama, openrouter, xai, or router',
+    )
     .option('-m, --model <name>', 'model name (overrides provider/config default)')
     .option('--max-tokens <n>', 'max tokens per provider call', parsePositiveInt)
     .option(

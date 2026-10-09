@@ -349,6 +349,9 @@ export const SettingsSchema = z
         anthropic: ProviderConfigSchema.optional(),
         openai: ProviderConfigSchema.optional(),
         openrouter: ProviderConfigSchema.optional(),
+        /** Direct xAI API-key lane (`XAI_API_KEY`, https://api.x.ai/v1). Not the
+         *  `grok` subscription login, and not OpenRouter-hosted Grok. */
+        xai: ProviderConfigSchema.optional(),
         ollama: ProviderConfigSchema.optional(),
         /** The keyless local Sovereign-engine lane (OpenAI-compatible MLX
          *  server on loopback). Reuses ProviderConfigSchema — only baseUrl
