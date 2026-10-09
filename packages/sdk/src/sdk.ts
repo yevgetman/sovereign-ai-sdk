@@ -352,3 +352,14 @@ export type {
   SessionWorkQueueOptions,
   SessionWorkQueueSnapshot,
 } from './host/sessionWorkQueue.js';
+
+export { CapabilityProfileRegistry, intersectCanUseTool } from './tool/capabilityProfiles.js';
+export type { ToolCapabilityProfile } from './tool/capabilityProfiles.js';
+export type { ChildPolicy } from './runtime/childPolicy.js';
+export { TreeBudget, TreeBudgetExceededError, budgetProvider } from './runtime/treeBudget.js';
+export type {
+  TreeBudgetLimits,
+  TreeBudgetSnapshot,
+  RequestBudgetEstimate,
+  EstimateRequestBudget,
+} from './runtime/treeBudget.js';

@@ -28,6 +28,7 @@ const FrontmatterSchema = z
     whenToUse: z.string().optional(),
     systemPrompt: z.string().optional(),
     allowedTools: z.array(z.string()).default([]),
+    capabilityProfile: z.string().min(1).optional(),
     model: z.string().optional(),
     role: z.string().optional(),
     maxTurns: z.number().int().positive().default(DEFAULT_MAX_TURNS),
@@ -134,6 +135,9 @@ async function loadAgentFile(
       ...(frontmatter.whenToUse !== undefined ? { whenToUse: frontmatter.whenToUse } : {}),
       systemPrompt,
       allowedTools: frontmatter.allowedTools,
+      ...(frontmatter.capabilityProfile !== undefined
+        ? { capabilityProfile: frontmatter.capabilityProfile }
+        : {}),
       ...(frontmatter.model !== undefined ? { model: frontmatter.model } : {}),
       ...(frontmatter.role !== undefined ? { role: frontmatter.role } : {}),
       maxTurns: frontmatter.maxTurns,

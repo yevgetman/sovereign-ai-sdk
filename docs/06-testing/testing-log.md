@@ -1,5 +1,44 @@
 # Testing Log
 
+## 2026-10-09 — bounded issue #15 capability, child policy and tree accounting
+
+Scope: additive custom capability profiles, explicit native child inheritance,
+pattern narrowing, recursive tool pools, shared depth/cumulative/concurrent
+child admission, per-request token/cost bounds, usage/cost propagation and
+unknown trajectory cost. Environment: macOS arm64, Bun 1.3.13. Scripted offline
+providers and temporary fixture profiles only. The isolated worktree TUI was
+built by `bun install --frozen-lockfile`; no live provider, owner-profile write,
+runtime install, merge, or release was performed.
+
+Commands: targeted `bun test` runs for `tests/runtime/childPolicy.test.ts`,
+`tests/runtime/treeBudget.test.ts`, `tests/trajectory/writer.test.ts`,
+`tests/runtime/scheduler.reseat.test.ts` and `packages/sdk/tests/surface.test.ts`;
+then `bun run lint`, `bun run typecheck`, `bun run test`, `bun run build`, and
+`bun run canary`. The initial full run rejected two deliberate surface additions
+until their value snapshot and type witnesses were updated. Final full suite:
+5,510 pass / 19 skip / zero fail, 22,548 assertions, 5,529 tests across 525 files.
+Lint/boundary, typecheck, SDK/protocol builds, and packed Node/Bun consumers pass.
+The packed SDK consumer exercises a native child, profile narrowing, usage
+completeness, conservative unknown-price accounting and cumulative child cap.
+
+Focused tests prove hooks/recall/output governance inheritance; parent denial
+and scope narrowing; malformed patterns fail before session creation; real
+recursive tool delegation preserves depth and narrowed parent tools; shared
+reservations are atomic and release once; missing, partial, malformed and
+unpriced usage cannot free a request ceiling; cancelled generation without a
+valid stop remains unknown; generator return waits for provider cleanup;
+reasoning tokens are not double-counted. Unknown trajectory costs are omitted.
+Root independently reviewed scheduler/profile wiring and conservative bounds.
+
+Limits: request ceilings depend on explicit trusted host upper bounds. Reported
+violations stop later admission; already billed external work cannot be undone.
+Parent/context/retry providers must use the same `budgetProvider` wrapper;
+unwrapped host calls are outside this meter. Child `usageStatus` honors a future
+context port's `RunResult.usageComplete: false`. Root aggregates the separately
+implemented context port and CI/host controls for issue #15. This entry does
+not claim the complete production-hardening umbrella is finished. Mock recall
+checks the inheritance mechanism, not live learning-soak value.
+
 ## 2026-10-09 — issue #15 portable host admission, shutdown and restart evidence
 
 Scope: additive public `SessionWorkQueue` utility, public agent/store integration, offline provider/store failures, isolated SQLite process restart, and a repeatable mock-provider load TEST envelope. Root independently reviewed queue reservation, cancellation, cap validation, shutdown escalation and join semantics; no blocker found. Owner explicitly requested native parallel Codex work. No production deployment decision was inferred.

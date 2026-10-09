@@ -11,9 +11,9 @@
 //     with the prior native turn loop the scheduler drove inline).
 //   - Tool filtering: parent pool ∩ agent.allowedTools (matched by tool
 //     name OR alias) − SUBAGENT_EXCLUDED_TOOLS. Pattern constraints inside allowedTools
-//     entries (e.g. `Bash(git log *)`) are NOT enforced at this layer
-//     in v0 — the parent's canUseTool still applies. Tightening this is
-//     a follow-up: layer agent-defined rules into the canUseTool stack.
+//     entries (e.g. `Bash(git log *)`)
+//     are enforced with buildToolScope against the final parent-authorized
+//     input; malformed patterns reject delegation before child creation.
 //   - Cancellation: parent's AbortSignal composes with a per-child
 //     timeout via AbortSignal.any(); both children and parent share one
 //     cancellation tree.
@@ -28,20 +28,30 @@ import { buildSubagentExclusions } from '../agents/exclusions.js';
 import type { AgentDefinition, AgentRegistry } from '../agents/types.js';
 import type { LaneConfig, SubscriptionExecutorConfig } from '../config/schema.js';
 import { findCapableModel } from '../core/capabilities.js';
-import type { AssistantMessage, SystemSegment, Terminal } from '../core/types.js';
+import type { AssistantMessage, SystemSegment, Terminal, TokenUsage } from '../core/types.js';
+import {
+  accumulateUsage,
+  createUsageAccumulator,
+  finalizeUsage,
+} from '../core/usageAccumulator.js';
 import type { MemoryRuntime } from '../memory/provider.js';
 import type { CanUseTool } from '../permissions/types.js';
 import { wrapCanUseToolWithWriteScope } from '../permissions/writeScope.js';
+import { PRICE_TABLE } from '../providers/pricing.js';
 import type { ResolvedProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
+import { CapabilityProfileRegistry, intersectCanUseTool } from '../tool/capabilityProfiles.js';
 import type { DelegationLifecycleEvent } from '../tool/ports.js';
+import { buildToolScope } from '../tool/toolScope.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { TraceWriter } from '../trace/writer.js';
 import { tryWriteTrajectory } from '../trajectory/writer.js';
+import type { ChildPolicy } from './childPolicy.js';
 import type { RunSubprocessExecutor, SubprocessExecutorResult } from './executorPort.js';
 import type { LaneSemaphores } from './laneSemaphores.js';
 import type { PathLockManager, PathScope } from './pathLock.js';
+import { budgetProvider } from './treeBudget.js';
 
 /** SPIKE — the role that, when `subscriptionExecutor.enabled`, routes a
  *  delegation to a headless `claude -p` subprocess instead of the harness's
@@ -59,6 +69,8 @@ const FRONTIER_PROVIDERS: ReadonlySet<string> = new Set([
 
 export type SubagentSchedulerOpts = {
   agents: AgentRegistry;
+  /** Optional explicit host policy inherited throughout the child tree. */
+  childPolicy?: ChildPolicy;
   laneSemaphores: LaneSemaphores;
   /** Path-granular write lock (2026-06-15). Write-capable children acquire a
    *  write SCOPE; disjoint scopes run concurrently, overlapping ones serialize.
@@ -217,6 +229,10 @@ export type DelegateResult = {
    *  when the child never reached the runner (e.g. early-error paths). */
   distinctToolNames: string[];
   durationMs: number;
+  /** Absent means unknown, never zero. Cost is estimated, not billed. */
+  usage?: TokenUsage;
+  usageStatus?: 'complete' | 'partial' | 'unknown';
+  estimatedCostUsd?: number;
 };
 
 /** The narrow delegation PORT (Contract #1) — the named form of the
@@ -277,6 +293,9 @@ export class SubagentScheduler implements Scheduler {
       }
     };
 
+    const policy = input.parentToolContext.childPolicy ?? this.opts.childPolicy;
+    const childDepth = (input.parentToolContext.delegationDepth ?? 0) + 1;
+
     // Executor selection (hoisted from the body so the write-lock decision below
     // can account for it). When the resolved agent's role is the subscription-
     // executor AND the config enables it, the task runs in a headless `claude -p`
@@ -307,7 +326,12 @@ export class SubagentScheduler implements Scheduler {
     // Protect every operation after reservation, including host resolution hooks.
     let laneRelease: (() => void) | undefined;
     let writeLockRelease: (() => void) | undefined;
+    let treeRelease: (() => void) | undefined;
     try {
+      if (useSubprocessExecutor && policy !== undefined) {
+        throw new Error('native child policy cannot be enforced by the subprocess executor');
+      }
+      treeRelease = policy?.treeBudget?.reserveChild(childDepth);
       const { providerName, modelName } = this.resolveProviderModel(agent, input.roleOverride);
       const concurrencyLane = laneFor(providerName);
       checkDeadline();
@@ -328,7 +352,23 @@ export class SubagentScheduler implements Scheduler {
       }
 
       checkDeadline();
-      const tools = buildChildToolPool(input.parentToolPool, agent);
+      let tools = buildChildToolPool(input.parentToolPool, agent);
+      const registry = policy?.capabilityProfiles ?? new CapabilityProfileRegistry();
+      const profile = agent.capabilityProfile ?? policy?.profile;
+      if (profile !== undefined) tools = registry.filter(profile, tools, policy?.profile);
+      const inheritedPermission = input.canUseTool ?? input.parentToolContext.canUseTool;
+      let scopedPermission = inheritedPermission;
+      if (!agent.inheritParentTools && agent.allowedTools.length > 0) {
+        const scope = buildToolScope({
+          allowedTools: agent.allowedTools,
+          tools,
+          canUseTool: async () => ({ behavior: 'allow' }),
+        });
+        tools = scope.tools;
+        scopedPermission = intersectCanUseTool(scopedPermission, scope.canUseTool);
+      }
+      if (policy?.canUseTool)
+        scopedPermission = intersectCanUseTool(scopedPermission, policy.canUseTool);
 
       // Phase 2 T1 — compute the lane attribution hints for the runtime's
       // createChildSession closure. The lane hit is recomputed here (vs.
@@ -409,6 +449,18 @@ export class SubagentScheduler implements Scheduler {
           ...input.parentToolContext,
           sessionId: childSessionId,
           parentAgentName: agent.name,
+          parentToolPool: tools,
+          activeToolNames: tools.map((tool) => tool.name),
+          ...(profile !== undefined ? { activeToolsets: [profile] } : {}),
+          ...(input.parentToolContext.learningObserver === undefined &&
+          policy?.inheritedConfig?.observe !== undefined
+            ? { learningObserver: { observe: policy.inheritedConfig.observe } }
+            : {}),
+          delegationDepth: childDepth,
+          ...(scopedPermission !== undefined ? { canUseTool: scopedPermission } : {}),
+          ...(policy !== undefined
+            ? { childPolicy: { ...policy, ...(profile !== undefined ? { profile } : {}) } }
+            : {}),
         };
 
         const systemPrompt: SystemSegment[] = [{ text: agent.systemPrompt, cacheable: true }];
@@ -450,6 +502,8 @@ export class SubagentScheduler implements Scheduler {
         }
 
         checkDeadline();
+        let usageCalls = 0;
+        let unknownUsageCalls = 0;
         const startedAt = Date.now();
         let result: SubprocessExecutorResult;
         try {
@@ -496,29 +550,34 @@ export class SubagentScheduler implements Scheduler {
             // / `{kind:'all'}` child is unaffected.
             const childCanUseTool =
               input.writeScope?.kind === 'globs'
-                ? wrapCanUseToolWithWriteScope(input.canUseTool, input.writeScope.globs)
-                : input.canUseTool;
-            // The NATIVE child turn runs through the open SDK's
-            // `createAgent().run()`. PURE PARITY — every native turn-loop opt
-            // maps 1:1 onto AgentConfig/PerTurn with the SAME value, and NOTHING
-            // is added:
-            //   • NO `microcompactConfig` — the cron/channel parity-fix was ratified
-            //     ONLY for those surfaces; a sub-agent must keep the prior native
-            //     loop's EXACT request, which threaded no config → query()'s built-in
-            //     DEFAULT_MICROCOMPACT_CONFIG applies in BOTH paths (byte-identical).
-            //   • NO `sessionStore`/`transcripts` — the scheduler owns child
-            //     persistence + trajectory OUT-OF-BAND (the tail below); passing a
-            //     store to createAgent would DOUBLE-write.
-            // `parentSessionId` was a result-echo field only (it never reached
-            // query() and the scheduler never read it back from the result), so it
-            // has no createAgent counterpart — dropping it is behavior-preserving.
-            // The child ToolContext (carrying its inherited learningObserver) and the
-            // write-scope-wrapped canUseTool are handed through VERBATIM via `perTurn`,
-            // so the child keeps EXACTLY its tool + permission wiring. effort / recall
-            // / hookRunner / cwd / cacheEnabled stay UNSET (the prior native loop set
-            // none → the query() defaults hold identically).
+                ? wrapCanUseToolWithWriteScope(scopedPermission, input.writeScope.globs)
+                : scopedPermission;
+            // Native children inherit only explicit host configuration, then
+            // bind their own provider/session/caps and narrowed tool pool.
+            // Persistence stays scheduler-owned to avoid duplicate writes.
+            const nativeProvider = trackProviderUsage(
+              resolved.transport as unknown as LLMProvider,
+              (usage) => {
+                usageCalls++;
+                if (usage?.inputTokens === undefined || usage.outputTokens === undefined)
+                  unknownUsageCalls++;
+              },
+            );
+            if (
+              policy?.treeBudget &&
+              (policy.treeBudget.limits.maxTotalTokens !== undefined ||
+                policy.treeBudget.limits.maxEstimatedCostUsd !== undefined) &&
+              !policy.estimateRequestBudget
+            ) {
+              throw new Error('tree budget requires an explicit request upper-bound estimator');
+            }
+            const childProvider =
+              policy?.treeBudget && policy.estimateRequestBudget
+                ? budgetProvider(nativeProvider, policy.treeBudget, policy.estimateRequestBudget)
+                : nativeProvider;
             const childAgent = createAgent({
-              provider: resolved.transport as unknown as LLMProvider,
+              ...policy?.inheritedConfig,
+              provider: childProvider,
               model: resolved.model,
               systemPrompt,
               maxTokens: this.opts.maxTokens,
@@ -569,6 +628,20 @@ export class SubagentScheduler implements Scheduler {
             durationMs: Date.now() - startedAt,
           };
         }
+        const usageStatus =
+          result.usage === undefined
+            ? 'unknown'
+            : usageCalls > 0 && unknownUsageCalls === 0 && result.usageComplete !== false
+              ? 'complete'
+              : 'partial';
+        const childEstimatedCostUsd =
+          usageStatus === 'complete' &&
+          result.estimatedCostUsd !== undefined &&
+          result.usage?.inputTokens !== undefined &&
+          result.usage.outputTokens !== undefined &&
+          PRICE_TABLE[`${resolved.transport.name}:${resolved.model}`] !== undefined
+            ? result.estimatedCostUsd
+            : undefined;
         const summary = extractSummary(result.finalAssistant);
         // Phase 13.1 trajectory capture for child sessions. The REPL
         // captures parent sessions at REPL exit; sub-agent sessions
@@ -592,10 +665,9 @@ export class SubagentScheduler implements Scheduler {
               model: modelName,
               toolCallCount: result.toolCallCount,
               iterationsUsed: result.iterationsUsed,
-              // Per-child cost telemetry not currently aggregated by
-              // AgentRunner — leave as 0 in v0. Parent rolls up its
-              // own cost via the existing usage_delta path.
-              estimatedCostUsd: 0,
+              ...(childEstimatedCostUsd !== undefined
+                ? { estimatedCostUsd: childEstimatedCostUsd }
+                : {}),
             },
             artifactsRoot: this.opts.artifactsRoot,
           });
@@ -685,6 +757,11 @@ export class SubagentScheduler implements Scheduler {
           toolCallCount: result.toolCallCount,
           distinctToolNames: result.distinctToolNames,
           durationMs: Date.now() - startedAt,
+          usageStatus,
+          ...(result.usage !== undefined ? { usage: result.usage } : {}),
+          ...(childEstimatedCostUsd !== undefined
+            ? { estimatedCostUsd: childEstimatedCostUsd }
+            : {}),
         };
       } finally {
         // Backlog Item 8 — drain the per-child trace writer so every queued
@@ -703,6 +780,7 @@ export class SubagentScheduler implements Scheduler {
       const next = Math.max(0, after - 1);
       if (next === 0) this.childCounts.delete(input.parentSessionId);
       else this.childCounts.set(input.parentSessionId, next);
+      treeRelease?.();
       writeLockRelease?.();
       laneRelease?.();
     }
@@ -846,6 +924,9 @@ async function drainRunner(
       iterationsUsed: number;
       toolCallCount: number;
       distinctToolNames: string[];
+      usage?: TokenUsage;
+      estimatedCostUsd?: number;
+      usageComplete?: boolean;
       messages: import('../core/types.js').Message[];
     }
   >,
@@ -855,10 +936,44 @@ async function drainRunner(
   iterationsUsed: number;
   toolCallCount: number;
   distinctToolNames: string[];
+  usage?: TokenUsage;
+  estimatedCostUsd?: number;
+  usageComplete?: boolean;
   messages: import('../core/types.js').Message[];
 }> {
   for (;;) {
     const step = await gen.next();
     if (step.done) return step.value;
   }
+}
+
+/** Preserve streaming order while distinguishing a partly observed run from full usage. */
+function trackProviderUsage(
+  provider: LLMProvider,
+  record: (usage: TokenUsage | undefined) => void,
+): LLMProvider {
+  return {
+    name: provider.name,
+    async *stream(request) {
+      let usage = createUsageAccumulator();
+      let completed = false;
+      let stream: ReturnType<LLMProvider['stream']> | undefined;
+      try {
+        stream = provider.stream(request);
+        for (;;) {
+          const step = await stream.next();
+          if (step.done) return step.value;
+          if (step.value.type === 'message_stop') completed = true;
+          usage = accumulateUsage(usage, step.value);
+          yield step.value;
+        }
+      } finally {
+        try {
+          await stream?.return({ role: 'assistant', content: [] });
+        } finally {
+          record(completed ? finalizeUsage(usage) : undefined);
+        }
+      }
+    },
+  };
 }
