@@ -174,3 +174,7 @@ Full policy: [`STABILITY.md`](https://github.com/yevgetman/sovereign-ai-sdk/blob
 ## License
 
 MIT.
+
+OpenAI-compatible streaming transports cancel unfinished response bodies when a consumer
+stops reading or receives `[DONE]`. Reader locks are released on EOF, abort, and errors;
+cleanup failures do not replace the original outcome.
