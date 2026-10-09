@@ -1000,7 +1000,14 @@ describe('validateInput dispatch', () => {
 
 // Promise gates, rather than timers, prove the dispatch cannot return early.
 describe('dispatch lifecycle containment', () => {
-  for (const failure of ['permission', 'pre-hook', 'validation', 'schema', 'post-hook'] as const) {
+  for (const failure of [
+    'permission',
+    'pre-hook',
+    'validation',
+    'schema',
+    'post-hook',
+    'renderer',
+  ] as const) {
     test(`${failure} failure joins a started sibling and preserves its result`, async () => {
       let release = () => {};
       let entered = () => {};
@@ -1042,6 +1049,13 @@ describe('dispatch lifecycle containment', () => {
           failedCalled = true;
           return { data: 'actual bad output' };
         },
+        ...(failure === 'renderer'
+          ? {
+              renderResult: () => {
+                throw new Error('renderer broke');
+              },
+            }
+          : {}),
       });
       const blocks: UseBlock[] = [
         { type: 'tool_use', id: 'slow', name: 'Slow', input: {} },
@@ -1090,48 +1104,59 @@ describe('dispatch lifecycle containment', () => {
       expect(results?.[0]?.content).toBe('actual sibling output');
       expect(results?.[0]?.is_error).toBeUndefined();
       expect(results?.[1]?.is_error).toBe(true);
-      expect(failedCalled).toBe(failure === 'post-hook');
-      if (failure === 'post-hook') expect(results?.[1]?.content).toContain('actual bad output');
+      expect(failedCalled).toBe(failure === 'post-hook' || failure === 'renderer');
+      if (failure === 'post-hook' || failure === 'renderer')
+        expect(results?.[1]?.content).toContain('actual bad output');
     });
   }
 });
 
-test('post hook failure retains user-role supplementary tool output', async () => {
-  const tool = buildTool({
-    name: 'Output',
-    description: () => 'supplementary output',
-    inputSchema: z.object({}),
-    async call() {
-      return {
-        data: 'real output',
-        newMessages: [
-          {
-            role: 'user' as const,
-            content: [{ type: 'text' as const, text: 'supplementary output' }],
-          },
-        ],
-      };
-    },
-  });
-  const messages: Message[] = [];
-  for await (const message of runTools(
-    [{ type: 'tool_use', id: 'output', name: 'Output', input: {} }],
-    ctx,
-    [tool],
-    undefined,
-    async (event) => {
-      if (event === 'PostToolUse') throw new Error('post hook broke');
-      return { block: false };
-    },
-  ))
-    messages.push(message);
-  expect(messages[0]?.content).toEqual([
-    {
-      type: 'tool_result',
-      tool_use_id: 'output',
-      content: 'real output\n\ntool dispatch failed: post hook broke',
-      is_error: true,
-    },
-    { type: 'text', text: 'supplementary output' },
-  ]);
-});
+test.each(['post hook', 'renderer'] as const)(
+  '%s failure retains user-role supplementary tool output',
+  async (failure) => {
+    const tool = buildTool({
+      name: 'Output',
+      description: () => 'supplementary output',
+      inputSchema: z.object({}),
+      async call() {
+        return {
+          data: 'real output',
+          newMessages: [
+            {
+              role: 'user' as const,
+              content: [{ type: 'text' as const, text: 'supplementary output' }],
+            },
+          ],
+        };
+      },
+      ...(failure === 'renderer'
+        ? {
+            renderResult: () => {
+              throw new Error('renderer broke');
+            },
+          }
+        : {}),
+    });
+    const messages: Message[] = [];
+    for await (const message of runTools(
+      [{ type: 'tool_use', id: 'output', name: 'Output', input: {} }],
+      ctx,
+      [tool],
+      undefined,
+      async (event) => {
+        if (failure === 'post hook' && event === 'PostToolUse') throw new Error('post hook broke');
+        return { block: false };
+      },
+    ))
+      messages.push(message);
+    expect(messages[0]?.content).toEqual([
+      {
+        type: 'tool_result',
+        tool_use_id: 'output',
+        content: `real output\n\ntool dispatch failed: ${failure} broke`,
+        is_error: true,
+      },
+      { type: 'text', text: 'supplementary output' },
+    ]);
+  },
+);

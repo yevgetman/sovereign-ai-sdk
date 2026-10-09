@@ -648,14 +648,33 @@ async function executeOneUnchecked(
   }
   const callDuration = Date.now() - callStart;
 
-  const formatted = toolError
-    ? ({
-        type: 'tool_result',
-        tool_use_id: block.id,
-        content: result.data as string,
-        is_error: true,
-      } as const)
-    : formatToolResult(tool, block.id, result.data, result.observation);
+  let formatted: ToolResultBlock;
+  try {
+    formatted = toolError
+      ? ({
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: result.data as string,
+          is_error: true,
+        } as const)
+      : formatToolResult(tool, block.id, result.data, result.observation);
+  } catch (error) {
+    // Rendering is a host callback after the tool's effect has completed.
+    // Preserve its raw receipt before the dispatch wrapper reports failure.
+    let content = '[tool completed; output could not be rendered]';
+    try {
+      content =
+        typeof result.data === 'string'
+          ? result.data
+          : (JSON.stringify(result.data, null, 2) ?? content);
+    } catch {
+      // Circular/hostile output cannot be serialized; retain completion fact.
+    }
+    const fallback: ToolResultBlock = { type: 'tool_result', tool_use_id: block.id, content };
+    onResult(fallback);
+    onResult(fallback, userNewMessages(result.newMessages, tool.name));
+    throw error;
+  }
 
   onResult(formatted);
   const nm = userNewMessages(result.newMessages, tool.name);

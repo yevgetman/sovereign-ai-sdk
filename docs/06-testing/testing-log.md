@@ -1,5 +1,13 @@
 # Testing Log
 
+## 2026-10-09 — independent PR18–20 review and renderer receipt correction
+
+An independent reviewer (not the PR author) read exact PR18 `32b29e8`, PR19 `b5de9b1` and PR20 `e94dbc6` diffs, their issue acceptance, caller/consumer paths and cleanup contracts. No confirmed finding in PR18 reservation cleanup or PR19 queue deadlines. PR18 scheduler/semaphore/lane/path-lock regressions pass: 40 tests / 94 assertions; PR19: 43 tests / 117 assertions. Each branch's injected-executor/workflow consumer group passes 29 tests / 71 assertions. Canned subprocess fixtures only; no real executor or provider call.
+
+PR20 had one Medium finding: after a completed tool effect, a throwing custom output renderer erased its actual receipt. An offline counter reproduced one completed effect with only the renderer error returned. The new gated sibling/renderer regression fails before the correction. Formatting exceptions now retain a safe raw receipt and valid user supplementary output; unserializable output retains a completed-tool marker. Normal rendering is unchanged. README and packed consumer fixture cover the contract.
+
+macOS arm64, Bun 1.3.13, isolated fixture homes/databases. `bun test tests/core/orchestrator.test.ts tests/core/query.test.ts`: **84 pass / zero fail / 273 assertions**. `bun run lint` and `bun run typecheck` pass. Complete `bun run test`: **5,498 pass / 19 existing skip / zero fail**, 22,511 assertions, 5,517 tests across 523 files (85.24s). `bun run canary` passes SDK/protocol packed consumers on Node and Bun, including the new renderer receipt/supplementary-message regression. No test skips added, runtime installation, merge, release, paid call or learning-benefit claim. GitHub CI is checked separately after push.
+
 ## 2026-10-09 — issue #14: join tool dispatch lifecycle and preserve real history
 
 Scope: concurrent and serial SDK tool dispatch, cancellation, host callback failures, and packed consumer behavior. Native Codex subagent implementation was explicitly requested by the owner. Root independently reviewed the focused diff and requested supplementary-output preservation; that correction has a deterministic regression.
