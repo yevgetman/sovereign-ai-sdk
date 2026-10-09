@@ -143,6 +143,14 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
   `ObserveInput`, …). Implementations are yours to supply — the SDK defaults to
   no disk, no server, no learning unless a port is given.
 
+## Operating an embedded agent
+
+Read the [embedding guide](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/embedding-an-agent.md)
+for session hydration, authorization, child configuration, context lifetime and
+shutdown. Microcompaction is included; full summary compaction and overflow retry
+currently belong to the proprietary gateway host. Tree-wide budgets and custom
+capability hierarchies are not built-in SDK guarantees.
+
 ## Public surface & versioning
 
 - **The package entry (`@yevgetman/sov-sdk`) is the semver'd public API.** Its

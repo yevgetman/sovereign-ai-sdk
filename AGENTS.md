@@ -1,6 +1,6 @@
 # Instructions for agents developing this repo
 
-You are working on the **Sovereign AI agent runtime** — TypeScript code, not documents. This repo is a Claude-Code-style harness (per ADR H-0003 in the sister `sovereign-ai-docs` repo) that reads a *harness bundle* (the docs repo, or a client's extracted bundle) and drives an LLM conversation against it.
+You are working on the **Sovereign AI SDK and its consumers** — TypeScript code and SDK documentation. The MIT SDK lives in `packages/sdk`; `packages/protocol` supplies the wire contract. The proprietary coding harness, gateway and learning layer compose these packages. Keep SDK capabilities distinct from host behavior.
 
 Business/product context lives in `~/code/sovereign-ai-docs/`. This repo contains code and code conventions only.
 
@@ -30,21 +30,18 @@ This file is a **lean router** — purpose, standing rules, and the session-boot
 
 ---
 
-## ⚠ SPECCED AND WAITING — OpenRouter cache + MCP image passthrough (2026-08-25)
+## Production hardening review — 2026-10-09
 
-Two production defects in **this repo's** provider/MCP layer, found from the `appleo` node,
-specced end-to-end and **awaiting a CEO green-light** (SOP-12). Read the spec before touching
-`providers/openai.ts` or `mcp/client.ts` — a change in either file likely collides with it.
+The owner requested a production pass for Kernel's general-purpose harness.
+Read `docs/07-history/audits/2026-10-09-sdk-production-review.md` for evidence and
+`specs/2026-10-09-sdk-production-hardening-design.md` for proposed work. Issues
+#10–#14 track reproduced lifecycle defects. Runtime implementation still follows
+the design approval procedure. Suspected security findings stay private.
 
-- **Backlog #63 — the openrouter lane never emits `cache_control`.** Anthropic models pay full
-  input price on every turn; measured **~10x** on an identical request. Contained fix.
-- **Backlog #64 — MCP image blocks are discarded** (`flattenCallResult` → `[mcp:image content
-  omitted]`), so vision through MCP tools is impossible. Already blocking shipped downstream
-  work. **Carries a founder-reserved one-way-door decision** on `tool_result.content` — do not
-  start that build before it is made.
-
-**Spec:** [`specs/2026-08-25-openrouter-cache-and-image-passthrough-design.md`](specs/2026-08-25-openrouter-cache-and-image-passthrough-design.md) ·
-**Backlog:** [`docs/08-roadmap/backlog/post-phase-13-4.md`](docs/08-roadmap/backlog/post-phase-13-4.md) (P0)
+The August OpenRouter cache/MCP image warning is resolved in current source:
+`packages/sdk/src/providers/openai.ts` emits gated cache markers and
+`packages/sdk/src/mcp/toolWrapper.ts` forwards images in user content blocks.
+The original spec remains design history, not a pending build gate.
 
 ---
 
@@ -52,7 +49,7 @@ specced end-to-end and **awaiting a CEO green-light** (SOP-12). Read the spec be
 
 1. **This file** (`AGENTS.md`) — canonical router and standing rules.
 2. **[`README.md`](README.md)** — repo intro, install, layout.
-3. **The latest state snapshot** — the canonical "where we are now." Find it with `ls docs/07-history/state/*.md | sort -r | head -1` (currently `docs/07-history/state/2026-06-30-sdk-open-core-extraction.md` — the harness is now a thin composition over an importable open-core SDK (`createAgent`), with a file-level lint enforcing the open/proprietary boundary). Predecessors are dated siblings; pre-Phase-16 history is in `docs/07-history/state/archive/`.
+3. **The latest state snapshot** — the canonical "where we are now." Find it with `ls docs/07-history/state/*.md | sort -r | head -1` (currently `docs/07-history/state/2026-10-09-sdk-production-review.md` — the SDK 0.12.0 baseline and production review). Predecessors are dated siblings; pre-Phase-16 history is in `docs/07-history/state/archive/`.
 4. **[`docs/08-roadmap/backlog/post-phase-13-4.md`](docs/08-roadmap/backlog/post-phase-13-4.md)** — open backlog items not in the canonical build plan (+ the running "last sync" log).
 5. **`~/code/sovereign-ai-docs/harness/docs/runtime/runtime-scaffold-plan.md`** — Phase-0/1 scaffold contract this repo was seeded against.
 6. **`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`** — canonical remaining phased plan.
@@ -87,7 +84,7 @@ These apply every session and override defaults:
 
 - **Autonomous feature builds** — code builds follow the inherited apex **SOP-12**: spec → **CEO green-light** → autonomous subagent build → docs + tests → ship. Self-review the spec, then **present it to the CEO and PAUSE for an explicit green-light** (the one human gate — never self-approved, never skipped). On green-light: write the plan and execute it **fully autonomously** (fresh subagent per task, review between tasks, no further approval pauses; fix issues with judgment + prudence); update docs + tests; run the gate; commit + push; `sov upgrade` + agent skills + cut a release when applicable. CEO-reserved/strategic decisions and destructive/outward actions still pause. Details: [`docs/05-conventions/autonomous-feature-builds.md`](docs/05-conventions/autonomous-feature-builds.md).
 - **Pre-commit gate** — `bun run lint && bun run typecheck && bun run test`. All three. Details: [`docs/05-conventions/lint-and-commit.md`](docs/05-conventions/lint-and-commit.md).
-- **Atomic commits + autonomous push** — one logical change per commit; push `origin/master` without asking. Same rule as the docs repo.
+- **Atomic commits + pull requests** — one logical change per commit; push a feature branch and open a PR. Do not push implementation changes directly to `master`. See `CONTRIBUTING.md` and the `.kernel/ship-via-pr` marker. The docs sister repo retains its separate direct-push policy.
 - **`sov upgrade` after runtime changes** — any `src/`, `bundle-default/`, or `packages/tui/` change. Details: [`docs/05-conventions/sov-upgrade.md`](docs/05-conventions/sov-upgrade.md).
 - **Testing log obligation** — append to `docs/06-testing/testing-log.md` for every testing pass. Details: [`docs/05-conventions/testing-log.md`](docs/05-conventions/testing-log.md).
 - **No week-based estimates** — sessions / dispatches / wall-minutes only. Details: [`docs/05-conventions/estimation.md`](docs/05-conventions/estimation.md).

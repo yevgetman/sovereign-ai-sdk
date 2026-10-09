@@ -1,5 +1,17 @@
 # Testing Log
 
+## 2026-10-09 — production review of the SDK for Kernel
+
+Reviewed remote source `3709b25` in an isolated worktree; SDK 0.12.0 / runtime 0.6.75. The owner's checkout and unrelated instruction edits were preserved. Environment: macOS arm64, Bun 1.3.13, Node 25.9.0, Go 1.26.1, frozen dependencies installed with lifecycle scripts initially disabled.
+
+`bun run lint` passes (998 files; boundary 212 modules / 717 dependencies). `bun run typecheck` passes. Initial `bun run test` before the TUI build: 5,472 pass / 19 skip / 16 fail / one error, 105.84 seconds; missing TUI binary explains the launcher failures. Ran `bun run tui:build`, then the complete unchanged `bun run test`: **5,488 pass / 19 skip / zero fail**, 5,507 tests across 523 files, 22,440 assertions, 86.22 seconds. No new skip or runtime fix was used. `bun run build` and `bun run canary` pass: SDK and protocol packed consumers and installed-artifact purity under Node and Bun.
+
+Final gates after the documentation changes: lint/boundary and typecheck pass again; full suite **5,488 pass / 19 skip / zero fail**, 22,440 assertions, 82.66 seconds. `go test ./...` in `packages/tui` passes all six tested packages (the command package has no tests). The embedding guide's two-turn in-memory recipe passes; every relative link in the five new documents resolves.
+
+Five additional isolated offline probes reproduce lifecycle defects: reader remains locked/uncancelled on parser return; incomplete SSE text returns completed; queued children exceed their configured deadline; throwing lane resolution leaks a child reservation; a concurrent sibling continues after an error terminal. GitHub issues #10–#14 contain triggers and acceptance criteria. A policy concern and its reproduction were reported only in the private owner artifact under the package security policy. Probes were review fixtures, not edits to production code or the committed test suite.
+
+Reviewed core/assembler/orchestrator/scheduler/toolsets/persistence/streaming, host compaction and CI. Local Qwen and Hermes snapshots supplied context/child comparison evidence. No live-provider semantic run, load/soak, crash-recovery exercise or full tenant/security audit was performed. Full compaction remains outside the SDK. The new review and proposed design are evidence and future scope, not a production certification or implemented hardening.
+
 ## 2026-10-09 — correct the pre-existing TUI integration test's profile isolation
 
 Correction to the prior publication entry: the public installer itself did not change existing profile credentials or session rows. The separate unskipped source tests had a pre-existing bare TUI smoke that used the real default profile database. Three current-turn mock sessions and four fixture messages were added. Two sessions were empty; the four messages have exact fixture text, the mock Bash call, and its matching mock tool-result identity. No real-provider turn was involved.

@@ -49,12 +49,15 @@ The command surface and day-to-day operation.
 
 Recipes for adding extension points.
 
+- [Embedding an agent](04-extending/embedding-an-agent.md) — SDK/host responsibilities, persistence, permissions, children, context lifetime and shutdown.
 - [Extending the harness](04-extending/extending.md) — adding tools, providers, slash commands, skills, hooks, MCP servers, agents, permission rules, workflows, semantic tests, and trajectory redaction.
 - [Metering an agent](04-extending/metering-an-agent.md) — the three token-usage read surfaces (per-run `RunResult`, per-span `traceRecorder`, per-turn gateway wire), the disjoint-phase cost invariant, `reasoningTokens`, and the public accumulator + pricing primitives (`PRICING_VERSION`).
 
 ## 05 — Conventions
 
 Patterns and standing rules contributors must follow. (These are the operating conventions the router links as "read before you do X".)
+
+Start with [CONTRIBUTING](../CONTRIBUTING.md) for issues, feature branches, PR review and validation.
 
 - [Autonomous feature builds](05-conventions/autonomous-feature-builds.md) — **the inherited apex SOP-12 build procedure**: spec → CEO green-light → autonomous subagent build → docs + tests → ship.
 - [Lint and commit](05-conventions/lint-and-commit.md) — `lint` / `typecheck` / `test` all required before any commit; atomic commits; push autonomously.
@@ -82,12 +85,13 @@ The semantic-test framework and the running log.
 Audits, postmortems, and the chronological state-snapshot series. These are records, not authoritative current-state — read the newest snapshot for "where we are."
 
 - **Audits** (`07-history/audits/`)
+  - [2026-10-09 — SDK production review](07-history/audits/2026-10-09-sdk-production-review.md) — reproduced lifecycle defects, Kernel capability gaps, Qwen/Hermes reference lessons and validation.
   - [2026-06-10 — full-codebase audit](07-history/audits/2026-06-10-full-codebase-audit.md) — 21-area + 3-holistic sweep; all confirmed Critical/High fixed.
   - [2026-06-14 — post-audit bug hunt](07-history/audits/2026-06-14-post-audit-bug-hunt.md) — second deep-dive on the least-reviewed code; 46 findings, all fixed.
 - **Postmortems** (`07-history/postmortems/`)
   - [Phase 16 revert](07-history/postmortems/2026-05-12-phase-16-revert.md) — the written-down lesson from the revert.
   - [Loop-detector orphaned tool_use](07-history/postmortems/loop-detector-orphaned-tool-use.md) — bug write-up + resolution.
-- **State snapshots** (`07-history/state/`) — one close-out snapshot per shipped unit, newest-first. The latest is the canonical "current state." Find it with `ls docs/07-history/state/*.md | sort -r | head -1`. Most recent: [SDK open-core extraction](07-history/state/2026-06-30-sdk-open-core-extraction.md) — the harness now runs on `createAgent`. Pre-Phase-16 history is in [`07-history/state/archive/`](07-history/state/archive/). Smoke/soak output (transcripts) sits in the dated `*-smoke/` and `*-soak/` subdirs.
+- **State snapshots** (`07-history/state/`) — one close-out snapshot per shipped unit, newest-first. The latest is the canonical "current state." Find it with `ls docs/07-history/state/*.md | sort -r | head -1`. Most recent: [SDK production review](07-history/state/2026-10-09-sdk-production-review.md) — SDK 0.12.0 baseline and staged production hardening. Pre-Phase-16 history is in [`07-history/state/archive/`](07-history/state/archive/). Smoke/soak output (transcripts) sits in the dated `*-smoke/` and `*-soak/` subdirs.
 
 ## 08 — Roadmap
 
