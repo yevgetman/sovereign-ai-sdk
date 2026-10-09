@@ -1,5 +1,15 @@
 # Testing Log
 
+## 2026-10-09 — PR20 round-two final gate
+
+Root corrected an optional-error test type assertion without changing its expected receipt/terminal checks. Final lint/boundary and typecheck pass. Complete source suite: **5,501 pass / 19 existing skip / zero fail**, 22,522 assertions across 523 files (87.35s). Packed SDK/protocol Node/Bun consumers pass. An independent second reviewer approves both cancellation and unreadable-error corrections. GitHub checks are inspected after push. No master merge, paid request, release or installation.
+
+## 2026-10-09 — PR20 second independent review: start cancellation and unreadable callback errors
+
+Confirmed one Medium defect in the reviewed PR20 head `64aa8b7`: a host `tool_start` trace callback could abort the turn after the final signal check, and the tool effect still started. Offline serial and concurrent regressions fail before the correction (57 pass / 2 fail). The final cancellation guard now runs after start tracing, immediately before tool execution, and records the cancelled observation. The cancelled call returns one ordered error result without performing its effect. A second Medium defect let a steering callback throw an Error with an unreadable message getter, escape query error handling, and lose an already completed receipt. Its regression fails before correction (27 pass / 1 fail); guarded message extraction now preserves the real receipt and a readable terminal error.
+
+Focused `bun test tests/core/orchestrator.test.ts tests/core/query.test.ts` passes: 87 pass / zero fail, 284 assertions (174ms), Bun 1.3.13 on macOS arm64. Focused formatting checks pass. Root coordinates full lint/typecheck/suite and packed gates before committing or pushing this follow-up. No paid call, profile write, release, runtime install, master merge or push occurred in this review pass. Recall quality was not assessed.
+
 ## 2026-10-09 — independent PR18–20 review and renderer receipt correction
 
 An independent reviewer (not the PR author) read exact PR18 `32b29e8`, PR19 `b5de9b1` and PR20 `e94dbc6` diffs, their issue acceptance, caller/consumer paths and cleanup contracts. No confirmed finding in PR18 reservation cleanup or PR19 queue deadlines. PR18 scheduler/semaphore/lane/path-lock regressions pass: 40 tests / 94 assertions; PR19: 43 tests / 117 assertions. Each branch's injected-executor/workflow consumer group passes 29 tests / 71 assertions. Canned subprocess fixtures only; no real executor or provider call.

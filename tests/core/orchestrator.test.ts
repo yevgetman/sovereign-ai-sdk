@@ -1160,3 +1160,49 @@ test.each(['post hook', 'renderer'] as const)(
     ]);
   },
 );
+
+test.each([false, true])(
+  'trace-triggered cancellation prevents execution (concurrent=%s)',
+  async (concurrent) => {
+    const controller = new AbortController();
+    let effects = 0;
+    const tool = buildTool({
+      name: 'CancelAtStart',
+      description: () => 'offline effect counter',
+      inputSchema: z.object({}),
+      isConcurrencySafe: () => concurrent,
+      async call() {
+        effects++;
+        return { data: 'effect completed' };
+      },
+    });
+    const messages: Message[] = [];
+    for await (const message of runTools(
+      [{ type: 'tool_use', id: 'cancel-at-start', name: tool.name, input: {} }],
+      { ...ctx, signal: controller.signal },
+      [tool],
+      undefined,
+      undefined,
+      (event) => {
+        if (event.type === 'tool_start') controller.abort();
+      },
+    )) {
+      messages.push(message);
+    }
+    expect(controller.signal.aborted).toBe(true);
+    expect(effects).toBe(0);
+    expect(messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'cancel-at-start',
+            content: 'tool dispatch cancelled before execution',
+            is_error: true,
+          },
+        ],
+      },
+    ]);
+  },
+);
