@@ -197,4 +197,30 @@ assert.equal(joinedMessages[0].content[0].is_error, undefined);
 assert.equal(joinedMessages[0].content[1].is_error, true);
 assert.match(joinedMessages[0].content[1].content, /policy rejected/);
 
+// A broken custom renderer cannot erase the receipt of a completed effect.
+let rendererEffects = 0;
+const rendererTool = buildTool({
+  name: 'RendererEffect', description: () => 'renderer failure receipt', inputSchema: z.object({}),
+  async call() {
+    rendererEffects++;
+    return { data: 'actual renderer effect receipt', newMessages: [
+      { role: 'user', content: [{ type: 'text', text: 'supplementary renderer receipt' }] },
+    ] };
+  },
+  renderResult() { throw new Error('packed renderer failed'); },
+});
+const rendererMessages = [];
+for await (const message of runTools([
+  { type: 'tool_use', id: 'renderer-effect', name: 'RendererEffect', input: {} },
+], { cwd: process.cwd(), bundleRoot: process.cwd(), sessionId: 'packed-renderer' }, [rendererTool])) {
+  rendererMessages.push(message);
+}
+assert.equal(rendererEffects, 1);
+assert.equal(rendererMessages.length, 1);
+assert.equal(rendererMessages[0].content[0].tool_use_id, 'renderer-effect');
+assert.equal(rendererMessages[0].content[0].is_error, true);
+assert.match(rendererMessages[0].content[0].content, /actual renderer effect receipt/);
+assert.match(rendererMessages[0].content[0].content, /packed renderer failed/);
+assert.equal(rendererMessages[0].content[1].text, 'supplementary renderer receipt');
+
 console.log('SDK_OK');

@@ -185,7 +185,9 @@ MIT.
 Each dispatched tool call produces one ordered result. Exceptions in permission
 callbacks, hooks, input validation, result rendering, or tool execution become an
 error on that tool's result. A failure after execution retains the available tool
-output alongside the dispatch error. Other tools keep their actual results.
+output alongside the dispatch error. A failing custom output renderer retains
+the raw receipt and valid supplementary messages; unserializable output retains
+a completed-tool marker. Other tools keep their actual results.
 Started concurrent tools are joined before the batch yields or the turn returns,
 including during cancellation. Cancellation prevents further execution once it
 is observed; hosts must provide tools that honor the signal for prompt shutdown.
