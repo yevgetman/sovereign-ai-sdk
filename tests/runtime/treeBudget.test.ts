@@ -128,6 +128,18 @@ describe('shared tree budgets', () => {
     );
   });
 
+  test('observed partial usage beyond a reservation exhausts admission', () => {
+    const budget = new TreeBudget({ maxTotalTokens: 10 });
+    budget.reserveRequest({ tokens: 10 })({ outputTokens: 11 });
+    expect(budget.snapshot()).toMatchObject({
+      accountedTokens: 11,
+      unknownRequests: 1,
+      tokenUsageComplete: false,
+      exhausted: true,
+    });
+    expect(() => budget.reserveRequest({ tokens: 0 })).toThrow(TreeBudgetExceededError);
+  });
+
   test('consumer return joins provider cleanup and conservatively accounts missing usage', async () => {
     let closed = false;
     const underlying: LLMProvider = {

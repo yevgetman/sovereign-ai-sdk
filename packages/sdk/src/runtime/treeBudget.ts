@@ -121,12 +121,13 @@ export class TreeBudget {
       }
       const knownTokens =
         usage !== undefined && usage.inputTokens !== undefined && usage.outputTokens !== undefined;
-      const tokens = knownTokens
-        ? (usage.inputTokens ?? 0) +
-          (usage.outputTokens ?? 0) +
-          (usage.cacheCreationInputTokens ?? 0) +
-          (usage.cacheReadInputTokens ?? 0)
-        : tokensReserved;
+      const observedTokens =
+        (usage?.inputTokens ?? 0) +
+        (usage?.outputTokens ?? 0) +
+        (usage?.cacheCreationInputTokens ?? 0) +
+        (usage?.cacheReadInputTokens ?? 0);
+      // Missing counters cannot erase a proven overrun in the counters reported.
+      const tokens = knownTokens ? observedTokens : Math.max(tokensReserved, observedTokens);
       const knownCost = cost !== undefined && Number.isFinite(cost) && cost >= 0;
       if (!knownTokens || !knownCost) this.state.unknownRequests++;
       if (!knownTokens) this.state.tokenUsageComplete = false;
@@ -135,7 +136,7 @@ export class TreeBudget {
       this.state.accountedEstimatedCostUsd +=
         (knownCost ? cost : (costReserved ?? 0)) - (costReserved ?? 0);
       if (
-        (knownTokens && tokens > tokensReserved) ||
+        tokens > tokensReserved ||
         (knownCost && costReserved !== undefined && cost > costReserved)
       ) {
         this.state.exhausted = true;

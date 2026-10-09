@@ -1,7 +1,7 @@
 // Public, authored compatibility fixture for the host-facing SDK contracts.
 // This contains no private downstream source or owner data.
 import assert from 'node:assert/strict';
-import { createAgent, createInMemorySessionStore, buildTool } from '@yevgetman/sov-sdk';
+import { createAgent, createInMemorySessionStore, buildTool, TreeBudget, TreeBudgetExceededError } from '@yevgetman/sov-sdk';
 import { z } from 'zod';
 
 async function drain(generator) {
@@ -61,5 +61,45 @@ const cancelled = createAgent({ model: 'fixture', provider: { name: 'cancel', as
 const controller = new AbortController(); controller.abort();
 const interrupted = await drain(cancelled.run('cancel', { signal: controller.signal }));
 assert.equal(interrupted.terminal.reason, 'interrupted'); assert.equal(requests, 0);
+
+// Partial counters can prove an overrun even when total usage is unknown.
+const budget = new TreeBudget({ maxTotalTokens: 10 });
+budget.reserveRequest({ tokens: 10 })({ outputTokens: 11 });
+assert.equal(budget.snapshot().accountedTokens, 11);
+assert.equal(budget.snapshot().exhausted, true);
+assert.equal(budget.snapshot().tokenUsageComplete, false);
+assert.throws(() => budget.reserveRequest({ tokens: 0 }), TreeBudgetExceededError);
+
+// Output governance can close a fully billed attempt at its final event.
+let guardedCalls = 0;
+let finalChecks = 0;
+const regenerated = await drain(createAgent({
+  model: 'gpt-4o-mini',
+  provider: { name: 'openai', async *stream() {
+    guardedCalls++;
+    const message = { role: 'assistant', content: [{ type: 'text', text: 'guarded answer' }] };
+    yield { type: 'message_start' };
+    yield { type: 'usage_delta', usage: { inputTokens: 3, outputTokens: 4 } };
+    yield { type: 'message_stop', stop_reason: 'end_turn' };
+    yield { type: 'assistant_message', message };
+    return message;
+  } },
+  contextLimits: { maxHistoryBytes: 1000 },
+  contextManager: { async reduce(request) {
+    return { messages: [request.messages.at(-1)], usage: { inputTokens: 9, outputTokens: 2 }, estimatedCostUsd: 0.01 };
+  } },
+  conduct: { outputGuard: { onFinal() {
+    return ++finalChecks === 1 ? { action: 'regenerate' } : { action: 'pass' };
+  } } },
+}).run([
+  { role: 'user', content: [{ type: 'text', text: 'old '.repeat(2000) }] },
+  { role: 'assistant', content: [{ type: 'text', text: 'old answer' }] },
+  { role: 'user', content: [{ type: 'text', text: 'latest request' }] },
+]));
+assert.equal(guardedCalls, 2);
+assert.equal(regenerated.terminal.reason, 'completed');
+assert.deepEqual(regenerated.usage, { inputTokens: 24, outputTokens: 12 });
+assert.equal(regenerated.usageComplete, true);
+assert.ok(Math.abs(regenerated.estimatedCostUsd - 0.0200057) < 1e-9);
 
 console.log('SDK_CONTRACT_OK');

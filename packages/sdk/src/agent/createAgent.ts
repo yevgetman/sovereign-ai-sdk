@@ -512,6 +512,8 @@ export function createAgent(config: AgentConfig): Agent {
         let callUsage = createUsageAccumulator();
         let completed = false;
         let stopped = false;
+        let finalMessage = false;
+        let failed = false;
         let stream: ReturnType<LLMProvider['stream']> | undefined;
         try {
           stream = provider.stream(request);
@@ -522,16 +524,26 @@ export function createAgent(config: AgentConfig): Agent {
               return step.value;
             }
             if (step.value.type === 'message_stop') stopped = true;
+            if (step.value.type === 'assistant_message') finalMessage = true;
             callUsage = accumulateUsage(callUsage, step.value);
             yield step.value;
           }
+        } catch (error) {
+          failed = true;
+          throw error;
         } finally {
+          let cleanupSucceeded = false;
           try {
             await stream?.return({ role: 'assistant', content: [] });
+            cleanupSucceeded = true;
           } finally {
             const usage = finalizeUsage(callUsage);
             mainUsageComplete &&=
-              completed &&
+              cleanupSucceeded &&
+              // Conduct regeneration closes at the final assistant event,
+              // after the stopped call has already reported its complete bill.
+              (completed || (finalMessage && !request.signal?.aborted)) &&
+              !failed &&
               stopped &&
               usage?.inputTokens !== undefined &&
               usage.outputTokens !== undefined;

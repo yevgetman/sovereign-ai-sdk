@@ -69,6 +69,82 @@ async function drain(gen: ReturnType<ReturnType<typeof createAgent>['run']>) {
 }
 
 describe('injected context management', () => {
+  test('context and fully billed regenerated provider attempts retain combined accounting', async () => {
+    const { provider: p, requests } = provider();
+    let gates = 0;
+    const { result } = await drain(
+      createAgent({
+        provider: p,
+        model: 'gpt-4o-mini',
+        contextManager: port(),
+        contextLimits: { maxHistoryBytes: 1000 },
+        conduct: {
+          outputGuard: {
+            onFinal() {
+              return ++gates === 1 ? { action: 'regenerate' } : { action: 'pass' };
+            },
+          },
+        },
+      }).run(seed),
+    );
+    expect(result.terminal.reason).toBe('completed');
+    expect(requests).toHaveLength(2);
+    expect(result.usage).toEqual({ inputTokens: 24, outputTokens: 12 });
+    expect(result.usageComplete).toBe(true);
+    expect(result.estimatedCostUsd).toBeCloseTo(0.0200057, 9);
+  });
+
+  test('a provider failure after its final event still leaves the combined bill unknown', async () => {
+    const { provider: source } = provider();
+    const p: LLMProvider = {
+      name: source.name,
+      async *stream(request) {
+        for await (const event of source.stream(request)) yield event;
+        throw new Error('provider failed after final event');
+      },
+    };
+    const { result } = await drain(
+      createAgent({
+        provider: p,
+        model: 'gpt-4o-mini',
+        contextManager: port(),
+        contextLimits: { maxHistoryBytes: 1000 },
+      }).run(seed),
+    );
+    expect(result.terminal.reason).toBe('error');
+    expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 6 });
+    expect(result.usageComplete).toBe(false);
+    expect(result.estimatedCostUsd).toBeUndefined();
+  });
+  test.each(['sync', 'async'] as const)(
+    '%s provider cleanup failures keep combined billing unknown',
+    async (mode) => {
+      const { provider: source } = provider();
+      const p: LLMProvider = {
+        name: source.name,
+        stream(request) {
+          const stream = source.stream(request);
+          const fail = () => {
+            throw new Error('provider cleanup failed');
+          };
+          stream.return = mode === 'sync' ? fail : async () => fail();
+          return stream;
+        },
+      };
+      const { result } = await drain(
+        createAgent({
+          provider: p,
+          model: 'gpt-4o-mini',
+          contextManager: port(),
+          contextLimits: { maxHistoryBytes: 1000 },
+        }).run(seed),
+      );
+      expect(result.terminal.reason).toBe('error');
+      expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 6 });
+      expect(result.usageComplete).toBe(false);
+      expect(result.estimatedCostUsd).toBeUndefined();
+    },
+  );
   test('reduces model context while full transcript rehydration stays verbatim; usage counted once', async () => {
     const store = createInMemorySessionStore();
     const recorded: number[] = [];

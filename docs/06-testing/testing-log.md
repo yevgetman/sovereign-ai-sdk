@@ -1,5 +1,19 @@
 # Testing Log
 
+## 2026-10-09 — PR22 second review final combined gate
+
+Root merged reviewed lifecycle base `c26016b` through `a2c30b5` and retained both PR22 accounting fixes. Independent cross-review caught a synchronous cleanup-throw edge in the draft before commit. The cleanup-success flag now handles synchronous and rejected asynchronous return failures with normal propagation; both public regressions retain measured usage and omit unknown billing (before: one pass / one fail; after: both pass). This completes the original regenerated-billing correction.
+
+Final focused context/budget/child/queue suite: **56 pass / zero fail**, 257 assertions. Complete source suite: **5,594 pass / 19 existing skip / zero fail**, 22,982 assertions across 531 files (92.43s). Lint/boundary, typecheck, TUI and Go checks pass. Packed SDK/protocol and durable accounting/partial-budget regressions pass on Node/Bun, including exact Node20.19.0/Bun1.2.0 floors. Actual Agent Casa committed-source typecheck and **1,193 tests / zero pending / zero fail** pass on Node24.14.0 with its checkout unchanged. Dependency audit reports zero advisories. GitHub checks are inspected after ordinary push. No paid request, master merge, release or installed runtime change.
+
+## 2026-10-09 — round two independent PR22 review
+
+Reviewed exact PR22 `2372981` against integration base `b4dfcfd`, including prior budget, permission, context and queue corrections. Two confirmed Medium findings: fully billed context+Conduct regeneration closed the first provider generator at its final event and incorrectly lost known aggregate billing; valid partial token counters beyond a reservation did not exhaust the tree budget. Both regressions failed first (zero pass / two failures).
+
+Final stopped assistant events now preserve billing on intentional, non-aborted close; actual provider or cleanup failure still leaves aggregate billing unknown. Partial usage remains incomplete but accounting retains at least its observed lower bound and blocks further admission on proven overrun. Source regressions retain first/later unknown-provider-call and cancellation guards; an additional after-final-event provider failure remains unknown. Added public packed contract fixtures for both fixes; root owns their execution with the final gates.
+
+`bun test tests/compact/contextManagement.test.ts tests/runtime/treeBudget.test.ts tests/runtime/childPolicy.test.ts tests/host/sessionWorkQueue.test.ts`: **54 pass / zero fail / 249 assertions**, four files, macOS arm64 Bun 1.3.13, isolated offline fixtures. Targeted Biome checks pass. No full suite, commit, push, release, merge, runtime installation or provider call performed by this reviewer. Root owns combined lint/typecheck/full suite/packed consumer/CI validation. Full local report: `/private/tmp/round2-pr22-review.md`.
+
 ## 2026-10-09 — PR22 review accounting and policy boundaries
 
 Independent review of PR22 head `14155b0` against `integration/issue15-reviewed-fixes` reproduced five Medium findings before fixes: mutable request estimates could corrupt shared tree ledgers; cancellation could discard returned context charges; child narrowing could mutate approved inputs; a known context-only cost disappeared without usage; summary usage could conceal unknown first/later main-provider bills. Each finding was reported before changes. Authored offline fixtures contain no owner data or private downstream source.
