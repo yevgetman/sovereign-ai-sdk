@@ -344,3 +344,11 @@ export { findCapableModel } from './core/capabilities.js';
 // `CapabilityProfile` is findCapableModel's return type; `CapabilityRole` its
 // recommendedRoles element type (Task 2.9).
 export type { CapabilityProfile, CapabilityRole } from './core/capabilities.js';
+
+// Optional host admission control; no state or persistence is created by default.
+export { SessionWorkQueue, SessionWorkQueueError } from './host/sessionWorkQueue.js';
+export type {
+  SessionWorkQueueErrorCode,
+  SessionWorkQueueOptions,
+  SessionWorkQueueSnapshot,
+} from './host/sessionWorkQueue.js';

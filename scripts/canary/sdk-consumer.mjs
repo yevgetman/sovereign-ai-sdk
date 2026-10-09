@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { readdirSync } from 'node:fs';
-import { buildTool, createAgent, createInMemorySessionStore } from '@yevgetman/sov-sdk';
+import { SessionWorkQueue, SessionWorkQueueError, buildTool, createAgent, createInMemorySessionStore } from '@yevgetman/sov-sdk';
 // The one deliberate deep-subpath import in this otherwise barrel-only consumer:
 // the F17/F18/F19 regression guard (asserted at the end) needs VERSION, which
 // lives at the `./version` public subpath, not on the frozen `./sdk` barrel.
@@ -196,5 +196,19 @@ assert.equal(joinedMessages[0].content[0].content, 'actual packed output');
 assert.equal(joinedMessages[0].content[0].is_error, undefined);
 assert.equal(joinedMessages[0].content[1].is_error, true);
 assert.match(joinedMessages[0].content[1].content, /policy rejected/);
+
+// Optional portable host lifecycle: verify the public exports in both runtimes.
+const hostQueue = new SessionWorkQueue({ maxActiveSessions: 1, maxQueued: 2, maxQueuedPerSession: 2 });
+const hostEvents = [];
+await Promise.all([
+  hostQueue.submit('canary', async () => { await Promise.resolve(); hostEvents.push('first'); }),
+  hostQueue.submit('canary', async () => { hostEvents.push('second'); }),
+]);
+assert.deepEqual(hostEvents, ['first', 'second']);
+await assert.rejects(hostQueue.submit('canary', async () => { throw new Error('injected write failure'); }), /injected write failure/);
+assert.equal(await hostQueue.submit('canary', async () => 'recovered'), 'recovered');
+await hostQueue.shutdown(false);
+assert.deepEqual(hostQueue.snapshot(), { active: 0, queued: 0, closed: true });
+await assert.rejects(hostQueue.submit('canary', async () => {}), (error) => error instanceof SessionWorkQueueError && error.code === 'closed');
 
 console.log('SDK_OK');

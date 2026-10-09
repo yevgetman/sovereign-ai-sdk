@@ -168,6 +168,9 @@ import type {
   Scheduler,
   Session,
   SessionStore,
+  SessionWorkQueueErrorCode,
+  SessionWorkQueueOptions,
+  SessionWorkQueueSnapshot,
   Settings,
   Skill,
   SkillClassification,
@@ -243,6 +246,8 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'PersistBeforeRunError',
   'RouterProvider',
   'SessionPersistenceError',
+  'SessionWorkQueue',
+  'SessionWorkQueueError',
   'SubagentScheduler',
   'SubscriptionAuthExpiredError',
   'SubscriptionTierBlockedError',
@@ -452,6 +457,9 @@ type TypeSurfaceWitness = {
   scheduler?: Scheduler;
   session?: Session;
   sessionStore?: SessionStore;
+  sessionWorkQueueErrorCode?: SessionWorkQueueErrorCode;
+  sessionWorkQueueOptions?: SessionWorkQueueOptions;
+  sessionWorkQueueSnapshot?: SessionWorkQueueSnapshot;
   settings?: Settings;
   skill?: Skill;
   skillClassification?: SkillClassification;

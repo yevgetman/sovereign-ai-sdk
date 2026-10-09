@@ -23,6 +23,8 @@ Current state lives in [`docs/07-history/state/`](docs/07-history/state/) — ne
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).
 
+SDK hosts can opt into [bounded session ownership and joined shutdown](docs/04-extending/host-session-lifecycle.md). This portable helper coordinates one process and does not create persistence or select a production deployment.
+
 For day-to-day operation see [`docs/03-cli-reference/usage.md`](docs/03-cli-reference/usage.md). For developing this repo see [`CLAUDE.md`](CLAUDE.md).
 
 ## Install on a new machine
