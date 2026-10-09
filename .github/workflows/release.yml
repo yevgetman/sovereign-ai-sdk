@@ -193,20 +193,11 @@ jobs:
   build-windows:
     name: build-windows
     needs: preflight
-    runs-on: windows-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 25
-    # Telekit for Windows (telekit specs/2026-08-24-windows-support-design.md
-    # §5.3). Built natively so the `--version` smoke below exercises the real
-    # `sov.exe` on Windows, and the zip is unpacked with Windows' own
-    # Expand-Archive to prove the hand-rolled writer (scripts/release-zip.ts)
-    # produces an archive a stock Windows box can open.
-    defaults:
-      run:
-        shell: pwsh
+    # Cross-compile and fully scan the Windows package on Linux. The pinned
+    # scanner's file metadata checks are not portable to native Windows.
     steps:
-      # Scanner and consumer-license pins hash exact Git bytes on every platform.
-      - name: Preserve LF bytes in Windows checkouts
-        run: git config --global core.autocrlf false
       - name: Checkout sovereign-ai-sdk
         uses: actions/checkout@v5
         with:
@@ -216,7 +207,6 @@ jobs:
           python-version: '3.12'
       - name: Read reviewed license revision
         id: license-source
-        shell: bash
         run: python -c "import json; print('revision=' + json.load(open('scripts/release-license.json'))['revision'])" >> "$GITHUB_OUTPUT"
       - name: Checkout reviewed consumer license
         uses: actions/checkout@v5
@@ -236,18 +226,27 @@ jobs:
         env:
           SOV_RELEASES_PATH: ${{ github.workspace }}/sov-releases
         run: bun run release:build windows-x64 ${{ needs.preflight.outputs.version }}
-      - name: Native smoke (windows-x64 --version)
-        run: |
-          $V = "${{ needs.preflight.outputs.version }}"
-          $Out = (& ".\build\release\$V\windows-x64\bin\sov.exe" --version | Out-String).Trim()
-          Write-Host "smoke output: $Out"
-          # The version string starts with the bare semver (sans leading "v").
-          $Bare = $V.TrimStart('v')
-          if (-not $Out.StartsWith($Bare)) {
-            Write-Host "::error::--version output '$Out' does not start with $Bare"
-            exit 1
-          }
-          Write-Host "OK: --version starts with $Bare"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: tarballs-windows
+          path: build/release/${{ needs.preflight.outputs.version }}/sov-windows-*.zip
+          if-no-files-found: error
+
+  smoke-windows:
+    name: smoke-windows
+    needs: [build-windows, preflight]
+    runs-on: windows-latest
+    timeout-minutes: 10
+    # Test the exact scanned archive on stock Windows before publication.
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Download scanned Windows package
+        uses: actions/download-artifact@v7
+        with:
+          name: tarballs-windows
+          path: build/release/${{ needs.preflight.outputs.version }}
       - name: Zip layout smoke (Expand-Archive)
         run: |
           $V = "${{ needs.preflight.outputs.version }}"
@@ -266,15 +265,27 @@ jobs:
             exit 1
           }
           Write-Host "OK: zip layout matches the tarballs"
-      - uses: actions/upload-artifact@v6
-        with:
-          name: tarballs-windows
-          path: build/release/${{ needs.preflight.outputs.version }}/sov-windows-*.zip
-          if-no-files-found: error
+      - name: Native smoke (windows-x64 --version)
+        run: |
+          $V = "${{ needs.preflight.outputs.version }}"
+          $Sov = Join-Path $env:RUNNER_TEMP "sov-zip-smoke\bin\sov.exe"
+          $Out = (& $Sov --version | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::sov.exe --version exited with $LASTEXITCODE"
+            exit 1
+          }
+          Write-Host "smoke output: $Out"
+          # The version string starts with the bare semver (sans leading "v").
+          $Bare = $V.TrimStart('v')
+          if (-not $Out.StartsWith($Bare)) {
+            Write-Host "::error::--version output '$Out' does not start with $Bare"
+            exit 1
+          }
+          Write-Host "OK: --version starts with $Bare"
 
   release:
     name: release
-    needs: [build-darwin, build-linux, build-windows, preflight]
+    needs: [build-darwin, build-linux, build-windows, smoke-windows, preflight]
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
