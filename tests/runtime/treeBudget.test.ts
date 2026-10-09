@@ -56,6 +56,30 @@ describe('shared tree budgets', () => {
     expect(budget.snapshot().accountedEstimatedCostUsd).toBeCloseTo(0.01000255, 8);
   });
 
+  test('mutable shared estimates cannot change concurrent reservations or free admission', () => {
+    const budget = new TreeBudget({ maxTotalTokens: 100, maxEstimatedCostUsd: 1 });
+    const estimate = { tokens: 50, estimatedCostUsd: 0.5 };
+    const first = budget.reserveRequest(estimate);
+    const second = budget.reserveRequest(estimate);
+    estimate.tokens = 1000;
+    estimate.estimatedCostUsd = 10;
+    first({ inputTokens: 20, outputTokens: 20 }, 0.4);
+    expect(budget.snapshot().accountedTokens).toBe(90);
+    expect(budget.snapshot().accountedEstimatedCostUsd).toBeCloseTo(0.9);
+    expect(() => budget.reserveRequest({ tokens: 11, estimatedCostUsd: 0.01 })).toThrow(
+      TreeBudgetExceededError,
+    );
+    expect(() => budget.reserveRequest({ tokens: 0, estimatedCostUsd: 0.11 })).toThrow(
+      TreeBudgetExceededError,
+    );
+    estimate.tokens = 0;
+    estimate.estimatedCostUsd = 0;
+    second({ inputTokens: 10, outputTokens: 10 }, 0.2);
+    expect(budget.snapshot().accountedTokens).toBe(60);
+    expect(budget.snapshot().accountedEstimatedCostUsd).toBeCloseTo(0.6);
+    expect(budget.snapshot().exhausted).toBe(false);
+  });
+
   test('missing and partial usage retain upper bounds and are marked unknown', async () => {
     const budget = new TreeBudget({ maxTotalTokens: 10, maxEstimatedCostUsd: 0.1 });
     await drain(

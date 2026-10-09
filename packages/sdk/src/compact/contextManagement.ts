@@ -150,7 +150,6 @@ export async function reduceContext(
     limits: { ...limits },
     messages: JSON.parse(before) as Message[],
   });
-  request.signal.throwIfAborted();
   if (!result || typeof result !== 'object')
     throw new ContextManagementError('invalid reduction result');
   // Validate billing metadata before trusting it in either success or failure events.
@@ -173,6 +172,8 @@ export async function reduceContext(
   let afterBytes = 0;
   const beforeBytes = new TextEncoder().encode(before).byteLength;
   try {
+    // A cancelled reduction still owes its validated bill, but cannot change history.
+    request.signal.throwIfAborted();
     validateHistory(result.messages);
     afterBytes = historyBytes(result.messages);
     if (

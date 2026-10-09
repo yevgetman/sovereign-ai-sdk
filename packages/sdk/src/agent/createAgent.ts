@@ -83,7 +83,7 @@ import {
   SessionPersistenceError,
   UnknownToolsetError,
 } from '../providers/errors.js';
-import { estimateCostUsd } from '../providers/pricing.js';
+import { PRICE_TABLE, estimateCostUsd } from '../providers/pricing.js';
 import { resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
 import type { CapabilityProfileRegistry } from '../tool/capabilityProfiles.js';
@@ -503,9 +503,45 @@ export function createAgent(config: AgentConfig): Agent {
     // steering system segment. `extraSegments` is EMPTY on the first attempt —
     // the systemPrompt is then `effectiveSystemPrompt` verbatim, byte-identical
     // to the pre-1d single call.
+    let providerStarted = false;
+    let mainUsageComplete = true;
+    const observedProvider: LLMProvider = {
+      name: provider.name,
+      async *stream(request) {
+        providerStarted = true;
+        let callUsage = createUsageAccumulator();
+        let completed = false;
+        let stopped = false;
+        let stream: ReturnType<LLMProvider['stream']> | undefined;
+        try {
+          stream = provider.stream(request);
+          for (;;) {
+            const step = await stream.next();
+            if (step.done) {
+              completed = true;
+              return step.value;
+            }
+            if (step.value.type === 'message_stop') stopped = true;
+            callUsage = accumulateUsage(callUsage, step.value);
+            yield step.value;
+          }
+        } finally {
+          try {
+            await stream?.return({ role: 'assistant', content: [] });
+          } finally {
+            const usage = finalizeUsage(callUsage);
+            mainUsageComplete &&=
+              completed &&
+              stopped &&
+              usage?.inputTokens !== undefined &&
+              usage.outputTokens !== undefined;
+          }
+        }
+      },
+    };
     const startTurn = (extraSegments: SystemSegment[]) =>
       query({
-        provider,
+        provider: observedProvider,
         model,
         messages: seedMessages,
         systemPrompt:
@@ -860,15 +896,27 @@ export function createAgent(config: AgentConfig): Agent {
     //    trailing provider call and returns the summed per-run total — a FRESH
     //    object, never aliasing the accumulator's mutable-looking internals — or
     //    `undefined` when the stream reported no usage (recordTokenUsage stays
-    //    skipped; RunResult.usage/estimatedCostUsd stay absent). The accumulator
+    //    skipped; RunResult.usage stays absent). A known context-only charge may
+    //    still be returned without tokens when no main provider was started.
+    //    The numeric token store cannot represent that unknown usage, so its
+    //    aggregate billing write stays skipped. The accumulator
     //    saw only THIS run's live stream, so a rehydrated session never
     //    re-records prior runs' tokens; the store's own accumulate
     //    (`col = col + ?`) does the rest. Cost prices the summed total against
     //    the provider/model this run used — the same `provider.name` the persist
     //    path records under, so the recorded and returned costs match exactly.
     const usage = finalizeUsage(usageAcc);
+    // Context aggregation must not turn an unknown main-provider bill into zero.
+    // Preserve historical no-context pricing; this guard covers the new combined contract.
+    const aggregateCostKnown =
+      contextCostKnown &&
+      (contextUsageComplete === undefined ||
+        (mainUsageComplete &&
+          (!providerStarted || PRICE_TABLE[`${provider.name}:${model}`] !== undefined)));
+    if (contextUsageComplete !== undefined) contextUsageComplete &&= mainUsageComplete;
     const estimatedCostUsd =
-      usage !== undefined && contextCostKnown
+      aggregateCostKnown &&
+      (usage !== undefined || (contextUsageComplete !== undefined && !providerStarted))
         ? estimateCostUsd(provider.name, model, finalizeUsage(providerUsageAcc) ?? {}) + contextCost
         : undefined;
 
@@ -883,7 +931,7 @@ export function createAgent(config: AgentConfig): Agent {
           providerName: provider.name,
           systemPrompt: effectiveSystemPrompt,
           messages,
-          usage: contextCostKnown ? usage : undefined,
+          usage: aggregateCostKnown ? usage : undefined,
           estimatedCostUsd,
           ...(savedThrough !== undefined ? { persistFrom: savedThrough } : {}),
         });

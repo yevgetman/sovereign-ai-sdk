@@ -84,25 +84,27 @@ export class TreeBudget {
 
   /** Reserve BEFORE calling a provider. Unknown results retain the whole bound. */
   reserveRequest(estimate: RequestBudgetEstimate): (usage?: TokenUsage, cost?: number) => void {
+    // Capture caller-owned estimates once; settlement must not read a reused object.
+    const tokensReserved = estimate.tokens;
+    const costReserved = estimate.estimatedCostUsd;
     if (
-      !Number.isSafeInteger(estimate.tokens) ||
-      estimate.tokens < 0 ||
-      (estimate.estimatedCostUsd !== undefined &&
-        (!Number.isFinite(estimate.estimatedCostUsd) || estimate.estimatedCostUsd < 0))
+      !Number.isSafeInteger(tokensReserved) ||
+      tokensReserved < 0 ||
+      (costReserved !== undefined && (!Number.isFinite(costReserved) || costReserved < 0))
     ) {
       throw new Error('invalid request budget estimate');
     }
-    if (this.limits.maxEstimatedCostUsd !== undefined && estimate.estimatedCostUsd === undefined) {
+    if (this.limits.maxEstimatedCostUsd !== undefined && costReserved === undefined) {
       throw new TreeBudgetExceededError('cost ceiling requires a request cost upper bound');
     }
-    this.check('tokens', this.state.accountedTokens + estimate.tokens, this.limits.maxTotalTokens);
+    this.check('tokens', this.state.accountedTokens + tokensReserved, this.limits.maxTotalTokens);
     this.check(
       'estimated cost',
-      this.state.accountedEstimatedCostUsd + (estimate.estimatedCostUsd ?? 0),
+      this.state.accountedEstimatedCostUsd + (costReserved ?? 0),
       this.limits.maxEstimatedCostUsd,
     );
-    this.state.accountedTokens += estimate.tokens;
-    this.state.accountedEstimatedCostUsd += estimate.estimatedCostUsd ?? 0;
+    this.state.accountedTokens += tokensReserved;
+    this.state.accountedEstimatedCostUsd += costReserved ?? 0;
     let settled = false;
     return (usage, cost) => {
       if (settled) return;
@@ -124,17 +126,17 @@ export class TreeBudget {
           (usage.outputTokens ?? 0) +
           (usage.cacheCreationInputTokens ?? 0) +
           (usage.cacheReadInputTokens ?? 0)
-        : estimate.tokens;
+        : tokensReserved;
       const knownCost = cost !== undefined && Number.isFinite(cost) && cost >= 0;
       if (!knownTokens || !knownCost) this.state.unknownRequests++;
       if (!knownTokens) this.state.tokenUsageComplete = false;
       if (!knownCost) this.state.estimatedCostComplete = false;
-      this.state.accountedTokens += tokens - estimate.tokens;
+      this.state.accountedTokens += tokens - tokensReserved;
       this.state.accountedEstimatedCostUsd +=
-        (knownCost ? cost : (estimate.estimatedCostUsd ?? 0)) - (estimate.estimatedCostUsd ?? 0);
+        (knownCost ? cost : (costReserved ?? 0)) - (costReserved ?? 0);
       if (
-        (knownTokens && tokens > estimate.tokens) ||
-        (knownCost && estimate.estimatedCostUsd !== undefined && cost > estimate.estimatedCostUsd)
+        (knownTokens && tokens > tokensReserved) ||
+        (knownCost && costReserved !== undefined && cost > costReserved)
       ) {
         this.state.exhausted = true;
       }

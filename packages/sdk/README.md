@@ -260,6 +260,19 @@ It provides no cross-process lease, durable queue, automatic replay or
 exactly-once external effects. `SessionWorkQueueError.code` identifies admission
 and cancellation failures. `snapshot()` reports counts without owner content.
 
+A context reduction can return a known cost without token usage. If it fails or
+is cancelled before main-provider work starts, `RunResult.estimatedCostUsd`
+retains that charge; `usage` stays absent and `usageComplete` is false. The
+numeric token-usage store cannot represent unknown tokens, so this cost-only
+case skips its aggregate write. Hosts can retain the context event's cost in
+their own billing store.
+
+When a reduction contributes usage, each main-provider call must finish with
+input and output usage, and its provider/model must have a built-in price, before
+the combined cost is known. An unknown main bill
+sets `usageComplete` false and skips the combined numeric billing write; observed
+tokens remain in the result. This rule covers context aggregation.
+
 ## Capability profiles and native child policy
 
 `CapabilityProfileRegistry` adds host-named profiles to the compatible `chat`,
@@ -278,6 +291,7 @@ boundary to further delegations. Model-selected definitions may select a narrowe
 `capabilityProfile`; they cannot restore tools absent from the parent pool.
 Allow-list patterns are enforced by the existing tool permission matcher.
 Malformed patterns fail before a child session starts. A child authorization
+policy receives an isolated copy. Noncloneable inputs fail closed. A narrowing
 policy can deny but cannot override a parent denial or rewrite parent-authorized
 inputs. Native policy cannot be enforced by a subprocess executor, so that
 combination rejects delegation.

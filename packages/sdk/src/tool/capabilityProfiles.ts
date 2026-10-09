@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import type { CanUseTool } from '../permissions/types.js';
 import { defaultMaxTurns, filterToolsForToolset, isToolsetName } from './toolset.js';
 
@@ -50,13 +51,24 @@ export class CapabilityProfileRegistry {
 /** Intersect two authorization decisions. A child may deny but cannot grant over its parent. */
 export function intersectCanUseTool(parent: CanUseTool | undefined, child: CanUseTool): CanUseTool {
   return async (tool, input, ctx) => {
-    const inherited = parent ? await parent(tool, input, ctx) : { behavior: 'allow' as const };
+    const inherited = {
+      ...(parent ? await parent(tool, input, ctx) : { behavior: 'allow' as const }),
+    };
     if (inherited.behavior === 'deny') return inherited;
-    const narrowed = await child(tool, inherited.updatedInput ?? input, ctx);
+    // Snapshot approval before awaiting child policy; host-owned objects may be reused.
+    const authorized = structuredClone(
+      inherited.updatedInput !== undefined ? inherited.updatedInput : input,
+    );
+    const narrowed = await child(tool, structuredClone(authorized), ctx);
     if (narrowed.behavior === 'deny') return narrowed;
     // Narrowing policies must not rewrite the already-authorized parent input.
     if (narrowed.updatedInput !== undefined) {
       return { behavior: 'deny', reason: 'child narrowing policy cannot rewrite inputs' };
+    }
+    if (inherited.updatedInput !== undefined) return { ...inherited, updatedInput: authorized };
+    // Do not label already-parsed input a rewrite: that would apply Zod transforms twice.
+    if (!isDeepStrictEqual(input, authorized)) {
+      return { behavior: 'deny', reason: 'parent-authorized input changed during child policy' };
     }
     return inherited;
   };

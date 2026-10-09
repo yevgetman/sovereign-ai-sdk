@@ -18,6 +18,7 @@ import type {
   Tool,
   ToolContext,
 } from '@yevgetman/sov-sdk';
+import { runTools } from '@yevgetman/sov-sdk/core/orchestrator';
 import { z } from 'zod';
 
 const answer: AssistantMessage = { role: 'assistant', content: [{ type: 'text', text: 'done' }] };
@@ -164,6 +165,163 @@ test('children inherit recall, hooks and output governance while tools only narr
   expect(events).toContain('Stop');
   expect(result.usage).toEqual({ inputTokens: 5, outputTokens: 3 });
   expect(result.estimatedCostUsd).toBeCloseTo(0.00000255, 8);
+});
+
+test('narrowing callbacks cannot mutate caller or parent-authorized nested inputs', async () => {
+  const original = { value: { label: 'original' } };
+  const authorized = { value: { label: 'authorized' } };
+  const mutate = async (_tool: Tool<unknown, unknown>, value: unknown) => {
+    (value as typeof original).value.label = 'changed';
+    return { behavior: 'allow' as const };
+  };
+  const inherited = intersectCanUseTool(
+    async () => ({ behavior: 'allow', updatedInput: authorized }),
+    mutate,
+  );
+  const decision = await inherited(
+    read as unknown as Tool<unknown, unknown>,
+    original,
+    input.parentToolContext,
+  );
+  expect(decision.updatedInput).toEqual({ value: { label: 'authorized' } });
+  expect(authorized).toEqual({ value: { label: 'authorized' } });
+  const direct = await intersectCanUseTool(undefined, mutate)(
+    read as unknown as Tool<unknown, unknown>,
+    original,
+    input.parentToolContext,
+  );
+  expect(direct.behavior).toBe('allow');
+  expect(original).toEqual({ value: { label: 'original' } });
+});
+
+test('parent input reuse during asynchronous narrowing cannot change the approved value', async () => {
+  const authorized = { value: { label: 'approved' } };
+  let childStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    childStarted = resolve;
+  });
+  let finishChild!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    finishChild = resolve;
+  });
+  const policy = intersectCanUseTool(
+    async () => ({ behavior: 'allow', updatedInput: authorized }),
+    async (_tool, value) => {
+      expect(value).toEqual({ value: { label: 'approved' } });
+      childStarted();
+      await gate;
+      return { behavior: 'allow' };
+    },
+  );
+  const decision = policy(read as unknown as Tool<unknown, unknown>, {}, input.parentToolContext);
+  await started;
+  authorized.value.label = 'reused';
+  finishChild();
+  expect((await decision).updatedInput).toEqual({ value: { label: 'approved' } });
+});
+
+test('caller input mutation during child policy denies without inventing a rewrite', async () => {
+  const original = { value: { label: 'approved' } };
+  let childStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    childStarted = resolve;
+  });
+  let finishChild!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    finishChild = resolve;
+  });
+  const policy = intersectCanUseTool(undefined, async () => {
+    childStarted();
+    await gate;
+    return { behavior: 'allow' };
+  });
+  const pending = policy(
+    read as unknown as Tool<unknown, unknown>,
+    original,
+    input.parentToolContext,
+  );
+  await started;
+  original.value.label = 'reused';
+  finishChild();
+  expect((await pending).behavior).toBe('deny');
+});
+
+test('unchanged narrowing applies non-idempotent schema transforms only once', async () => {
+  let called: unknown;
+  const transformed = buildTool({
+    name: 'Transform',
+    description: () => 'fixture',
+    inputSchema: z.object({ value: z.string().transform((value) => `parsed(${value})`) }),
+    async call(value) {
+      called = value;
+      return { data: value };
+    },
+  });
+  for await (const _message of runTools(
+    [{ type: 'tool_use', id: 'transform', name: 'Transform', input: { value: 'original' } }],
+    input.parentToolContext,
+    [transformed as unknown as Tool<unknown, unknown>],
+    intersectCanUseTool(undefined, async () => ({ behavior: 'allow' })),
+  )) {
+    /* drain */
+  }
+  expect(called).toEqual({ value: 'parsed(original)' });
+});
+
+test('a parent null rewrite is checked as null by the narrowing policy', async () => {
+  let checked: unknown;
+  const policy = intersectCanUseTool(
+    async () => ({ behavior: 'allow', updatedInput: null }),
+    async (_tool, value) => {
+      checked = value;
+      return { behavior: value === null ? 'deny' : 'allow' };
+    },
+  );
+  const decision = await policy(
+    read as unknown as Tool<unknown, unknown>,
+    { value: 'old' },
+    input.parentToolContext,
+  );
+  expect(checked).toBeNull();
+  expect(decision.behavior).toBe('deny');
+});
+
+test('parent decision reuse cannot change whether an approval is a rewrite', async () => {
+  for (const rewritten of [false, true]) {
+    const original = { value: 'original' };
+    const parentDecision: { behavior: 'allow'; updatedInput?: unknown } = {
+      behavior: 'allow',
+      ...(rewritten ? { updatedInput: { value: 'approved' } } : {}),
+    };
+    let started!: () => void;
+    const childStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const policy = intersectCanUseTool(
+      async () => parentDecision,
+      async () => {
+        started();
+        await gate;
+        return { behavior: 'allow' };
+      },
+    );
+    const pending = policy(
+      read as unknown as Tool<unknown, unknown>,
+      original,
+      input.parentToolContext,
+    );
+    await childStarted;
+    parentDecision.updatedInput = rewritten ? undefined : { value: 'new' };
+    finish();
+    expect(await pending).toEqual({
+      behavior: 'allow',
+      ...(rewritten ? { updatedInput: { value: 'approved' } } : {}),
+    });
+  }
 });
 
 test('narrowing permissions cannot override parent denials or rewrite parent-authorized input', async () => {
