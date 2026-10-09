@@ -140,7 +140,8 @@ describe('config catalog', () => {
       expect(providers.drillInto).toBeDefined();
       // 2026-06-14 (T4) — added the Sovereign (local) provider subgroup.
       // 2026-07-06 — added the Manifest (model router) provider subgroup.
-      expect(providers.drillInto?.length).toBe(6);
+      // 2026-10-08 — added the direct xAI API-key provider subgroup.
+      expect(providers.drillInto?.length).toBe(7);
       const targetIds = providers.drillInto?.map((d) => d.targetGroupId);
       expect(targetIds).toContain('providers-anthropic');
       expect(targetIds).toContain('providers-openai');
@@ -148,6 +149,7 @@ describe('config catalog', () => {
       expect(targetIds).toContain('providers-ollama');
       expect(targetIds).toContain('providers-sov');
       expect(targetIds).toContain('providers-manifest');
+      expect(targetIds).toContain('providers-xai');
     }
   });
 

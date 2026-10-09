@@ -242,6 +242,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'PathLockManager',
   'PersistBeforeRunError',
   'RouterProvider',
+  'SessionPersistenceError',
   'SubagentScheduler',
   'SubscriptionAuthExpiredError',
   'SubscriptionTierBlockedError',

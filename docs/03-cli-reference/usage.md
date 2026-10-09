@@ -106,6 +106,7 @@ Bare `sov` launches the Go Bubble Tea TUI via the local Hono server. The TUI acc
 | `chat` *(deprecated keyword)* | Same as bare `sov`. Typing `sov chat` explicitly prints a deprecation warning on stderr recommending bare `sov` (interactive) or `sov dispatch` (headless). The keyword still works for now. |
 | `dispatch [-b/--bundle <path>]` | (2026-05-12.) Headless slash-command surface. Boots a minimum context (no session DB, no compactor, no task manager, no review manager, no agent loop), reads slash commands from stdin (one per line), prints output framed by `--- ready ---` (boot complete) and `--- end-of-turn ---` (per-command separator), exits on EOF or `/quit`. Read-only commands work identically to the interactive session; state-dependent commands like `/compact`, `/rollback`, `/resume`, `/tasks`, `/review`, `/stats`, `/export` error informatively ("dispatch mode does not maintain a session DB — /X requires an interactive session"). Use case: mechanical regression testing of dispatch logic at $0 cost in ~1s. Example: `echo "/help" \| sov dispatch`. |
 | `run --json --stdin [flags]` | One-shot machine contract for harness adapters. Reads **all stdin as one prompt**, starts or resumes a normal session, follows the same HTTP+SSE server path as the TUI, emits JSONL on stdout (`session.started`, direct server events, `turn.completed` / `turn.error`), then exits. Supports `--bundle`, `--provider`, `--model`, `--max-tokens`, `--permission-mode`, `--resume`, `--db`, `--no-cache`, `--no-preflight`, and `--effort off\|low\|medium\|high\|max`. Example: `printf 'hello\nworld\n' \| sov run --json --stdin --provider mock --no-preflight`. |
+| `run --sdk --route <id> --json --stdin [flags]` | Native in-process SDK host, without a server or TUI. See [Native SDK routes](sdk-routes.md) for credentials, discovery, structured input, toolsets, resume and JSONL. |
 | `mission init <dir> --goal "..."` | (Phase 13.5.) Bootstrap a scheduled-mission directory at `<dir>` with `mission.md` (goal + plan template), `state.json` (FSM initial state), `notes.md`, and the `.lock/` subdir. Refuses to overwrite an existing mission dir. |
 | `mission run --state-dir <dir>` | (Phase 13.5.) Non-interactive scheduled-mission wake. Runs one mission cycle (load state → check FSM gate → inject mission segments → invoke `scheduled-mission` agent → parse `MISSION_TRANSITION=<state>` sentinel → append wake-log → atomic state write-back → release lock). Exits with `[mission] state is 'complete' (terminal) — nothing to do` if the FSM is in a terminal state. Designed for launchd / cron invocation, and the supported entrypoint for the wake — the older interactive `sov --agent scheduled-mission --state-dir <dir>` form is deferred-warned and ignored by the TUI launcher. |
 | `daemon` | (Phase 16.0a — dormant.) Acquire a per-profile PID lock, init the daemon event bus + session cache + approval queue, emit `daemon_started`, wait for SIGTERM/SIGINT. Currently has no foreground subscriber; the intended subscriber (Phase 16.0b Ink TUI) was reverted on 2026-05-12. Functional but unused; Phase 16.1 shipped as the Bubble Tea TUI rebuild (not a daemon subscriber), so the daemon stays dormant pending a future daemon-subscriber design. Use `harness daemon` interchangeably. |
@@ -2544,3 +2545,33 @@ Need a clean test session
 - [`docs/04-extending/extending.md`](docs/04-extending/extending.md) — adding tools, providers, commands, agents, and tests.
 - [`docs/06-testing/semantic-testing.md`](docs/06-testing/semantic-testing.md) — the semantic-test framework behind the eval suite.
 - [`docs/05-conventions/lint-and-commit.md`](docs/05-conventions/lint-and-commit.md) — the gate to run before committing.
+
+
+## Authentication routes for native SDK callers
+
+SOV owns authentication. A caller selects one of these reserved route IDs:
+
+| Route | Backend | Credential |
+| --- | --- | --- |
+| `openrouter-api` | OpenRouter | `OPENROUTER_API_KEY` or SOV provider config |
+| `anthropic-api` | Anthropic | `ANTHROPIC_API_KEY` or SOV provider config |
+| `openai-api` | OpenAI | `OPENAI_API_KEY` or SOV provider config |
+| `grok-api` | direct xAI | `XAI_API_KEY` or `providers.xai.apiKey` |
+| `chatgpt-subscription` | ChatGPT Codex backend | `sov login chatgpt` |
+| `grok-subscription` | Grok subscription backend | `sov login grok` |
+
+`grok-api` does not use an OpenRouter Grok credential. Claude subscriptions are unsupported. Subscription login runs outside an embedding caller. Tokens remain in the existing OS-account Keychain items. `sov logout chatgpt` and `sov logout grok` remove them.
+
+Read-only machine discovery:
+
+```sh
+sov capabilities --json
+sov routes --json
+sov auth status --route chatgpt-subscription --json
+```
+
+Each response has `schemaVersion: 1`. Status performs no login, refresh, network request, or credential write. `present` means a local credential exists; it does not prove service entitlement. A locked or unavailable Keychain reports `unavailable`. Model catalogs are offline known examples and may be non-exhaustive. Known incompatible models or unsupported effort are refused. A backend rejection does not change route, payment method, or model.
+
+Set a route default with `sov config set routes.<route-id>.defaultModel <model>`. This overrides an API route's existing `providers.<provider>.model` setting. Subscription routes have their own defaults. ChatGPT supports low, medium, high, and max reasoning effort; max maps to xhigh. Grok subscription currently advertises off only. The route catalog reports the effective model and effort defaults.
+
+Login writes, refresh, and logout share an OS-account-and-service mutex under `~/.sov/auth-locks`. Profiles and `HARNESS_HOME` do not split the identity. Concurrent 401 replies rotate one rejected token generation only. Logout waits for a pending refresh and then deletes the credential. A delayed attended-login approval cannot restore a credential after logout. Waits and exchanges are bounded and cancellable. Dead process owners are recovered; live owners are never evicted merely because an exchange is slow. Injected credential ports must supply `lockDirectory` and `lockIdentity` for cross-process coordination; ports without them retain only an in-process mutex.

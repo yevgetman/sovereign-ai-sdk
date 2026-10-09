@@ -1,5 +1,6 @@
 import type { AssistantMessage, StreamEvent } from '../core/types.js';
-import { messagesToOpenAI, parseSse, translateOpenAIStream } from './openai.js';
+import { responsesInput, responsesTools, translateResponsesSse } from './responses.js';
+import { RouteError } from './routes/errors.js';
 import {
   type AttemptDeps,
   defaultAttemptDeps,
@@ -7,11 +8,15 @@ import {
 } from './subscription/attempt.js';
 import { KEYCHAIN_SERVICE } from './subscription/names.js';
 import { formBody, recordFromTokenJson } from './subscription/oauth.js';
-import type { SubscriptionCredentialPort, SubscriptionFetch } from './subscription/port.js';
+import type {
+  SubscriptionCredentialPort,
+  SubscriptionFetch,
+  SubscriptionRecord,
+} from './subscription/port.js';
 import { exchangeUnderLock, loadFreshRecord } from './subscription/tokens.js';
-import type { LLMProvider, ProviderRequest, ToolSchema } from './types.js';
+import type { LLMProvider, ProviderRequest } from './types.js';
 
-const CHAT_URL = 'https://api.x.ai/v1/chat/completions';
+export const GROK_RESPONSES_URL = 'https://api.x.ai/v1/responses';
 const TOKEN_URL = 'https://auth.x.ai/oauth2/token';
 export const GROK_OAUTH_CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828';
 
@@ -38,39 +43,57 @@ export class GrokSubscriptionProvider implements LLMProvider {
   }
 
   async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+    let sentRecord: SubscriptionRecord | undefined;
     const response = await subscriptionAttempt({
       provider: this.name,
       ...(req.signal ? { signal: req.signal } : {}),
       tierBlockedOn403: true,
       deps: this.deps,
-      send: () => this.send(req),
-      refresh: () => this.refresh(),
+      send: () =>
+        this.send(req, (record) => {
+          sentRecord = record;
+        }),
+      refresh: () => this.refresh(sentRecord, req.signal),
     });
-    if (!response.body) {
-      throw new Error('subscription provider grok returned an empty stream');
-    }
-    return yield* translateOpenAIStream(parseSse(response.body));
+    return yield* translateResponsesSse(response, this.name);
   }
 
-  private async send(req: ProviderRequest): Promise<Response> {
+  private async send(
+    req: ProviderRequest,
+    remember: (record: SubscriptionRecord) => void,
+  ): Promise<Response> {
     const record = await loadFreshRecord(
       this.name,
       KEYCHAIN_SERVICE.grok,
       this.port,
       this.deps.now,
-      (current) => this.exchange(current.refreshToken),
+      (current, signal) => this.exchange(current.refreshToken, signal),
+      req.signal ? { signal: req.signal } : {},
     );
-    const tools = toGrokTools(req.tools);
+    remember(record);
+    if (req.effort !== undefined && req.effort !== 'off') {
+      throw new RouteError('effort_unsupported', 'Grok subscription does not support this effort');
+    }
+    const tools = responsesTools(req.tools);
     const body: Record<string, unknown> = {
       model: req.model,
-      messages: messagesToOpenAI(req.messages, req.system),
-      max_tokens: req.maxTokens,
+      input: responsesInput(req),
+      instructions: req.system.map((segment) => segment.text).join('\n'),
+      max_output_tokens: req.maxTokens,
       stream: true,
+      store: false,
     };
     if (tools) body.tools = tools;
-    if (req.temperature !== undefined) body.temperature = req.temperature;
-    return this.fetchImpl(CHAT_URL, {
+    if (req.toolChoice)
+      body.tool_choice =
+        req.toolChoice.type === 'tool'
+          ? { type: 'function', name: req.toolChoice.name }
+          : req.toolChoice.type === 'any'
+            ? 'required'
+            : 'auto';
+    return this.fetchImpl(GROK_RESPONSES_URL, {
       method: 'POST',
+      redirect: 'error',
       headers: {
         authorization: `Bearer ${record.accessToken}`,
         'content-type': 'application/json',
@@ -81,15 +104,22 @@ export class GrokSubscriptionProvider implements LLMProvider {
     });
   }
 
-  private refresh(): Promise<void> {
-    return exchangeUnderLock(this.name, KEYCHAIN_SERVICE.grok, this.port, (current) =>
-      this.exchange(current.refreshToken),
+  private refresh(rejected: SubscriptionRecord | undefined, signal?: AbortSignal): Promise<void> {
+    return exchangeUnderLock(
+      this.name,
+      KEYCHAIN_SERVICE.grok,
+      this.port,
+      (current, exchangeSignal) => this.exchange(current.refreshToken, exchangeSignal),
+      rejected,
+      signal ? { signal } : {},
     ).then(() => undefined);
   }
 
-  private async exchange(refreshToken: string) {
+  private async exchange(refreshToken: string, signal?: AbortSignal) {
     const response = await this.fetchImpl(TOKEN_URL, {
       method: 'POST',
+      redirect: 'error',
+      ...(signal ? { signal } : {}),
       headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
       body: formBody({
         grant_type: 'refresh_token',
@@ -102,16 +132,4 @@ export class GrokSubscriptionProvider implements LLMProvider {
     }
     return recordFromTokenJson(this.name, await response.json(), this.deps.now(), refreshToken);
   }
-}
-
-function toGrokTools(tools: ToolSchema[] | undefined) {
-  if (!tools || tools.length === 0) return undefined;
-  return tools.map((tool) => ({
-    type: 'function',
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.input_schema,
-    },
-  }));
 }

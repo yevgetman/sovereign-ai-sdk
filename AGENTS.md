@@ -1,4 +1,4 @@
-# Instructions for Claude Code sessions developing this repo
+# Instructions for agents developing this repo
 
 You are working on the **Sovereign AI agent runtime** — TypeScript code, not documents. This repo is a Claude-Code-style harness (per ADR H-0003 in the sister `sovereign-ai-docs` repo) that reads a *harness bundle* (the docs repo, or a client's extracted bundle) and drives an LLM conversation against it.
 
@@ -50,7 +50,7 @@ specced end-to-end and **awaiting a CEO green-light** (SOP-12). Read the spec be
 
 ## Session boot
 
-1. **This file** (`CLAUDE.md`) — router and standing rules.
+1. **This file** (`AGENTS.md`) — canonical router and standing rules.
 2. **[`README.md`](README.md)** — repo intro, install, layout.
 3. **The latest state snapshot** — the canonical "where we are now." Find it with `ls docs/07-history/state/*.md | sort -r | head -1` (currently `docs/07-history/state/2026-06-30-sdk-open-core-extraction.md` — the harness is now a thin composition over an importable open-core SDK (`createAgent`), with a file-level lint enforcing the open/proprietary boundary). Predecessors are dated siblings; pre-Phase-16 history is in `docs/07-history/state/archive/`.
 4. **[`docs/08-roadmap/backlog/post-phase-13-4.md`](docs/08-roadmap/backlog/post-phase-13-4.md)** — open backlog items not in the canonical build plan (+ the running "last sync" log).
@@ -86,7 +86,6 @@ Everything is indexed in **[`docs/Documentation_Table_Of_Contents.md`](docs/Docu
 These apply every session and override defaults:
 
 - **Autonomous feature builds** — code builds follow the inherited apex **SOP-12**: spec → **CEO green-light** → autonomous subagent build → docs + tests → ship. Self-review the spec, then **present it to the CEO and PAUSE for an explicit green-light** (the one human gate — never self-approved, never skipped). On green-light: write the plan and execute it **fully autonomously** (fresh subagent per task, review between tasks, no further approval pauses; fix issues with judgment + prudence); update docs + tests; run the gate; commit + push; `sov upgrade` + agent skills + cut a release when applicable. CEO-reserved/strategic decisions and destructive/outward actions still pause. Details: [`docs/05-conventions/autonomous-feature-builds.md`](docs/05-conventions/autonomous-feature-builds.md).
-- **Subagent model policy** — Opus 4.7 default; Sonnet 4.6 only for trivially mechanical fully-specified tasks; **never Haiku**. Details: [`docs/05-conventions/subagent-policy.md`](docs/05-conventions/subagent-policy.md).
 - **Pre-commit gate** — `bun run lint && bun run typecheck && bun run test`. All three. Details: [`docs/05-conventions/lint-and-commit.md`](docs/05-conventions/lint-and-commit.md).
 - **Atomic commits + autonomous push** — one logical change per commit; push `origin/master` without asking. Same rule as the docs repo.
 - **`sov upgrade` after runtime changes** — any `src/`, `bundle-default/`, or `packages/tui/` change. Details: [`docs/05-conventions/sov-upgrade.md`](docs/05-conventions/sov-upgrade.md).
@@ -94,7 +93,7 @@ These apply every session and override defaults:
 - **No week-based estimates** — sessions / dispatches / wall-minutes only. Details: [`docs/05-conventions/estimation.md`](docs/05-conventions/estimation.md).
 - **TUI style guide** — all spacing, padding, glyphs, brand colors, and typography in `packages/tui/` MUST reference `style.S.*` from `packages/tui/internal/style/`. Never hardcode layout values in components. Details: [`docs/05-conventions/tui-style-guide.md`](docs/05-conventions/tui-style-guide.md).
 - **Plans and specs paths** — `plans/YYYY-MM-DD-<feature>.md`, `specs/YYYY-MM-DD-<topic>-design.md` (repo root, not under `docs/`). Never `docs/superpowers/`.
-- **AGENTS.md ≡ CLAUDE.md** — byte-identical mirror. Verify with `diff` before commit.
+- **Agent instruction files** — `AGENTS.md` is canonical; `CLAUDE.md` imports it. Follow the apex two-file contract linked below.
 
 ## Required reading before similar work
 

@@ -54,6 +54,65 @@ export class SubscriptionAuthExpiredError extends Error {
   }
 }
 
+/**
+ * No subscription login is stored for this provider (`sov login <provider>`
+ * has not run, or `sov logout` removed it). Extends the expired class so
+ * existing `instanceof SubscriptionAuthExpiredError` handling is unchanged;
+ * route error mapping reports it as `credential_missing`.
+ */
+export class SubscriptionLoginMissingError extends SubscriptionAuthExpiredError {
+  constructor(
+    provider: string,
+    message = `no subscription login for ${provider}; run \`sov login ${provider}\``,
+  ) {
+    super(provider, message);
+    this.name = 'SubscriptionLoginMissingError';
+  }
+}
+
+/** The stored subscription record cannot be parsed. Re-login replaces it. */
+export class SubscriptionRecordUnreadableError extends SubscriptionAuthExpiredError {
+  constructor(provider: string, message = `subscription login for ${provider} is unreadable`) {
+    super(provider, message);
+    this.name = 'SubscriptionRecordUnreadableError';
+  }
+}
+
+/** Why the local credential store could not be used. Never carries a secret. */
+export type CredentialStoreFailure =
+  | 'read_failed'
+  | 'write_failed'
+  | 'delete_failed'
+  | 'lock_timeout'
+  | 'refresh_timeout';
+
+/**
+ * The Keychain (or its cross-process lock) failed or timed out. This is not
+ * "no login": the turn ends and nothing falls back to another credential.
+ */
+export class CredentialStoreUnavailableError extends Error {
+  constructor(
+    readonly provider: string,
+    readonly reason: CredentialStoreFailure,
+    message = `credential store unavailable for ${provider} (${reason})`,
+  ) {
+    super(message);
+    this.name = 'CredentialStoreUnavailableError';
+  }
+}
+
+/** A subscription model call ended with a non-success HTTP status. */
+export class SubscriptionHttpError extends Error {
+  constructor(
+    readonly provider: string,
+    readonly status: number,
+    message = `subscription provider ${provider} failed with HTTP ${status}`,
+  ) {
+    super(message);
+    this.name = 'SubscriptionHttpError';
+  }
+}
+
 /** SuperGrok returned HTTP 403. The login tier cannot use this HTTP path. */
 export class SubscriptionTierBlockedError extends Error {
   constructor(
@@ -96,6 +155,14 @@ export class PersistBeforeRunError extends Error {
   }
 }
 
+/** A final transcript/usage write failed after the model ran. */
+export class SessionPersistenceError extends Error {
+  constructor(cause?: unknown) {
+    super('session persistence failed', { cause });
+    this.name = 'SessionPersistenceError';
+  }
+}
+
 /**
  * Anthropic's consumer terms, checked 2026-10-06, forbid a third-party HTTP
  * call with a Claude Max login. This build does not send that call.
@@ -114,7 +181,9 @@ function isSubscriptionTurnError(err: unknown): boolean {
     err instanceof ContextOverflowError ||
     err instanceof UnknownToolsetError ||
     err instanceof PersistBeforeRunError ||
-    err instanceof ClaudeMaxTermsError
+    err instanceof ClaudeMaxTermsError ||
+    err instanceof CredentialStoreUnavailableError ||
+    err instanceof SubscriptionHttpError
   );
 }
 

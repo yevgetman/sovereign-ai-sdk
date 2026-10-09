@@ -76,7 +76,11 @@ import type { CanUseTool } from '../permissions/types.js';
 import type { SessionStore } from '../persistence/sessionStore.js';
 import type { TranscriptStore } from '../persistence/transcriptStore.js';
 import type { ReasoningEffort } from '../providers/effort.js';
-import { PersistBeforeRunError, UnknownToolsetError } from '../providers/errors.js';
+import {
+  PersistBeforeRunError,
+  SessionPersistenceError,
+  UnknownToolsetError,
+} from '../providers/errors.js';
 import { estimateCostUsd } from '../providers/pricing.js';
 import { resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
@@ -229,6 +233,15 @@ export type PerTurn = Partial<{
    *  invocation — re-using one across turns corrupts host turn identity.
    *  Absent ⇒ no `turnId` on the ctx (byte-identical; engines synthesize). */
   turnId: string;
+  /** How many leading `input` messages are already in the `sessionStore`.
+   *  A host that resumes from a REPAIRED view of stored rows (synthetic
+   *  interrupted tool results, coalesced legacy rows) sets this so only the
+   *  messages after the boundary are saved — the verbatim-prefix heuristic
+   *  would see a mismatch and save the whole view again. Must be an integer
+   *  in `[0, input length]`; anything else fails before the provider is
+   *  called. Absent ⇒ the verbatim-prefix heuristic (byte-identical). Has no
+   *  effect without a `sessionStore`. */
+  storedPrefixLength: number;
 }>;
 
 /** The structured result of a `run()`, returned as the generator's return
@@ -288,6 +301,32 @@ export function createAgent(config: AgentConfig): Agent {
         distinctToolNames: [],
         messages: [],
       };
+    }
+
+    const storedPrefixLength = perTurn.storedPrefixLength;
+    if (storedPrefixLength !== undefined) {
+      const inputLength = typeof input === 'string' ? 1 : input.length;
+      if (
+        !Number.isInteger(storedPrefixLength) ||
+        storedPrefixLength < 0 ||
+        storedPrefixLength > inputLength
+      ) {
+        const earlySessionId =
+          perTurn.sessionId !== undefined ? validateSessionId(perTurn.sessionId) : randomUUID();
+        return {
+          sessionId: earlySessionId,
+          terminal: {
+            reason: 'error',
+            error: new RangeError(
+              `storedPrefixLength must be an integer between 0 and ${inputLength}`,
+            ),
+          },
+          iterationsUsed: 0,
+          toolCallCount: 0,
+          distinctToolNames: [],
+          messages: [],
+        };
+      }
     }
 
     // 1. Provider + model: per-turn overrides win. A string config provider is
@@ -434,6 +473,11 @@ export function createAgent(config: AgentConfig): Agent {
     // truncates back to it so the discarded call does not stay in history.
     let attemptBaseline = 0;
     let attemptTranscriptWrites = 0;
+    // Explicit store boundary (PerTurn.storedPrefixLength): the index in
+    // `messages` up to which rows are already saved. Advanced by each early
+    // tool-call save. Undefined ⇒ the verbatim-prefix heuristic decides.
+    const storeBoundary = config.sessionStore !== undefined ? storedPrefixLength : undefined;
+    let savedThrough: number | undefined = storeBoundary;
 
     // Restartable turn (1d): the query() invocation is hoisted into `startTurn`
     // so an output-gate `regenerate` verdict can re-run it with an extra
@@ -486,7 +530,9 @@ export function createAgent(config: AgentConfig): Agent {
                   systemPrompt: effectiveSystemPrompt,
                   snapshot: messages,
                   assistant,
+                  savedThrough,
                 });
+                if (savedThrough !== undefined) savedThrough = messages.length;
               },
             }
           : {}),
@@ -545,6 +591,9 @@ export function createAgent(config: AgentConfig): Agent {
           // on the same seed and re-captures the same text.)
           evidenceCandidate = undefined;
           evidenceDelivered = undefined;
+          // The store is truncated back to the attempt baseline below, so the
+          // explicit boundary returns to the caller's stored prefix.
+          savedThrough = storeBoundary;
         }
         attemptBaseline = config.sessionStore?.loadMessages(sessionId).length ?? 0;
         attemptTranscriptWrites = 0;
@@ -794,11 +843,12 @@ export function createAgent(config: AgentConfig): Agent {
           messages,
           usage,
           estimatedCostUsd,
+          ...(savedThrough !== undefined ? { persistFrom: savedThrough } : {}),
         });
       } catch (err) {
         const alreadySaved =
           terminal.reason === 'error' && terminal.error instanceof PersistBeforeRunError;
-        if (!alreadySaved) throw err;
+        if (!alreadySaved) throw new SessionPersistenceError(err);
       }
     }
 
@@ -908,6 +958,9 @@ function persistTurn(opts: {
    *  passed in so the recorded cost is IDENTICAL to `RunResult.estimatedCostUsd`
    *  — a single `estimateCostUsd` call in `run()`, not a second one here. */
   estimatedCostUsd: number | undefined;
+  /** Explicit boundary from `PerTurn.storedPrefixLength` (advanced past any
+   *  early tool-call save). When set, the verbatim-prefix heuristic is skipped. */
+  persistFrom?: number;
 }): void {
   const {
     sessionStore,
@@ -931,8 +984,8 @@ function persistTurn(opts: {
   }
 
   // The dedup boundary: one loadMessages call on the persist path only.
-  let persistFrom = 0;
-  if (sessionStore !== undefined) {
+  let persistFrom = opts.persistFrom ?? 0;
+  if (sessionStore !== undefined && opts.persistFrom === undefined) {
     const stored = sessionStore.loadMessages(sessionId);
     if (stored.length > 0 && isRehydratedPrefix(stored, messages)) {
       persistFrom = stored.length;
@@ -980,8 +1033,10 @@ function saveBeforeTools(opts: {
   systemPrompt: SystemSegment[];
   snapshot: Message[];
   assistant: AssistantMessage;
+  /** Explicit boundary: rows before this index are already stored. */
+  savedThrough: number | undefined;
 }): number {
-  const { store, transcripts, sessionId, snapshot, assistant } = opts;
+  const { store, transcripts, sessionId, snapshot, assistant, savedThrough } = opts;
   let transcriptWrites = 0;
   store.upsertSession({
     sessionId,
@@ -1003,6 +1058,10 @@ function saveBeforeTools(opts: {
       transcriptWrites += 1;
     }
   };
+  if (savedThrough !== undefined) {
+    for (const msg of snapshot.slice(savedThrough)) write(msg);
+    return transcriptWrites;
+  }
   if (isRehydratedPrefix(stored, snapshot)) {
     for (const msg of snapshot.slice(stored.length)) write(msg);
     return transcriptWrites;

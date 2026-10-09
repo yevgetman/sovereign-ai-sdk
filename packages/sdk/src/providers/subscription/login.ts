@@ -2,9 +2,11 @@ import { spawn } from 'node:child_process';
 import { CHATGPT_OAUTH_CLIENT_ID } from '../chatgpt.js';
 import { GROK_OAUTH_CLIENT_ID } from '../grok.js';
 import { CLAUDE_MAX_TERMS_MESSAGE } from './claudeMaxTerms.js';
+import { advanceCredentialGeneration, credentialGeneration, withCredentialLock } from './lock.js';
 import { KEYCHAIN_SERVICE, isSubscriptionName } from './names.js';
 import { formBody, recordFromTokenJson } from './oauth.js';
 import type { SubscriptionCredentialPort, SubscriptionFetch } from './port.js';
+import { abortError } from './retry.js';
 
 const CODEX_ISSUER = 'https://auth.openai.com';
 const XAI_DISCOVERY = 'https://auth.x.ai/.well-known/openid-configuration';
@@ -19,6 +21,7 @@ export type LoginIo = {
   sleep: (ms: number) => Promise<void>;
   now: () => number;
   fetchImpl: SubscriptionFetch;
+  signal?: AbortSignal;
 };
 
 /** Open the system browser. A failure does not fail login; the URL is printed. */
@@ -57,8 +60,37 @@ export async function loginSubscription(
     return 1;
   }
   try {
-    if (name === 'chatgpt') return await loginChatGpt(port, io);
-    return await loginGrok(port, io);
+    const service = KEYCHAIN_SERVICE[name];
+    const generation = await withCredentialLock(
+      service,
+      port,
+      () => credentialGeneration(port, service),
+      io.signal ? { signal: io.signal } : {},
+    );
+    const guardedPort: SubscriptionCredentialPort = {
+      read: (key) => port.read(key),
+      delete: (key) => port.delete(key),
+      write: (key, record) =>
+        withCredentialLock(
+          key,
+          port,
+          async () => {
+            if ((await credentialGeneration(port, key)) !== generation)
+              throw new Error('login changed during device approval');
+            if (io.signal?.aborted) throw abortError(io.signal);
+            await advanceCredentialGeneration(port, key);
+            await port.write(key, record);
+          },
+          io.signal ? { signal: io.signal } : {},
+        ),
+    };
+    const boundedIo = {
+      ...io,
+      fetchImpl: boundedLoginFetch(io),
+      sleep: (ms: number) => boundedLoginSleep(io, ms),
+    };
+    if (name === 'chatgpt') return await loginChatGpt(guardedPort, boundedIo);
+    return await loginGrok(guardedPort, boundedIo);
   } catch {
     io.stderr(`${name} login failed\n`);
     return 1;
@@ -76,7 +108,15 @@ export async function logoutSubscription(
     return 1;
   }
   try {
-    await port.delete(KEYCHAIN_SERVICE[name]);
+    await withCredentialLock(
+      KEYCHAIN_SERVICE[name],
+      port,
+      async () => {
+        await advanceCredentialGeneration(port, KEYCHAIN_SERVICE[name]);
+        await port.delete(KEYCHAIN_SERVICE[name]);
+      },
+      io.signal ? { signal: io.signal } : {},
+    );
   } catch {
     io.stderr(`${name} logout failed\n`);
     return 1;
@@ -105,7 +145,7 @@ async function loginChatGpt(port: SubscriptionCredentialPort, io: LoginIo): Prom
   const url = `${CODEX_ISSUER}/codex/device`;
   io.stdout(`Open ${url}\nEnter code ${userCode}\n`);
   safeOpen(io, url);
-  const intervalMs = Math.max(1, Number(device.interval) || 5) * 1000;
+  const intervalMs = Math.min(30, Math.max(1, Number(device.interval) || 5)) * 1000;
   const deadline = io.now() + 15 * 60 * 1000;
   let polls = 0;
   let codeResp: Record<string, unknown> | null = null;
@@ -196,14 +236,14 @@ async function loginGrok(port: SubscriptionCredentialPort, io: LoginIo): Promise
       : typeof device.verification_uri === 'string'
         ? device.verification_uri
         : '';
-  if (!deviceCode || !userCode || !verify) {
+  if (!deviceCode || !userCode || !safeGrokVerificationUrl(verify)) {
     io.stderr('grok login failed\n');
     return 1;
   }
   io.stdout(`Open ${verify}\nEnter code ${userCode}\n`);
   safeOpen(io, verify);
-  let intervalMs = Math.max(1, Number(device.interval) || 5) * 1000;
-  const expiresIn = Math.max(1, Number(device.expires_in) || 900);
+  let intervalMs = Math.min(30, Math.max(1, Number(device.interval) || 5)) * 1000;
+  const expiresIn = Math.min(900, Math.max(1, Number(device.expires_in) || 900));
   const deadline = io.now() + expiresIn * 1000;
   let polls = 0;
   while (io.now() < deadline && polls < 180) {
@@ -254,5 +294,63 @@ async function oauthError(response: Response): Promise<string> {
     return typeof body.error === 'string' ? body.error : '';
   } catch {
     return '';
+  }
+}
+
+function safeGrokVerificationUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === 'https:' &&
+      ['accounts.x.ai', 'auth.x.ai'].includes(url.hostname) &&
+      !url.username &&
+      !url.password
+    );
+  } catch {
+    return false;
+  }
+}
+function boundedLoginFetch(io: LoginIo): SubscriptionFetch {
+  return async (input, init) => {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = () => controller.abort();
+    io.signal?.addEventListener('abort', onAbort, { once: true });
+    if (io.signal?.aborted) controller.abort();
+    const cancelled = new Promise<never>((_, reject) => {
+      controller.signal.addEventListener('abort', () => reject(abortError()), { once: true });
+      if (controller.signal.aborted) reject(abortError());
+      timer = setTimeout(() => controller.abort(), 20_000);
+    });
+    try {
+      return await Promise.race([
+        io
+          .fetchImpl(input, { ...init, redirect: 'error', signal: controller.signal })
+          .then(async (response) => {
+            const body = await response.text();
+            if (body.length > 65_536) throw new Error('login response too large');
+            return new Response(body, { status: response.status, headers: response.headers });
+          }),
+        cancelled,
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      io.signal?.removeEventListener('abort', onAbort);
+    }
+  };
+}
+
+async function boundedLoginSleep(io: LoginIo, ms: number): Promise<void> {
+  if (!io.signal) return io.sleep(ms);
+  if (io.signal.aborted) throw abortError(io.signal);
+  let onAbort: (() => void) | undefined;
+  const cancelled = new Promise<never>((_, reject) => {
+    onAbort = () => reject(abortError(io.signal));
+    io.signal?.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    await Promise.race([io.sleep(ms), cancelled]);
+  } finally {
+    if (onAbort) io.signal.removeEventListener('abort', onAbort);
   }
 }

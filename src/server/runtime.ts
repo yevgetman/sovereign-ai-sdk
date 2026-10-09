@@ -270,6 +270,8 @@ export function createServerAsk(
 const DEFAULT_MAX_TOKENS = 12000;
 
 export type RuntimeOptions = {
+  /** Native SDK route: already authenticated, no ambient paid fallback. */
+  sdkRoute?: { resolved: ResolvedProvider };
   /** Harness state root override (test isolation). Defaults to
    *  resolveHarnessHome() which respects $HARNESS_HOME / profile. */
   harnessHome?: string;
@@ -1062,7 +1064,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // always dispatching to the delegator. Default false preserves the
   // strict Phase 1 contract.
   const smartRouterPrompt = await loadSmartRouterPrompt({
-    enabled: taskRoutingEnabled,
+    enabled: opts.sdkRoute === undefined && taskRoutingEnabled,
     bundle,
     trivialFastPath: userSettings.taskRouting?.trivialFastPath === true,
   });
@@ -1071,7 +1073,8 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // (independent of taskRouting). When on, biases the parent toward delegating
   // substantive work to the `subscription-executor` sub-agent (the `claude -p`
   // shell). See loadSubscriptionExecutorPrompt.
-  const subscriptionExecutorEnabled = userSettings.subscriptionExecutor?.enabled === true;
+  const subscriptionExecutorEnabled =
+    opts.sdkRoute === undefined && userSettings.subscriptionExecutor?.enabled === true;
   const subscriptionExecutorPrompt = await loadSubscriptionExecutorPrompt({
     enabled: subscriptionExecutorEnabled,
     bundle,
@@ -1099,7 +1102,9 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // *and* we're not in replay mode. The sink also wraps the tool pool
   // further down, and runtime.dispose() finalizes it before MCP shutdown.
   let captureSink: CaptureSink | undefined;
-  if (opts.replayFixturePath !== undefined) {
+  if (opts.sdkRoute !== undefined) {
+    resolved = opts.sdkRoute.resolved;
+  } else if (opts.replayFixturePath !== undefined) {
     // Replay short-circuits everything: ReplayProvider re-emits captured
     // StreamEvents in order, so credential / quota / preflight checks
     // would be no-ops at best. Skip the entire provider-resolution path.
@@ -1244,7 +1249,11 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // re-emits captured events without a network round-trip, so a preflight
   // probe would either be a no-op (consuming an unrelated captured turn)
   // or actively misleading.
-  if (opts.preflight !== false && opts.replayFixturePath === undefined) {
+  if (
+    opts.sdkRoute === undefined &&
+    opts.preflight !== false &&
+    opts.replayFixturePath === undefined
+  ) {
     const result = await preflightProvider({
       provider: preflightTransport,
       providerName: resolved.transport.name,
@@ -1276,7 +1285,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // Resolves the lane's provider via the same `resolveProvider` the
   // scheduler uses, and adapts `preflightProvider`'s ok/err result into
   // the throw-on-failure contract `runLanePreflight` expects.
-  if (opts.preflight !== false && opts.replayFixturePath === undefined && taskRoutingEnabled) {
+  if (
+    opts.sdkRoute === undefined &&
+    opts.preflight !== false &&
+    opts.replayFixturePath === undefined &&
+    taskRoutingEnabled
+  ) {
     await runLanePreflight({
       registry: laneRegistry,
       harnessHome,
@@ -1474,11 +1488,18 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     // Task 4.3 — injected-settings runtimes resolve child providers from the
     // injected object (disk-free); otherwise the resolver keeps its own disk
     // fallback exactly as before.
-    resolveProvider: (name, model) =>
-      resolveProvider(name, model, {
+    resolveProvider: (name, model) => {
+      if (opts.sdkRoute !== undefined) {
+        if (name !== resolved.transport.name || (model !== undefined && model !== resolved.model)) {
+          throw new Error('SDK route does not configure this auxiliary provider/model');
+        }
+        return resolved;
+      }
+      return resolveProvider(name, model, {
         harnessHome,
         ...(injected !== undefined ? { settings: injected } : {}),
-      }),
+      });
+    },
     createChildSession: (input) => {
       // Phase 2 T1 — pick the metadata shape based on the routing attribution
       // hints the scheduler computes for us.
@@ -1535,13 +1556,14 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     // capability profile path.
     // 2026-05-24 — read via holder so rebuildTaskRouting swaps the
     // registry without restarting the scheduler.
-    resolveLane: (role) => laneRegistryHolder.current.lookup(role),
+    resolveLane: (role) =>
+      opts.sdkRoute === undefined ? laneRegistryHolder.current.lookup(role) : undefined,
     // SPIKE (off by default) — when `subscriptionExecutor.enabled`, a
     // delegation to the `subscription-executor` role is handed to a headless
     // `claude -p` subprocess instead of the AgentRunner loop. Absent /
     // disabled → the branch is inert and every delegation takes the normal
     // path (the existing scheduler tests prove that path is byte-unchanged).
-    ...(userSettings.subscriptionExecutor !== undefined
+    ...(opts.sdkRoute === undefined && userSettings.subscriptionExecutor !== undefined
       ? { subscriptionExecutor: userSettings.subscriptionExecutor }
       : {}),
     // Task 1.5 — INJECT the real subscription-executor port. The open scheduler
@@ -1750,6 +1772,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     modelOverride?: string,
   ): Promise<void> => {
     // Task 4.3 — injected settings are re-applied verbatim (no disk read).
+    if (opts.sdkRoute !== undefined) throw new Error('SDK route cannot change provider');
     const fresh = injected ?? readConfig({ harnessHome });
     const nextProviderName = providerOverride ?? runtime.resolvedProvider.transport.name;
     const useRouterNow =

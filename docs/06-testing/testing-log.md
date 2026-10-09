@@ -8,6 +8,46 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](docs/08-roadmap/backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](docs/08-roadmap/backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-10-09 — final integrated native SDK route gate and fresh review
+
+**Snapshot:** isolated `feat/sov-auth-routing`, Bun 1.3.13 on macOS. No real credential reads, login, provider network, installed runtime, restart or publication.
+
+**Final gates:** `bun run lint` passes Biome (998 files) and boundary (212 modules, 717 dependencies); `bun run typecheck` passes; `bun run build` passes. `bun run test`: **5,488 pass, 19 skip, zero fail**, 5,507 tests across 523 files, 22,439 assertions, 104.17 seconds. Log: `/tmp/sov-full-integrated-review-tests.log`. Focused native input/run, routes/discovery, Responses and seven OS-process lock cases: **57 pass, zero fail, 348 assertions**. Open-package suite: **96 pass, zero fail, 420 assertions** across 14 files. Packaged protocol/SDK Node and Bun consumer canary passes; both package `npm publish --dry-run` checks pass. These are dry-runs, not publication.
+
+**Fresh review:** `handoffs/2026-10-09-sov-final-review.md`; one High (native controls silently ignored without `--sdk`) and one Medium (final persistence exception reported as provider failure) were fixed. Independent actual-CLI and mock-runtime probes confirm the corrections. No remaining confirmed issue above Low. The SDK public surface snapshot now includes the additive `SessionPersistenceError` export; a future SDK release must assign its compatible version through the release procedure.
+
+**Actual consumer evidence:** source `capabilities --json`, `routes --json` and route auth status emit one versioned record in isolated CLI processes. Telekit's real `sov_routes` parser accepted those actual CLI records, including all six routes and per-model effort subsets. Native missing-key execution emitted one `credential_missing` terminal, with no session/provider inference. Native calls use one SDK writer, safe terminal metadata, execution toolsets, native ordered image envelopes on advertised routes, and no HTTP/TUI startup. Existing server composition/persistence tests remain green.
+
+**Earlier failures corrected:** an initial integrated full run had the unchanged Telegram timer test fail its fixed 20ms delivery wait under load; its isolated run passed. The test now waits for actual mock delivery and awaited shutdown; no Telegram product behavior changed. Its focused 18 tests pass. An additional open-package check caught the missing new SDK export snapshot entry and it was corrected. Running several package builds at once also caused a temporary protocol tarball to miss exports; sequential packaging/canary passed. Earlier H1-regression construction had a cleanup-array typo, fixed before the final run. The prior integrated gate also passed 5,485 tests; the final count above includes the final review regressions.
+
+**Delivery limits:** source checks do not prove live subscription eligibility, backend default-model acceptance, six-route live inference/tool cycles/resume, native images on unadvertised routes, installed binary compatibility or a real Telegram turn. Acceptance A14 is unverified. Normalized histories do not preserve opaque provider-specific Responses reasoning state; live multi-turn quality remains a stated limitation. No release number or published runtime compatibility is claimed.
+
+## 2026-10-09 — T1 authentication routes and shared credential locking
+
+Bun 1.3.13, macOS source worktree; fake HOME, credentials, Keychain ports, and HTTP. Commands: `bun test tests/providers/routes.test.ts tests/providers/subscription.test.ts tests/providers/subscription-lock.test.ts tests/cli/routes-discovery.test.ts --timeout 10000`; `bun run lint && bun run typecheck && bun run test`. Discovery emits one schemaVersion1 JSON record with no key material. Routes resolve only their declared provider/auth pair. OS-process tests cover single-generation expiry/401 refresh, logout ordering, killed owner recovery with three concurrent contenders, reused PID generations, cancellation, and late refresh writes; attended-login/logout overlap is also tested.
+
+The first full gate exposed the unchanged picker registry assertion missing the direct xAI provider. That assertion is updated. The next full gate passed 5458 tests, 19 skipped, zero failures (5477 total; 89.29 seconds). Final bakery-ticket mutex and PID-start-identity gate: lint/boundary/typecheck pass; 5459 tests pass, 19 skip, zero fail (5478 total, 519 files; 97.26 seconds). Final focused route/auth/process/CLI tests: 52 pass, zero fail, 301 assertions. The prior directory reclaimer protocol was removed after self-review found a shared-path deletion race.
+
+No real Keychain login, network inference, service entitlement, installation, or publication was tested. Live acceptance remains a separate gate. Review evidence: `handoffs/2026-10-09-t1-routes-review.md`.
+
+## 2026-10-09 — native SDK routes, adopted composition and Responses protocol
+
+**Scope:** approved SOV authentication-route integration; isolated `feat/sov-auth-routing` checkout, Bun 1.3.13 on macOS. No installed binaries, actual Keychain records, real login, or paid inference were changed.
+
+**Commands and results:**
+
+- `bun run lint`: pass, including boundary (203 modules, 661 dependencies).
+- `bun run typecheck`: adopted shared composition passes; a later run during concurrent native-host construction had expected missing-module errors and is repeated on the integrated snapshot.
+- `bun test tests/server tests/agent/storedPrefix.test.ts --timeout 20000`: 470 pass, 0 fail, 1,809 assertions.
+- `bun run test`: initial adopted snapshot 5,429 pass, 19 skip, one failure. The failure was the picker test's stale provider list after adding xAI; expected list updated. Integrated full gate follows below.
+- `bun test tests/providers/responses.test.ts tests/providers/subscription.test.ts`: final protocol snapshot 25 pass, 0 fail, 66 assertions. Earlier runs exposed the old Grok endpoint assertion and a changed safe error-text expectation; both now match the contract.
+
+**Regression evidence:** real open-stream text delivery before network completion; native image order; Responses function-call/output ids; truncated/failed streams; malformed arguments; pending calls at incomplete and completed terminals; terminal-only message/tool replay; ChatGPT effort body and rejected `off`; Grok `/v1/responses` without Chat Completions fallback. Coordinator read-only review found incomplete calls could be accepted as empty successful completion; repaired and pinned with tests.
+
+**Protocol sources checked:** [OpenAI Codex client](https://github.com/openai/codex/blob/main/codex-rs/core/src/client.rs), [Hermes xAI OAuth implementation](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/auth_xai.py), [Hermes OAuth constants](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/auth_constants.py). xAI's issuer remains `auth.x.ai`; `accounts.x.ai` is the approval browser surface. Grok subscription uses Responses. Codex subscription does not send API-only output-limit/temperature fields.
+
+**Limits:** no live account entitlement proof. OpenAI recommends carrying provider-specific reasoning state in stateless Responses histories; current normalized SOV history does not retain opaque Responses reasoning items. Multi-turn/tool request serialization is tested offline; live quality/eligibility remains unverified. Signed/encrypted Anthropic history is refused on incompatible native routes.
+
 ## 2026-10-01 — Fresh-install package remediation (PR #3)
 
 - Scope: tracked clean compile inputs, copied dependency provenance, reviewed license pin, neutral final tar headers, shared full-package/last-upload scan gates, installed bundle contract, and mission command quoting.

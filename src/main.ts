@@ -28,6 +28,7 @@ import {
 import type { PermissionMode } from '@yevgetman/sov-sdk/permissions/types';
 import { REASONING_EFFORTS, type ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { parseProfileFlag } from './cli/profileFlag.js';
+import { registerRouteCommands } from './cli/routesCommands.js';
 import type { WorkflowEvent } from './workflows/events.js';
 import { VERSION } from './wrapperVersion.js';
 
@@ -177,6 +178,8 @@ async function main(argv: string[]): Promise<void> {
       "scope the run to a named profile under <harness-home>/profiles/<name>/ (use 'default' for the unscoped root)",
     );
 
+  registerRouteCommands(program);
+
   program
     .command('login <provider>')
     .description('Sign in to chatgpt, claude-max, or grok. The token stays in the Keychain.')
@@ -211,7 +214,7 @@ async function main(argv: string[]): Promise<void> {
       "[deprecated keyword — use bare 'sov'] Start an interactive chat session against a harness bundle (use --agent + --state-dir for scheduled-mission mode)",
     )
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
-    .option('--provider <name>', 'provider name: anthropic, openai, ollama, or openrouter')
+    .option('--provider <name>', 'provider name: anthropic, openai, ollama, openrouter, or xai')
     .option('-m, --model <name>', 'model name (overrides provider/config default)')
     .option('--max-tokens <n>', 'max tokens per turn', parsePositiveInt, DEFAULT_MAX_TOKENS)
     .option(
@@ -286,7 +289,7 @@ async function main(argv: string[]): Promise<void> {
       'Headless line-driven LLM conversation — boots the same Hono server as the TUI but emits plain-text events to stdout instead of rendering Bubble Tea. Reads one prompt per stdin line (slash commands routed through /sessions/:id/commands, free text through /sessions/:id/turns). Exits on EOF or /quit. Used by the semantic test suite and any other automation that needs to drive sov non-interactively.',
     )
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
-    .option('--provider <name>', 'provider name: anthropic, openai, ollama, or openrouter')
+    .option('--provider <name>', 'provider name: anthropic, openai, ollama, openrouter, or xai')
     .option('-m, --model <name>', 'model name (overrides provider/config default)')
     .option('--max-tokens <n>', 'max tokens per turn', parsePositiveInt, DEFAULT_MAX_TOKENS)
     .option(
@@ -314,10 +317,18 @@ async function main(argv: string[]): Promise<void> {
     .description(
       'Headless one-shot machine contract — reads all stdin as one prompt, runs one turn through the same server/runtime path as the TUI, and emits JSONL events. Initial contract requires --json --stdin.',
     )
+    .option('--sdk', 'run the selected route directly through the SDK, without a listener')
+    .option('--route <id>', 'explicit authentication route (required with --sdk)')
+    .option('--input-format <format>', 'stdin format: text or strict JSON envelope', 'text')
+    .option('--toolset <name>', 'native SDK toolset: chat, web, ops, coding', 'coding')
+    .option('--deadline-ms <n>', 'native turn deadline in milliseconds', parsePositiveInt)
     .option('--json', 'emit newline-delimited JSON machine events')
     .option('--stdin', 'read the prompt from all of stdin')
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
-    .option('--provider <name>', 'provider name: anthropic, openai, ollama, openrouter, or mock')
+    .option(
+      '--provider <name>',
+      'provider name: anthropic, openai, ollama, openrouter, xai, or mock',
+    )
     .option('-m, --model <name>', 'model name (overrides provider/config default)')
     .option('--max-tokens <n>', 'max tokens per turn', parsePositiveInt, DEFAULT_MAX_TOKENS)
     .option(
@@ -337,7 +348,7 @@ async function main(argv: string[]): Promise<void> {
     .option(
       '--effort <level>',
       "reasoning effort for fresh sessions: 'off', 'low', 'medium', 'high', or 'max'",
-      parseReasoningEffort,
+      (value) => (value === 'auto' ? 'auto' : parseReasoningEffort(value)),
     )
     .action(async (opts) => {
       const { runRunCommand } = await import('./cli/runCommand.js');
@@ -375,7 +386,10 @@ async function main(argv: string[]): Promise<void> {
     )
     .option('--port <n>', 'port (default 8765, env SOV_OPENAI_PORT)', parsePositiveInt)
     .option('--host <addr>', 'host (default 127.0.0.1, env SOV_OPENAI_HOST)')
-    .option('--provider <name>', 'provider name: anthropic, openai, ollama, openrouter, or router')
+    .option(
+      '--provider <name>',
+      'provider name: anthropic, openai, ollama, openrouter, xai, or router',
+    )
     .option('-m, --model <name>', 'model name (overrides provider/config default)')
     .option('--max-tokens <n>', 'max tokens per provider call', parsePositiveInt)
     .option(
