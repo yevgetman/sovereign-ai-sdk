@@ -304,16 +304,12 @@ export class SubagentScheduler implements Scheduler {
     }
     this.childCounts.set(input.parentSessionId, current + 1);
 
-    const { providerName, modelName } = this.resolveProviderModel(agent, input.roleOverride);
-    // The concurrency lane (local|frontier) the child's provider runs in —
-    // distinct from the `lane` attribution object computed inside the try.
-    const concurrencyLane = laneFor(providerName);
-
-    // The lane acquire lives INSIDE the outer try so a rejected acquire (e.g. a
-    // parent abort while queued) still releases the reservation in the finally.
+    // Protect every operation after reservation, including host resolution hooks.
     let laneRelease: (() => void) | undefined;
     let writeLockRelease: (() => void) | undefined;
     try {
+      const { providerName, modelName } = this.resolveProviderModel(agent, input.roleOverride);
+      const concurrencyLane = laneFor(providerName);
       checkDeadline();
       laneRelease = await this.opts.laneSemaphores.acquire(concurrencyLane, composed);
       checkDeadline();
