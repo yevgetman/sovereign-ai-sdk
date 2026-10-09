@@ -200,7 +200,7 @@ test('real source CLI missing credentials and malformed envelope never starts in
   dirs.push(home);
   const proc = Bun.spawn(
     [
-      'bun',
+      process.execPath,
       'src/main.ts',
       'run',
       '--sdk',
@@ -219,11 +219,15 @@ test('real source CLI missing credentials and malformed envelope never starts in
         HARNESS_HOME: home,
         HARNESS_CONFIG: join(home, 'config.json'),
       },
-      stdin: new Blob([JSON.stringify({ inputVersion: 1, text: 'hello' })]),
+      stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'pipe',
     },
   );
+  // Use a pipe rather than Blob input so process.stdin has
+  // the same transport on Linux and macOS.
+  proc.stdin.write(JSON.stringify({ inputVersion: 1, text: 'hello' }));
+  proc.stdin.end();
   const stdout = await new Response(proc.stdout).text();
   expect(await proc.exited).toBe(1);
   expect(

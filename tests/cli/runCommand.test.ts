@@ -202,7 +202,7 @@ describe('runRunCommand', () => {
     expect(final?.reply).toContain('done.');
   });
 
-  test('real CLI keeps diagnostics on stderr and machine events on stdout', () => {
+  test('real CLI keeps diagnostics on stderr and machine events on stdout', async () => {
     const missingFlag = spawnSync(process.execPath, [MAIN, 'run', '--json'], {
       cwd,
       encoding: 'utf8',
@@ -212,7 +212,7 @@ describe('runRunCommand', () => {
     expect(missingFlag.stdout).toBe('');
     expect(missingFlag.stderr).toContain('--json and --stdin');
 
-    const ok = spawnSync(
+    const ok = spawn(
       process.execPath,
       [
         MAIN,
@@ -229,14 +229,27 @@ describe('runRunCommand', () => {
       ],
       {
         cwd,
-        input: 'hello from a real subprocess',
-        encoding: 'utf8',
         env: { ...process.env, HARNESS_HOME: home, SOV_TEST_MOCK_PROVIDER: '1' },
       },
     );
-    expect(ok.status).toBe(0);
-    expect(ok.stderr).toBe('');
-    const lines = ok.stdout.split('\n').filter((line) => line.length > 0);
+    let stdout = '';
+    let stderr = '';
+    ok.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    ok.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    const exited = new Promise<number | null>((resolve, reject) => {
+      ok.once('error', reject);
+      ok.once('close', resolve);
+    });
+    // Send through a pipe: Bun's Linux spawnSync input can appear empty to
+    // the child process.stdin iterator. Explicit EOF keeps this portable.
+    ok.stdin.end('hello from a real subprocess');
+    expect(await exited).toBe(0);
+    expect(stderr).toBe('');
+    const lines = stdout.split('\n').filter((line) => line.length > 0);
     expect(lines.length).toBeGreaterThanOrEqual(3);
     const events = lines.map((line) => JSON.parse(line) as JsonEvent);
     expect(events[0]?.type).toBe('session.started');

@@ -1,5 +1,13 @@
 # Testing Log
 
+## 2026-10-09 — Linux CLI fixture stdin transport
+
+The new Linux PR gate exposed two source-CLI fixture failures that passed on macOS. Reproduced unchanged in an isolated `node:24-bookworm` Linux arm64 container with Bun 1.3.13, a read-only repository mount and temporary homes: legacy `spawnSync` input reached the CLI as an empty prompt; SDK `Bun.spawn` Blob input produced `invalid_input` before credential resolution. Captured stdout/stderr contained only these safe machine errors; no license or production-code failure was involved.
+
+Both fixtures now write their input through an explicit pipe and close stdin. The legacy fixture awaits process close and joins stdout/stderr. The SDK fixture uses the running Bun executable. All original success, diagnostic separation and missing-credential assertions remain. No test is skipped and no production behavior changes.
+
+`bun test tests/cli/sdkRunCommand.test.ts tests/cli/runCommand.test.ts` passes on macOS arm64 and the Linux container: **19 pass / zero fail / 103 assertions** on each. Linux command: `docker run --rm -v "$PWD:/repo:ro" -w /repo node:24-bookworm sh -c 'npm exec --yes --package=bun@1.3.13 -- bun test tests/cli/sdkRunCommand.test.ts tests/cli/runCommand.test.ts'`. `bun run lint` and `bun run typecheck` pass on macOS. CI must still verify Linux x64; this local receipt does not claim that run.
+
 ## 2026-10-09 — issue #15 combined integration gate
 
 All five lifecycle fixes (#10–#14), injected context management, child capability policy/tree budgets, bounded host ownership and production CI were tested together. Native subagents implemented independent portions; root reviewed the focused diffs and the workflows. The final rebase changed no file content. No merge, branch-rule activation, live paid request, release or installed runtime change was performed.
