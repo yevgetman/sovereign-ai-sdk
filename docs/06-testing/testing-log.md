@@ -1,5 +1,12 @@
 # Testing Log
 
+## 2026-10-09 — issue #10: OpenAI response reader cleanup
+
+Bun 1.3.13, macOS arm64, offline scripted streams. The early-return regression failed before implementation (52 pass / 1 fail), then the focused provider file passes (57 pass, 136 assertions). Tests cover early return, DONE with open source, EOF, malformed JSON, abort/read errors, and throwing cancel callbacks. Cleanup preserves the original outcome and releases the lock.
+
+`bun install --frozen-lockfile` built the Go TUI. `bun run lint`, `bun run typecheck`, and unskipped `bun run test` pass: 5,493 pass / 19 skip / zero fail, 22,457 assertions across 523 files (84.66s). `bun run canary` passes both packed packages under Node and Bun. An additional packed-SDK regression verifies early return, DONE, EOF and abort with unlocked bodies under both runtimes. Owner-profile isolation remains in the existing fixtures; no live provider calls, installation or release. Learning recall/synthesis was not exercised by these transport fixtures.
+
+
 ## 2026-10-09 — correct the pre-existing TUI integration test's profile isolation
 
 Correction to the prior publication entry: the public installer itself did not change existing profile credentials or session rows. The separate unskipped source tests had a pre-existing bare TUI smoke that used the real default profile database. Three current-turn mock sessions and four fixture messages were added. Two sessions were empty; the four messages have exact fixture text, the mock Bash call, and its matching mock tool-result identity. No real-provider turn was involved.
