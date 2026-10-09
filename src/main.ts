@@ -28,6 +28,7 @@ import {
 import type { PermissionMode } from '@yevgetman/sov-sdk/permissions/types';
 import { REASONING_EFFORTS, type ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { parseProfileFlag } from './cli/profileFlag.js';
+import { registerRouteCommands } from './cli/routesCommands.js';
 import type { WorkflowEvent } from './workflows/events.js';
 import { VERSION } from './wrapperVersion.js';
 
@@ -176,6 +177,8 @@ async function main(argv: string[]): Promise<void> {
       '-p, --profile <name>',
       "scope the run to a named profile under <harness-home>/profiles/<name>/ (use 'default' for the unscoped root)",
     );
+
+  registerRouteCommands(program);
 
   program
     .command('login <provider>')

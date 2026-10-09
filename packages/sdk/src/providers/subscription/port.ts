@@ -18,6 +18,9 @@ export type SubscriptionFetch = (
 ) => Promise<Response>;
 
 export interface SubscriptionCredentialPort {
+  /** Cross-process mutex metadata. Production adapters must provide both. */
+  readonly lockDirectory?: string;
+  readonly lockIdentity?: string;
   read(service: string): Promise<SubscriptionRecord | null>;
   write(service: string, record: SubscriptionRecord): Promise<void>;
   delete(service: string): Promise<void>;

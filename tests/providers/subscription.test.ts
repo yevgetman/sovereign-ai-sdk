@@ -352,6 +352,47 @@ describe('login and logout', () => {
     expect(saved?.accessToken).toBe(SECRET);
   });
 
+  test('logout during attended login prevents a late approval from restoring credentials', async () => {
+    const port = memoryPort();
+    let announce: () => void = () => {};
+    let release: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      announce = resolve;
+    });
+    const approved = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let step = 0;
+    const io = {
+      stdout: () => {},
+      stderr: () => {},
+      openUrl: () => {},
+      sleep: async () => {},
+      now: () => NOW,
+      fetchImpl: async () => {
+        step += 1;
+        if (step === 1)
+          return jsonResponse(200, { user_code: 'ABCD', device_auth_id: 'dev1', interval: 1 });
+        if (step === 2) {
+          announce();
+          await approved;
+          return jsonResponse(200, { authorization_code: 'code1', code_verifier: 'ver1' });
+        }
+        return jsonResponse(200, {
+          access_token: SECRET,
+          refresh_token: 'rotated',
+          expires_in: 3600,
+        });
+      },
+    };
+    const login = loginSubscription('chatgpt', port, io);
+    await started;
+    expect(await logoutSubscription('chatgpt', port, io)).toBe(0);
+    release();
+    expect(await login).toBe(1);
+    expect(await port.read('SOV_SUB_CHATGPT')).toBeNull();
+  });
+
   test('claude-max login does no HTTP and writes nothing', async () => {
     const port = memoryPort();
     let called = false;

@@ -37,6 +37,15 @@ const RouterProviderConfigSchema = ProviderConfigSchema.extend({
   headers: z.record(z.string()).optional(),
 }).strict();
 
+/** Per-route, non-secret overrides for a built-in SOV auth route. */
+const RouteSettingsSchema = z
+  .object({
+    /** Default model for this route. API-key routes fall back to
+     *  `providers.<provider>.model`, then the built-in default. */
+    defaultModel: z.string().min(1).optional(),
+  })
+  .strict();
+
 const MicrocompactionSchema = z
   .object({
     enabled: z.boolean().optional(),
@@ -362,6 +371,20 @@ export const SettingsSchema = z
          *  base provider config PLUS static routing-hint `headers` (Manifest
          *  custom-tier headers / x-session-key), which exist ONLY on this lane. */
         manifest: RouterProviderConfigSchema.optional(),
+      })
+      .strict()
+      .optional(),
+    /** Built-in authentication routes (spec 2026-10-08 §4.1). Only
+     *  non-secret overrides live here — credentials stay in `providers.*`,
+     *  the environment, or the Keychain. Unknown route ids are rejected. */
+    routes: z
+      .object({
+        'openrouter-api': RouteSettingsSchema.optional(),
+        'anthropic-api': RouteSettingsSchema.optional(),
+        'openai-api': RouteSettingsSchema.optional(),
+        'grok-api': RouteSettingsSchema.optional(),
+        'chatgpt-subscription': RouteSettingsSchema.optional(),
+        'grok-subscription': RouteSettingsSchema.optional(),
       })
       .strict()
       .optional(),
