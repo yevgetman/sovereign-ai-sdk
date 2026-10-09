@@ -69,6 +69,7 @@ describe('PROVIDER_MODELS registry', () => {
       'ollama',
       'openai',
       'openrouter',
+      'xai',
     ]);
   });
 

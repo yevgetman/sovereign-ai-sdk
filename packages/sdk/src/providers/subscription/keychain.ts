@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
-import { userInfo } from 'node:os';
+import { homedir, userInfo } from 'node:os';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { SubscriptionAuthExpiredError } from '../errors.js';
+import { CredentialStoreUnavailableError, SubscriptionRecordUnreadableError } from '../errors.js';
 import type { SubscriptionCredentialPort, SubscriptionRecord } from './port.js';
 
 const execFileAsync = promisify(execFile);
@@ -10,20 +11,28 @@ type ExecResult = { stdout: string; code: number };
 
 export type KeychainExec = (args: string[]) => Promise<ExecResult>;
 
-async function securityExec(args: string[]): Promise<ExecResult> {
-  try {
-    const { stdout } = await execFileAsync('security', args, {
-      timeout: 10_000,
-      maxBuffer: 1024 * 1024,
-    });
-    return { stdout: String(stdout), code: 0 };
-  } catch (err) {
-    const failed = err as { code?: number; stdout?: string };
-    return {
-      stdout: typeof failed.stdout === 'string' ? failed.stdout : '',
-      code: typeof failed.code === 'number' ? failed.code : 1,
-    };
-  }
+/** `security` exit status for "The specified item could not be found". */
+const ITEM_NOT_FOUND = 44;
+/** Reported when `security` was killed (timeout) or could not start. */
+const EXEC_FAILED = -1;
+const DEFAULT_TIMEOUT_MS = 10_000;
+
+function securityExec(timeoutMs: number): KeychainExec {
+  return async (args) => {
+    try {
+      const { stdout } = await execFileAsync('security', args, {
+        timeout: timeoutMs,
+        maxBuffer: 1024 * 1024,
+      });
+      return { stdout: String(stdout), code: 0 };
+    } catch (err) {
+      const failed = err as { code?: unknown; stdout?: string };
+      return {
+        stdout: typeof failed.stdout === 'string' ? failed.stdout : '',
+        code: typeof failed.code === 'number' ? failed.code : EXEC_FAILED,
+      };
+    }
+  };
 }
 
 function accountName(): string {
@@ -37,29 +46,21 @@ function parseRecord(raw: string, service: string): SubscriptionRecord {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new SubscriptionAuthExpiredError(
-      service,
-      `subscription login for ${service} is unreadable`,
-    );
+    throw new SubscriptionRecordUnreadableError(service);
   }
   if (!parsed || typeof parsed !== 'object') {
-    throw new SubscriptionAuthExpiredError(
-      service,
-      `subscription login for ${service} is unreadable`,
-    );
+    throw new SubscriptionRecordUnreadableError(service);
   }
   const row = parsed as Record<string, unknown>;
-  if (typeof row.accessToken !== 'string' || typeof row.refreshToken !== 'string') {
-    throw new SubscriptionAuthExpiredError(
-      service,
-      `subscription login for ${service} is unreadable`,
-    );
+  if (
+    typeof row.accessToken !== 'string' ||
+    row.accessToken.length === 0 ||
+    typeof row.refreshToken !== 'string'
+  ) {
+    throw new SubscriptionRecordUnreadableError(service);
   }
   if (typeof row.expiresAt !== 'number' || !Number.isFinite(row.expiresAt)) {
-    throw new SubscriptionAuthExpiredError(
-      service,
-      `subscription login for ${service} is unreadable`,
-    );
+    throw new SubscriptionRecordUnreadableError(service);
   }
   return {
     accessToken: row.accessToken,
@@ -68,20 +69,33 @@ function parseRecord(raw: string, service: string): SubscriptionRecord {
   };
 }
 
-/** macOS Keychain adapter. `exec` is injectable so tests never call `security`. */
+/**
+ * macOS Keychain adapter. `exec` is injectable so tests never call `security`.
+ * A missing item reads as `null`; any other failure (locked Keychain, timeout,
+ * `security` unavailable) throws `CredentialStoreUnavailableError` so callers
+ * never mistake a platform failure for "not logged in".
+ */
 export function macKeychainPort(opts?: {
   exec?: KeychainExec;
   account?: string;
+  /** Bound on each `security` call. Default 10 s. */
+  timeoutMs?: number;
+  lockDirectory?: string;
 }): SubscriptionCredentialPort {
-  const exec = opts?.exec ?? securityExec;
+  const exec = opts?.exec ?? securityExec(opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const account = opts?.account ?? accountName();
 
   return {
+    lockDirectory: opts?.lockDirectory ?? join(homedir(), '.sov', 'auth-locks'),
+    lockIdentity: account,
     async read(service) {
       const result = await exec(['find-generic-password', '-s', service, '-a', account, '-w']);
-      if (result.code !== 0) return null;
+      if (result.code === ITEM_NOT_FOUND) return null;
+      if (result.code !== 0) {
+        throw new CredentialStoreUnavailableError(service, 'read_failed');
+      }
       const raw = result.stdout.trim();
-      if (raw.length === 0) return null;
+      if (raw.length === 0) throw new SubscriptionRecordUnreadableError(service);
       return parseRecord(raw, service);
     },
 
@@ -97,14 +111,22 @@ export function macKeychainPort(opts?: {
         '-U',
       ]);
       if (result.code !== 0) {
-        throw new Error(`keychain write failed for ${service}`);
+        throw new CredentialStoreUnavailableError(
+          service,
+          'write_failed',
+          `keychain write failed for ${service}`,
+        );
       }
     },
 
     async delete(service) {
       const result = await exec(['delete-generic-password', '-s', service, '-a', account]);
-      if (result.code !== 0 && result.code !== 44) {
-        throw new Error(`keychain delete failed for ${service}`);
+      if (result.code !== 0 && result.code !== ITEM_NOT_FOUND) {
+        throw new CredentialStoreUnavailableError(
+          service,
+          'delete_failed',
+          `keychain delete failed for ${service}`,
+        );
       }
     },
   };

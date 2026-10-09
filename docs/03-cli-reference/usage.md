@@ -2544,3 +2544,33 @@ Need a clean test session
 - [`docs/04-extending/extending.md`](docs/04-extending/extending.md) — adding tools, providers, commands, agents, and tests.
 - [`docs/06-testing/semantic-testing.md`](docs/06-testing/semantic-testing.md) — the semantic-test framework behind the eval suite.
 - [`docs/05-conventions/lint-and-commit.md`](docs/05-conventions/lint-and-commit.md) — the gate to run before committing.
+
+
+## Authentication routes for native SDK callers
+
+SOV owns authentication. A caller selects one of these reserved route IDs:
+
+| Route | Backend | Credential |
+| --- | --- | --- |
+| `openrouter-api` | OpenRouter | `OPENROUTER_API_KEY` or SOV provider config |
+| `anthropic-api` | Anthropic | `ANTHROPIC_API_KEY` or SOV provider config |
+| `openai-api` | OpenAI | `OPENAI_API_KEY` or SOV provider config |
+| `grok-api` | direct xAI | `XAI_API_KEY` or `providers.xai.apiKey` |
+| `chatgpt-subscription` | ChatGPT Codex backend | `sov login chatgpt` |
+| `grok-subscription` | Grok subscription backend | `sov login grok` |
+
+`grok-api` does not use an OpenRouter Grok credential. Claude subscriptions are unsupported. Subscription login runs outside an embedding caller. Tokens remain in the existing OS-account Keychain items. `sov logout chatgpt` and `sov logout grok` remove them.
+
+Read-only machine discovery:
+
+```sh
+sov capabilities --json
+sov routes --json
+sov auth status --route chatgpt-subscription --json
+```
+
+Each response has `schemaVersion: 1`. Status performs no login, refresh, network request, or credential write. `present` means a local credential exists; it does not prove service entitlement. A locked or unavailable Keychain reports `unavailable`. Model catalogs are offline known examples and may be non-exhaustive. Known incompatible models or unsupported effort are refused. A backend rejection does not change route, payment method, or model.
+
+Set a route default with `sov config set routes.<route-id>.defaultModel <model>`. This overrides an API route's existing `providers.<provider>.model` setting. Subscription routes have their own defaults. ChatGPT supports low, medium, high, and max reasoning effort; max maps to xhigh. Grok subscription currently advertises off only. The route catalog reports the effective model and effort defaults.
+
+Login writes, refresh, and logout share an OS-account-and-service mutex under `~/.sov/auth-locks`. Profiles and `HARNESS_HOME` do not split the identity. Concurrent 401 replies rotate one rejected token generation only. Logout waits for a pending refresh and then deletes the credential. A delayed attended-login approval cannot restore a credential after logout. Waits and exchanges are bounded and cancellable. Dead process owners are recovered; live owners are never evicted merely because an exchange is slow. Injected credential ports must supply `lockDirectory` and `lockIdentity` for cross-process coordination; ports without them retain only an in-process mutex.

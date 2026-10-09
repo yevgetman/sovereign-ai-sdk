@@ -21,7 +21,7 @@ import { OpenAIProvider } from './openai.js';
 import { RouterProvider } from './router.js';
 import { SovProvider } from './sov.js';
 import { loadSubscriptionProvider } from './subscription/load.js';
-import { isSubscriptionName } from './subscription/names.js';
+import { SUBSCRIPTION_DEFAULT_MODEL, isSubscriptionName } from './subscription/names.js';
 import type { SubscriptionCredentialPort, SubscriptionFetch } from './subscription/port.js';
 import type { AuthType, LLMProvider, ProviderRequest, ToolSchema, Transport } from './types.js';
 
@@ -158,6 +158,24 @@ export function resolveProvider(
   };
 }
 
+/**
+ * How many API-key credentials exist for `providerName` under the SAME
+ * env/config precedence `resolveProvider` uses (env var, `apiKey`, `apiKeys`,
+ * `credentials`). Presence only: no pool state, no disk write, no network,
+ * and no secret leaves this function. Unknown or keyless providers return 0.
+ */
+export function apiKeyCredentialCount(
+  providerName: string,
+  settings: Settings,
+  env: NodeJS.ProcessEnv,
+): number {
+  const name = normalizeProviderName(providerName);
+  const registry = PROVIDER_REGISTRY[name];
+  if (!registry || isKeylessProvider(name)) return 0;
+  const config = providerConfigFor(settings.providers, name);
+  return credentialInputs(name, config, registry.authEnvVar, env).length;
+}
+
 function resolveSubscription(
   name: string,
   model: string | undefined,
@@ -173,7 +191,9 @@ function resolveSubscription(
     ...(opts.principal !== undefined ? { principal: opts.principal } : {}),
     ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
   });
-  const resolvedModel = model ?? (name === 'grok' ? 'grok-4.6' : 'gpt-5.3-codex');
+  const resolvedModel =
+    model ??
+    (name === 'grok' ? SUBSCRIPTION_DEFAULT_MODEL.grok : SUBSCRIPTION_DEFAULT_MODEL.chatgpt);
   const baseUrl = name === 'grok' ? 'https://api.x.ai/v1' : 'https://chatgpt.com/backend-api/codex';
   return {
     transport: subscriptionTransport(provider),

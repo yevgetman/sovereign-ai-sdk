@@ -8,6 +8,14 @@ Implementation backlogs from these findings live in
 [`backlog/archive/phase-10-5.md`](docs/08-roadmap/backlog/archive/phase-10-5.md) and
 [`backlog/archive/post-phase-10-5-repl.md`](docs/08-roadmap/backlog/archive/post-phase-10-5-repl.md).
 
+## 2026-10-09 — T1 authentication routes and shared credential locking
+
+Bun 1.3.13, macOS source worktree; fake HOME, credentials, Keychain ports, and HTTP. Commands: `bun test tests/providers/routes.test.ts tests/providers/subscription.test.ts tests/providers/subscription-lock.test.ts tests/cli/routes-discovery.test.ts --timeout 10000`; `bun run lint && bun run typecheck && bun run test`. Discovery emits one schemaVersion1 JSON record with no key material. Routes resolve only their declared provider/auth pair. OS-process tests cover single-generation expiry/401 refresh, logout ordering, killed owner recovery with three concurrent contenders, reused PID generations, cancellation, and late refresh writes; attended-login/logout overlap is also tested.
+
+The first full gate exposed the unchanged picker registry assertion missing the direct xAI provider. That assertion is updated. The next full gate passed 5458 tests, 19 skipped, zero failures (5477 total; 89.29 seconds). Final bakery-ticket mutex and PID-start-identity gate: lint/boundary/typecheck pass; 5459 tests pass, 19 skip, zero fail (5478 total, 519 files; 97.26 seconds). Final focused route/auth/process/CLI tests: 52 pass, zero fail, 301 assertions. The prior directory reclaimer protocol was removed after self-review found a shared-path deletion race.
+
+No real Keychain login, network inference, service entitlement, installation, or publication was tested. Live acceptance remains a separate gate. Review evidence: `handoffs/2026-10-09-t1-routes-review.md`.
+
 ## 2026-10-01 — Fresh-install package remediation (PR #3)
 
 - Scope: tracked clean compile inputs, copied dependency provenance, reviewed license pin, neutral final tar headers, shared full-package/last-upload scan gates, installed bundle contract, and mission command quoting.

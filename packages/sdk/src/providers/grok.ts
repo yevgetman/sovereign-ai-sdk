@@ -7,7 +7,11 @@ import {
 } from './subscription/attempt.js';
 import { KEYCHAIN_SERVICE } from './subscription/names.js';
 import { formBody, recordFromTokenJson } from './subscription/oauth.js';
-import type { SubscriptionCredentialPort, SubscriptionFetch } from './subscription/port.js';
+import type {
+  SubscriptionCredentialPort,
+  SubscriptionFetch,
+  SubscriptionRecord,
+} from './subscription/port.js';
 import { exchangeUnderLock, loadFreshRecord } from './subscription/tokens.js';
 import type { LLMProvider, ProviderRequest, ToolSchema } from './types.js';
 
@@ -38,13 +42,17 @@ export class GrokSubscriptionProvider implements LLMProvider {
   }
 
   async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+    let sentRecord: SubscriptionRecord | undefined;
     const response = await subscriptionAttempt({
       provider: this.name,
       ...(req.signal ? { signal: req.signal } : {}),
       tierBlockedOn403: true,
       deps: this.deps,
-      send: () => this.send(req),
-      refresh: () => this.refresh(),
+      send: () =>
+        this.send(req, (record) => {
+          sentRecord = record;
+        }),
+      refresh: () => this.refresh(sentRecord, req.signal),
     });
     if (!response.body) {
       throw new Error('subscription provider grok returned an empty stream');
@@ -52,14 +60,19 @@ export class GrokSubscriptionProvider implements LLMProvider {
     return yield* translateOpenAIStream(parseSse(response.body));
   }
 
-  private async send(req: ProviderRequest): Promise<Response> {
+  private async send(
+    req: ProviderRequest,
+    remember: (record: SubscriptionRecord) => void,
+  ): Promise<Response> {
     const record = await loadFreshRecord(
       this.name,
       KEYCHAIN_SERVICE.grok,
       this.port,
       this.deps.now,
-      (current) => this.exchange(current.refreshToken),
+      (current, signal) => this.exchange(current.refreshToken, signal),
+      req.signal ? { signal: req.signal } : {},
     );
+    remember(record);
     const tools = toGrokTools(req.tools);
     const body: Record<string, unknown> = {
       model: req.model,
@@ -81,15 +94,22 @@ export class GrokSubscriptionProvider implements LLMProvider {
     });
   }
 
-  private refresh(): Promise<void> {
-    return exchangeUnderLock(this.name, KEYCHAIN_SERVICE.grok, this.port, (current) =>
-      this.exchange(current.refreshToken),
+  private refresh(rejected: SubscriptionRecord | undefined, signal?: AbortSignal): Promise<void> {
+    return exchangeUnderLock(
+      this.name,
+      KEYCHAIN_SERVICE.grok,
+      this.port,
+      (current, exchangeSignal) => this.exchange(current.refreshToken, exchangeSignal),
+      rejected,
+      signal ? { signal } : {},
     ).then(() => undefined);
   }
 
-  private async exchange(refreshToken: string) {
+  private async exchange(refreshToken: string, signal?: AbortSignal) {
     const response = await this.fetchImpl(TOKEN_URL, {
       method: 'POST',
+      redirect: 'error',
+      ...(signal ? { signal } : {}),
       headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
       body: formBody({
         grant_type: 'refresh_token',

@@ -1,6 +1,9 @@
 import {
   ContextOverflowError,
+  CredentialStoreUnavailableError,
+  CredentialUnavailableError,
   SubscriptionAuthExpiredError,
+  SubscriptionHttpError,
   SubscriptionTierBlockedError,
 } from '../errors.js';
 import {
@@ -58,6 +61,7 @@ export async function subscriptionAttempt(opts: {
     }
 
     if (response.status === 401) {
+      await discard(response);
       if (refreshedAfter401) throw new SubscriptionAuthExpiredError(opts.provider);
       refreshedAfter401 = true;
       await opts.refresh();
@@ -66,18 +70,26 @@ export async function subscriptionAttempt(opts: {
     }
 
     if (opts.tierBlockedOn403 && response.status === 403) {
+      await discard(response);
       throw new SubscriptionTierBlockedError(opts.provider);
     }
 
     if (response.status === 400 || response.status === 413) {
-      const body = await response.text();
+      const body = await readFailureBody(response);
       if (looksLikeContextOverflow(response.status, body)) {
         throw new ContextOverflowError(opts.provider);
       }
+      if (
+        /model_not_found|invalid_model|unknown_model|model not found|model.*does not exist/i.test(
+          body,
+        )
+      )
+        throw httpFailure(opts.provider, 404);
       throw httpFailure(opts.provider, response.status);
     }
 
     if (isRetryableStatus(response.status)) {
+      await discard(response);
       const delay = retryAfterDelay(response.headers.get('retry-after'), opts.deps.now());
       if (delay === 'over-limit' || attempt === 3)
         throw httpFailure(opts.provider, response.status);
@@ -86,7 +98,10 @@ export async function subscriptionAttempt(opts: {
       continue;
     }
 
-    if (response.status >= 400) throw httpFailure(opts.provider, response.status);
+    if (response.status >= 400) {
+      await discard(response);
+      throw httpFailure(opts.provider, response.status);
+    }
 
     const declaredEmpty = response.headers.get('content-length') === '0';
     if (!response.body || declaredEmpty) {
@@ -121,10 +136,47 @@ async function waitForRetry(
 }
 
 function httpFailure(provider: string, status: number): Error {
-  return new Error(`subscription provider ${provider} failed with HTTP ${status}`);
+  return new SubscriptionHttpError(provider, status);
 }
 
 function redactConnection(provider: string, err: unknown): Error {
-  if (err instanceof SubscriptionAuthExpiredError) return err;
+  if (
+    err instanceof SubscriptionAuthExpiredError ||
+    err instanceof CredentialStoreUnavailableError ||
+    err instanceof CredentialUnavailableError ||
+    (err instanceof Error && err.name === 'RouteError')
+  )
+    return err;
   return new Error(`subscription provider ${provider} connection failed`);
+}
+
+async function discard(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    /* Already consumed or closed. */
+  }
+}
+async function readFailureBody(response: Response): Promise<string> {
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  let bytes = 0;
+  try {
+    while (bytes < 16_384) {
+      const item = await reader.read();
+      if (item.done) break;
+      const chunk = item.value.subarray(0, 16_384 - bytes);
+      bytes += chunk.byteLength;
+      text += decoder.decode(chunk, { stream: true });
+    }
+    return text;
+  } finally {
+    try {
+      await reader.cancel();
+    } finally {
+      reader.releaseLock();
+    }
+  }
 }
