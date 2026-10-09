@@ -256,3 +256,11 @@ export function isContextOverflowError(err: unknown): boolean {
     lower.includes('too many tokens')
   );
 }
+
+/** A discarded conduct attempt wrote history but this store cannot undo it. */
+export class RegenerationRollbackUnavailableError extends Error {
+  constructor() {
+    super('conduct regeneration requires SessionStore.truncateMessages after persisted writes');
+    this.name = 'RegenerationRollbackUnavailableError';
+  }
+}

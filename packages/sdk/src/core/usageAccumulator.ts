@@ -89,6 +89,14 @@ function flushCall(acc: UsageAccumulator): UsageAccumulator {
  *    (a later delta that omits a field does not clear the earlier value). */
 export function accumulateUsage(acc: UsageAccumulator, ev: StreamEvent): UsageAccumulator {
   if (ev.type === 'message_start' || ev.type === 'message_stop') return flushCall(acc);
+  if (ev.type === 'context_management' && ev.info.usage !== undefined) {
+    const totals: TokenUsage = { ...acc.totals };
+    for (const field of USAGE_FIELDS) {
+      const value = ev.info.usage[field];
+      if (value !== undefined) totals[field] = (totals[field] ?? 0) + value;
+    }
+    return { totals, call: acc.call, sawUsage: true };
+  }
   if (ev.type !== 'usage_delta') return acc;
   const call: TokenUsage = { ...acc.call };
   for (const field of USAGE_FIELDS) {

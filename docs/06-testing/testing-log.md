@@ -1,5 +1,16 @@
 # Testing Log
 
+## 2026-10-09 — issue #15: injected context management and legacy store compatibility
+
+macOS arm64, Bun 1.3.13, Node 25.9.0, Go 1.26.1. Deterministic host ports and scripted providers only. Added ContextManagementPort/config/per-turn injection, strict replacement checks and independent model history. Tests prove complete transcript rehydration without duplicate rows, tool-call/result adjacency, pre-tool persistence integrity, one overflow retry before output/tools, no replay after effects, cooperative cancellation, config/seed immutability, rejected-summary billing metadata, separately priced usage and unknown-cost persistence handling. Legacy stores without truncateMessages work normally; regeneration needing rollback fails closed with a typed error and one observed tool effect. Root reviewed validator/query changes with no blocker.
+
+Focused context regressions: 11 pass / zero fail, 73 assertions. Public API surface witnesses cover the additive types/value export; the first complete pass caught their deliberate additions (5,496 pass / 19 skip / 2 snapshot failures), then the witnesses were updated. Final `bun run lint`, `bun run typecheck`, and complete unskipped `bun run test` pass: 5,499 pass / 19 skip / zero fail, 22,514 assertions across 524 files (87.06s). `bun install --frozen-lockfile` builds the Go TUI. Existing TUI integration fixtures use isolated homes/databases.
+
+`bun run canary` passes packed SDK/protocol consumers under Node and Bun. Additional packed-SDK parent regressions pass on both: reduced provider history vs full persisted transcript, no duplicate rehydration, separately counted summary/main usage, malformed summaries and capped overflow retry. Native-child context inheritance is prepared for the aggregate ChildPolicy branch and verified there by root, not claimed against this standalone base. No live model calls, runtime installation or publication. No proprietary summarizer moved into the MIT SDK; its reusable implementation's license placement remains an owner decision. Learning recall/synthesis benefit was not assessed.
+
+Unknown summary cost remains absent in RunResult and prevents a fabricated zero aggregate numeric-store write; measured tokens remain in returned usage/events. Missing summary usage sets usageComplete false. Hosts own unpriced accounting and cooperative port cancellation; an uncooperative host cannot be forcibly stopped by the SDK.
+
+
 ## 2026-10-09 — correct the pre-existing TUI integration test's profile isolation
 
 Correction to the prior publication entry: the public installer itself did not change existing profile credentials or session rows. The separate unskipped source tests had a pre-existing bare TUI smoke that used the real default profile database. Three current-turn mock sessions and four fixture messages were added. Two sessions were empty; the four messages have exact fixture text, the mock Bash call, and its matching mock tool-result identity. No real-provider turn was involved.

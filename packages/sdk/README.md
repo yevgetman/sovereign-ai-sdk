@@ -174,3 +174,38 @@ Full policy: [`STABILITY.md`](https://github.com/yevgetman/sovereign-ai-sdk/blob
 ## License
 
 MIT.
+
+### Host-supplied context reduction
+
+Configure optional `contextManager: ContextManagementPort` and `contextLimits`
+on `createAgent()` or its per-turn overrides. `maxHistoryBytes` is the UTF-8 JSON
+history envelope, excluding system/tools; optional `contextWindowTokens` is a
+host model-limit hint. There is no bundled summary engine. Native child policy
+can explicitly inherit the same configuration.
+
+The port receives a history snapshot, reason (`budget` or `overflow`), model,
+provider, output token cap and `AbortSignal`. It returns reduced `messages` and
+optional summary-engine `usage`/`estimatedCostUsd`. A replacement must shrink,
+retain the final message verbatim and keep each complete tool call adjacent to
+its matching user results. When the final message contains tool results, retain
+its preceding assistant tool call too. Empty, inflated and malformed replacements
+fail closed. Full persisted transcripts remain unchanged by context reduction.
+
+`maxOverflowRetries` supports zero or one (default one). Recovery occurs only
+before provider output and tool dispatch. It never replays external effects.
+The host port must honor cancellation and settle; the SDK awaits it rather than
+leaving it running in the background.
+
+The content-free `context_management` event reports byte counts, reason,
+`applied` status and supplied summary usage/cost. Rejected summaries still count
+trusted billing metadata. Summary usage is added separately from provider usage;
+summary cost is priced by the host, never at the main model's rate. Missing
+summary usage sets `RunResult.usageComplete` false. Unknown summary cost leaves
+aggregate `estimatedCostUsd` absent. In that case the legacy numeric-cost store
+cannot represent the aggregate: its token/cost write is skipped. Hosts must use
+the returned usage/events for unpriced accounting; transcript writes still occur.
+
+`SessionStore.truncateMessages` is optional for legacy stores. Ordinary runs
+remain supported. Conduct regeneration that must undo persisted writes fails
+with `RegenerationRollbackUnavailableError` before replay when that capability
+is absent. Built-in `InMemorySessionStore` retains its required rollback method.

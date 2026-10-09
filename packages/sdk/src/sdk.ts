@@ -41,6 +41,14 @@ export type {
   TokenUsage,
   UserMessage,
 } from './core/types.js';
+export type {
+  ContextManagementPort,
+  ContextManagementRequest,
+  ContextManagementResult,
+  ContextManagementInfo,
+  ContextLimits,
+} from './compact/contextManagement.js';
+export { ContextManagementError } from './compact/contextManagement.js';
 export type { MicrocompactConfig } from './compact/microcompact.js';
 // Cross-call usage accumulation (W1) — the exact per-call/summed token semantics
 // the tool loop uses. Public so the gateway and external meters reuse them
@@ -283,6 +291,7 @@ export type { TranscriptStore } from './persistence/transcriptStore.js';
 
 // ── Persistence (session) ───────────────────────────────────────────────────
 export { createInMemorySessionStore } from './persistence/inMemoryStore.js';
+export type { InMemorySessionStore } from './persistence/inMemoryStore.js';
 export type { SessionStore } from './persistence/sessionStore.js';
 // The session DTOs `SessionStore`'s method signatures reference (Task 2.9).
 export type {

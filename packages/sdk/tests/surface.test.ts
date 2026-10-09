@@ -90,6 +90,11 @@ import type {
   ConductSurface,
   ConductToolVerdict,
   ContentBlock,
+  ContextLimits,
+  ContextManagementInfo,
+  ContextManagementPort,
+  ContextManagementRequest,
+  ContextManagementResult,
   CreateSessionInput,
   CreateTaskInput,
   DelegateInput,
@@ -105,6 +110,7 @@ import type {
   HookEventOf,
   HookResult,
   HookRunner,
+  InMemorySessionStore,
   LLMProvider,
   LaneConfig,
   LaneName,
@@ -234,6 +240,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'ASSAY_WIRE_VERSION',
   'CANONICAL_TOOL_DESCRIPTORS',
   'ClaudeMaxTermsError',
+  'ContextManagementError',
   'ContextOverflowError',
   'DEFAULT_CONDUCT_REFUSAL',
   'LaneSemaphores',
@@ -345,6 +352,13 @@ describe('sdk barrel — the 0.1.0 semver-contract surface snapshot', () => {
  *  compilation here — the type-surface half of the 0.1.0 contract (values are
  *  erased at runtime; types are not, so they need a compile-time pin). */
 type TypeSurfaceWitness = {
+  contextLimits?: ContextLimits;
+  contextManagementInfo?: ContextManagementInfo;
+  contextManagementPort?: ContextManagementPort;
+  contextManagementRequest?: ContextManagementRequest;
+  contextManagementResult?: ContextManagementResult;
+  inMemorySessionStore?: InMemorySessionStore;
+
   agent?: Agent;
   agentConfig?: AgentConfig;
   agentDefinition?: AgentDefinition;
