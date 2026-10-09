@@ -242,3 +242,7 @@ whole, open source.
 The machine-enforced open→proprietary boundary described above keeps the MIT
 packages free of any proprietary import, so the two published tarballs are fully
 self-contained under MIT.
+
+## Production PR checks
+
+[Production PR gates](docs/05-conventions/production-pr-gates.md) describes the full source/Go matrix, packed consumer type and behavior checks, advisory policy, and actual isolated Agent Casa runner. Branch-protection activation and private CI access remain explicit post-merge steps. Runtime releases are separate from PR merge permission.

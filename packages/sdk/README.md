@@ -6,7 +6,7 @@ tool dispatch, sub-agent delegation, skills, MCP, hooks, and injectable
 memory/recall and persistence ports — with **no disk, no server, and no
 proprietary code** required for a bare turn.
 
-Runs on **Node ≥ 20** and **Bun ≥ 1.2**.
+Runs on **Node ≥ 20.19** and **Bun ≥ 1.2**.
 
 ## Install
 
@@ -163,7 +163,7 @@ Full policy: [`STABILITY.md`](https://github.com/yevgetman/sovereign-ai-sdk/blob
 ## Compatibility notes
 
 - **A global `fetch` is required**, and every supported runtime provides one:
-  Node ≥ 20 and Bun ≥ 1.2 both ship a global `fetch`, so no polyfill is needed
+  Node ≥ 20.19 and Bun ≥ 1.2 both ship a global `fetch`, so no polyfill is needed
   and the "runtime without a global `fetch`" case cannot arise within the
   engines floor. The SDK does **not** currently expose a public `fetchImpl`
   injection point through `createAgent` or the package barrel — network-touching

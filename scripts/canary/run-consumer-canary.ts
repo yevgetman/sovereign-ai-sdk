@@ -25,6 +25,7 @@ interface CanarySpec {
   consumer: string;
   token: string;
   extraInstalls?: string[];
+  typeConsumer?: string;
 }
 
 // Shipped-artifact purity (spec §9.4), checked against the INSTALLED package
@@ -158,6 +159,15 @@ function runCanary(spec: CanarySpec): void {
       });
       assertShippedArtifactPure(scratch, spec.name);
       copyFileSync(spec.consumer, join(scratch, 'consumer.mjs'));
+      if (spec.typeConsumer) {
+        copyFileSync(spec.typeConsumer, join(scratch, 'consumer.ts'));
+        execFileSync(join(repo, 'node_modules/.bin/tsc'), [
+          '--noEmit', '--strict', '--exactOptionalPropertyTypes', '--skipLibCheck',
+          '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--target', 'ES2022',
+          'consumer.ts',
+        ], { cwd: scratch, stdio: 'inherit' });
+        console.log(`  ✔ ${spec.name} consumer type shapes compile`);
+      }
       for (const runtime of ['node', 'bun']) {
         const out = execFileSync(runtime, ['consumer.mjs'], { cwd: scratch }).toString();
         if (!out.includes(spec.token)) {
@@ -191,5 +201,13 @@ runCanary({
   // scratch app declares its own copy; the SDK's runtime deps arrive with the
   // tarball install itself.
   extraInstalls: ['zod@^3.24.0'],
+});
+runCanary({
+  name: '@yevgetman/sov-sdk',
+  pkgDir: join(repo, 'packages/sdk'),
+  consumer: join(here, 'sdk-contract-consumer.mjs'),
+  token: 'SDK_CONTRACT_OK',
+  typeConsumer: join(here, 'sdk-contract-types.ts'),
+  extraInstalls: ['zod@^3.24.0', '@types/node@20.19.0'],
 });
 console.log('All consumer canaries passed.');

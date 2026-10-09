@@ -133,3 +133,7 @@ When a plan ships, its design intent lands in `docs/` (and a `07-history/state/`
 - [How to work with the docs](How_To_Work_With_Docs.md) — the procedural manual (placement, naming, the cross-doc impact scan)
 - [`CLAUDE.md`](../CLAUDE.md) / [`AGENTS.md`](../AGENTS.md) — the lean root router (purpose, standing rules, session boot)
 - [`README.md`](../README.md) — repo intro, install, top-level layout
+
+## Production hardening additions
+
+- [Production PR gates](05-conventions/production-pr-gates.md) — deterministic checks, advisory policy, actual private consumer runner, and post-merge rule activation.

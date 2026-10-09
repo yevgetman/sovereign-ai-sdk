@@ -81,9 +81,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     };
   }
   if (name === 'huge') {
-    // Comfortably past any sane per-image cap.
+    // Above our 7 MB image cap, below the upstream 10 MiB stdio frame cap.
     return {
-      content: [{ type: 'image', data: 'A'.repeat(12_000_000), mimeType: 'image/png' }],
+      content: [{ type: 'image', data: 'A'.repeat(8_000_000), mimeType: 'image/png' }],
     };
   }
   if (name === 'slow') {

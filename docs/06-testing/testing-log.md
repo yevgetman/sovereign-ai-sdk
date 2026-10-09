@@ -1,5 +1,15 @@
 # Testing Log
 
+## 2026-10-09 — issue #15 production CI and consumer gates
+
+Isolated `fix/issue-15-production-gates` worktree from `3709b25`. Bun 1.3.13 / Node 25.9.0 / Go 1.26.1. CI now specifies complete source/Go gates on Linux and macOS, packed consumer/type checks on Bun 1.2.0 + Node 20.19.0 and Bun 1.3.13 + Node 24.14.0, pinned action hashes and contents-read permissions. No merge, branch-rule activation, private token configuration or release performed.
+
+Dependency scan first found advisories in nine packages, including critical/high findings. Updated MCP/Hono floors, development DOM/build dependencies, and compatible transitive patches. `bun run audit:dependencies`: zero current advisories; exceptions empty. Five isolated advisory-gate tests pass (10 assertions), including malformed/failed registry reports, severity and expired/mismatched exceptions. New MCP upstream transport cap invalidated the old 12 MB image fixture; it now uses 8 MB, still above our 7 MB image cap and below upstream's 10 MiB frame cap. All five image passthrough tests pass without disabling transport protection.
+
+Lint/boundary/typecheck and TUI build pass. Final full suite before integration: **5,493 pass / 19 skip / zero fail**, 22,450 assertions, 91.77 seconds. Go suite passes. Packed SDK/protocol + new behavioral/type-shape consumers pass under Node/Bun; exact compatibility floor Bun 1.2.0 and Node 20.19.0 independently pass. Node 24.14.0 pin verified executable. No live paid semantic run.
+
+Actual private Agent Casa runner archives committed consumer HEAD into temporary storage, installs packed SDK and runs the real typecheck/tests with credentials excluded. First real run found a pre-existing compatibility break: the consumer's SessionStore lacks the newly required `truncateMessages`. This is being corrected in #15's context/persistence portion, then the actual runner will be repeated against the integrated changes. Public authored fixtures are not claimed as its actual suite. The private manual CI workflow requires a read-only `AGENT_CASA_READ_TOKEN` not currently configured. Branch-rule activation utility is preview-only here and refuses until named jobs pass on master.
+
 ## 2026-10-09 — composed lifecycle fixes #10–#14 integration base
 
 Validated the five independent lifecycle fixes together on an isolated staging

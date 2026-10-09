@@ -7,7 +7,7 @@ client. One typed source of truth for anything that talks to a running
 `sov gateway` (the Go TUI, `sov drive`, external apps), instead of each
 consumer re-deriving the wire shapes by hand.
 
-Runs on **Node ≥ 20** and **Bun ≥ 1.2**. **Zero runtime dependencies.**
+Runs on **Node ≥ 20.19** and **Bun ≥ 1.2**. **Zero runtime dependencies.**
 
 ## Install
 

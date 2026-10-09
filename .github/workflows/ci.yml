@@ -1,20 +1,13 @@
 name: ci
 
-# Guards the open→proprietary boundary (and types) on every push to master and
-# every PR — not just at release. `bun run lint` runs biome AND the
-# dependency-cruiser boundary lint (`bun run boundary`), which is the
-# load-bearing open-core guarantee: open SDK code must never import proprietary
-# code. Without this, the boundary could silently regress on master between
-# releases (the release workflow only checks it at tag time). Deliberately
-# lightweight + deterministic (no test suite here — that runs in the release
-# preflight; this gate is fast and flake-free so it can block every push/PR).
-
 on:
   push:
-    branches:
-      - master
+    branches: [master]
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -26,34 +19,68 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          bun-version: '1.2.0'
-      - run: bun install --frozen-lockfile
-      # `lint` = `biome check src tests && bun run boundary` (the boundary lint
-      # runs under `bun --bun depcruise`, so the runner's system node version is
-      # irrelevant — Bun's node-compat satisfies dependency-cruiser's engines).
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: '1.3.13'
+      - run: bun install --frozen-lockfile --ignore-scripts
       - run: bun run lint
       - run: bun run typecheck
 
-  packages:
-    name: open packages (build + canary + publish dry-run)
-    runs-on: ubuntu-22.04
-    timeout-minutes: 10
-    # Proves the open packages (protocol + sdk) are consumable as PUBLISHED
-    # artifacts: build → tarball-contents assertions → install-from-tarball
-    # canary under both node and bun (which also runs the shipped-artifact
-    # purity check against the installed trees) → publish dry-runs.
+  runtime:
+    name: full runtime + Go (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14]
     steps:
-      - uses: actions/checkout@v5
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          bun-version: '1.2.0'
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          node-version: '20'
-      - run: bun install --frozen-lockfile
+          bun-version: '1.3.13'
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.1'
+          cache-dependency-path: packages/tui/go.sum
+      - run: bun install --frozen-lockfile --ignore-scripts
+      # The installer intentionally tolerates Go failures. CI must not.
+      - name: Build TUI (required)
+        working-directory: packages/tui
+        run: go build -o ../../bin/sov-tui ./cmd/sov-tui
+      - run: bun run test
+      - name: Go suite
+        working-directory: packages/tui
+        run: go test ./...
+
+  packages:
+    name: open packages (Bun ${{ matrix.bun }}, Node ${{ matrix.node }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - bun: '1.2.0'
+            node: '20.19.0'
+          - bun: '1.3.13'
+            node: '24.14.0'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ matrix.bun }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: bun install --frozen-lockfile --ignore-scripts
       - run: bun run build
       - run: bun test packages/protocol/tests packages/sdk/tests
       - run: bun run canary
@@ -61,3 +88,20 @@ jobs:
         run: cd packages/protocol && npm publish --dry-run
       - name: sdk publish dry-run
         run: cd packages/sdk && npm publish --dry-run
+
+  dependencies:
+    name: dependency advisories
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: '1.3.13'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.14.0'
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run audit:dependencies
