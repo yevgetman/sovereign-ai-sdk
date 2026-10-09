@@ -1,5 +1,11 @@
 # Testing Log
 
+## 2026-10-09 — reviewed lifecycle base: PR20 and PR21 follow-up composition
+
+Cherry-picked the independently reviewed PR21 damaged-SSE correction and PR20 completed-receipt correction into the isolated five-fix integration base. Only additive testing-log conflicts required resolution; all original source fixes, regressions and receipts are preserved. Provider source/tests exactly match the corrected PR21 head; orchestrator source/tests and packed canary exactly match the corrected PR20 head.
+
+Bun 1.3.13, macOS arm64, offline fixtures. Focused provider, orchestrator, query and scheduler tests pass: 164 tests, 522 assertions, zero failures (632ms). `bun run lint` and `bun run typecheck` pass. Each reviewed source correction already passed its full suite and packed consumers on its own PR; the final umbrella branch receives a separate complete combined run. No master merge, force push, release, installation, live provider call or owner profile write.
+
 ## 2026-10-09 — independent PR18–20 review and renderer receipt correction
 
 An independent reviewer (not the PR author) read exact PR18 `32b29e8`, PR19 `b5de9b1` and PR20 `e94dbc6` diffs, their issue acceptance, caller/consumer paths and cleanup contracts. No confirmed finding in PR18 reservation cleanup or PR19 queue deadlines. PR18 scheduler/semaphore/lane/path-lock regressions pass: 40 tests / 94 assertions; PR19: 43 tests / 117 assertions. Each branch's injected-executor/workflow consumer group passes 29 tests / 71 assertions. Canned subprocess fixtures only; no real executor or provider call.
