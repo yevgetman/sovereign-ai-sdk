@@ -106,6 +106,74 @@ describe('OpenAIProvider conversion', () => {
 });
 
 describe('parseSse', () => {
+  test('cancels upstream and unlocks on early consumer return', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: {"choices":[]}\n'));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const parser = parseSse(body);
+    await parser.next();
+    await parser.return(undefined);
+    expect(cancelled).toBe(true);
+    expect(body.locked).toBe(false);
+  });
+
+  test('cancels on DONE even if upstream stays open, including cancel failure', async () => {
+    for (const fails of [false, true]) {
+      let cancels = 0;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: [DONE]\n'));
+        },
+        cancel() {
+          cancels++;
+          if (fails) throw new Error('cleanup failed');
+        },
+      });
+      expect((await parseSse(body).next()).done).toBe(true);
+      expect(cancels).toBe(1);
+      expect(body.locked).toBe(false);
+    }
+  });
+
+  test('unlocks natural EOF without cancelling a completed source', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    expect((await parseSse(body).next()).done).toBe(true);
+    expect(cancelled).toBe(false);
+    expect(body.locked).toBe(false);
+  });
+
+  test('preserves read and abort errors and always unlocks', async () => {
+    for (const error of [new Error('wire failed'), new DOMException('aborted', 'AbortError')]) {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.error(error);
+        },
+      });
+      await expect(parseSse(body).next()).rejects.toBe(error);
+      expect(body.locked).toBe(false);
+    }
+  });
+
+  test('malformed JSON still releases the lock at EOF', async () => {
+    const body = sseBody('data: {broken}\n');
+    expect((await parseSse(body).next()).done).toBe(true);
+    expect(body.locked).toBe(false);
+  });
+
   async function collect(raw: string): Promise<OpenAIChatChunk[]> {
     const out: OpenAIChatChunk[] = [];
     for await (const chunk of parseSse(sseBody(raw))) out.push(chunk);

@@ -722,29 +722,45 @@ export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerato
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith('data:')) continue;
-      const payload = trimmed.slice('data:'.length).trim();
-      if (payload === '[DONE]') return;
-      if (payload.length === 0) continue;
-      // A single malformed `data:` line from a non-conformant OpenAI-compatible
-      // endpoint or proxy must NOT abort the whole turn with a raw SyntaxError
-      // (this path serves openai/openrouter/sov). Skip the unparseable chunk and
-      // keep streaming — mirrors the defensive parse in parseToolArgs below.
-      let chunk: OpenAIChatChunk;
-      try {
-        chunk = JSON.parse(payload) as OpenAIChatChunk;
-      } catch {
-        continue;
+  let reachedEof = false;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        reachedEof = true;
+        break;
       }
-      yield chunk;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const payload = trimmed.slice('data:'.length).trim();
+        if (payload === '[DONE]') return;
+        if (payload.length === 0) continue;
+        // A single malformed `data:` line from a non-conformant OpenAI-compatible
+        // endpoint or proxy must NOT abort the whole turn with a raw SyntaxError
+        // (this path serves openai/openrouter/sov). Skip the unparseable chunk and
+        // keep streaming — mirrors the defensive parse in parseToolArgs below.
+        let chunk: OpenAIChatChunk;
+        try {
+          chunk = JSON.parse(payload) as OpenAIChatChunk;
+        } catch {
+          continue;
+        }
+        yield chunk;
+      }
+    }
+  } finally {
+    // DONE and consumer return can leave a live HTTP body. Cleanup must not
+    // replace a read/abort error (or turn a successful response into failure).
+    try {
+      if (!reachedEof) await reader.cancel();
+    } catch {
+      // Best effort: an errored stream or failing upstream cancel is already terminal.
+    } finally {
+      reader.releaseLock();
     }
   }
 }
