@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased — SDK production contracts and PR gates
+
+- Add custom capability profiles, explicit native-child configuration and tool narrowing, shared tree budgets and child usage propagation.
+- Add bounded in-process session ownership with joined cancellation/shutdown; distributed persistence remains host-owned.
+- Run full runtime/Go PR tests with mandatory TUI builds, packed public contracts, advisory checks and a separate private consumer runner.
+- Declare the tested Node minimum 20.19.0; earlier Node 20 consumers must upgrade before adopting the next package release. Bun 1.2.0 remains supported.
+- No package/runtime publication or production deployment is included.
+
+## Unreleased — SDK injected context-management port
+
+- Optional ContextManagementPort and ContextLimits configure host-supplied
+  reductions for embedded agents and explicit inherited native-child config.
+  No bundled summarizer or proprietary implementation moves into the SDK.
+- Full transcripts stay separate from model context. Replacements must shrink
+  and preserve tool adjacency and the latest message. Overflow recovery is
+  capped at one and never replays output or tool effects.
+- Additive context_management events report applied/rejected reductions and
+  separately priced host usage. Unknown summary cost stays unknown; the
+  numeric-only aggregate persistence write is skipped until a host can price it.
+- Legacy SessionStore adapters can omit truncateMessages. Regeneration that
+  needs rollback fails closed with a typed error; normal use remains compatible.
+  The built-in InMemorySessionStore retains the concrete required method.
+- New barrel exports/types and optional config/result fields are additive and
+  require a minor SDK release when publication is separately approved.
+
 ## Unreleased — SDK OpenAI completion validation
 
 - OpenAI-compatible streams require an explicit valid choice `finish_reason`.

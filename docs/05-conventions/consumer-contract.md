@@ -77,13 +77,17 @@ byte-identical when unused, tested as such.
 
 ## The downstream canary
 
-CI in this repo builds Agent Casa's test suite against SDK `HEAD` so breaks surface at
-commit time, not at upgrade time. If it goes red, you broke a consumer — fix it here or
-land a migration note; don't route around it.
+Run Agent Casa's actual suite against the packed SDK before upgrading it. The
+isolated runner and manual CI workflow are documented in
+[production gates](production-pr-gates.md). If it fails, fix the SDK or land an
+explicit migration; do not replace actual consumer evidence with an export-only
+fixture.
 
-> **Status:** specified, not yet built (spec: `me/projects/agent-casa-supply-line.md`,
-> WS-C). Until it exists, changes to the pinned surface must be verified by hand
-> against the consumer repo.
+> **Status:** actual local runner implemented. Private CI requires a read-only
+> `AGENT_CASA_READ_TOKEN`; automatic checks on every SDK PR are not enabled.
+> The original supply-line specification is `me/projects/agent-casa-supply-line.md`
+> WS-C. Until private CI is configured, run the real isolated consumer locally
+> whenever the pinned surface changes.
 
 ## Why this exists
 

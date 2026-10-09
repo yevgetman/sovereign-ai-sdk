@@ -40,6 +40,7 @@
 //   - Defaults: no-disk, no-server, no-cron, no-learning unless a port is given.
 
 import { randomUUID } from 'node:crypto';
+import type { ContextLimits, ContextManagementPort } from '../compact/contextManagement.js';
 import type { MicrocompactConfig } from '../compact/microcompact.js';
 import type { Settings } from '../config/schema.js';
 import { extractAssistantText, substituteAssistantText } from '../core/conductOutput.js';
@@ -78,12 +79,14 @@ import type { TranscriptStore } from '../persistence/transcriptStore.js';
 import type { ReasoningEffort } from '../providers/effort.js';
 import {
   PersistBeforeRunError,
+  RegenerationRollbackUnavailableError,
   SessionPersistenceError,
   UnknownToolsetError,
 } from '../providers/errors.js';
-import { estimateCostUsd } from '../providers/pricing.js';
+import { PRICE_TABLE, estimateCostUsd } from '../providers/pricing.js';
 import { resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
+import type { CapabilityProfileRegistry } from '../tool/capabilityProfiles.js';
 import type { LearningObserverPort } from '../tool/ports.js';
 import {
   defaultMaxTurns,
@@ -135,6 +138,8 @@ export type AgentConfig = {
    * `maxTurns`. An unknown string fails before the provider is called.
    */
   toolset?: string;
+  /** Host-owned custom profiles, additive to chat/web/ops/coding. */
+  capabilityProfiles?: CapabilityProfileRegistry;
   /** A string is wrapped into a single non-cacheable `SystemSegment`. */
   systemPrompt?: SystemSegment[] | string;
   cwd?: string;
@@ -182,6 +187,8 @@ export type AgentConfig = {
    *  Spec: specs/2026-08-25-progress-aware-loop-guard-design.md §3.4/§3.6 */
   loop?: LoopOptions;
   microcompactConfig?: MicrocompactConfig;
+  contextManager?: ContextManagementPort;
+  contextLimits?: ContextLimits;
   maxTokens?: number;
   maxTurns?: number;
   /** Error-propagation mode for a THROWN pre/in-loop op (memory injection,
@@ -221,6 +228,8 @@ export type PerTurn = Partial<{
   observe: (i: ObserveInput) => void;
   traceRecorder: (e: TraceEvent) => void;
   microcompactConfig: MicrocompactConfig;
+  contextManager: ContextManagementPort;
+  contextLimits: ContextLimits;
   /** A fully host-assembled tool context; used verbatim when supplied. */
   toolContext: ToolContext;
   /** Per-turn override of the standing `rethrow` mode (see AgentConfig). */
@@ -261,14 +270,14 @@ export type RunResult = {
    *  (a subset of `outputTokens`) and is never part of the cost. ABSENT (not
    *  `undefined`) when the stream reported no usage at all — mirroring
    *  `finalizeUsage`'s `undefined`. Shares one `finalizeUsage` result with the
-   *  persistence path, so it is byte-identical to what `recordTokenUsage`
-   *  received. */
+   *  persistence path when aggregate pricing is known. Unpriced injected
+   *  summary usage remains returned, but the numeric-cost write is skipped. */
   usage?: TokenUsage;
-  /** The `usage` total priced via the SDK pricing table against the
-   *  provider/model this run used (`estimateCostUsd(provider.name, model,
-   *  usage)`) — the SAME figure the persistence path records. `reasoningTokens`
-   *  is excluded from this cost. ABSENT (not `undefined`) whenever `usage` is
-   *  absent. */
+  /** Present after injected reductions; false if any summary input/output usage was missing. */
+  usageComplete?: boolean;
+  /** Main-provider usage priced through the SDK table, plus separately priced
+   *  host summary estimates. Reasoning tokens are excluded. Absent when usage
+   *  or any summary estimate is missing; unknown totals are never recorded as zero. */
   estimatedCostUsd?: number;
 };
 
@@ -290,7 +299,11 @@ export function createAgent(config: AgentConfig): Agent {
     perTurn: PerTurn = {},
   ): AsyncGenerator<StreamEvent | Message, RunResult> {
     const requestedToolset = perTurn.toolset ?? config.toolset;
-    if (requestedToolset !== undefined && !isToolsetName(requestedToolset)) {
+    if (
+      requestedToolset !== undefined &&
+      !isToolsetName(requestedToolset) &&
+      !config.capabilityProfiles?.has(requestedToolset)
+    ) {
       const earlySessionId =
         perTurn.sessionId !== undefined ? validateSessionId(perTurn.sessionId) : randomUUID();
       return {
@@ -416,7 +429,9 @@ export function createAgent(config: AgentConfig): Agent {
     //    verbatim; otherwise a MINIMAL context is built (cwd + sessionId + the
     //    observe adapter) when the turn needs one (tools present or observe set).
     let tools = perTurn.tools ?? config.tools;
-    if (requestedToolset !== undefined && isToolsetName(requestedToolset)) {
+    if (requestedToolset !== undefined && config.capabilityProfiles?.has(requestedToolset)) {
+      tools = config.capabilityProfiles.filter(requestedToolset, tools ?? []);
+    } else if (requestedToolset !== undefined && isToolsetName(requestedToolset)) {
       tools =
         requestedToolset === 'coding'
           ? tools === undefined
@@ -440,6 +455,8 @@ export function createAgent(config: AgentConfig): Agent {
     const pollSteering = perTurn.pollSteering ?? config.pollSteering;
     const traceRecorder = perTurn.traceRecorder ?? config.traceRecorder;
     const microcompactConfig = perTurn.microcompactConfig ?? config.microcompactConfig;
+    const contextManager = perTurn.contextManager ?? config.contextManager;
+    const contextLimits = perTurn.contextLimits ?? config.contextLimits;
     // The remaining per-turn slice of QueryParams. `??` falls back only on
     // nullish, so a per-turn `cacheEnabled: false` correctly wins over a
     // standing `true`. Each is threaded via the same conditional spread as
@@ -459,15 +476,17 @@ export function createAgent(config: AgentConfig): Agent {
     //     around the per-turn canUseTool. Identity passthrough when the
     //     provider has no toolPolicy capability.
     let canUseTool = composeConductCanUseTool(conduct, conductCtx, perTurn.canUseTool);
-    if (requestedToolset !== undefined && isToolsetName(requestedToolset)) {
+    if (requestedToolset !== undefined) {
       canUseTool = wrapToolsetCanUseTool(canUseTool, tools ?? []);
     }
     const maxTurns =
       config.maxTurns !== undefined
         ? config.maxTurns
-        : requestedToolset !== undefined && isToolsetName(requestedToolset)
-          ? defaultMaxTurns(requestedToolset)
-          : undefined;
+        : requestedToolset !== undefined && config.capabilityProfiles?.has(requestedToolset)
+          ? config.capabilityProfiles.maxTurns(requestedToolset)
+          : requestedToolset !== undefined && isToolsetName(requestedToolset)
+            ? defaultMaxTurns(requestedToolset)
+            : undefined;
     let messages: Message[] = [...seedMessages];
     // Store length before this attempt's early tool-call write. A regenerate
     // truncates back to it so the discarded call does not stay in history.
@@ -484,9 +503,57 @@ export function createAgent(config: AgentConfig): Agent {
     // steering system segment. `extraSegments` is EMPTY on the first attempt —
     // the systemPrompt is then `effectiveSystemPrompt` verbatim, byte-identical
     // to the pre-1d single call.
+    let providerStarted = false;
+    let mainUsageComplete = true;
+    const observedProvider: LLMProvider = {
+      name: provider.name,
+      async *stream(request) {
+        providerStarted = true;
+        let callUsage = createUsageAccumulator();
+        let completed = false;
+        let stopped = false;
+        let finalMessage = false;
+        let failed = false;
+        let stream: ReturnType<LLMProvider['stream']> | undefined;
+        try {
+          stream = provider.stream(request);
+          for (;;) {
+            const step = await stream.next();
+            if (step.done) {
+              completed = true;
+              return step.value;
+            }
+            if (step.value.type === 'message_stop') stopped = true;
+            if (step.value.type === 'assistant_message') finalMessage = true;
+            callUsage = accumulateUsage(callUsage, step.value);
+            yield step.value;
+          }
+        } catch (error) {
+          failed = true;
+          throw error;
+        } finally {
+          let cleanupSucceeded = false;
+          try {
+            await stream?.return({ role: 'assistant', content: [] });
+            cleanupSucceeded = true;
+          } finally {
+            const usage = finalizeUsage(callUsage);
+            mainUsageComplete &&=
+              cleanupSucceeded &&
+              // Conduct regeneration closes at the final assistant event,
+              // after the stopped call has already reported its complete bill.
+              (completed || (finalMessage && !request.signal?.aborted)) &&
+              !failed &&
+              stopped &&
+              usage?.inputTokens !== undefined &&
+              usage.outputTokens !== undefined;
+          }
+        }
+      },
+    };
     const startTurn = (extraSegments: SystemSegment[]) =>
       query({
-        provider,
+        provider: observedProvider,
         model,
         messages: seedMessages,
         systemPrompt:
@@ -517,6 +584,8 @@ export function createAgent(config: AgentConfig): Agent {
         ...(config.hookRunner !== undefined ? { hookRunner: config.hookRunner } : {}),
         ...(traceRecorder !== undefined ? { traceRecorder } : {}),
         ...(microcompactConfig !== undefined ? { microcompactConfig } : {}),
+        ...(contextManager !== undefined ? { contextManager } : {}),
+        ...(contextLimits !== undefined ? { contextLimits } : {}),
         ...(maxTurns !== undefined ? { maxTurns } : {}),
         ...(config.sessionStore !== undefined
           ? {
@@ -554,6 +623,10 @@ export function createAgent(config: AgentConfig): Agent {
     let toolCallCount = 0;
     const distinctTools = new Set<string>();
     let usageAcc = createUsageAccumulator();
+    let providerUsageAcc = createUsageAccumulator();
+    let contextCost = 0;
+    let contextCostKnown = true;
+    let contextUsageComplete: boolean | undefined;
     let terminal: Terminal = {
       reason: 'error',
       error: new Error('createAgent: never terminated'),
@@ -716,6 +789,13 @@ export function createAgent(config: AgentConfig): Agent {
                   iso: new Date().toISOString(),
                 });
                 if (doRegenerate) {
+                  if (
+                    config.sessionStore !== undefined &&
+                    config.sessionStore.truncateMessages === undefined &&
+                    config.sessionStore.loadMessages(sessionId).length > attemptBaseline
+                  ) {
+                    throw new RegenerationRollbackUnavailableError();
+                  }
                   // Discard attempt 0 entirely: break the drive loop WITHOUT
                   // yielding/counting/persisting this message. usageAcc is
                   // retained; attempt-1's first message_start flushes this
@@ -737,6 +817,14 @@ export function createAgent(config: AgentConfig): Agent {
                 }
               }
               usageAcc = accumulateUsage(usageAcc, ev);
+              if (ev.type === 'context_management') {
+                contextUsageComplete =
+                  (contextUsageComplete ?? true) &&
+                  typeof ev.info.usage?.inputTokens === 'number' &&
+                  typeof ev.info.usage?.outputTokens === 'number';
+                if (ev.info.estimatedCostUsd === undefined) contextCostKnown = false;
+                else contextCost += ev.info.estimatedCostUsd;
+              } else providerUsageAcc = accumulateUsage(providerUsageAcc, ev);
               if (ev.type === 'message_stop') iterationsUsed += 1;
               if (ev.type === 'assistant_message') {
                 finalAssistant = ev.message;
@@ -758,7 +846,7 @@ export function createAgent(config: AgentConfig): Agent {
         // The discarded attempt may already have saved its tool call. Put the
         // store and the transcript back to the pre-attempt prefix.
         if (config.sessionStore !== undefined) {
-          config.sessionStore.truncateMessages(sessionId, attemptBaseline);
+          config.sessionStore.truncateMessages?.(sessionId, attemptBaseline);
         }
         if (attemptTranscriptWrites > 0) {
           await config.transcripts?.rewindMessages?.(sessionId, attemptTranscriptWrites);
@@ -820,15 +908,29 @@ export function createAgent(config: AgentConfig): Agent {
     //    trailing provider call and returns the summed per-run total — a FRESH
     //    object, never aliasing the accumulator's mutable-looking internals — or
     //    `undefined` when the stream reported no usage (recordTokenUsage stays
-    //    skipped; RunResult.usage/estimatedCostUsd stay absent). The accumulator
+    //    skipped; RunResult.usage stays absent). A known context-only charge may
+    //    still be returned without tokens when no main provider was started.
+    //    The numeric token store cannot represent that unknown usage, so its
+    //    aggregate billing write stays skipped. The accumulator
     //    saw only THIS run's live stream, so a rehydrated session never
     //    re-records prior runs' tokens; the store's own accumulate
     //    (`col = col + ?`) does the rest. Cost prices the summed total against
     //    the provider/model this run used — the same `provider.name` the persist
     //    path records under, so the recorded and returned costs match exactly.
     const usage = finalizeUsage(usageAcc);
+    // Context aggregation must not turn an unknown main-provider bill into zero.
+    // Preserve historical no-context pricing; this guard covers the new combined contract.
+    const aggregateCostKnown =
+      contextCostKnown &&
+      (contextUsageComplete === undefined ||
+        (mainUsageComplete &&
+          (!providerStarted || PRICE_TABLE[`${provider.name}:${model}`] !== undefined)));
+    if (contextUsageComplete !== undefined) contextUsageComplete &&= mainUsageComplete;
     const estimatedCostUsd =
-      usage !== undefined ? estimateCostUsd(provider.name, model, usage) : undefined;
+      aggregateCostKnown &&
+      (usage !== undefined || (contextUsageComplete !== undefined && !providerStarted))
+        ? estimateCostUsd(provider.name, model, finalizeUsage(providerUsageAcc) ?? {}) + contextCost
+        : undefined;
 
     // Persistence — only when a port is supplied (no-disk default otherwise).
     if (config.sessionStore !== undefined || config.transcripts !== undefined) {
@@ -841,7 +943,7 @@ export function createAgent(config: AgentConfig): Agent {
           providerName: provider.name,
           systemPrompt: effectiveSystemPrompt,
           messages,
-          usage,
+          usage: aggregateCostKnown ? usage : undefined,
           estimatedCostUsd,
           ...(savedThrough !== undefined ? { persistFrom: savedThrough } : {}),
         });
@@ -861,6 +963,7 @@ export function createAgent(config: AgentConfig): Agent {
       distinctToolNames: Array.from(distinctTools).sort(),
       messages,
       ...(usage !== undefined ? { usage } : {}),
+      ...(contextUsageComplete !== undefined ? { usageComplete: contextUsageComplete } : {}),
       ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
     };
   }

@@ -52,6 +52,8 @@ Recipes for adding extension points.
 - [Extending the harness](04-extending/extending.md) — adding tools, providers, slash commands, skills, hooks, MCP servers, agents, permission rules, workflows, semantic tests, and trajectory redaction.
 - [Metering an agent](04-extending/metering-an-agent.md) — the three token-usage read surfaces (per-run `RunResult`, per-span `traceRecorder`, per-turn gateway wire), the disjoint-phase cost invariant, `reasoningTokens`, and the public accumulator + pricing primitives (`PRICING_VERSION`).
 
+- [Host session lifecycle](04-extending/host-session-lifecycle.md) — optional bounded in-process session ownership, cancellation and joined shutdown; no distributed lease.
+
 ## 05 — Conventions
 
 Patterns and standing rules contributors must follow. (These are the operating conventions the router links as "read before you do X".)
@@ -82,6 +84,7 @@ The semantic-test framework and the running log.
 Audits, postmortems, and the chronological state-snapshot series. These are records, not authoritative current-state — read the newest snapshot for "where we are."
 
 - **Audits** (`07-history/audits/`)
+  - [2026-10-09 — host lifecycle evidence](07-history/audits/2026-10-09-host-lifecycle-evidence.md) — offline queue/load faults and isolated SQLite restart evidence; TEST envelope only.
   - [2026-06-10 — full-codebase audit](07-history/audits/2026-06-10-full-codebase-audit.md) — 21-area + 3-holistic sweep; all confirmed Critical/High fixed.
   - [2026-06-14 — post-audit bug hunt](07-history/audits/2026-06-14-post-audit-bug-hunt.md) — second deep-dive on the least-reviewed code; 46 findings, all fixed.
 - **Postmortems** (`07-history/postmortems/`)
@@ -133,3 +136,7 @@ When a plan ships, its design intent lands in `docs/` (and a `07-history/state/`
 - [How to work with the docs](How_To_Work_With_Docs.md) — the procedural manual (placement, naming, the cross-doc impact scan)
 - [`CLAUDE.md`](../CLAUDE.md) / [`AGENTS.md`](../AGENTS.md) — the lean root router (purpose, standing rules, session boot)
 - [`README.md`](../README.md) — repo intro, install, top-level layout
+
+## Production hardening additions
+
+- [Production PR gates](05-conventions/production-pr-gates.md) — deterministic checks, advisory policy, actual private consumer runner, and post-merge rule activation.

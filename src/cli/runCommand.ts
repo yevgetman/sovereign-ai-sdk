@@ -465,7 +465,9 @@ async function autoDenyPermission(opts: {
 
 async function readProcessStdin(): Promise<string> {
   const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
+  // Bun's direct reader handles regular-file redirection as well as pipes
+  // after the CLI's async startup; process.stdin can appear empty on Linux.
+  for await (const chunk of Bun.stdin.stream()) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   return Buffer.concat(chunks).toString('utf8');

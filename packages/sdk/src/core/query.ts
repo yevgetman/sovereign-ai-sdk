@@ -15,6 +15,12 @@
 // a one-way door; use async generator from day one).
 
 import {
+  ContextManagementError,
+  historyBytes,
+  reduceContext,
+  validateContextLimits,
+} from '../compact/contextManagement.js';
+import {
   DEFAULT_MICROCOMPACT_CONFIG,
   buildToolNameMap,
   microcompact,
@@ -23,7 +29,7 @@ import {
 import { LoopDetectorState } from '../loop/detector.js';
 import { toToolSchemas } from '../mcp/schemaSerialization.js';
 import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
-import { PersistBeforeRunError } from '../providers/errors.js';
+import { PersistBeforeRunError, isContextOverflowError } from '../providers/errors.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { type TurnSummary, detectStall } from '../util/stall.js';
@@ -335,6 +341,38 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     }
   }
 
+  let overflowRecoveries = 0;
+  let toolsDispatched = false;
+  const contextSignal = signal ?? new AbortController().signal;
+  const manageContext = async (reason: 'budget' | 'overflow'): Promise<StreamEvent> => {
+    if (!params.contextManager || !params.contextLimits) {
+      throw new ContextManagementError('contextManager requires contextLimits');
+    }
+    try {
+      const reduced = await reduceContext(params.contextManager, {
+        messages: history,
+        reason,
+        model,
+        provider: provider.name,
+        maxTokens,
+        limits: params.contextLimits,
+        signal: contextSignal,
+        ...(sessionId !== undefined ? { sessionId } : {}),
+      });
+      // Model history only; createAgent persists its separate full transcript.
+      history = reduced.messages;
+      return { type: 'context_management', info: reduced.info };
+    } catch (error) {
+      if (error instanceof ContextManagementError && error.info) throw error;
+      throw new ContextManagementError('context reduction failed', {
+        applied: false,
+        reason,
+        beforeBytes: historyBytes(history),
+        afterBytes: historyBytes(history),
+      });
+    }
+  };
+
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal?.aborted) {
       recordTrace({ type: 'interrupt', stage: `turn-${turn}-pre-stream`, iso: nowIso() });
@@ -347,52 +385,96 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     let assistant: AssistantMessage | undefined;
     let stopReason: StopReason | undefined;
     let usage: TokenUsage | undefined;
-    const requestStart = Date.now();
+    let requestStart = Date.now();
     let firstEventAt: number | undefined;
 
-    recordTrace({
-      type: 'provider_request',
-      provider: provider.name,
-      model,
-      purpose: 'main',
-      messageCount: history.length,
-      systemBytes: systemPrompt.reduce((n, s) => n + Buffer.byteLength(s.text, 'utf8'), 0),
-      iso: nowIso(),
-    });
-
-    try {
-      for await (const event of provider.stream({
-        model,
-        system: systemPrompt,
-        messages: history,
-        ...(toolPool.length > 0 ? { tools: toToolSchemas(toolPool) } : {}),
-        maxTokens,
-        ...(temperature !== undefined ? { temperature } : {}),
-        ...(effort !== undefined ? { effort } : {}),
-        ...(signal ? { signal } : {}),
-        cacheEnabled,
-      })) {
-        if (firstEventAt === undefined) firstEventAt = Date.now();
-        if (event.type === 'assistant_message') {
-          assistant = event.message;
+    for (;;) {
+      let providerStarted = false;
+      try {
+        if (params.contextManager || params.contextLimits) {
+          if (!params.contextManager || !params.contextLimits) {
+            throw new ContextManagementError('contextManager requires contextLimits');
+          }
+          validateContextLimits(params.contextLimits);
+          if (historyBytes(history) > params.contextLimits.maxHistoryBytes) {
+            yield await manageContext('budget');
+          }
         }
-        if (event.type === 'usage_delta') {
-          usage = mergeUsage(usage, event.usage);
+        requestStart = Date.now();
+        recordTrace({
+          type: 'provider_request',
+          provider: provider.name,
+          model,
+          purpose: 'main',
+          messageCount: history.length,
+          systemBytes: systemPrompt.reduce((n, s) => n + Buffer.byteLength(s.text, 'utf8'), 0),
+          iso: nowIso(),
+        });
+        providerStarted = true;
+        for await (const event of provider.stream({
+          model,
+          system: systemPrompt,
+          messages: history,
+          ...(toolPool.length > 0 ? { tools: toToolSchemas(toolPool) } : {}),
+          maxTokens,
+          ...(temperature !== undefined ? { temperature } : {}),
+          ...(effort !== undefined ? { effort } : {}),
+          ...(signal ? { signal } : {}),
+          cacheEnabled,
+        })) {
+          if (firstEventAt === undefined) firstEventAt = Date.now();
+          if (event.type === 'assistant_message') {
+            assistant = event.message;
+          }
+          if (event.type === 'usage_delta') {
+            usage = mergeUsage(usage, event.usage);
+          }
+          if (event.type === 'message_stop') {
+            stopReason = event.stop_reason;
+          }
+          yield event;
         }
-        if (event.type === 'message_stop') {
-          stopReason = event.stop_reason;
+        break;
+      } catch (err) {
+        if (err instanceof ContextManagementError && err.info)
+          yield { type: 'context_management', info: err.info };
+        if (signal?.aborted) {
+          recordTrace({ type: 'interrupt', stage: `turn-${turn}-stream`, iso: nowIso() });
+          await maybeFireStop('interrupted');
+          return { reason: 'interrupted' };
         }
-        yield event;
+        if (
+          providerStarted &&
+          params.contextManager &&
+          params.contextLimits &&
+          !toolsDispatched &&
+          firstEventAt === undefined &&
+          isContextOverflowError(err) &&
+          overflowRecoveries < (params.contextLimits.maxOverflowRetries ?? 1)
+        ) {
+          overflowRecoveries += 1;
+          try {
+            yield await manageContext('overflow');
+            continue;
+          } catch (reductionError) {
+            if (reductionError instanceof ContextManagementError && reductionError.info)
+              yield { type: 'context_management', info: reductionError.info };
+            await maybeFireStop(signal?.aborted ? 'interrupted' : 'error');
+            return signal?.aborted
+              ? { reason: 'interrupted' }
+              : {
+                  reason: 'error',
+                  error:
+                    reductionError instanceof Error
+                      ? reductionError
+                      : new Error(String(reductionError)),
+                };
+          }
+        }
+        const error = err instanceof Error ? err : new Error(String(err));
+        await maybeFireStop('error');
+        return { reason: 'error', error };
       }
-    } catch (err) {
-      if (signal?.aborted) {
-        recordTrace({ type: 'interrupt', stage: `turn-${turn}-stream`, iso: nowIso() });
-        await maybeFireStop('interrupted');
-        return { reason: 'interrupted' };
-      }
-      const error = err instanceof Error ? err : new Error(String(err));
-      await maybeFireStop('error');
-      return { reason: 'error', error };
     }
 
     recordTrace({
@@ -629,6 +711,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     let dispatchedResult: Message | undefined;
     let resultYielded = false;
     try {
+      toolsDispatched = true;
       for await (const msg of runTools(
         toolUseBlocks,
         turnCtx,

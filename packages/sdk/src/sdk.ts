@@ -41,6 +41,14 @@ export type {
   TokenUsage,
   UserMessage,
 } from './core/types.js';
+export type {
+  ContextManagementPort,
+  ContextManagementRequest,
+  ContextManagementResult,
+  ContextManagementInfo,
+  ContextLimits,
+} from './compact/contextManagement.js';
+export { ContextManagementError } from './compact/contextManagement.js';
 export type { MicrocompactConfig } from './compact/microcompact.js';
 // Cross-call usage accumulation (W1) — the exact per-call/summed token semantics
 // the tool loop uses. Public so the gateway and external meters reuse them
@@ -283,6 +291,7 @@ export type { TranscriptStore } from './persistence/transcriptStore.js';
 
 // ── Persistence (session) ───────────────────────────────────────────────────
 export { createInMemorySessionStore } from './persistence/inMemoryStore.js';
+export type { InMemorySessionStore } from './persistence/inMemoryStore.js';
 export type { SessionStore } from './persistence/sessionStore.js';
 // The session DTOs `SessionStore`'s method signatures reference (Task 2.9).
 export type {
@@ -344,3 +353,22 @@ export { findCapableModel } from './core/capabilities.js';
 // `CapabilityProfile` is findCapableModel's return type; `CapabilityRole` its
 // recommendedRoles element type (Task 2.9).
 export type { CapabilityProfile, CapabilityRole } from './core/capabilities.js';
+
+// Optional host admission control; no state or persistence is created by default.
+export { SessionWorkQueue, SessionWorkQueueError } from './host/sessionWorkQueue.js';
+export type {
+  SessionWorkQueueErrorCode,
+  SessionWorkQueueOptions,
+  SessionWorkQueueSnapshot,
+} from './host/sessionWorkQueue.js';
+
+export { CapabilityProfileRegistry, intersectCanUseTool } from './tool/capabilityProfiles.js';
+export type { ToolCapabilityProfile } from './tool/capabilityProfiles.js';
+export type { ChildPolicy } from './runtime/childPolicy.js';
+export { TreeBudget, TreeBudgetExceededError, budgetProvider } from './runtime/treeBudget.js';
+export type {
+  TreeBudgetLimits,
+  TreeBudgetSnapshot,
+  RequestBudgetEstimate,
+  EstimateRequestBudget,
+} from './runtime/treeBudget.js';

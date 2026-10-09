@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
@@ -8,6 +8,7 @@ import type { LLMProvider, ProviderRequest, Transport } from '@yevgetman/sov-sdk
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import { z } from 'zod';
 import { SessionDb } from '../../src/agent/sessionDb.js';
+import { MAX_INPUT_BYTES } from '../../src/cli/sdkInput.js';
 import { runSdkRunCommand } from '../../src/cli/sdkRunCommand.js';
 import type { SdkRunDependencies } from '../../src/cli/sdkRunCommand.js';
 import { buildRuntime } from '../../src/server/runtime.js';
@@ -195,22 +196,81 @@ test('invalid machine options have one safe terminal; no credential access', asy
   expect(c.events).toHaveLength(1);
   expect(c.events[0]).toMatchObject({ type: 'turn.error', code: 'invalid_input', sessionId: null });
 });
-test('real source CLI missing credentials and malformed envelope never starts inference/listener', async () => {
-  const home = mkdtempSync(join(tmpdir(), 'sdk-cli-'));
+test.each(['pipe', 'file', 'blob'] as const)(
+  'real source CLI missing credentials never starts inference/listener with %s stdin',
+  async (transport) => {
+    const home = mkdtempSync(join(tmpdir(), 'sdk-cli-'));
+    dirs.push(home);
+    const input = JSON.stringify({ inputVersion: 1, text: 'hello' });
+    const inputPath = join(home, 'input.json');
+    writeFileSync(inputPath, input);
+    const proc = Bun.spawn(
+      [
+        process.execPath,
+        'src/main.ts',
+        'run',
+        '--sdk',
+        '--route',
+        'openai-api',
+        '--json',
+        '--stdin',
+        '--input-format',
+        'json',
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          PATH: process.env.PATH,
+          HOME: home,
+          HARNESS_HOME: home,
+          HARNESS_CONFIG: join(home, 'config.json'),
+        },
+        stdin:
+          transport === 'pipe'
+            ? 'pipe'
+            : transport === 'file'
+              ? Bun.file(inputPath)
+              : new Blob([input]),
+        stdout: 'pipe',
+        stderr: 'pipe',
+      },
+    );
+    if (transport === 'pipe') {
+      const stdin = proc.stdin;
+      if (typeof stdin === 'number') throw new Error('expected piped stdin');
+      stdin.write(input);
+      stdin.end();
+    }
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    expect(code).toBe(1);
+    expect(stderr).toBe('');
+    expect(
+      stdout
+        .trim()
+        .split('\n')
+        .map((s) => JSON.parse(s)),
+    ).toEqual([
+      expect.objectContaining({
+        type: 'turn.error',
+        code: 'credential_missing',
+        route: 'openai-api',
+        sessionId: null,
+      }),
+    ]);
+  },
+);
+
+test('real source CLI rejects oversized file stdin before credential access', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'sdk-cli-oversized-'));
   dirs.push(home);
+  const inputPath = join(home, 'input.txt');
+  writeFileSync(inputPath, 'x'.repeat(MAX_INPUT_BYTES + 1));
   const proc = Bun.spawn(
-    [
-      'bun',
-      'src/main.ts',
-      'run',
-      '--sdk',
-      '--route',
-      'openai-api',
-      '--json',
-      '--stdin',
-      '--input-format',
-      'json',
-    ],
+    [process.execPath, 'src/main.ts', 'run', '--sdk', '--route', 'openai-api', '--json', '--stdin'],
     {
       cwd: process.cwd(),
       env: {
@@ -219,25 +279,25 @@ test('real source CLI missing credentials and malformed envelope never starts in
         HARNESS_HOME: home,
         HARNESS_CONFIG: join(home, 'config.json'),
       },
-      stdin: new Blob([JSON.stringify({ inputVersion: 1, text: 'hello' })]),
+      stdin: Bun.file(inputPath),
       stdout: 'pipe',
       stderr: 'pipe',
     },
   );
-  const stdout = await new Response(proc.stdout).text();
-  expect(await proc.exited).toBe(1);
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  expect(code).toBe(2);
+  expect(stderr).toBe('');
   expect(
     stdout
       .trim()
       .split('\n')
-      .map((s) => JSON.parse(s)),
+      .map((line) => JSON.parse(line)),
   ).toEqual([
-    expect.objectContaining({
-      type: 'turn.error',
-      code: 'credential_missing',
-      route: 'openai-api',
-      sessionId: null,
-    }),
+    expect.objectContaining({ type: 'turn.error', code: 'invalid_input', sessionId: null }),
   ]);
 });
 

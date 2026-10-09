@@ -23,6 +23,8 @@ Current state lives in [`docs/07-history/state/`](docs/07-history/state/) — ne
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).
 
+SDK hosts can opt into [bounded session ownership and joined shutdown](docs/04-extending/host-session-lifecycle.md). This portable helper coordinates one process and does not create persistence or select a production deployment.
+
 For day-to-day operation see [`docs/03-cli-reference/usage.md`](docs/03-cli-reference/usage.md). For developing this repo see [`CLAUDE.md`](CLAUDE.md).
 
 ## Install on a new machine
@@ -242,3 +244,7 @@ whole, open source.
 The machine-enforced open→proprietary boundary described above keeps the MIT
 packages free of any proprietary import, so the two published tarballs are fully
 self-contained under MIT.
+
+## Production PR checks
+
+[Production PR gates](docs/05-conventions/production-pr-gates.md) describes the full source/Go matrix, packed consumer type and behavior checks, advisory policy, and actual isolated Agent Casa runner. Branch-protection activation and private CI access remain explicit post-merge steps. Runtime releases are separate from PR merge permission.

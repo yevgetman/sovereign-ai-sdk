@@ -1,5 +1,26 @@
 # Testing Log
 
+## 2026-10-09 — PR22 third review final combined gate
+
+Root integrated reviewed lifecycle base `5a5d8c7` via `a845366` and restored the failed-provider budget settlement correction. Separate read-only cross-review confirms exact pushed PR20/21 source/tests, combined query receipt/context accounting, all budget regressions and packed fixtures, and both README/log histories. All four new Medium findings in this round are corrected; the earlier Low comment remains outside the threshold.
+
+Final combined lint/boundary and typecheck pass. Complete source suite **5606 pass / 19 existing skip / zero fail**, 23049 assertions across 531 files (90.47s). Focused accounting/child/context/queue group **63 pass / 289 assertions**. TUI build and Go checks pass. Packed SDK/protocol behavioral/type consumers pass on Node/Bun, including exact Node20.19.0/Bun1.2.0 floors and the failed-stream overrun/regeneration fixtures. Actual Agent Casa typecheck and **1193 tests / zero pending / zero fail** pass on Node24.14.0 from revision `521a2ee` with its source checkout unchanged. Dependency audit reports zero advisories. GitHub CI is checked after push. No SDK master merge, paid provider, release, runtime install or private disclosure. Recall benefit and production capacity were not assessed.
+
+## 2026-10-09 — PR22 third independent review: failed provider budget settlement
+
+Reviewed exact PR22 `1fcea46` against integration `c26016b`. Confirmed one Medium defect: the public `budgetProvider()` wrapper discarded observed counters before a stop marker, or treated stopped provider/cleanup failures as complete and refunded reservations. An offline reported output of 11 against a bound of 10 followed by disconnect left accounted tokens at 10, exhaustion false and later admission open. Four before/after-stop and synchronous/asynchronous cleanup regressions fail first (12 pass / 4 fail).
+
+Settlement now retains the validated observed lower bound for every call, marks failed/cancelled/incomplete cleanup unknown, and retains ceilings until successful stopped completion. Proven overruns exhaust admission. Direct host settlement can explicitly mark usage incomplete. Three before-final, intentional after-final and cancelled-final close regressions distinguish known stopped bills from incomplete calls. The context+Conduct regeneration fixture now runs through a budget wrapper that permits its valid retry only after the first known bill settles. Prior known-call settlement and conservative consumer-return tests still pass. Added an authored packed disconnect/overrun fixture for root's Node/Bun gate.
+
+Focused context, child policy, tree budget and host queue tests pass: 63 pass / zero fail, 289 assertions, four files (155ms), macOS arm64 Bun 1.3.13. Targeted formatting and diff checks pass. Root coordinates full lint/typecheck/suite/packed/CI checks before commit/push. No paid provider, owner profile write, installation, release, master merge or private disclosure. Recall quality was not assessed.
+## 2026-10-09 — PR22 third review base merge gate
+
+Merged tested lifecycle base `5a5d8c7` while preserving the existing PR22 query/accounting contracts and both additive documentation blocks. Before the merge commit, lint/boundary and typecheck pass; full source suite **5599 pass / 19 existing skip / zero fail**, 23017 assertions across 531 files (89.98s). Root will restore the separately reviewed failed-budget patch and gate the final combination. No master merge, provider spend, release or install.
+
+## 2026-10-09 — third review lifecycle base integration
+
+Integration includes the exact PR20 `65508f2` and PR21 `b6684a3` follow-up corrections. Separate read-only cross-review compares all six source/test blobs to their pushed commits and confirms both README/log additions remain intact. Root TUI build, lint/boundary and typecheck pass. Complete source suite: **5527 pass / 19 existing skip / zero fail**, 22708 assertions across 523 files (85.34s). No master merge, runtime install, paid provider or release.
+
 ## 2026-10-09 — PR21 round-three review: generated tool identity
 
 Fresh technical review of exact PR21 head `c1a90b5` against `fix/issue-10-sse-cleanup` confirmed one Medium finding before fixes: the index-based ID fallback reused `tool_0` across real tool rounds and could also reject a distinct engine-supplied `tool_0` in the same response. This reviewer authored the original issue #11 implementation; root cross-review remains independent. The compatible-backend contract already accepts omitted IDs, so the correction changes normalization rather than adding a new refusal rule.
@@ -8,6 +29,179 @@ The transport now uses a portable `node:crypto` UUID fallback for each newly enc
 
 Final root gate and separate cross-review approval: lint/boundary, typecheck, **5506 source tests pass / 19 existing skip / zero fail**, 22557 assertions across 523 files (83.02s); packed SDK/protocol Node/Bun consumers pass. The fetch fixture passes the configured Bun typecheck. No paid calls or installation.
 
+## 2026-10-09 — PR20 third review: unreadable error and receipt containment
+
+Review of exact PR20 head `d645008` against current GitHub master `3709b25` reproduced two Medium paths around the dispatch failure boundary. An Error.message value with throwing string conversion escaped the guarded property read; malformed renderer content escaped when the saved receipt was interpolated. Both rejected a concurrent wave while a started gated sibling was still running. Findings were reported before fixes. Offline fixtures use authored callback values and counters, not private source or external effects.
+
+Error-message conversion now runs inside its guard. Query also normalizes non-string message values to an ordinary Error. Invalid rendered content is rejected inside the existing formatting/raw-receipt fallback, and failure receipt construction accepts only a string or a stable completion marker. Tool effects and supplementary messages keep their existing ownership; no work is replayed.
+
+The regressions failed before changes: **87 pass / 3 fail** across the two core suites. After changes, `bun test tests/core/orchestrator.test.ts tests/core/query.test.ts` passes: **90 pass / zero fail / 306 assertions**. Deterministic promise gates prove each wave stays pending until its sibling finishes, returns two matching string results, and preserves the actual raw renderer receipt. Query preserves the successful receipt once and returns a safe error for a throwing message conversion. Lint/boundary, typecheck and diff checks pass. Root owns final full/packed/CI gates; no full result, merge, release or installed-runtime change is claimed here.
+
+Final root gate after cross-review approval: configured lint and boundary checks, typecheck, and all 5504 source tests passed (19 skipped, zero failures; 22544 assertions / 523 files). Packed Node/Bun consumer canaries passed. No paid provider request or runtime installation was used.
+
+## 2026-10-09 — PR22 second review final combined gate
+
+Root merged reviewed lifecycle base `c26016b` through `a2c30b5` and retained both PR22 accounting fixes. Independent cross-review caught a synchronous cleanup-throw edge in the draft before commit. The cleanup-success flag now handles synchronous and rejected asynchronous return failures with normal propagation; both public regressions retain measured usage and omit unknown billing (before: one pass / one fail; after: both pass). This completes the original regenerated-billing correction.
+
+Final focused context/budget/child/queue suite: **56 pass / zero fail**, 257 assertions. Complete source suite: **5,594 pass / 19 existing skip / zero fail**, 22,982 assertions across 531 files (92.43s). Lint/boundary, typecheck, TUI and Go checks pass. Packed SDK/protocol and durable accounting/partial-budget regressions pass on Node/Bun, including exact Node20.19.0/Bun1.2.0 floors. Actual Agent Casa committed-source typecheck and **1,193 tests / zero pending / zero fail** pass on Node24.14.0 with its checkout unchanged. Dependency audit reports zero advisories. GitHub checks are inspected after ordinary push. No paid request, master merge, release or installed runtime change.
+
+## 2026-10-09 — round two independent PR22 review
+
+Reviewed exact PR22 `2372981` against integration base `b4dfcfd`, including prior budget, permission, context and queue corrections. Two confirmed Medium findings: fully billed context+Conduct regeneration closed the first provider generator at its final event and incorrectly lost known aggregate billing; valid partial token counters beyond a reservation did not exhaust the tree budget. Both regressions failed first (zero pass / two failures).
+
+Final stopped assistant events now preserve billing on intentional, non-aborted close; actual provider or cleanup failure still leaves aggregate billing unknown. Partial usage remains incomplete but accounting retains at least its observed lower bound and blocks further admission on proven overrun. Source regressions retain first/later unknown-provider-call and cancellation guards; an additional after-final-event provider failure remains unknown. Added public packed contract fixtures for both fixes; root owns their execution with the final gates.
+
+`bun test tests/compact/contextManagement.test.ts tests/runtime/treeBudget.test.ts tests/runtime/childPolicy.test.ts tests/host/sessionWorkQueue.test.ts`: **54 pass / zero fail / 249 assertions**, four files, macOS arm64 Bun 1.3.13, isolated offline fixtures. Targeted Biome checks pass. No full suite, commit, push, release, merge, runtime installation or provider call performed by this reviewer. Root owns combined lint/typecheck/full suite/packed consumer/CI validation. Full local report: `/private/tmp/round2-pr22-review.md`.
+
+## 2026-10-09 — PR22 review accounting and policy boundaries
+
+Independent review of PR22 head `14155b0` against `integration/issue15-reviewed-fixes` reproduced five Medium findings before fixes: mutable request estimates could corrupt shared tree ledgers; cancellation could discard returned context charges; child narrowing could mutate approved inputs; a known context-only cost disappeared without usage; summary usage could conceal unknown first/later main-provider bills. Each finding was reported before changes. Authored offline fixtures contain no owner data or private downstream source.
+
+Request estimates now retain validated primitive reservations. Charged cancellation keeps validated billing without applying context or starting a main provider. Child policy receives an isolated copy; parent rewrites use an approval snapshot, while changed original input denies after asynchronous narrowing. Unchanged approval keeps the existing schema path, verified with a non-idempotent Zod transform. Explicit parent null replacements reach the child unchanged. Parent decision reuse cannot change rewrite presence during child await. Noncloneable input fails closed.
+
+Context-only known cost can be returned with absent/incomplete tokens. The numeric token store skips that cost-only write instead of inventing usage. With context aggregation, every actual main call must finish with input/output usage for a combined cost; unknown calls keep observed tokens but suppress the aggregate price and numeric billing write. Complete main usage from an unpriced provider/model likewise keeps complete token reporting but cannot fabricate a known combined cost using the legacy zero-price fallback. The known-price success fixture checks real main cost plus summary cost. Historical no-context pricing is unchanged.
+
+Fail-before receipts: the budget/cancel tests failed on original source (22 pass / 2 fail); both policy alias tests failed (6 pass / 2 fail); cost-only and combined completeness assertions also failed before their fixes. Focused final regressions: `bun test tests/runtime/childPolicy.test.ts tests/runtime/treeBudget.test.ts tests/compact/contextManagement.test.ts` — **40 pass / zero fail / 201 assertions**. Final root combined gate after merging the refreshed integration base: lint/boundary and typecheck pass; full source suite **5,582 pass / 19 existing skip / zero fail**, 22,909 assertions across 531 files (89.73s). TUI build and Go tests pass. Packed SDK/protocol Node/Bun checks pass at current local versions and exact Bun 1.2.0/Node 20.19.0 floors. The actual Agent Casa committed-source snapshot passes typecheck and **1,193 tests / zero pending / zero fail** on Node 24.14.0 with its checkout unchanged. Dependency audit reports zero advisories. A separate read-only agent verified integration retained the original PR22 contracts and exact PR20/21 correction source/tests. GitHub CI is checked after push. No paid provider, publication, master merge or runtime install occurred.
+
+## 2026-10-09 — Linux regular-file CLI stdin fix
+
+Follow-up to the fixture-transport diagnosis below: shell redirection (`sov run --stdin < file`) reproduced the same failure, so the earlier statement that no production-code failure was involved was incomplete. The supported regular-file stdin contract was broken on Linux Bun 1.3.13 after asynchronous CLI startup. Standalone `process.stdin` iteration and `Bun.stdin.text()` read the same file correctly; no upstream Bun root cause is claimed.
+
+Both wrapper readers now use `Bun.stdin.stream()`. Legacy whole-prompt decoding and the SDK's **2 MiB streaming byte cap** remain intact. No native SDK package gains a Bun dependency. Durable real source-CLI regressions cover legacy pipe and an open regular-file fd; SDK pipe, regular-file and original Blob input; SDK oversized regular-file rejection before credential access. Output/exit assertions remain strict and both SDK streams are drained. No tests are skipped.
+
+`bun test tests/cli/sdkRunCommand.test.ts tests/cli/runCommand.test.ts tests/cli/sdkInput.test.ts` passes on macOS arm64 and isolated Linux arm64 (`node:24-bookworm`, read-only source mount, temporary homes, Bun 1.3.13): **27 pass / zero fail / 138 assertions** on each. Independent Linux shell-file checks now emit legacy `turn.completed`/exit 0 and SDK `credential_missing`/exit 1, as expected without provider calls. `bun run lint` and `bun run typecheck` pass on macOS. Root owns the complete source suite and Linux x64 CI recheck; these local results do not claim that CI has passed.
+
+Additional root aggregate evidence: the actual Agent Casa committed-source consumer passes under its primary Node **24.14.0** runtime: **1,193 pass / zero pending / zero failed**, with its source checkout unchanged. Combined packed consumers also pass at Node 20.19 and Bun 1.2 runtime floors. These consumer checks validate the integrated SDK; they do not exercise the wrapper's Linux stdin path.
+
+## 2026-10-09 — Linux CLI fixture stdin transport
+
+The new Linux PR gate exposed two source-CLI fixture failures that passed on macOS. Reproduced unchanged in an isolated `node:24-bookworm` Linux arm64 container with Bun 1.3.13, a read-only repository mount and temporary homes: legacy `spawnSync` input reached the CLI as an empty prompt; SDK `Bun.spawn` Blob input produced `invalid_input` before credential resolution. Captured stdout/stderr contained only these safe machine errors; no license or production-code failure was involved.
+
+Both fixtures now write their input through an explicit pipe and close stdin. The legacy fixture awaits process close and joins stdout/stderr. The SDK fixture uses the running Bun executable. All original success, diagnostic separation and missing-credential assertions remain. No test is skipped and no production behavior changes.
+
+`bun test tests/cli/sdkRunCommand.test.ts tests/cli/runCommand.test.ts` passes on macOS arm64 and the Linux container: **19 pass / zero fail / 103 assertions** on each. Linux command: `docker run --rm -v "$PWD:/repo:ro" -w /repo node:24-bookworm sh -c 'npm exec --yes --package=bun@1.3.13 -- bun test tests/cli/sdkRunCommand.test.ts tests/cli/runCommand.test.ts'`. `bun run lint` and `bun run typecheck` pass on macOS. CI must still verify Linux x64; this local receipt does not claim that run.
+
+## 2026-10-09 — issue #15 combined integration gate
+
+All five lifecycle fixes (#10–#14), injected context management, child capability policy/tree budgets, bounded host ownership and production CI were tested together. Native subagents implemented independent portions; root reviewed the focused diffs and the workflows. The final rebase changed no file content. No merge, branch-rule activation, live paid request, release or installed runtime change was performed.
+
+On macOS arm64 with Bun 1.3.13, Node 25.9.0 and Go 1.26.1: frozen install, mandatory TUI build, lint/boundary/typecheck and the unskipped source suite pass: **5,563 pass / 19 skip / zero fail**, 22,795 assertions, 5,582 tests across 531 files, 88.59 seconds. Go suite passes. Packed SDK/protocol, public type/behavior fixtures and combined native-child context canaries pass on Node/Bun. The child fixture preserves one actual tool effect and marks input-only summary usage partial. Dependency audit reports zero advisories with an empty exception list.
+
+The actual Agent Casa committed-source snapshot passes its real typecheck and **1,193 tests / zero pending / zero failed** against the integrated packed SDK. The runner excludes credentials, leaves the source checkout and lockfile untouched, and emits only a result summary. This corrects the previously observed legacy SessionStore type break without claiming the private manual workflow has run.
+
+Bounded 30-second offline Node/Bun soak reports are separate artifacts. They rotate finite history cohorts, include injected disconnects and join all work. Their RSS growth is recorded; these tests do not certify memory stability, distributed deployment, paid-provider behavior or a production service level.
+
+Issue #15 remains open for the production storage/envelope and summarizer/license decisions, live-provider spend budget, private read-only CI token and post-merge effective PR rules. Completed contracts are reviewable without choosing those owner-level policies.
+
+## 2026-10-09 — bounded 30-second host queue soak
+
+Owner follow-up: extend the subsecond load sample into a bounded offline soak. `scripts/bench/host-lifecycle.ts --duration-seconds 30` runs complete 128-job cohorts until the duration is reached, then joins shutdown. Each cohort rotates to a fresh in-memory store and 16 fresh session ids: 32 seeded messages and at most 48 stored messages per session. Telemetry retains at most 4,096 samples per metric while keeping full-run counters and maxima. Every 97th request injects an offline provider error. Count consistency, admission bounds, empty final queue, history limits and absence of unexpected failures are exit-status invariants. Root independently reviewed the script and requested these invariants.
+
+Fresh-process results on shared macOS arm64: Bun 1.3.13 completed **43,452 / 43,904** attempted turns with **452 injected errors** in **30.076 seconds**; Node 25.9.0 completed **41,045 / 41,472** with **427 injected errors** in **30.018 seconds**. Both recorded zero admission/unexpected/cancellation errors; peak four active and 124 queued jobs; final zero active/queued and closed. History never exceeded 48 messages per session. Raw public fixture reports and measured queue/latency/event-loop/RSS values are in [host lifecycle evidence](../07-history/audits/2026-10-09-host-lifecycle-evidence.md).
+
+RSS grew materially (Bun 86.98 → 211.91 MiB; Node 110.02 → 249.48 MiB). The observed window does **not** prove a memory plateau, absence of leaks, or production capacity. Fresh cohorts bound fixture history; they do not model one permanent conversation or distributed deployment. Source checks also ran on the shared host. No real provider, owner data, paid call or global install was involved.
+
+Commands: fresh Bun/Node `--duration-seconds 30` runs; default-mode Node/Bun invariant smoke; `bun run lint`; `bun run typecheck`; `bun run test`. Full source gate completed **5,500 pass / 19 skip / zero fail**, 22,483 assertions, 84.52 seconds. Lint/boundary and typecheck pass. No extra mirror unit test was added for the benchmark implementation.
+
+## 2026-10-09 — issue #15: injected context management and legacy store compatibility
+
+macOS arm64, Bun 1.3.13, Node 25.9.0, Go 1.26.1. Deterministic host ports and scripted providers only. Added ContextManagementPort/config/per-turn injection, strict replacement checks and independent model history. Tests prove complete transcript rehydration without duplicate rows, tool-call/result adjacency, pre-tool persistence integrity, one overflow retry before output/tools, no replay after effects, cooperative cancellation, config/seed immutability, rejected-summary billing metadata, separately priced usage and unknown-cost persistence handling. Legacy stores without truncateMessages work normally; regeneration needing rollback fails closed with a typed error and one observed tool effect. Root reviewed validator/query changes with no blocker.
+
+Focused context regressions: 11 pass / zero fail, 73 assertions. Public API surface witnesses cover the additive types/value export; the first complete pass caught their deliberate additions (5,496 pass / 19 skip / 2 snapshot failures), then the witnesses were updated. Final `bun run lint`, `bun run typecheck`, and complete unskipped `bun run test` pass: 5,499 pass / 19 skip / zero fail, 22,514 assertions across 524 files (87.06s). `bun install --frozen-lockfile` builds the Go TUI. Existing TUI integration fixtures use isolated homes/databases.
+
+`bun run canary` passes packed SDK/protocol consumers under Node and Bun. Additional packed-SDK parent regressions pass on both: reduced provider history vs full persisted transcript, no duplicate rehydration, separately counted summary/main usage, malformed summaries and capped overflow retry. Native-child context inheritance is prepared for the aggregate ChildPolicy branch and verified there by root, not claimed against this standalone base. No live model calls, runtime installation or publication. No proprietary summarizer moved into the MIT SDK; its reusable implementation's license placement remains an owner decision. Learning recall/synthesis benefit was not assessed.
+
+Unknown summary cost remains absent in RunResult and prevents a fabricated zero aggregate numeric-store write; measured tokens remain in returned usage/events. Missing summary usage sets usageComplete false. Hosts own unpriced accounting and cooperative port cancellation; an uncooperative host cannot be forcibly stopped by the SDK.
+
+## 2026-10-09 — bounded issue #15 capability, child policy and tree accounting
+
+Scope: additive custom capability profiles, explicit native child inheritance,
+pattern narrowing, recursive tool pools, shared depth/cumulative/concurrent
+child admission, per-request token/cost bounds, usage/cost propagation and
+unknown trajectory cost. Environment: macOS arm64, Bun 1.3.13. Scripted offline
+providers and temporary fixture profiles only. The isolated worktree TUI was
+built by `bun install --frozen-lockfile`; no live provider, owner-profile write,
+runtime install, merge, or release was performed.
+
+Commands: targeted `bun test` runs for `tests/runtime/childPolicy.test.ts`,
+`tests/runtime/treeBudget.test.ts`, `tests/trajectory/writer.test.ts`,
+`tests/runtime/scheduler.reseat.test.ts` and `packages/sdk/tests/surface.test.ts`;
+then `bun run lint`, `bun run typecheck`, `bun run test`, `bun run build`, and
+`bun run canary`. The initial full run rejected two deliberate surface additions
+until their value snapshot and type witnesses were updated. Final full suite:
+5,510 pass / 19 skip / zero fail, 22,548 assertions, 5,529 tests across 525 files.
+Lint/boundary, typecheck, SDK/protocol builds, and packed Node/Bun consumers pass.
+The packed SDK consumer exercises a native child, profile narrowing, usage
+completeness, conservative unknown-price accounting and cumulative child cap.
+
+Focused tests prove hooks/recall/output governance inheritance; parent denial
+and scope narrowing; malformed patterns fail before session creation; real
+recursive tool delegation preserves depth and narrowed parent tools; shared
+reservations are atomic and release once; missing, partial, malformed and
+unpriced usage cannot free a request ceiling; cancelled generation without a
+valid stop remains unknown; generator return waits for provider cleanup;
+reasoning tokens are not double-counted. Unknown trajectory costs are omitted.
+Root independently reviewed scheduler/profile wiring and conservative bounds.
+
+Limits: request ceilings depend on explicit trusted host upper bounds. Reported
+violations stop later admission; already billed external work cannot be undone.
+Parent/context/retry providers must use the same `budgetProvider` wrapper;
+unwrapped host calls are outside this meter. Child `usageStatus` honors a future
+context port's `RunResult.usageComplete: false`. Root aggregates the separately
+implemented context port and CI/host controls for issue #15. This entry does
+not claim the complete production-hardening umbrella is finished. Mock recall
+checks the inheritance mechanism, not live learning-soak value.
+
+## 2026-10-09 — issue #15 portable host admission, shutdown and restart evidence
+
+Scope: additive public `SessionWorkQueue` utility, public agent/store integration, offline provider/store failures, isolated SQLite process restart, and a repeatable mock-provider load TEST envelope. Root independently reviewed queue reservation, cancellation, cap validation, shutdown escalation and join semantics; no blocker found. Owner explicitly requested native parallel Codex work. No production deployment decision was inferred.
+
+Environment: macOS arm64, Bun 1.3.13, Node 25.9.0, Go 1.26.1; isolated worktree and frozen dependency install. TUI built before the full suite. New persistence fixtures use in-memory stores or explicit temporary SQLite path/home. The restart test kills only its own fixture subprocess after the durable pre-tool boundary; it does not open the owner's profile.
+
+Commands: `bun install --ignore-scripts --frozen-lockfile`; `bun test tests/host packages/sdk/tests/surface.test.ts`; `bun run lint`; `bun run typecheck`; `bun run tui:build`; `bun run test`; `bun run canary`; `bun scripts/bench/host-lifecycle.ts`; `node scripts/bench/host-lifecycle.ts` (three fresh-process measurements per runtime).
+
+Results: focused plus public-surface tests **16 pass / zero fail**, 96 assertions. Full suite **5,500 pass / 19 skip / zero fail**, 5,519 tests across 525 files, 22,483 assertions, 85.00 seconds. Lint/boundary, typecheck, TUI build and packed Node/Bun consumers pass. Every load run completed 128 turns, peaked at four active and 124 queued jobs, and ended with zero active/queued work. Exact test envelope and latency/RSS/event-loop/history measurements are in [host lifecycle evidence](../07-history/audits/2026-10-09-host-lifecycle-evidence.md).
+
+Coverage: same-session FIFO, cross-session concurrency, both queue caps, queued cancellation, active cancellation, shutdown escalation and uncooperative callback joining, failed writes releasing ownership, provider error outcomes, serialized history hydration, and actual subprocess crash/restart with model-context transcript repair. Supplementary queue state and public named types have explicit surface/packed-consumer coverage. An early test fixture awaited a pending rejection before triggering cancellation; changed the fixture to capture then assert the rejection. No production hang was involved.
+
+Limits: the queue is optional and in-process; all host writers must share one instance and callbacks must await their own work. No distributed lease, durable admission, tool idempotency, sustained soak or production capacity claim. Shutdown remains pending for uncooperative callbacks. SIGKILL demonstrates durable transcript recovery, not completion of lost effects. No release, merge, global install or live provider call. No recall/synthesis quality claim is made.
+
+
+## 2026-10-09 — issue #15 production CI and consumer gates
+
+Isolated `fix/issue-15-production-gates` worktree from `3709b25`. Bun 1.3.13 / Node 25.9.0 / Go 1.26.1. CI now specifies complete source/Go gates on Linux and macOS, packed consumer/type checks on Bun 1.2.0 + Node 20.19.0 and Bun 1.3.13 + Node 24.14.0, pinned action hashes and contents-read permissions. No merge, branch-rule activation, private token configuration or release performed.
+
+Dependency scan first found advisories in nine packages, including critical/high findings. Updated MCP/Hono floors, development DOM/build dependencies, and compatible transitive patches. `bun run audit:dependencies`: zero current advisories; exceptions empty. Five isolated advisory-gate tests pass (10 assertions), including malformed/failed registry reports, severity and expired/mismatched exceptions. New MCP upstream transport cap invalidated the old 12 MB image fixture; it now uses 8 MB, still above our 7 MB image cap and below upstream's 10 MiB frame cap. All five image passthrough tests pass without disabling transport protection.
+
+Lint/boundary/typecheck and TUI build pass. Final full suite before integration: **5,493 pass / 19 skip / zero fail**, 22,450 assertions, 91.77 seconds. Go suite passes. Packed SDK/protocol + new behavioral/type-shape consumers pass under Node/Bun; exact compatibility floor Bun 1.2.0 and Node 20.19.0 independently pass. Node 24.14.0 pin verified executable. No live paid semantic run.
+
+Actual private Agent Casa runner archives committed consumer HEAD into temporary storage, installs packed SDK and runs the real typecheck/tests with credentials excluded. First real run found a pre-existing compatibility break: the consumer's SessionStore lacks the newly required `truncateMessages`. This is being corrected in #15's context/persistence portion, then the actual runner will be repeated against the integrated changes. Public authored fixtures are not claimed as its actual suite. The private manual CI workflow requires a read-only `AGENT_CASA_READ_TOKEN` not currently configured. Branch-rule activation utility is preview-only here and refuses until named jobs pass on master.
+## 2026-10-09 — second review lifecycle base integration
+
+Integration base contains the exact PR20 `d645008` and PR21 `c1a90b5` corrections before the PR22 feature layer. Additive log conflicts retained both receipts. Full root validation: lint/boundary, typecheck and TUI build pass; **5,522 source tests pass / 19 existing skip / zero fail**, 22,673 assertions across 523 files (85.20s). Root next merges this base into PR22 and tests the complete feature combination. No SDK master merge, force push, paid request, release or installation.
+
+## 2026-10-09 — reviewed lifecycle base: PR20 and PR21 follow-up composition
+
+Cherry-picked the independently reviewed PR21 damaged-SSE correction and PR20 completed-receipt correction into the isolated five-fix integration base. Only additive testing-log conflicts required resolution; all original source fixes, regressions and receipts are preserved. Provider source/tests exactly match the corrected PR21 head; orchestrator source/tests and packed canary exactly match the corrected PR20 head.
+
+Bun 1.3.13, macOS arm64, offline fixtures. Focused provider, orchestrator, query and scheduler tests pass: 164 tests, 522 assertions, zero failures (632ms). `bun run lint` and `bun run typecheck` pass. Each reviewed source correction already passed its full suite and packed consumers on its own PR; the final umbrella branch receives a separate complete combined run. No master merge, force push, release, installation, live provider call or owner profile write.
+## 2026-10-09 — PR20 round-two final gate
+
+Root corrected an optional-error test type assertion without changing its expected receipt/terminal checks. Final lint/boundary and typecheck pass. Complete source suite: **5,501 pass / 19 existing skip / zero fail**, 22,522 assertions across 523 files (87.35s). Packed SDK/protocol Node/Bun consumers pass. An independent second reviewer approves both cancellation and unreadable-error corrections. GitHub checks are inspected after push. No master merge, paid request, release or installation.
+
+## 2026-10-09 — PR20 second independent review: start cancellation and unreadable callback errors
+
+Confirmed one Medium defect in the reviewed PR20 head `64aa8b7`: a host `tool_start` trace callback could abort the turn after the final signal check, and the tool effect still started. Offline serial and concurrent regressions fail before the correction (57 pass / 2 fail). The final cancellation guard now runs after start tracing, immediately before tool execution, and records the cancelled observation. The cancelled call returns one ordered error result without performing its effect. A second Medium defect let a steering callback throw an Error with an unreadable message getter, escape query error handling, and lose an already completed receipt. Its regression fails before correction (27 pass / 1 fail); guarded message extraction now preserves the real receipt and a readable terminal error.
+
+Focused `bun test tests/core/orchestrator.test.ts tests/core/query.test.ts` passes: 87 pass / zero fail, 284 assertions (174ms), Bun 1.3.13 on macOS arm64. Focused formatting checks pass. Root coordinates full lint/typecheck/suite and packed gates before committing or pushing this follow-up. No paid call, profile write, release, runtime install, master merge or push occurred in this review pass. Recall quality was not assessed.
+
+## 2026-10-09 — independent PR18–20 review and renderer receipt correction
+
+An independent reviewer (not the PR author) read exact PR18 `32b29e8`, PR19 `b5de9b1` and PR20 `e94dbc6` diffs, their issue acceptance, caller/consumer paths and cleanup contracts. No confirmed finding in PR18 reservation cleanup or PR19 queue deadlines. PR18 scheduler/semaphore/lane/path-lock regressions pass: 40 tests / 94 assertions; PR19: 43 tests / 117 assertions. Each branch's injected-executor/workflow consumer group passes 29 tests / 71 assertions. Canned subprocess fixtures only; no real executor or provider call.
+
+PR20 had one Medium finding: after a completed tool effect, a throwing custom output renderer erased its actual receipt. An offline counter reproduced one completed effect with only the renderer error returned. The new gated sibling/renderer regression fails before the correction. Formatting exceptions now retain a safe raw receipt and valid user supplementary output; unserializable output retains a completed-tool marker. Normal rendering is unchanged. README and packed consumer fixture cover the contract.
+
+macOS arm64, Bun 1.3.13, isolated fixture homes/databases. `bun test tests/core/orchestrator.test.ts tests/core/query.test.ts`: **84 pass / zero fail / 273 assertions**. `bun run lint` and `bun run typecheck` pass. Complete `bun run test`: **5,498 pass / 19 existing skip / zero fail**, 22,511 assertions, 5,517 tests across 523 files (85.24s). `bun run canary` passes SDK/protocol packed consumers on Node and Bun, including the new renderer receipt/supplementary-message regression. No test skips added, runtime installation, merge, release, paid call or learning-benefit claim. GitHub CI is checked separately after push.
 ## 2026-10-09 — PR21 round-two final gate
 
 Root combined local validation: lint/boundary, typecheck and full source suite pass: **5,504 pass / 19 existing skip / zero fail**, 22,544 assertions across 523 files (84.85s). Packed SDK/protocol Node/Bun consumer checks pass. An independent second reviewer verified strict error/reasoning/UTF-8 failures and permissive parser compatibility. GitHub results are checked after push. No paid request, owner-profile write, master merge, release or installation.
@@ -26,6 +220,23 @@ The independent code review found one Medium defect: a corrupt JSON tool-argumen
 
 Bun 1.3.13, macOS arm64, offline fixtures with isolated existing profiles. Focused provider tests: 64 pass / zero fail, 180 assertions. `bun run lint`, `bun run typecheck` and the unskipped full suite pass: 5,500 pass / 19 skip / zero fail, 22,501 assertions across 523 files (85.23s). Built TUI was present. Package builds and packed SDK/protocol Node/Bun canaries pass. Additional packed SDK Node/Bun regressions verify typed damaged/trailing-data refusal, no final assistant, one fetch, released locks and permissive direct-parser compatibility. No paid provider calls, owner profile writes, release or runtime installation. Recall and synthesis were not assessed by this transport review.
 
+## 2026-10-09 — composed lifecycle fixes #10–#14 integration base
+
+Validated the five independent lifecycle fixes together on an isolated staging
+branch, not master. Resolved scheduler conflicts by preserving both the #13
+resolver `finally` and #12 absolute queue deadline, plus both regression blocks.
+Preserved all prior testing entries, provider documentation, and #14 packed
+consumer additions. No capability/context/host hardening was included.
+
+Environment: macOS arm64, Bun 1.3.13, offline fixture providers and isolated test
+profiles. Commands: `bun install --frozen-lockfile` (builds TUI),
+`bun test tests/runtime/scheduler.test.ts tests/core/orchestrator.test.ts tests/core/query.test.ts`,
+`bun run lint`, `bun run typecheck`, `bun run test`, `bun run build`, and
+`bun run canary`. Focused: 98 pass / zero fail, 331 assertions. Full suite:
+5,512 pass / 19 skip / zero fail, 22,593 assertions, 5,531 tests across 523 files
+(87.21 seconds). Lint/boundary, typecheck, package builds and packed Node/Bun
+consumers all pass. No live provider, owner-profile write, runtime install,
+master merge or release. Learning-soak behavior was not tested.
 ## 2026-10-09 — issue #11: reject incomplete OpenAI-compatible responses
 
 Offline fixtures on macOS arm64, Bun 1.3.13, Node 25.9.0, Go 1.26.1. The truncated-text regression fails before the fix (57 pass / 1 fail). Explicit completion validation now throws typed `ProviderStreamError` without creating a final assistant or replaying a response. Tests cover empty/EOF/DONE-only streams, malformed final JSON and chunk shapes, stop/length/tool_calls, usage-only trailing frames, partial tool JSON, missing tool names, content after finish and colliding tool IDs. Existing reasoning/usage fixtures now carry real finish reasons. Root reviewed the change; follow-up ID-collision coverage is included.
@@ -126,6 +337,14 @@ cap of one, assert no session and zero active children, then complete a retry.
 Self-review confirms every post-reservation operation now runs inside the
 existing release `finally`; the resolver error still propagates unchanged.
 No learning recall or synthesis is exercised by these offline fixtures.
+
+## 2026-10-09 — issue #11: reject incomplete OpenAI-compatible responses
+
+Offline fixtures on macOS arm64, Bun 1.3.13, Node 25.9.0, Go 1.26.1. The truncated-text regression fails before the fix (57 pass / 1 fail). Explicit completion validation now throws typed `ProviderStreamError` without creating a final assistant or replaying a response. Tests cover empty/EOF/DONE-only streams, malformed final JSON and chunk shapes, stop/length/tool_calls, usage-only trailing frames, partial tool JSON, missing tool names, content after finish and colliding tool IDs. Existing reasoning/usage fixtures now carry real finish reasons. Root reviewed the change; follow-up ID-collision coverage is included.
+
+`bun install --frozen-lockfile` builds the Go TUI. `bun run lint`, `bun run typecheck`, and unskipped `bun run test` pass: 5,499 pass / 19 skip / zero fail, 22,486 assertions across 523 files (84.69s). Focused provider file: 63 pass / zero fail, 165 assertions. Initial complete pass: 5,497 pass / 19 skip / zero fail. Final rerun includes the review follow-ups. `bun run canary` verifies packed SDK and protocol consumers under Node and Bun. Additional packed-SDK regressions verify successful completion, typed incomplete/invalid-tool errors and `createAgent()` terminal error with visible partial text, no final assistant and one fetch. Native-fetch abort cleanup also passes on Node and Bun against a local HTTP fixture using the #10 packed artifact. No paid calls, owner-profile writes, release or installation. Recall/synthesis behavior is not assessed by these transport tests.
+
+
 ## 2026-10-09 — issue #10: OpenAI response reader cleanup
 
 Bun 1.3.13, macOS arm64, offline scripted streams. The early-return regression failed before implementation (52 pass / 1 fail), then the focused provider file passes (57 pass, 136 assertions). Tests cover early return, DONE with open source, EOF, malformed JSON, abort/read errors, and throwing cancel callbacks. Cleanup preserves the original outcome and releases the lock.

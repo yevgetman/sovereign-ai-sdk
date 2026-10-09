@@ -265,3 +265,11 @@ export class ProviderStreamError extends Error {
     this.name = 'ProviderStreamError';
   }
 }
+
+/** A discarded conduct attempt wrote history but this store cannot undo it. */
+export class RegenerationRollbackUnavailableError extends Error {
+  constructor() {
+    super('conduct regeneration requires SessionStore.truncateMessages after persisted writes');
+    this.name = 'RegenerationRollbackUnavailableError';
+  }
+}

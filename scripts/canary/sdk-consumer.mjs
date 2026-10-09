@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { readdirSync } from 'node:fs';
-import { buildTool, createAgent, createInMemorySessionStore } from '@yevgetman/sov-sdk';
+import { SessionWorkQueue, SessionWorkQueueError, buildTool, createAgent, createInMemorySessionStore, CapabilityProfileRegistry, TreeBudget, SubagentScheduler, LaneSemaphores, PathLockManager } from '@yevgetman/sov-sdk';
 // The one deliberate deep-subpath import in this otherwise barrel-only consumer:
 // the F17/F18/F19 regression guard (asserted at the end) needs VERSION, which
 // lives at the `./version` public subpath, not on the frozen `./sdk` barrel.
@@ -133,6 +133,39 @@ assert.ok(
   `final assistant text should contain '${SENTINEL}', got: ${JSON.stringify(finalText)}`,
 );
 
+// Public child-policy and shared-budget behavior against the installed package.
+const profiles = new CapabilityProfileRegistry([{ name: 'echo-only', tools: ['Echo'] }]);
+assert.deepEqual(profiles.filter('echo-only', [echoTool], 'chat'), []);
+assert.equal(profiles.filter('echo-only', [echoTool]).length, 1);
+const treeBudget = new TreeBudget({ maxDepth: 1, maxTotalChildren: 1, maxTotalTokens: 5000 });
+const childDefinition = {
+  name: 'echo-child', description: 'offline child', systemPrompt: 'echo',
+  allowedTools: ['Echo'], capabilityProfile: 'echo-only', maxTurns: 3, readOnly: true,
+  supportsMissionState: false, inheritParentTools: false, allowedSubagents: [],
+  path: '/unused', realpath: '/unused', dir: '/', source: 'bundle', trustTier: 'builtin',
+};
+const childScheduler = new SubagentScheduler({
+  agents: { agents: [childDefinition], byName: new Map([[childDefinition.name, childDefinition]]) },
+  laneSemaphores: new LaneSemaphores({ frontier: 1 }), pathLock: new PathLockManager(),
+  resolveProvider: () => ({ transport: echoProvider(), client: {}, model: 'echo-model',
+    contextLength: 32000, authType: 'none', baseUrl: 'offline://', metadata: {} }),
+  createChildSession: () => 'consumer-child', defaultProvider: 'openai', defaultModel: 'echo-model', maxTokens: 256,
+  childPolicy: { capabilityProfiles: profiles, profile: 'coding', treeBudget,
+    estimateRequestBudget: () => ({ tokens: 1000 }) },
+});
+const childInput = { agentName: 'echo-child', prompt: QUESTION, parentSessionId: 'consumer-parent',
+  parentToolPool: [echoTool], parentToolContext: { cwd: process.cwd(), sessionId: 'consumer-parent' } };
+const child = await childScheduler.delegate(childInput);
+assert.equal(child.terminal.reason, 'completed');
+assert.equal(child.summary, SENTINEL);
+assert.equal(child.usage.inputTokens, 8);
+assert.equal(child.usageStatus, 'partial'); // The first provider call reported no usage.
+assert.equal(child.estimatedCostUsd, undefined); // An unknown price is not free.
+assert.equal(treeBudget.snapshot().unknownRequests, 2);
+assert.equal(treeBudget.snapshot().activeChildren, 0);
+assert.equal(treeBudget.snapshot().estimatedCostComplete, false);
+await assert.rejects(childScheduler.delegate(childInput), /total children/);
+
 // ── No-disk assertion: the scratch cwd gained NO files (.db/.sqlite/session
 // artifacts would show up here) ──────────────────────────────────────────────
 const filesAfter = readdirSync('.').sort();
@@ -197,6 +230,19 @@ assert.equal(joinedMessages[0].content[0].is_error, undefined);
 assert.equal(joinedMessages[0].content[1].is_error, true);
 assert.match(joinedMessages[0].content[1].content, /policy rejected/);
 
+// Optional portable host lifecycle: verify the public exports in both runtimes.
+const hostQueue = new SessionWorkQueue({ maxActiveSessions: 1, maxQueued: 2, maxQueuedPerSession: 2 });
+const hostEvents = [];
+await Promise.all([
+  hostQueue.submit('canary', async () => { await Promise.resolve(); hostEvents.push('first'); }),
+  hostQueue.submit('canary', async () => { hostEvents.push('second'); }),
+]);
+assert.deepEqual(hostEvents, ['first', 'second']);
+await assert.rejects(hostQueue.submit('canary', async () => { throw new Error('injected write failure'); }), /injected write failure/);
+assert.equal(await hostQueue.submit('canary', async () => 'recovered'), 'recovered');
+await hostQueue.shutdown(false);
+assert.deepEqual(hostQueue.snapshot(), { active: 0, queued: 0, closed: true });
+await assert.rejects(hostQueue.submit('canary', async () => {}), (error) => error instanceof SessionWorkQueueError && error.code === 'closed');
 // A broken custom renderer cannot erase the receipt of a completed effect.
 let rendererEffects = 0;
 const rendererTool = buildTool({

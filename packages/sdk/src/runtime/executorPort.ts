@@ -90,6 +90,9 @@ export type SubprocessExecutorResult = {
   toolCallCount: number;
   distinctToolNames: string[];
   messages: Message[];
+  usage?: import('../core/types.js').TokenUsage;
+  estimatedCostUsd?: number;
+  usageComplete?: boolean;
 };
 
 /** The INJECTED subscription-executor port. The proprietary
