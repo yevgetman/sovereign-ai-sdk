@@ -858,13 +858,17 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       // runTools has joined every started task. Keep real results if a later
       // host callback fails, and never append a second result for the same id.
       let error: Error;
+      let message: string;
       try {
         error = err instanceof Error ? err : new Error(String(err));
+        // Error subclasses can expose a throwing message getter. Read it
+        // inside the guard before preserving the already completed receipt.
+        message = error.message;
       } catch {
-        error = new Error('host callback failed with an unreadable error');
+        message = 'host callback failed with an unreadable error';
+        error = new Error(message);
       }
       if (!resultYielded) {
-        const message = error.message;
         const msg =
           dispatchedResult ??
           consumeGuidance(

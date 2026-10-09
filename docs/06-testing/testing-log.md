@@ -123,11 +123,24 @@ Dependency scan first found advisories in nine packages, including critical/high
 Lint/boundary/typecheck and TUI build pass. Final full suite before integration: **5,493 pass / 19 skip / zero fail**, 22,450 assertions, 91.77 seconds. Go suite passes. Packed SDK/protocol + new behavioral/type-shape consumers pass under Node/Bun; exact compatibility floor Bun 1.2.0 and Node 20.19.0 independently pass. Node 24.14.0 pin verified executable. No live paid semantic run.
 
 Actual private Agent Casa runner archives committed consumer HEAD into temporary storage, installs packed SDK and runs the real typecheck/tests with credentials excluded. First real run found a pre-existing compatibility break: the consumer's SessionStore lacks the newly required `truncateMessages`. This is being corrected in #15's context/persistence portion, then the actual runner will be repeated against the integrated changes. Public authored fixtures are not claimed as its actual suite. The private manual CI workflow requires a read-only `AGENT_CASA_READ_TOKEN` not currently configured. Branch-rule activation utility is preview-only here and refuses until named jobs pass on master.
+## 2026-10-09 — second review lifecycle base integration
+
+Integration base contains the exact PR20 `d645008` and PR21 `c1a90b5` corrections before the PR22 feature layer. Additive log conflicts retained both receipts. Full root validation: lint/boundary, typecheck and TUI build pass; **5,522 source tests pass / 19 existing skip / zero fail**, 22,673 assertions across 523 files (85.20s). Root next merges this base into PR22 and tests the complete feature combination. No SDK master merge, force push, paid request, release or installation.
+
 ## 2026-10-09 — reviewed lifecycle base: PR20 and PR21 follow-up composition
 
 Cherry-picked the independently reviewed PR21 damaged-SSE correction and PR20 completed-receipt correction into the isolated five-fix integration base. Only additive testing-log conflicts required resolution; all original source fixes, regressions and receipts are preserved. Provider source/tests exactly match the corrected PR21 head; orchestrator source/tests and packed canary exactly match the corrected PR20 head.
 
 Bun 1.3.13, macOS arm64, offline fixtures. Focused provider, orchestrator, query and scheduler tests pass: 164 tests, 522 assertions, zero failures (632ms). `bun run lint` and `bun run typecheck` pass. Each reviewed source correction already passed its full suite and packed consumers on its own PR; the final umbrella branch receives a separate complete combined run. No master merge, force push, release, installation, live provider call or owner profile write.
+## 2026-10-09 — PR20 round-two final gate
+
+Root corrected an optional-error test type assertion without changing its expected receipt/terminal checks. Final lint/boundary and typecheck pass. Complete source suite: **5,501 pass / 19 existing skip / zero fail**, 22,522 assertions across 523 files (87.35s). Packed SDK/protocol Node/Bun consumers pass. An independent second reviewer approves both cancellation and unreadable-error corrections. GitHub checks are inspected after push. No master merge, paid request, release or installation.
+
+## 2026-10-09 — PR20 second independent review: start cancellation and unreadable callback errors
+
+Confirmed one Medium defect in the reviewed PR20 head `64aa8b7`: a host `tool_start` trace callback could abort the turn after the final signal check, and the tool effect still started. Offline serial and concurrent regressions fail before the correction (57 pass / 2 fail). The final cancellation guard now runs after start tracing, immediately before tool execution, and records the cancelled observation. The cancelled call returns one ordered error result without performing its effect. A second Medium defect let a steering callback throw an Error with an unreadable message getter, escape query error handling, and lose an already completed receipt. Its regression fails before correction (27 pass / 1 fail); guarded message extraction now preserves the real receipt and a readable terminal error.
+
+Focused `bun test tests/core/orchestrator.test.ts tests/core/query.test.ts` passes: 87 pass / zero fail, 284 assertions (174ms), Bun 1.3.13 on macOS arm64. Focused formatting checks pass. Root coordinates full lint/typecheck/suite and packed gates before committing or pushing this follow-up. No paid call, profile write, release, runtime install, master merge or push occurred in this review pass. Recall quality was not assessed.
 
 ## 2026-10-09 — independent PR18–20 review and renderer receipt correction
 
@@ -136,6 +149,17 @@ An independent reviewer (not the PR author) read exact PR18 `32b29e8`, PR19 `b5d
 PR20 had one Medium finding: after a completed tool effect, a throwing custom output renderer erased its actual receipt. An offline counter reproduced one completed effect with only the renderer error returned. The new gated sibling/renderer regression fails before the correction. Formatting exceptions now retain a safe raw receipt and valid user supplementary output; unserializable output retains a completed-tool marker. Normal rendering is unchanged. README and packed consumer fixture cover the contract.
 
 macOS arm64, Bun 1.3.13, isolated fixture homes/databases. `bun test tests/core/orchestrator.test.ts tests/core/query.test.ts`: **84 pass / zero fail / 273 assertions**. `bun run lint` and `bun run typecheck` pass. Complete `bun run test`: **5,498 pass / 19 existing skip / zero fail**, 22,511 assertions, 5,517 tests across 523 files (85.24s). `bun run canary` passes SDK/protocol packed consumers on Node and Bun, including the new renderer receipt/supplementary-message regression. No test skips added, runtime installation, merge, release, paid call or learning-benefit claim. GitHub CI is checked separately after push.
+## 2026-10-09 — PR21 round-two final gate
+
+Root combined local validation: lint/boundary, typecheck and full source suite pass: **5,504 pass / 19 existing skip / zero fail**, 22,544 assertions across 523 files (84.85s). Packed SDK/protocol Node/Bun consumer checks pass. An independent second reviewer verified strict error/reasoning/UTF-8 failures and permissive parser compatibility. GitHub results are checked after push. No paid request, owner-profile write, master merge, release or installation.
+
+## 2026-10-09 — PR21 fresh review: error frames and strict byte decoding
+
+Independent review of PR21 head `75604d7` against `fix/issue-10-sse-cleanup` confirmed three Medium findings. An explicit provider error envelope after a valid tool finish was ignored; malformed UTF-8 in a tool argument was silently replaced and approved; object-valued reasoning emitted a non-string public event and fabricated completed text. Findings were reported before fixes. All fixtures are authored offline Echo/label counters with no private source or real side effects.
+
+Production parsing now uses fatal UTF-8 decoding and flushes the decoder at EOF. Decode failures become typed `ProviderStreamError` and retain reader cleanup. The direct parser's default permissive mode remains compatible. Explicit non-null provider error envelopes invalidate completion. Reasoning channels must be strings or null before an event is emitted; supported usage-only and ordinary metadata frames remain accepted.
+
+Before fixes, the focused provider suite recorded **65 pass / 3 fail**. After fixes, `bun test tests/providers/openai.test.ts` records **68 pass / zero fail / 223 assertions**. New public-agent regressions prove no completed assistant, no tool dispatch, one fetch without replay, cancellation for unfinished bodies, and reader unlock. They cover error envelopes before/after finish, invalid bytes within tool arguments, incomplete UTF-8 at EOF, and valid multibyte text split across byte chunks. Existing direct permissive malformed-JSON tests remain green. Lint/boundary and typecheck pass; root owns the final full/packed/CI gates. No full gate, publication or installed-runtime change is claimed here.
 
 ## 2026-10-09 — PR21 independent review: reject damaged SSE data before tool dispatch
 

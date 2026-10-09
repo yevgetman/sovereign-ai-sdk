@@ -404,6 +404,118 @@ describe('translateOpenAIStream', () => {
     }
   });
 
+  async function assertRejectedWire(parts: Uint8Array[], close = false) {
+    let fetches = 0;
+    let calls = 0;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(part);
+        if (close) controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const provider = new OpenAIProvider({
+      apiKey: 'offline',
+      fetchImpl: (async () => {
+        fetches++;
+        return new Response(body);
+      }) as unknown as typeof fetch,
+    });
+    const tool = buildTool({
+      name: 'Echo',
+      description: () => 'authored offline fixture',
+      inputSchema: z.unknown(),
+      async call() {
+        calls++;
+        return { data: 'called' };
+      },
+    });
+    const gen = createAgent({ provider, model: 'offline', tools: [tool], maxTurns: 1 }).run(
+      'fixture',
+    );
+    const events = [];
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        expect(step.value.terminal.reason).toBe('error');
+        if (step.value.terminal.reason === 'error')
+          expect(step.value.terminal.error).toBeInstanceOf(ProviderStreamError);
+        expect(step.value.finalAssistant).toBeUndefined();
+        break;
+      }
+      events.push(step.value);
+    }
+    expect(events.some((e) => 'type' in e && e.type === 'assistant_message')).toBe(false);
+    expect(calls).toBe(0);
+    expect(fetches).toBe(1);
+    expect(body.locked).toBe(false);
+    if (!close) expect(cancelled).toBe(true);
+  }
+
+  test('explicit provider error envelopes invalidate otherwise complete tool output', async () => {
+    const call =
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"fixture","function":{"name":"Echo","arguments":"{}"}}]}}]}\n';
+    const finish = 'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n';
+    const error = 'data: {"error":{"message":"authored stream failure"}}\n';
+    for (const wire of [call + error + finish, call + finish + error]) {
+      await assertRejectedWire([new TextEncoder().encode(`${wire}data: [DONE]\n`)]);
+    }
+  });
+
+  test('strict production decoding rejects invalid and incomplete UTF-8 before tools dispatch', async () => {
+    const encode = (text: string) => new TextEncoder().encode(text);
+    const prefix = encode(
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"fixture","function":{"name":"Echo","arguments":"{\\"label\\":\\"',
+    );
+    const suffix = encode(
+      '\\"}"}}]}}]}\ndata: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\ndata: [DONE]\n',
+    );
+    await assertRejectedWire([prefix, new Uint8Array([0xff]), suffix]);
+    await assertRejectedWire([prefix, new Uint8Array([0xc3]), suffix]);
+    const complete = encode(
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"fixture","function":{"name":"Echo","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}\n',
+    );
+    await assertRejectedWire([complete, new Uint8Array([0xc3])], true);
+  });
+
+  test('strict decoding preserves valid UTF-8 characters split between byte chunks', async () => {
+    const wire = new TextEncoder().encode(
+      'data: {"choices":[{"delta":{"content":"héllo"},"finish_reason":"stop"}]}\ndata: [DONE]\n',
+    );
+    const split = wire.indexOf(0xc3) + 1;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(wire.slice(0, split));
+        controller.enqueue(wire.slice(split));
+      },
+    });
+    const chunks = [];
+    for await (const chunk of parseSse(body, { rejectMalformedData: true })) chunks.push(chunk);
+    const { returned } = await drainStream(chunks);
+    expect(returned.content).toEqual([{ type: 'text', text: 'héllo' }]);
+    expect(body.locked).toBe(false);
+  });
+
+  test('malformed reasoning channels cannot produce non-string public events', async () => {
+    for (const field of ['reasoning_content', 'reasoning']) {
+      await expect(
+        drainStream([
+          {
+            choices: [
+              {
+                delta: { [field]: { damaged: true } },
+                finish_reason: 'stop',
+              },
+            ],
+          },
+        ] as unknown as OpenAIChatChunk[]),
+      ).rejects.toBeInstanceOf(ProviderStreamError);
+    }
+  });
+
   test('rejects truncated text without a completed assistant message', async () => {
     const gen = translateOpenAIStream(iterate([{ choices: [{ delta: { content: 'partial' } }] }]));
     expect((await gen.next()).value).toEqual({ type: 'message_start' });

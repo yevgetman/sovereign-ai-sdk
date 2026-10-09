@@ -625,7 +625,13 @@ async function executeOneUnchecked(
     }
   }
 
+  recordTrace({ type: 'tool_start', tool: tool.name, toolUseId: block.id, iso: nowIso() });
+  // Tracing is a host callback and can cancel the turn synchronously. Check
+  // after the last callback, immediately before starting the tool's effect.
   if (ctx.signal?.aborted) {
+    notifyLearningObserver(ctx, tool.name, callInput, 'cancelled', Date.now() - dispatchStart, {
+      traceId: block.id,
+    });
     return {
       block: {
         type: 'tool_result',
@@ -635,8 +641,6 @@ async function executeOneUnchecked(
       },
     };
   }
-
-  recordTrace({ type: 'tool_start', tool: tool.name, toolUseId: block.id, iso: nowIso() });
   const callStart = Date.now();
   let result: { data: unknown; observation?: ToolObservation; newMessages?: Message[] };
   let toolError: Error | undefined;

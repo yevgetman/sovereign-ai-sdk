@@ -410,6 +410,7 @@ export async function* translateOpenAIStream(
     if (
       !chunk ||
       typeof chunk !== 'object' ||
+      ('error' in chunk && chunk.error != null) ||
       (chunk.choices !== undefined && !Array.isArray(chunk.choices))
     ) {
       throw new ProviderStreamError('invalid_completion');
@@ -424,6 +425,9 @@ export async function* translateOpenAIStream(
       typeof choice !== 'object' ||
       (choice.delta != null && typeof choice.delta !== 'object') ||
       (choice.delta?.content != null && typeof choice.delta.content !== 'string') ||
+      (choice.delta?.reasoning_content != null &&
+        typeof choice.delta.reasoning_content !== 'string') ||
+      (choice.delta?.reasoning != null && typeof choice.delta.reasoning !== 'string') ||
       (choice.delta?.tool_calls != null && !Array.isArray(choice.delta.tool_calls))
     ) {
       throw new ProviderStreamError('invalid_completion');
@@ -781,7 +785,7 @@ export async function* parseSse(
   options: { rejectMalformedData?: boolean } = {},
 ): AsyncGenerator<OpenAIChatChunk> {
   const reader = body.getReader();
-  const decoder = new TextDecoder();
+  const decoder = new TextDecoder('utf-8', { fatal: options.rejectMalformedData === true });
   let buffer = '';
 
   let reachedEof = false;
@@ -790,6 +794,11 @@ export async function* parseSse(
       const { done, value } = await reader.read();
       if (done) {
         reachedEof = true;
+        try {
+          buffer += decoder.decode();
+        } catch {
+          throw new ProviderStreamError('invalid_completion');
+        }
         // A trailing partial data line may hide a lost argument or error frame.
         // The production transport cannot claim completion after discarding it.
         if (options.rejectMalformedData && buffer.trimStart().startsWith('data:')) {
@@ -797,7 +806,11 @@ export async function* parseSse(
         }
         break;
       }
-      buffer += decoder.decode(value, { stream: true });
+      try {
+        buffer += decoder.decode(value, { stream: true });
+      } catch {
+        throw new ProviderStreamError('invalid_completion');
+      }
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? '';
       for (const line of lines) {

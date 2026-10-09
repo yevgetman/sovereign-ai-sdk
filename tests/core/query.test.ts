@@ -955,48 +955,62 @@ describe('query() — ToolResult.newMessages reaches the model (end-to-end)', ()
 });
 
 describe('query completed dispatch history on callback failure', () => {
-  test('steering rejection preserves actual tool results without duplicates', async () => {
-    const output: (StreamEvent | Message)[] = [];
-    const gen = query({
-      provider: oneToolThenDoneProvider(() => {}),
-      model: 'fake',
-      systemPrompt: [],
-      maxTokens: 256,
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'go' }] }],
-      tools: [
-        buildTool({
-          name: 'Echo',
-          description: () => 'echo',
-          inputSchema: z.object({ text: z.string() }),
-          async call() {
-            return { data: 'actual successful output' };
-          },
-        }) as unknown as Tool<unknown, unknown>,
-      ],
-      toolContext: toolCtx,
-      pollSteering: async () => {
-        throw new Error('steering broke');
-      },
-    });
-    let terminal: Terminal;
-    for (;;) {
-      const step = await gen.next();
-      if (step.done) {
-        terminal = step.value;
-        break;
+  test.each([false, true])(
+    'steering rejection preserves actual tool results without duplicates (unreadable=%s)',
+    async (unreadable) => {
+      const output: (StreamEvent | Message)[] = [];
+      const gen = query({
+        provider: oneToolThenDoneProvider(() => {}),
+        model: 'fake',
+        systemPrompt: [],
+        maxTokens: 256,
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'go' }] }],
+        tools: [
+          buildTool({
+            name: 'Echo',
+            description: () => 'echo',
+            inputSchema: z.object({ text: z.string() }),
+            async call() {
+              return { data: 'actual successful output' };
+            },
+          }) as unknown as Tool<unknown, unknown>,
+        ],
+        toolContext: toolCtx,
+        pollSteering: async () => {
+          const error = new Error('steering broke');
+          if (unreadable) {
+            Object.defineProperty(error, 'message', {
+              get() {
+                throw new Error('error getter broke');
+              },
+            });
+          }
+          throw error;
+        },
+      });
+      let terminal: Terminal;
+      for (;;) {
+        const step = await gen.next();
+        if (step.done) {
+          terminal = step.value;
+          break;
+        }
+        output.push(step.value);
       }
-      output.push(step.value);
-    }
-    expect(terminal.reason).toBe('error');
-    const results = output.flatMap((msg) =>
-      'role' in msg && msg.role === 'user'
-        ? msg.content.filter((b) => b.type === 'tool_result')
-        : [],
-    );
-    expect(results).toHaveLength(1);
-    expect(results[0]?.content).toBe('actual successful output');
-    expect(results[0]?.is_error).toBeUndefined();
-  });
+      expect(terminal.reason).toBe('error');
+      const results = output.flatMap((msg) =>
+        'role' in msg && msg.role === 'user'
+          ? msg.content.filter((b) => b.type === 'tool_result')
+          : [],
+      );
+      expect(results).toHaveLength(1);
+      expect(results[0]?.content).toBe('actual successful output');
+      expect(results[0]?.is_error).toBeUndefined();
+      if (unreadable && terminal.reason === 'error') {
+        expect(terminal.error?.message).toBe('host callback failed with an unreadable error');
+      }
+    },
+  );
 });
 
 // A cancelled turn still waits for tools that have already started.
