@@ -1,6 +1,7 @@
 // OpenAI-compatible chat transport. Used for OpenAI proper and OpenRouter;
 // both share the Chat Completions streaming/tool-call shape.
 
+import { randomUUID } from 'node:crypto';
 import type {
   AssistantMessage,
   ContentBlock,
@@ -475,7 +476,7 @@ export async function* translateOpenAIStream(
         throw new ProviderStreamError('invalid_tool_call');
       }
       const current = toolCalls.get(call.index) ?? {
-        id: call.id ?? `tool_${call.index}`,
+        id: call.id ?? `tool_${randomUUID()}`,
         name: '',
         args: '',
       };

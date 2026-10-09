@@ -1206,3 +1206,99 @@ test.each([false, true])(
     ]);
   },
 );
+
+test.each(['error-message', 'renderer'] as const)(
+  'unreadable host %s stays contained until a started sibling settles',
+  async (failure) => {
+    let release!: () => void;
+    let enter!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    let siblingFinished = false;
+    const slow = buildTool({
+      name: 'Slow',
+      description: () => 'gated offline sibling',
+      inputSchema: z.object({}),
+      isConcurrencySafe: () => true,
+      async call() {
+        enter();
+        await gate;
+        siblingFinished = true;
+        return { data: 'sibling receipt' };
+      },
+    });
+    const bad = buildTool({
+      name: 'Bad',
+      description: () => 'authored host callback fixture',
+      inputSchema: z.object({}),
+      isConcurrencySafe: () => true,
+      async call() {
+        return { data: 'actual raw receipt' };
+      },
+      ...(failure === 'renderer'
+        ? {
+            renderResult() {
+              return {
+                content: {
+                  toString() {
+                    throw new Error('receipt conversion failed');
+                  },
+                } as unknown as string,
+              };
+            },
+          }
+        : {}),
+    });
+    const unreadable = new Error('fixture');
+    Object.defineProperty(unreadable, 'message', {
+      value: {
+        toString() {
+          throw new Error('message conversion failed');
+        },
+      },
+    });
+    let settled = false;
+    let dispatchError: unknown;
+    let outcome: ResultBlock[] | undefined;
+    const pending = collectResults(
+      [
+        { type: 'tool_use', id: 'bad', name: 'Bad', input: {} },
+        { type: 'tool_use', id: 'slow', name: 'Slow', input: {} },
+      ],
+      [bad, slow] as unknown as Tool<unknown, unknown>[],
+      failure === 'error-message'
+        ? async (tool) => {
+            if (tool.name === 'Bad') throw unreadable;
+            return { behavior: 'allow' };
+          }
+        : undefined,
+    ).then(
+      (results) => {
+        outcome = results;
+        settled = true;
+      },
+      (error: unknown) => {
+        dispatchError = error;
+        settled = true;
+      },
+    );
+    await started;
+    for (let i = 0; i < 15; i++) await Promise.resolve();
+    const returnedBeforeJoin = settled;
+    expect(siblingFinished).toBe(false);
+    release();
+    await pending;
+    expect(returnedBeforeJoin).toBe(false);
+    expect(dispatchError).toBeUndefined();
+    expect(siblingFinished).toBe(true);
+    expect(outcome).toHaveLength(2);
+    expect(outcome?.[0]?.is_error).toBe(true);
+    expect(typeof outcome?.[0]?.content).toBe('string');
+    if (failure === 'renderer') expect(outcome?.[0]?.content).toContain('actual raw receipt');
+    expect(outcome?.[1]?.content).toBe('sibling receipt');
+  },
+);

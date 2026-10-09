@@ -194,6 +194,10 @@ is observed; hosts must provide tools that honor the signal for prompt shutdown.
 The SDK waits for an already started tool even if it ignores cancellation.
 Host callback failures after dispatch preserve the completed results in history.
 
+Host callback failures stay contained even when error messages cannot be converted
+to text. A renderer must return string content; invalid content uses the raw
+completed receipt fallback and an error result. Failure reporting does not let a
+concurrent dispatch return before its started siblings settle.
 OpenAI-compatible streaming transports cancel unfinished response bodies when a consumer
 stops reading or receives `[DONE]`. Reader locks are released on EOF, abort, and errors;
 cleanup failures do not replace the original outcome.
@@ -207,3 +211,7 @@ and malformed or incomplete tool calls throw `ProviderStreamError` (importable f
 `@yevgetman/sov-sdk/providers/errors`). Partial deltas can remain visible, but no
 completed assistant message or executable tool call is emitted for these failures.
 `createAgent()` ends with terminal reason `error`; it does not replay the response.
+Engine-supplied tool IDs are preserved. If a compatible backend omits an ID, the
+transport generates a unique ID for that call so later tool rounds retain distinct
+identities in the transcript and provider history. Explicit duplicate IDs within
+a response are rejected.

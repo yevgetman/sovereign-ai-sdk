@@ -1,5 +1,27 @@
 # Testing Log
 
+## 2026-10-09 — third review lifecycle base integration
+
+Integration includes the exact PR20 `65508f2` and PR21 `b6684a3` follow-up corrections. Separate read-only cross-review compares all six source/test blobs to their pushed commits and confirms both README/log additions remain intact. Root TUI build, lint/boundary and typecheck pass. Complete source suite: **5527 pass / 19 existing skip / zero fail**, 22708 assertions across 523 files (85.34s). No master merge, runtime install, paid provider or release.
+
+## 2026-10-09 — PR21 round-three review: generated tool identity
+
+Fresh technical review of exact PR21 head `c1a90b5` against `fix/issue-10-sse-cleanup` confirmed one Medium finding before fixes: the index-based ID fallback reused `tool_0` across real tool rounds and could also reject a distinct engine-supplied `tool_0` in the same response. This reviewer authored the original issue #11 implementation; root cross-review remains independent. The compatible-backend contract already accepts omitted IDs, so the correction changes normalization rather than adding a new refusal rule.
+
+The transport now uses a portable `node:crypto` UUID fallback for each newly encountered call. Supplied IDs remain unchanged; explicit duplicates within a response remain rejected. Authored offline tests cover mixed generated/engine IDs, stable delta IDs, two executed tool rounds, matching tool-result identities, and the retained third-request provider history. The sequential public-agent regression fails against the original fallback (zero pass / one fail, 69 filtered); the mixed-ID regression also fails before the fix. With the fix, `bun test tests/providers/openai.test.ts` passes **70 tests / zero fail / 236 assertions** under Bun 1.3.13 on macOS arm64. Targeted Biome checks pass. Root owns full lint/types/build/packed/CI gates; none is claimed here. No live provider request, private data, owner-profile write, release or installation.
+
+Final root gate and separate cross-review approval: lint/boundary, typecheck, **5506 source tests pass / 19 existing skip / zero fail**, 22557 assertions across 523 files (83.02s); packed SDK/protocol Node/Bun consumers pass. The fetch fixture passes the configured Bun typecheck. No paid calls or installation.
+
+## 2026-10-09 — PR20 third review: unreadable error and receipt containment
+
+Review of exact PR20 head `d645008` against current GitHub master `3709b25` reproduced two Medium paths around the dispatch failure boundary. An Error.message value with throwing string conversion escaped the guarded property read; malformed renderer content escaped when the saved receipt was interpolated. Both rejected a concurrent wave while a started gated sibling was still running. Findings were reported before fixes. Offline fixtures use authored callback values and counters, not private source or external effects.
+
+Error-message conversion now runs inside its guard. Query also normalizes non-string message values to an ordinary Error. Invalid rendered content is rejected inside the existing formatting/raw-receipt fallback, and failure receipt construction accepts only a string or a stable completion marker. Tool effects and supplementary messages keep their existing ownership; no work is replayed.
+
+The regressions failed before changes: **87 pass / 3 fail** across the two core suites. After changes, `bun test tests/core/orchestrator.test.ts tests/core/query.test.ts` passes: **90 pass / zero fail / 306 assertions**. Deterministic promise gates prove each wave stays pending until its sibling finishes, returns two matching string results, and preserves the actual raw renderer receipt. Query preserves the successful receipt once and returns a safe error for a throwing message conversion. Lint/boundary, typecheck and diff checks pass. Root owns final full/packed/CI gates; no full result, merge, release or installed-runtime change is claimed here.
+
+Final root gate after cross-review approval: configured lint and boundary checks, typecheck, and all 5504 source tests passed (19 skipped, zero failures; 22544 assertions / 523 files). Packed Node/Bun consumer canaries passed. No paid provider request or runtime installation was used.
+
 ## 2026-10-09 — second review lifecycle base integration
 
 Integration base contains the exact PR20 `d645008` and PR21 `c1a90b5` corrections before the PR22 feature layer. Additive log conflicts retained both receipts. Full root validation: lint/boundary, typecheck and TUI build pass; **5,522 source tests pass / 19 existing skip / zero fail**, 22,673 assertions across 523 files (85.20s). Root next merges this base into PR22 and tests the complete feature combination. No SDK master merge, force push, paid request, release or installation.
