@@ -91,6 +91,11 @@ import type {
   ConductSurface,
   ConductToolVerdict,
   ContentBlock,
+  ContextLimits,
+  ContextManagementInfo,
+  ContextManagementPort,
+  ContextManagementRequest,
+  ContextManagementResult,
   CreateSessionInput,
   CreateTaskInput,
   DelegateInput,
@@ -107,6 +112,7 @@ import type {
   HookEventOf,
   HookResult,
   HookRunner,
+  InMemorySessionStore,
   LLMProvider,
   LaneConfig,
   LaneName,
@@ -244,6 +250,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'CANONICAL_TOOL_DESCRIPTORS',
   'CapabilityProfileRegistry',
   'ClaudeMaxTermsError',
+  'ContextManagementError',
   'ContextOverflowError',
   'DEFAULT_CONDUCT_REFUSAL',
   'LaneSemaphores',
@@ -367,6 +374,12 @@ type TypeSurfaceWitness = {
   treeBudgetSnapshot?: TreeBudgetSnapshot;
   requestBudgetEstimate?: RequestBudgetEstimate;
   estimateRequestBudget?: EstimateRequestBudget;
+  contextLimits?: ContextLimits;
+  contextManagementInfo?: ContextManagementInfo;
+  contextManagementPort?: ContextManagementPort;
+  contextManagementRequest?: ContextManagementRequest;
+  contextManagementResult?: ContextManagementResult;
+  inMemorySessionStore?: InMemorySessionStore;
 
   agent?: Agent;
   agentConfig?: AgentConfig;

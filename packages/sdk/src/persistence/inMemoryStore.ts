@@ -43,7 +43,11 @@ function deepCopy<T>(value: T): T {
 }
 
 /** A pure in-process `SessionStore` (no disk, no SQLite). */
-export function createInMemorySessionStore(): SessionStore {
+export type InMemorySessionStore = SessionStore & {
+  truncateMessages(sessionId: string, keep: number): void;
+};
+
+export function createInMemorySessionStore(): InMemorySessionStore {
   const sessions = new Map<string, Session>();
   const messagesBySession = new Map<string, StoredMessage[]>();
   let nextMessageId = 1;

@@ -96,6 +96,10 @@ export type StreamEvent =
   | { type: 'message_stop'; stop_reason: StopReason }
   | { type: 'assistant_message'; message: AssistantMessage }
   | { type: 'microcompact'; info: MicrocompactInfo }
+  | {
+      type: 'context_management';
+      info: import('../compact/contextManagement.js').ContextManagementInfo;
+    }
   | { type: 'loop_detected'; info: LoopDetectionInfo }
   | { type: 'route_decision'; info: RouteDecisionInfo };
 
@@ -165,6 +169,8 @@ export type QueryParams = {
   /** Microcompaction config. When enabled, stale tool results are cleared before
    *  they cause full compaction. Omit or set `enabled: false` to disable. */
   microcompactConfig?: import('../compact/microcompact.js').MicrocompactConfig;
+  contextManager?: import('../compact/contextManagement.js').ContextManagementPort;
+  contextLimits?: import('../compact/contextManagement.js').ContextLimits;
   /** Lifecycle-event hook runner (Phase 11). Optional — when omitted, no
    *  PreToolUse/PostToolUse/UserPromptSubmit/Stop hooks fire. */
   hookRunner?: import('../hooks/types.js').HookRunner;

@@ -11,7 +11,14 @@
 //
 // Node-API-only (no Bun globals) so it is itself runtime-agnostic.
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,7 +48,10 @@ const FORBIDDEN_SPECIFIERS: ReadonlyArray<{ label: string; pattern: RegExp }> = 
   { label: "a 'bun:sqlite' import", pattern: /['"]bun:sqlite['"]/ },
   // Exact-package only: a quote or '/' must follow `sov`, so this never fires
   // on '@yevgetman/sov-sdk' or '@yevgetman/sov-protocol'.
-  { label: "an import of the proprietary wrapper '@yevgetman/sov'", pattern: /['"]@yevgetman\/sov['"/]/ },
+  {
+    label: "an import of the proprietary wrapper '@yevgetman/sov'",
+    pattern: /['"]@yevgetman\/sov['"/]/,
+  },
   // Any QUOTED dynamic import of a bun: module (not just sqlite). Static forms
   // of other bun: modules would fail under Node outright, but a lazily-evaluated
   // dynamic import could hide until a Node consumer hits that code path.
@@ -80,13 +90,17 @@ function selfTestForbiddenSpecifiers(): void {
     },
   ];
   const failures = fixtures.flatMap(({ text, expectMatch }) =>
-    FORBIDDEN_SPECIFIERS.filter(({ label, pattern }) => pattern.test(text) !== expectMatch.includes(label)).map(
+    FORBIDDEN_SPECIFIERS.filter(
+      ({ label, pattern }) => pattern.test(text) !== expectMatch.includes(label),
+    ).map(
       ({ label }) =>
         `pattern "${label}" ${expectMatch.includes(label) ? 'failed to match' : 'false-positived on'}: ${text}`,
     ),
   );
   if (failures.length > 0) {
-    throw new Error(`FORBIDDEN_SPECIFIERS self-test FAILED (purity gate is broken):\n  ${failures.join('\n  ')}`);
+    throw new Error(
+      `FORBIDDEN_SPECIFIERS self-test FAILED (purity gate is broken):\n  ${failures.join('\n  ')}`,
+    );
   }
   console.log('  ✔ FORBIDDEN_SPECIFIERS self-test passed (matches known-bad, spares known-good)');
 }
@@ -124,7 +138,11 @@ function runCanary(spec: CanarySpec): void {
   try {
     writeFileSync(
       join(scratch, 'package.json'),
-      JSON.stringify({ name: 'sov-canary-consumer', version: '0.0.0', type: 'module', private: true }, null, 2),
+      JSON.stringify(
+        { name: 'sov-canary-consumer', version: '0.0.0', type: 'module', private: true },
+        null,
+        2,
+      ),
     );
     // Make the scratch consumer a REAL git repo with a resolvable HEAD. This is
     // the F17/F18/F19 regression guard: version.ts must never walk out of the
@@ -161,17 +179,31 @@ function runCanary(spec: CanarySpec): void {
       copyFileSync(spec.consumer, join(scratch, 'consumer.mjs'));
       if (spec.typeConsumer) {
         copyFileSync(spec.typeConsumer, join(scratch, 'consumer.ts'));
-        execFileSync(join(repo, 'node_modules/.bin/tsc'), [
-          '--noEmit', '--strict', '--exactOptionalPropertyTypes', '--skipLibCheck',
-          '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--target', 'ES2022',
-          'consumer.ts',
-        ], { cwd: scratch, stdio: 'inherit' });
+        execFileSync(
+          join(repo, 'node_modules/.bin/tsc'),
+          [
+            '--noEmit',
+            '--strict',
+            '--exactOptionalPropertyTypes',
+            '--skipLibCheck',
+            '--module',
+            'NodeNext',
+            '--moduleResolution',
+            'NodeNext',
+            '--target',
+            'ES2022',
+            'consumer.ts',
+          ],
+          { cwd: scratch, stdio: 'inherit' },
+        );
         console.log(`  ✔ ${spec.name} consumer type shapes compile`);
       }
       for (const runtime of ['node', 'bun']) {
         const out = execFileSync(runtime, ['consumer.mjs'], { cwd: scratch }).toString();
         if (!out.includes(spec.token)) {
-          throw new Error(`${spec.name} canary FAILED under ${runtime}: expected '${spec.token}', got:\n${out}`);
+          throw new Error(
+            `${spec.name} canary FAILED under ${runtime}: expected '${spec.token}', got:\n${out}`,
+          );
         }
         console.log(`  ✔ ${spec.name} consumable under ${runtime}`);
       }
@@ -209,5 +241,12 @@ runCanary({
   token: 'SDK_CONTRACT_OK',
   typeConsumer: join(here, 'sdk-contract-types.ts'),
   extraInstalls: ['zod@^3.24.0', '@types/node@20.19.0'],
+});
+runCanary({
+  name: '@yevgetman/sov-sdk',
+  pkgDir: join(repo, 'packages/sdk'),
+  consumer: join(here, 'context-child-consumer.mjs'),
+  token: 'CONTEXT_CHILD_OK',
+  extraInstalls: ['zod@^3.24.0'],
 });
 console.log('All consumer canaries passed.');

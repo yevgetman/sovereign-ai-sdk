@@ -57,8 +57,9 @@ export interface SessionStore {
 
   /** Keep the first `keep` messages and drop the rest. `keep` of 0 drops every
    *  message in the session. A conduct regenerate uses this to remove a tool
-   *  call that was saved before it ran and then discarded. */
-  truncateMessages(sessionId: string, keep: number): void;
+   *  call that was saved before it ran and then discarded. Optional for legacy
+   *  stores; regeneration requiring rollback fails closed without it. */
+  truncateMessages?(sessionId: string, keep: number): void;
 
   /** Accumulate token usage + estimated cost onto the session's running totals
    *  (additive — each call adds to the existing counters). */
