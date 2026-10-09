@@ -1,5 +1,21 @@
 # Testing Log
 
+## 2026-10-09 — issue #13 child reservation cleanup
+
+Scope: the scheduler's parent child cap after host lane/role resolution fails.
+Environment: macOS arm64, Bun 1.3.13, scripted offline providers. TUI built in
+this isolated worktree; tests use isolated fixture profiles. No live provider,
+owner profile, runtime install, or release operation was used.
+
+Commands: `bun install --frozen-lockfile`, `bun run lint`, `bun run typecheck`,
+`bun run test`, `bun run build`, and `bun run canary`.
+Results: lint, boundary, typecheck, SDK/protocol builds, and packed Node/Bun
+consumers pass. Full suite: 5,490 pass, 19 skip, zero fail; 22,464 assertions.
+The two added regression cases each repeat three resolver failures at a child
+cap of one, assert no session and zero active children, then complete a retry.
+Self-review confirms every post-reservation operation now runs inside the
+existing release `finally`; the resolver error still propagates unchanged.
+No learning recall or synthesis is exercised by these offline fixtures.
 ## 2026-10-09 — issue #11: reject incomplete OpenAI-compatible responses
 
 Offline fixtures on macOS arm64, Bun 1.3.13, Node 25.9.0, Go 1.26.1. The truncated-text regression fails before the fix (57 pass / 1 fail). Explicit completion validation now throws typed `ProviderStreamError` without creating a final assistant or replaying a response. Tests cover empty/EOF/DONE-only streams, malformed final JSON and chunk shapes, stop/length/tool_calls, usage-only trailing frames, partial tool JSON, missing tool names, content after finish and colliding tool IDs. Existing reasoning/usage fixtures now carry real finish reasons. Root reviewed the change; follow-up ID-collision coverage is included.
