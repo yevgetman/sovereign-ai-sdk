@@ -132,6 +132,8 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
   [`docs/04-extending/routing-an-agent.md`](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/routing-an-agent.md).
 - **Delegation** — `SubagentScheduler` and the narrow `Scheduler` port,
   `LaneSemaphores`, `PathLockManager`, and the executor port types.
+  A child reservation is released on every completion or setup failure, including a
+  throwing host lane resolver. Failed setup does not consume the parent's child cap.
 - **MCP** — `buildMcpClientPool`, the `McpClientPoolFactory` port, and the
   server-config types (stdio / SSE / HTTP).
 - **Hooks** — `buildHookRunner` plus the hook event/config/consent types.
