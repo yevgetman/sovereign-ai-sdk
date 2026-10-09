@@ -1,5 +1,28 @@
 # Testing Log
 
+## 2026-10-09 — issue #12 complete child wall-clock deadlines
+
+Scope: lane and write-lock queue expiry, parent cancellation, and resource reuse
+in child delegation. Environment: macOS arm64, Bun 1.3.13, scripted offline
+providers; TUI built in this isolated worktree. Tests use temporary fixture
+profiles. No live provider, owner profile, runtime install, or release operation.
+
+Commands: `bun install --frozen-lockfile`,
+`bun test tests/runtime/scheduler.test.ts` (14 pass / zero fail),
+`bun run lint`, `bun run typecheck`, `bun run test`, `bun run build`, and
+`bun run canary`. Full suite: 5,491 pass / 19 skip / zero fail,
+22,463 assertions. Lint, boundary, typecheck, SDK/protocol builds, and packed
+Node/Bun consumers pass.
+
+The added queue tests hold real lane/write locks, use a per-call timeout shorter
+than the scheduler default, and require expiry before holder release. They assert
+zero sessions/provider starts, no active reservation, unchanged held locks, and
+a successful retry. Parent cancellation is checked independently. Root review
+confirmed deadline checks precede side effects and both waits share execution's
+composed signal. Queue abort listeners are one-shot; granted queue listeners are
+removed by the existing primitives. The scheduler uses native timeout signals
+and adds no custom timer or abort listener. No learning recall/synthesis runs.
+
 ## 2026-10-09 — issue #13 child reservation cleanup
 
 Scope: the scheduler's parent child cap after host lane/role resolution fails.
@@ -16,6 +39,7 @@ cap of one, assert no session and zero active children, then complete a retry.
 Self-review confirms every post-reservation operation now runs inside the
 existing release `finally`; the resolver error still propagates unchanged.
 No learning recall or synthesis is exercised by these offline fixtures.
+
 ## 2026-10-09 — issue #11: reject incomplete OpenAI-compatible responses
 
 Offline fixtures on macOS arm64, Bun 1.3.13, Node 25.9.0, Go 1.26.1. The truncated-text regression fails before the fix (57 pass / 1 fail). Explicit completion validation now throws typed `ProviderStreamError` without creating a final assistant or replaying a response. Tests cover empty/EOF/DONE-only streams, malformed final JSON and chunk shapes, stop/length/tool_calls, usage-only trailing frames, partial tool JSON, missing tool names, content after finish and colliding tool IDs. Existing reasoning/usage fixtures now carry real finish reasons. Root reviewed the change; follow-up ID-collision coverage is included.
