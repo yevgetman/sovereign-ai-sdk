@@ -204,6 +204,9 @@ jobs:
       run:
         shell: pwsh
     steps:
+      # Scanner and consumer-license pins hash exact Git bytes on every platform.
+      - name: Preserve LF bytes in Windows checkouts
+        run: git config --global core.autocrlf false
       - name: Checkout sovereign-ai-sdk
         uses: actions/checkout@v5
         with:
