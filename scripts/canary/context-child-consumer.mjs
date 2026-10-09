@@ -97,6 +97,7 @@ assert.equal(reductions[0].reason, 'budget');
 assert.equal(reductions[0].sessionId, 'packed-context-child');
 assert.equal(calls[1].messages.at(-2).content[0].type, 'tool_use');
 assert.equal(calls[1].messages.at(-1).content[0].type, 'tool_result');
-assert.equal(result.usageComplete, true);
+assert.equal(result.usageStatus, 'partial');
+assert.equal(result.estimatedCostUsd, undefined);
 assert.deepEqual(result.usage, { inputTokens: 11, outputTokens: 4 });
 console.log('CONTEXT_CHILD_OK');

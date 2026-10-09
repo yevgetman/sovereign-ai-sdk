@@ -207,7 +207,7 @@ leaving it running in the background.
 The content-free `context_management` event reports byte counts, reason,
 `applied` status and supplied summary usage/cost. Rejected summaries still count
 trusted billing metadata. Summary usage is added separately from provider usage;
-summary cost is priced by the host, never at the main model's rate. Missing
+summary cost is priced by the host, never at the main model's rate. Missing or partial
 summary usage sets `RunResult.usageComplete` false. Unknown summary cost leaves
 aggregate `estimatedCostUsd` absent. In that case the legacy numeric-cost store
 cannot represent the aggregate: its token/cost write is skipped. Hosts must use

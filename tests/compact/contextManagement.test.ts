@@ -387,6 +387,32 @@ describe('injected context management', () => {
     expect(requests).toHaveLength(0);
   });
 
+  test('partial summary usage stays incomplete even when main-provider usage is complete', async () => {
+    const { provider: p } = provider();
+    const { result } = await drain(
+      createAgent({
+        provider: p,
+        model: 'fixture',
+        contextManager: {
+          async reduce(req) {
+            return {
+              messages: [
+                { role: 'user', content: [{ type: 'text', text: 'summary' }] },
+                req.messages.at(-1) as Message,
+              ],
+              usage: { inputTokens: 5 },
+              estimatedCostUsd: 0.01,
+            };
+          },
+        },
+        contextLimits: { maxHistoryBytes: 1000 },
+      }).run(seed),
+    );
+    expect(result.terminal.reason).toBe('completed');
+    expect(result.usage).toEqual({ inputTokens: 8, outputTokens: 4 });
+    expect(result.usageComplete).toBe(false);
+  });
+
   test('unpriced summary cost remains unknown and is not persisted as zero', async () => {
     const { provider: p } = provider();
     const recorded: number[] = [];

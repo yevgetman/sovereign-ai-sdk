@@ -273,7 +273,7 @@ export type RunResult = {
    *  persistence path when aggregate pricing is known. Unpriced injected
    *  summary usage remains returned, but the numeric-cost write is skipped. */
   usage?: TokenUsage;
-  /** Present after injected reductions; false if any summary usage was missing. */
+  /** Present after injected reductions; false if any summary input/output usage was missing. */
   usageComplete?: boolean;
   /** Main-provider usage priced through the SDK table, plus separately priced
    *  host summary estimates. Reasoning tokens are excluded. Absent when usage
@@ -772,8 +772,8 @@ export function createAgent(config: AgentConfig): Agent {
               if (ev.type === 'context_management') {
                 contextUsageComplete =
                   (contextUsageComplete ?? true) &&
-                  ev.info.usage !== undefined &&
-                  Object.keys(ev.info.usage).length > 0;
+                  typeof ev.info.usage?.inputTokens === 'number' &&
+                  typeof ev.info.usage?.outputTokens === 'number';
                 if (ev.info.estimatedCostUsd === undefined) contextCostKnown = false;
                 else contextCost += ev.info.estimatedCostUsd;
               } else providerUsageAcc = accumulateUsage(providerUsageAcc, ev);

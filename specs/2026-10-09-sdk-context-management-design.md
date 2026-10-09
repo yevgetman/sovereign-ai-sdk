@@ -33,7 +33,7 @@ metadata is counted even when a replacement is rejected. Provider usage retains
 its cumulative-per-call semantics; summary usage is added once. Main-provider
 usage is priced at its own model; summary costs use the host's separate estimate.
 
-Unknown summary cost makes aggregate estimatedCostUsd absent. Missing summary
+Unknown summary cost makes aggregate estimatedCostUsd absent. Missing or partial summary
 usage makes the optional RunResult.usageComplete false. Legacy numeric-only
 SessionStore.recordTokenUsage cannot express unknown aggregate cost: its combined
 usage/cost write is skipped in that case. Hosts receive measured tokens in the
