@@ -1,5 +1,14 @@
 # Testing Log
 
+## 2026-10-09 — correct the pre-existing TUI integration test's profile isolation
+
+Correction to the prior publication entry: the public installer itself did not change existing profile credentials or session rows. The separate unskipped source tests had a pre-existing bare TUI smoke that used the real default profile database. Three current-turn mock sessions and four fixture messages were added. Two sessions were empty; the four messages have exact fixture text, the mock Bash call, and its matching mock tool-result identity. No real-provider turn was involved.
+
+Created a private SQLite backup. Removed only the three verified UUIDs and their four messages. The cleanup transaction preserves the complete hashes of every unrelated logical table row and search content. Foreign-key and FTS integrity checks pass. Private backup/cleanup evidence is linked in the release receipt; no database is sent publicly.
+
+The bare TUI fixture now creates temporary home and working directories, passes an explicit temporary database, and checks the actual persisted mock session there. Root independently reviewed the tests-only correction. Lint and typecheck pass. Focused unchanged launcher scenarios pass: 6 pass / 1 skip / zero fail, 44 assertions, 25.92 seconds. The complete corrected, unskipped suite passes: 5,488 pass / 19 skip / zero fail, 5,507 tests across 523 files, 22,439 assertions, 80.94 seconds. Hashes of every logical row in the real profile sessions, messages, tasks, compactions and state metadata are identical before and after this complete suite. No public build source, tag, or artifact byte is changed by this tests-only fix.
+
+
 ## 2026-10-09 — published SOV 0.6.75 and open SDK 0.12.0 asset
 
 Published the reviewed source `7d5290bc4551053e35ec067dbe280049fd3244b3` through the documented local fallback with official Bun 1.4.2 and the pinned consumer license. Root used the code-review skill to review the version/lock/changelog changes and public notes; no issue above Low was found. Source CI passes at run `37922525796`.

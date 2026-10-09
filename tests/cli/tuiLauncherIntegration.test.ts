@@ -14,6 +14,7 @@
 // launcher) so the test deterministically gets the real buildRuntime
 // + startServer regardless of file ordering.
 
+import { Database } from 'bun:sqlite';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import {
@@ -90,6 +91,10 @@ afterAll(() => {
 
 describe.skipIf(SKIP_FLAKY)('runTuiLauncher — end-to-end smoke', () => {
   let prevSovTuiBin: string | undefined;
+  let prevHarnessHome: string | undefined;
+  let prevCwd: string;
+  let tmpHome: string;
+  let tmpCwd: string;
   let realRuntimeModule: typeof import('../../src/server/runtime.js');
   let realServerModule: typeof import('../../src/server/index.js');
   let realChildProcessModule: typeof import('node:child_process');
@@ -105,7 +110,13 @@ describe.skipIf(SKIP_FLAKY)('runTuiLauncher — end-to-end smoke', () => {
 
   beforeEach(() => {
     prevSovTuiBin = process.env.SOV_TUI_BIN;
+    prevHarnessHome = process.env.HARNESS_HOME;
+    prevCwd = process.cwd();
+    tmpHome = mkdtempSync(join(tmpdir(), 'tui-launcher-home-'));
+    tmpCwd = mkdtempSync(join(tmpdir(), 'tui-launcher-cwd-'));
     process.env.SOV_TUI_BIN = '/bin/true';
+    process.env.HARNESS_HOME = tmpHome;
+    process.chdir(tmpCwd);
     // Defensive re-pin: previous test files in the same `bun test` run
     // may have mocked these. mock.module() invalidates the cache, so
     // re-mocking back to the real module forces fresh imports.
@@ -118,6 +129,15 @@ describe.skipIf(SKIP_FLAKY)('runTuiLauncher — end-to-end smoke', () => {
   });
 
   afterEach(() => {
+    process.chdir(prevCwd);
+    if (prevHarnessHome === undefined) {
+      // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
+      delete process.env.HARNESS_HOME;
+    } else {
+      process.env.HARNESS_HOME = prevHarnessHome;
+    }
+    rmSync(tmpHome, { recursive: true, force: true });
+    rmSync(tmpCwd, { recursive: true, force: true });
     if (prevSovTuiBin === undefined) {
       // biome-ignore lint/performance/noDelete: process.env requires `delete` to truly unset a key.
       delete process.env.SOV_TUI_BIN;
@@ -165,7 +185,8 @@ describe.skipIf(SKIP_FLAKY)('runTuiLauncher — end-to-end smoke', () => {
 
     // Fire runTuiLauncher in the background; concurrently fetch the
     // server's /messages route to prove it's bound + responding.
-    const launchPromise = runTuiLauncher({ provider: 'mock' });
+    const dbPath = join(tmpHome, 'launcher-sessions.db');
+    const launchPromise = runTuiLauncher({ provider: 'mock', db: dbPath });
 
     // Poll for the spawned-args capture (signals the server is up).
     await new Promise<void>((resolve, reject) => {
@@ -199,6 +220,17 @@ describe.skipIf(SKIP_FLAKY)('runTuiLauncher — end-to-end smoke', () => {
     expect(code).toBe(0);
     expect(args).toContain('--port');
     expect(args).toContain('--session-id');
+    // Check the actual stored session, not only forwarded options. An omitted
+    // DB override previously wrote this mock session into the owner's database.
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      const row = db
+        .query('SELECT provider FROM sessions WHERE session_id = ?')
+        .get(sessionId ?? '');
+      expect(row).toEqual({ provider: 'mock' });
+    } finally {
+      db.close();
+    }
   });
 });
 
@@ -212,7 +244,8 @@ describe.skipIf(SKIP_FLAKY)('runTuiLauncher — end-to-end smoke', () => {
 // Why a fresh describe block (rather than extending the existing
 // 'end-to-end smoke' suite): the M5 scenarios isolate `HARNESS_HOME` +
 // `cwd` to per-test tmp dirs (writing settings.json / allowlist files
-// + cleaning up after) — the bare-server-up smoke doesn't need that.
+// + cleaning up after). The bare-server-up smoke also isolates its home,
+// cwd, and explicit database so it cannot write to the owner's profile.
 // Keeping the suites separate keeps each set's fixtures small and the
 // failure modes legible.
 

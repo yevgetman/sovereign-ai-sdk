@@ -187,5 +187,98 @@
       "duration_seconds": 55.37,
       "note": "Uses the existing release-procedure guard only. No skip policy, test timeout or product code changed."
     }
+  },
+  "testing_state_correction": {
+    "scope": "The earlier broad session-preservation statement describes the installer, not the unskipped source tests. The existing bare TUI smoke wrote three new mock sessions and four fixture messages into the default standalone session DB.",
+    "cleanup": {
+      "database": "/Users/julie/.harness/sessions.db",
+      "private_backup": "/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-0675-db-cleanup-hb4ybbrw/before-cleanup.db",
+      "removed_fixture_session_ids": [
+        "127f3fca-219f-400c-b42a-8c987835b8cd",
+        "f39caaf5-9e7d-452c-a539-4f4555e764a6",
+        "652d1e4a-0a6e-4d4c-aa1c-6147084f3462"
+      ],
+      "removed_messages": 4,
+      "strict_mock_fixture_identity": true,
+      "unrelated_logical_rows_and_search_content_unchanged": true,
+      "unrelated_table_hashes": {
+        "state_meta": {
+          "sha256": "050e92274c778d9cadfa242b758dd029579c15266a4062d35f1f6ec1b360a521",
+          "rows": 1
+        },
+        "sessions": {
+          "sha256": "12aabb5dc70307dfcf798c82b36421e189b2eaaf81f39d88b92450a8be54bb81",
+          "rows": 63643
+        },
+        "messages": {
+          "sha256": "544852ad70760f50b64b3b7c8a6856f658fe376620f43d30ac844ca6ea126a7a",
+          "rows": 136236
+        },
+        "sqlite_sequence": {
+          "sha256": "dd25c77a8c0e36f71e818001f9cc03a5e1ddde79a26440ad903fa64029c0b686",
+          "rows": 1
+        },
+        "session_compactions": {
+          "sha256": "553214a7bf655afa5af8fc369d74c0ff33ff38e6613c2edfd84f9723c0166ccf",
+          "rows": 3872
+        },
+        "tasks": {
+          "sha256": "b70fd9c8f5f876efb9076ac08d9454d34148e813d76652ebd1e3e0195cd626cf",
+          "rows": 519
+        },
+        "unrelated_messages_fts": {
+          "sha256": "ccf89fa88fa83bc61e530baabaa795a156f977b8b11df56cb077adc6cdb77663",
+          "rows": 136236
+        }
+      },
+      "foreign_key_check": "pass",
+      "fts_integrity_check": "pass",
+      "runtime_data_rows_other_than_proven_fixtures_deleted": false
+    },
+    "post_release_fix": "Tests-only: isolate home, cwd and explicit DB; assert the real persisted mock session is in that temporary DB. Public v0.6.75 build source/tag/artifact bytes remain immutable.",
+    "review": "Root independently reviewed the tests-only isolation correction; no issue above Low.",
+    "focused_test": {
+      "pass": 6,
+      "skip": 1,
+      "fail": 0,
+      "expect_calls": 44,
+      "duration_seconds": 25.92
+    },
+    "full_fixed_suite": {
+      "pass": 5488,
+      "skip": 19,
+      "fail": 0,
+      "total": 5507,
+      "files": 523,
+      "expect_calls": 22439,
+      "duration_seconds": 80.94
+    },
+    "real_profile_audit": {
+      "before": "/tmp/sov-0675-fixture-fixed-home-before.json",
+      "after": "/tmp/sov-0675-fixture-fixed-home-after.json",
+      "all_logical_row_hashes_unchanged": true,
+      "table_hashes": {
+        "sessions": {
+          "sha256": "12aabb5dc70307dfcf798c82b36421e189b2eaaf81f39d88b92450a8be54bb81",
+          "rows": 63643
+        },
+        "messages": {
+          "sha256": "544852ad70760f50b64b3b7c8a6856f658fe376620f43d30ac844ca6ea126a7a",
+          "rows": 136236
+        },
+        "tasks": {
+          "sha256": "b70fd9c8f5f876efb9076ac08d9454d34148e813d76652ebd1e3e0195cd626cf",
+          "rows": 519
+        },
+        "session_compactions": {
+          "sha256": "553214a7bf655afa5af8fc369d74c0ff33ff38e6613c2edfd84f9723c0166ccf",
+          "rows": 3872
+        },
+        "state_meta": {
+          "sha256": "050e92274c778d9cadfa242b758dd029579c15266a4062d35f1f6ec1b360a521",
+          "rows": 1
+        }
+      }
+    }
   }
 }
