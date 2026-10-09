@@ -396,16 +396,25 @@ async function executeOne(
   } catch (error) {
     let message = 'unknown dispatch error';
     try {
-      message = error instanceof Error ? error.message : String(error);
+      message = error instanceof Error ? String(error.message) : String(error);
     } catch {
       // A host can reject with an object whose toString/getters also throw.
       // Error reporting must not let that rejection escape the joined batch.
+    }
+    let receipt = '';
+    if (completed) {
+      receipt = '[tool completed; output could not be read]\n\n';
+      try {
+        if (typeof completed.content === 'string') receipt = `${completed.content}\n\n`;
+      } catch {
+        // Failure reporting must not execute unreadable host receipt values.
+      }
     }
     return {
       block: {
         type: 'tool_result',
         tool_use_id: block.id,
-        content: `${completed ? `${completed.content}\n\n` : ''}tool dispatch failed: ${message}`,
+        content: `${receipt}tool dispatch failed: ${message}`,
         is_error: true,
       },
       ...(completedMessages !== undefined ? { newMessages: completedMessages } : {}),
@@ -836,13 +845,14 @@ function formatToolResult(
   const baseContent = tool.renderResult
     ? tool.renderResult(data)
     : { content: typeof data === 'string' ? data : JSON.stringify(data, null, 2) };
+  // Keep invalid renderer output inside the raw-receipt fallback boundary.
+  const rendered = baseContent.content;
+  if (typeof rendered !== 'string') throw new TypeError('tool renderer must return string content');
   // Envelope (Phase 12.5) is rendered as a plain-text header before the
   // tool's own content. Provider-agnostic; no JSON in tool_result.
   // status === 'error' forces is_error even if renderResult didn't set it.
   const envelopeHeader = observation ? renderObservationHeader(observation) : '';
-  const content = envelopeHeader
-    ? `${envelopeHeader}\n\n${baseContent.content}`
-    : baseContent.content;
+  const content = envelopeHeader ? `${envelopeHeader}\n\n${rendered}` : rendered;
   const isError = baseContent.isError === true || observation?.status === 'error';
   return {
     type: 'tool_result',

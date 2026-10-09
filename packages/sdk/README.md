@@ -188,3 +188,8 @@ including during cancellation. Cancellation prevents further execution once it
 is observed; hosts must provide tools that honor the signal for prompt shutdown.
 The SDK waits for an already started tool even if it ignores cancellation.
 Host callback failures after dispatch preserve the completed results in history.
+
+Host callback failures stay contained even when error messages cannot be converted
+to text. A renderer must return string content; invalid content uses the raw
+completed receipt fallback and an error result. Failure reporting does not let a
+concurrent dispatch return before its started siblings settle.

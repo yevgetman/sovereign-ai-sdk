@@ -955,9 +955,10 @@ describe('query() — ToolResult.newMessages reaches the model (end-to-end)', ()
 });
 
 describe('query completed dispatch history on callback failure', () => {
-  test.each([false, true])(
-    'steering rejection preserves actual tool results without duplicates (unreadable=%s)',
-    async (unreadable) => {
+  test.each(['readable', 'throwing-getter', 'throwing-coercion'] as const)(
+    'steering rejection preserves actual tool results without duplicates (error=%s)',
+    async (kind) => {
+      const unreadable = kind !== 'readable';
       const output: (StreamEvent | Message)[] = [];
       const gen = query({
         provider: oneToolThenDoneProvider(() => {}),
@@ -978,10 +979,18 @@ describe('query completed dispatch history on callback failure', () => {
         toolContext: toolCtx,
         pollSteering: async () => {
           const error = new Error('steering broke');
-          if (unreadable) {
+          if (kind === 'throwing-getter') {
             Object.defineProperty(error, 'message', {
               get() {
                 throw new Error('error getter broke');
+              },
+            });
+          } else if (kind === 'throwing-coercion') {
+            Object.defineProperty(error, 'message', {
+              value: {
+                toString() {
+                  throw new Error('error coercion broke');
+                },
               },
             });
           }
