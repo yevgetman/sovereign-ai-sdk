@@ -152,6 +152,113 @@ function makeCreateChildSession(
 }
 
 describe('SubagentScheduler', () => {
+  test.each(['lane', 'write-lock'])(
+    'child deadline expires in the %s queue without starting a child',
+    async (queue) => {
+      const records: SessionRecord[] = [];
+      const lanes = new LaneSemaphores({ frontier: 1 });
+      const locks = new PathLockManager();
+      const releaseHolder =
+        queue === 'lane' ? await lanes.acquire('frontier') : await locks.acquire({ kind: 'all' });
+      let providerStarts = 0;
+      const scheduler = new SubagentScheduler({
+        agents: makeAgentRegistry([makeAgent({ readOnly: false })]),
+        laneSemaphores: lanes,
+        pathLock: locks,
+        resolveProvider: (_name, model) => {
+          providerStarts++;
+          return makeFakeResolved(model ?? 'm');
+        },
+        createChildSession: makeCreateChildSession(records),
+        defaultProvider: 'anthropic',
+        defaultModel: 'm',
+        perChildTimeoutMs: 10_000,
+        maxChildrenPerParent: 1,
+        maxTokens: 100,
+      });
+      const input = {
+        agentName: 'explore',
+        prompt: 'work',
+        parentSessionId: 'parent',
+        parentToolPool: [],
+        parentToolContext: baseToolContext,
+        perChildTimeoutMsOverride: 20,
+      };
+      const pending = scheduler.delegate(input);
+      const observed = pending.then(
+        () => 'completed',
+        (error: Error) => error.name,
+      );
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const settled = await Promise.race([
+          observed,
+          new Promise<string>((resolve) => {
+            watchdog = setTimeout(() => resolve('still queued'), 500);
+          }),
+        ]);
+        expect(settled).toBe('TimeoutError');
+        expect(scheduler.activeChildren('parent')).toBe(0);
+        expect(records).toHaveLength(0);
+        expect(providerStarts).toBe(0);
+        expect(locks.heldCount()).toBe(queue === 'write-lock' ? 1 : 0);
+        // Expired lock waiters must return their lane slot before the held
+        // write lock is released; expired lane waiters must leave that lane held.
+        if (queue === 'write-lock') {
+          const releaseProbe = await lanes.acquire('frontier');
+          releaseProbe();
+        }
+      } finally {
+        clearTimeout(watchdog);
+        releaseHolder();
+        await observed;
+      }
+      // Reuse both the parent cap and the lane after expiry. A stale queue
+      // waiter or duplicate release must not start the expired child.
+      expect(
+        (await scheduler.delegate({ ...input, perChildTimeoutMsOverride: 1_000 })).terminal.reason,
+      ).toBe('completed');
+      expect(scheduler.activeChildren('parent')).toBe(0);
+      expect(records).toHaveLength(1);
+      expect(providerStarts).toBe(1);
+      expect(locks.heldCount()).toBe(0);
+    },
+  );
+
+  test('parent cancellation interrupts a queued child before its deadline', async () => {
+    const lanes = new LaneSemaphores({ frontier: 1 });
+    const releaseHolder = await lanes.acquire('frontier');
+    const records: SessionRecord[] = [];
+    const parent = new AbortController();
+    const scheduler = new SubagentScheduler({
+      agents: makeAgentRegistry([makeAgent()]),
+      laneSemaphores: lanes,
+      pathLock: new PathLockManager(),
+      resolveProvider: (_name, model) => makeFakeResolved(model ?? 'm'),
+      createChildSession: makeCreateChildSession(records),
+      defaultProvider: 'anthropic',
+      defaultModel: 'm',
+      perChildTimeoutMs: 10_000,
+      maxTokens: 100,
+    });
+    const pending = scheduler.delegate({
+      agentName: 'explore',
+      prompt: 'work',
+      parentSessionId: 'parent',
+      parentSignal: parent.signal,
+      parentToolPool: [],
+      parentToolContext: baseToolContext,
+    });
+    parent.abort(new Error('parent cancelled'));
+    try {
+      await expect(pending).rejects.toThrow('parent cancelled');
+      expect(scheduler.activeChildren('parent')).toBe(0);
+      expect(records).toHaveLength(0);
+    } finally {
+      releaseHolder();
+    }
+  });
+
   test('delegates to a known agent and returns summary + lineage', async () => {
     const records: SessionRecord[] = [];
     const scheduler = new SubagentScheduler({

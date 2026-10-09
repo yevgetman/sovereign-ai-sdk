@@ -132,6 +132,9 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
   [`docs/04-extending/routing-an-agent.md`](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/routing-an-agent.md).
 - **Delegation** — `SubagentScheduler` and the narrow `Scheduler` port,
   `LaneSemaphores`, `PathLockManager`, and the executor port types.
+  Child wall-clock deadlines include lane and write-lock queue time. Queue expiry
+  rejects delegation before a child session or provider starts. Parent cancellation
+  uses the same signal through queues and child execution.
 - **MCP** — `buildMcpClientPool`, the `McpClientPoolFactory` port, and the
   server-config types (stdio / SSE / HTTP).
 - **Hooks** — `buildHookRunner` plus the hook event/config/consent types.
