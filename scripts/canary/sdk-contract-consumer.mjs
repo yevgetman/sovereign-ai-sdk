@@ -1,7 +1,7 @@
 // Public, authored compatibility fixture for the host-facing SDK contracts.
 // This contains no private downstream source or owner data.
 import assert from 'node:assert/strict';
-import { createAgent, createInMemorySessionStore, buildTool, TreeBudget, TreeBudgetExceededError } from '@yevgetman/sov-sdk';
+import { createAgent, createInMemorySessionStore, buildTool, TreeBudget, TreeBudgetExceededError, budgetProvider } from '@yevgetman/sov-sdk';
 import { z } from 'zod';
 
 async function drain(generator) {
@@ -70,12 +70,28 @@ assert.equal(budget.snapshot().exhausted, true);
 assert.equal(budget.snapshot().tokenUsageComplete, false);
 assert.throws(() => budget.reserveRequest({ tokens: 0 }), TreeBudgetExceededError);
 
+// Disconnects retain a proved overrun even without a completion marker.
+const interruptedBudget = new TreeBudget({ maxTotalTokens: 10, maxEstimatedCostUsd: 0.1 });
+const interruptedProvider = budgetProvider({ name: 'openai', async *stream() {
+  yield { type: 'usage_delta', usage: { outputTokens: 11 } };
+  throw new Error('authored budget disconnect');
+} }, interruptedBudget, () => ({ tokens: 10, estimatedCostUsd: 0.1 }));
+await assert.rejects(drain(interruptedProvider.stream({ model: 'gpt-4o-mini', system: [], messages: [], maxTokens: 10 })), /authored budget disconnect/);
+assert.equal(interruptedBudget.snapshot().accountedTokens, 11);
+assert.equal(interruptedBudget.snapshot().accountedEstimatedCostUsd, 0.1);
+assert.equal(interruptedBudget.snapshot().tokenUsageComplete, false);
+assert.equal(interruptedBudget.snapshot().estimatedCostComplete, false);
+assert.equal(interruptedBudget.snapshot().exhausted, true);
+assert.throws(() => interruptedBudget.reserveRequest({ tokens: 0, estimatedCostUsd: 0 }), TreeBudgetExceededError);
+
 // Output governance can close a fully billed attempt at its final event.
 let guardedCalls = 0;
 let finalChecks = 0;
+const regeneratedBudget = new TreeBudget({ maxTotalTokens: 107 });
 const regenerated = await drain(createAgent({
   model: 'gpt-4o-mini',
-  provider: { name: 'openai', async *stream() {
+  maxTokens: 10,
+  provider: budgetProvider({ name: 'openai', async *stream() {
     guardedCalls++;
     const message = { role: 'assistant', content: [{ type: 'text', text: 'guarded answer' }] };
     yield { type: 'message_start' };
@@ -83,7 +99,7 @@ const regenerated = await drain(createAgent({
     yield { type: 'message_stop', stop_reason: 'end_turn' };
     yield { type: 'assistant_message', message };
     return message;
-  } },
+  } }, regeneratedBudget, () => ({ tokens: 100 })),
   contextLimits: { maxHistoryBytes: 1000 },
   contextManager: { async reduce(request) {
     return { messages: [request.messages.at(-1)], usage: { inputTokens: 9, outputTokens: 2 }, estimatedCostUsd: 0.01 };
@@ -97,6 +113,9 @@ const regenerated = await drain(createAgent({
   { role: 'user', content: [{ type: 'text', text: 'latest request' }] },
 ]));
 assert.equal(guardedCalls, 2);
+assert.equal(regeneratedBudget.snapshot().accountedTokens, 14);
+assert.equal(regeneratedBudget.snapshot().tokenUsageComplete, true);
+assert.equal(regeneratedBudget.snapshot().unknownRequests, 0);
 assert.equal(regenerated.terminal.reason, 'completed');
 assert.deepEqual(regenerated.usage, { inputTokens: 24, outputTokens: 12 });
 assert.equal(regenerated.usageComplete, true);

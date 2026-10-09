@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { createAgent, createInMemorySessionStore } from '@yevgetman/sov-sdk';
+import {
+  TreeBudget,
+  budgetProvider,
+  createAgent,
+  createInMemorySessionStore,
+} from '@yevgetman/sov-sdk';
 import type {
   ContextManagementPort,
   ContextManagementRequest,
@@ -71,10 +76,12 @@ async function drain(gen: ReturnType<ReturnType<typeof createAgent>['run']>) {
 describe('injected context management', () => {
   test('context and fully billed regenerated provider attempts retain combined accounting', async () => {
     const { provider: p, requests } = provider();
+    const knownBillBudget = new TreeBudget({ maxTotalTokens: 107 });
     let gates = 0;
     const { result } = await drain(
       createAgent({
-        provider: p,
+        provider: budgetProvider(p, knownBillBudget, () => ({ tokens: 100 })),
+        maxTokens: 10,
         model: 'gpt-4o-mini',
         contextManager: port(),
         contextLimits: { maxHistoryBytes: 1000 },
@@ -89,6 +96,11 @@ describe('injected context management', () => {
     );
     expect(result.terminal.reason).toBe('completed');
     expect(requests).toHaveLength(2);
+    expect(knownBillBudget.snapshot()).toMatchObject({
+      accountedTokens: 14,
+      tokenUsageComplete: true,
+      unknownRequests: 0,
+    });
     expect(result.usage).toEqual({ inputTokens: 24, outputTokens: 12 });
     expect(result.usageComplete).toBe(true);
     expect(result.estimatedCostUsd).toBeCloseTo(0.0200057, 9);

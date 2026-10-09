@@ -82,8 +82,11 @@ export class TreeBudget {
     };
   }
 
-  /** Reserve BEFORE calling a provider. Unknown results retain the whole bound. */
-  reserveRequest(estimate: RequestBudgetEstimate): (usage?: TokenUsage, cost?: number) => void {
+  /** Reserve BEFORE calling a provider. Incomplete results retain the whole bound
+   * or a larger observed lower bound. usageComplete defaults true for host settlement. */
+  reserveRequest(
+    estimate: RequestBudgetEstimate,
+  ): (usage?: TokenUsage, cost?: number, usageComplete?: boolean) => void {
     // Capture caller-owned estimates once; settlement must not read a reused object.
     const tokensReserved = estimate.tokens;
     const costReserved = estimate.estimatedCostUsd;
@@ -106,7 +109,7 @@ export class TreeBudget {
     this.state.accountedTokens += tokensReserved;
     this.state.accountedEstimatedCostUsd += costReserved ?? 0;
     let settled = false;
-    return (usage, cost) => {
+    return (usage, cost, usageComplete = true) => {
       if (settled) return;
       settled = true;
       if (
@@ -120,7 +123,10 @@ export class TreeBudget {
         return;
       }
       const knownTokens =
-        usage !== undefined && usage.inputTokens !== undefined && usage.outputTokens !== undefined;
+        usageComplete &&
+        usage !== undefined &&
+        usage.inputTokens !== undefined &&
+        usage.outputTokens !== undefined;
       const observedTokens =
         (usage?.inputTokens ?? 0) +
         (usage?.outputTokens ?? 0) +
@@ -168,28 +174,52 @@ export function budgetProvider(
       }
       const settle = budget.reserveRequest(bound);
       let usage = createUsageAccumulator();
-      let completed = false;
+      let stopped = false;
+      let finished = false;
+      let finalMessage = false;
+      let failed = false;
       let stream: ReturnType<LLMProvider['stream']> | undefined;
       try {
         stream = provider.stream(request);
         for (;;) {
           const step = await stream.next();
-          if (step.done) return step.value;
-          if (step.value.type === 'message_stop') completed = true;
+          if (step.done) {
+            finished = true;
+            return step.value;
+          }
+          if (step.value.type === 'message_stop') stopped = true;
+          if (step.value.type === 'assistant_message') finalMessage = true;
           usage = accumulateUsage(usage, step.value);
           yield step.value;
         }
+      } catch (error) {
+        failed = true;
+        throw error;
       } finally {
+        let cleanupSucceeded = false;
         try {
           await stream?.return({ role: 'assistant', content: [] });
+          cleanupSucceeded = true;
         } finally {
-          const total = completed ? finalizeUsage(usage) : undefined;
+          const total = finalizeUsage(usage);
+          const usageComplete =
+            stopped &&
+            (finished || finalMessage) &&
+            !failed &&
+            cleanupSucceeded &&
+            !request.signal?.aborted;
           const priced =
             total !== undefined &&
             total.inputTokens !== undefined &&
             total.outputTokens !== undefined &&
             PRICE_TABLE[`${provider.name}:${request.model}`] !== undefined;
-          settle(total, priced ? estimateCostUsd(provider.name, request.model, total) : undefined);
+          settle(
+            total,
+            usageComplete && priced
+              ? estimateCostUsd(provider.name, request.model, total)
+              : undefined,
+            usageComplete,
+          );
         }
       }
     },

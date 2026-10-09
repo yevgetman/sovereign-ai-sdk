@@ -329,6 +329,11 @@ to the parent or a context manager's provider. Use the same budget object for
 parent, child, retry and summarization calls to cover the entire tree. The SDK
 cannot account a provider that the host calls outside this wrapper. Native child
 providers are wrapped once by the scheduler; do not wrap them a second time.
+Failed, cancelled, or incompletely closed calls retain the reserved ceiling and
+any larger observed token lower bound. Observed usage is not discarded when the
+completion marker is missing. Host settlement can pass `false` as the third
+argument to `reserveRequest()`'s returned callback to mark usage incomplete.
+
 `budget.snapshot()` exposes accounted tokens, estimated cost, unknown requests,
 child counts, completeness flags and exhaustion. Unknown accounting remains an
 upper bound; `estimatedCostComplete: false` must never be reported as free work.

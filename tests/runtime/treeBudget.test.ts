@@ -140,6 +140,78 @@ describe('shared tree budgets', () => {
     expect(() => budget.reserveRequest({ tokens: 0 })).toThrow(TreeBudgetExceededError);
   });
 
+  test.each(['before stop', 'after stop', 'sync cleanup', 'async cleanup'] as const)(
+    '%s failure retains observed overruns without refunding reservations',
+    async (phase) => {
+      const underlying: LLMProvider = {
+        name: 'openai',
+        stream() {
+          const stream = (async function* (): AsyncGenerator<StreamEvent, AssistantMessage> {
+            yield { type: 'usage_delta', usage: { inputTokens: 1, outputTokens: 11 } };
+            if (phase === 'before stop') throw new Error('fixture disconnect');
+            yield { type: 'message_stop', stop_reason: 'end_turn' };
+            if (phase === 'after stop') throw new Error('fixture disconnect');
+            return answer;
+          })();
+          if (phase === 'sync cleanup' || phase === 'async cleanup') {
+            const fail = () => {
+              throw new Error('fixture cleanup failed');
+            };
+            stream.return = phase === 'sync cleanup' ? fail : async () => fail();
+          }
+          return stream;
+        },
+      };
+      const budget = new TreeBudget({ maxTotalTokens: 10, maxEstimatedCostUsd: 0.1 });
+      await expect(
+        drain(budgetProvider(underlying, budget, () => ({ tokens: 10, estimatedCostUsd: 0.1 }))),
+      ).rejects.toThrow();
+      expect(budget.snapshot()).toMatchObject({
+        accountedTokens: 12,
+        accountedEstimatedCostUsd: 0.1,
+        exhausted: true,
+        tokenUsageComplete: false,
+        estimatedCostComplete: false,
+        unknownRequests: 1,
+      });
+      expect(() => budget.reserveRequest({ tokens: 0, estimatedCostUsd: 0 })).toThrow(
+        TreeBudgetExceededError,
+      );
+    },
+  );
+
+  test.each(['before final', 'after final', 'cancel final'] as const)(
+    '%s consumer close distinguishes complete billing from unknown usage',
+    async (phase) => {
+      const budget = new TreeBudget({ maxTotalTokens: 10, maxEstimatedCostUsd: 0.1 });
+      const controller = new AbortController();
+      const stream = budgetProvider(provider(), budget, () => ({
+        tokens: 10,
+        estimatedCostUsd: 0.1,
+      })).stream({ ...request, signal: controller.signal });
+      for (;;) {
+        const step = await stream.next();
+        expect(step.done).toBe(false);
+        if (
+          !step.done &&
+          step.value.type === (phase === 'before final' ? 'message_stop' : 'assistant_message')
+        )
+          break;
+      }
+      if (phase === 'cancel final') controller.abort();
+      await stream.return(answer);
+      const complete = phase === 'after final';
+      expect(budget.snapshot()).toMatchObject({
+        accountedTokens: complete ? 8 : 10,
+        tokenUsageComplete: complete,
+        estimatedCostComplete: complete,
+        unknownRequests: complete ? 0 : 1,
+        exhausted: false,
+      });
+      if (!complete) expect(budget.snapshot().accountedEstimatedCostUsd).toBe(0.1);
+    },
+  );
+
   test('consumer return joins provider cleanup and conservatively accounts missing usage', async () => {
     let closed = false;
     const underlying: LLMProvider = {

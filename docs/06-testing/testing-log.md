@@ -1,5 +1,18 @@
 # Testing Log
 
+## 2026-10-09 — PR22 third review final combined gate
+
+Root integrated reviewed lifecycle base `5a5d8c7` via `a845366` and restored the failed-provider budget settlement correction. Separate read-only cross-review confirms exact pushed PR20/21 source/tests, combined query receipt/context accounting, all budget regressions and packed fixtures, and both README/log histories. All four new Medium findings in this round are corrected; the earlier Low comment remains outside the threshold.
+
+Final combined lint/boundary and typecheck pass. Complete source suite **5606 pass / 19 existing skip / zero fail**, 23049 assertions across 531 files (90.47s). Focused accounting/child/context/queue group **63 pass / 289 assertions**. TUI build and Go checks pass. Packed SDK/protocol behavioral/type consumers pass on Node/Bun, including exact Node20.19.0/Bun1.2.0 floors and the failed-stream overrun/regeneration fixtures. Actual Agent Casa typecheck and **1193 tests / zero pending / zero fail** pass on Node24.14.0 from revision `521a2ee` with its source checkout unchanged. Dependency audit reports zero advisories. GitHub CI is checked after push. No SDK master merge, paid provider, release, runtime install or private disclosure. Recall benefit and production capacity were not assessed.
+
+## 2026-10-09 — PR22 third independent review: failed provider budget settlement
+
+Reviewed exact PR22 `1fcea46` against integration `c26016b`. Confirmed one Medium defect: the public `budgetProvider()` wrapper discarded observed counters before a stop marker, or treated stopped provider/cleanup failures as complete and refunded reservations. An offline reported output of 11 against a bound of 10 followed by disconnect left accounted tokens at 10, exhaustion false and later admission open. Four before/after-stop and synchronous/asynchronous cleanup regressions fail first (12 pass / 4 fail).
+
+Settlement now retains the validated observed lower bound for every call, marks failed/cancelled/incomplete cleanup unknown, and retains ceilings until successful stopped completion. Proven overruns exhaust admission. Direct host settlement can explicitly mark usage incomplete. Three before-final, intentional after-final and cancelled-final close regressions distinguish known stopped bills from incomplete calls. The context+Conduct regeneration fixture now runs through a budget wrapper that permits its valid retry only after the first known bill settles. Prior known-call settlement and conservative consumer-return tests still pass. Added an authored packed disconnect/overrun fixture for root's Node/Bun gate.
+
+Focused context, child policy, tree budget and host queue tests pass: 63 pass / zero fail, 289 assertions, four files (155ms), macOS arm64 Bun 1.3.13. Targeted formatting and diff checks pass. Root coordinates full lint/typecheck/suite/packed/CI checks before commit/push. No paid provider, owner profile write, installation, release, master merge or private disclosure. Recall quality was not assessed.
 ## 2026-10-09 — PR22 third review base merge gate
 
 Merged tested lifecycle base `5a5d8c7` while preserving the existing PR22 query/accounting contracts and both additive documentation blocks. Before the merge commit, lint/boundary and typecheck pass; full source suite **5599 pass / 19 existing skip / zero fail**, 23017 assertions across 531 files (89.98s). Root will restore the separately reviewed failed-budget patch and gate the final combination. No master merge, provider spend, release or install.
