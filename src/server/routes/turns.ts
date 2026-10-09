@@ -21,57 +21,38 @@
 
 import type { PostTurnRequest, PostTurnResponse } from '@yevgetman/sov-protocol';
 import { accumulateUsage, createUsageAccumulator, finalizeUsage } from '@yevgetman/sov-sdk';
-import { createAgent } from '@yevgetman/sov-sdk/agent/createAgent';
-import {
-  appendProjectLocalPermissionRule,
-  loadPermissionSettings,
-} from '@yevgetman/sov-sdk/config/settings';
-import { readConfig } from '@yevgetman/sov-sdk/config/store';
 import { expandContextReferences } from '@yevgetman/sov-sdk/context/references';
-import { repairMissingToolResults } from '@yevgetman/sov-sdk/core/transcriptRepair';
-import type {
-  AssistantMessage,
-  Message,
-  StreamEvent,
-  Terminal,
-} from '@yevgetman/sov-sdk/core/types';
-import { buildCanUseTool } from '@yevgetman/sov-sdk/permissions/canUseTool';
-import { wrapCanUseToolWithTransformers } from '@yevgetman/sov-sdk/permissions/inputTransformer';
-import { redactSecretsTransformer } from '@yevgetman/sov-sdk/permissions/redactSecretsTransformer';
-import type { CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
+import type { Message, Terminal } from '@yevgetman/sov-sdk/core/types';
 import { REASONING_EFFORTS, type ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { isContextOverflowError } from '@yevgetman/sov-sdk/providers/errors';
 import { estimateCostUsd } from '@yevgetman/sov-sdk/providers/pricing';
 import { expandSkillPrompt } from '@yevgetman/sov-sdk/skills/loader';
-import { buildToolContext } from '@yevgetman/sov-sdk/tool/buildToolContext';
-import { buildToolScope, filterParseableRules } from '@yevgetman/sov-sdk/tool/toolScope';
-import type { RenderHint, Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { filterParseableRules } from '@yevgetman/sov-sdk/tool/toolScope';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { Hono } from 'hono';
-import { type PersistMessageHost, persistMessage } from '../../agent/persistMessage.js';
 import { type CompactResult, shouldCompactProactively } from '../../compact/compactor.js';
-import {
-  type DelegationLifecycleEvent,
-  synthesizeDelegationEvents,
-} from '../../router/progressEvents.js';
+import { synthesizeDelegationEvents } from '../../router/progressEvents.js';
 import type { AppVariables } from '../auth.js';
 import { type ServerEventBus, getOrCreateBus } from '../eventBus.js';
 import { type Runtime, createServerAsk } from '../runtime.js';
-import type { ServerEvent } from '../schema.js';
-import type { SessionContext } from '../sessionContext.js';
-import { isValidSessionId, loadHistoryAsMessages } from '../sessionId.js';
-import { consumeSteerFile, frameSteers } from '../steerFile.js';
+import { isValidSessionId } from '../sessionId.js';
+import {
+  type TurnPersistence,
+  buildTurnCanUseTool,
+  composeTurn,
+  createSteeringPoller,
+  gateTurnInstructions,
+  hydrateSessionHistory,
+  loadStoredMessages,
+  persistTurnMessage,
+} from '../turnComposition.js';
+import { mapTerminalReason, relayAgentRun } from '../turnRelay.js';
 import { loadOwnedSession } from './ownership.js';
 
-/** State captured at `tool_use_start` emission, drained when the matching
- *  `tool_result` arrives so the tool_result wire event can echo the same
- *  `tool` / `input` / `renderHint` without re-deriving them. Keyed by the
- *  Anthropic `tool_use_id` produced by the model. */
-type PendingToolUse = {
-  tool: string;
-  input: unknown;
-  renderHint: RenderHint;
-};
+// Moved to the shared composition modules; re-exported so existing importers
+// (cron, channels, OpenAI, workflows, command context, tests) are unchanged.
+export { buildSessionToolContext } from '../sessionToolContext.js';
+export { mergeConsecutiveSameRoleMessages } from '../turnComposition.js';
 
 /** Type-guard narrowing an UNTRUSTED wire value to a known effort level.
  *  Takes `unknown` (not `string`) because `PostTurnRequest.effort` is typed on
@@ -110,52 +91,6 @@ function publishCompactionComplete(
     estimatedBeforeTokens: result.estimatedBeforeTokens,
     estimatedAfterTokens: result.estimatedAfterTokens,
   });
-}
-
-/** A message carries no tool_use/tool_result block — i.e. plain text/thinking
- *  content only. The pre-H7 corruption (a standalone loop-detector guidance
- *  message) is always such a plain user message. */
-function isPlainMessage(msg: Message): boolean {
-  return !msg.content.some((b) => b.type === 'tool_use' || b.type === 'tool_result');
-}
-
-/**
- * Coalesce adjacent same-role messages into one (concatenating their content
- * blocks in order) — but ONLY when both are plain (no tool_use/tool_result),
- * which is exactly the pre-H7 corruption signature. Anthropic requires strictly
- * alternating user/assistant roles; a session corrupted by the pre-H7 bug — a
- * standalone trailing guidance user message left the timeline ending on
- * (assistant, user, user) — would 400 with "roles must alternate" on resume.
- * `repairMissingToolResults` only synthesizes missing tool_result blocks; it has
- * no same-role coalescing, so legacy-corrupted histories need this heal.
- *
- * Scoping to plain messages is deliberate: a legitimate trailing tool_result
- * user message (e.g. an interrupted tool turn) must NOT be folded into the next
- * user prompt — that would glue a stale tool_result onto the new question and
- * disturb the tool_use/tool_result pairing the rest of the turn loop relies on.
- *
- * Purely additive + immutable: returns a fresh array, never mutates the input
- * messages, and is a no-op when no mergeable plain same-role pair exists.
- */
-export function mergeConsecutiveSameRoleMessages(messages: readonly Message[]): Message[] {
-  const out: Message[] = [];
-  for (const msg of messages) {
-    const prev = out[out.length - 1];
-    if (
-      prev !== undefined &&
-      prev.role === msg.role &&
-      isPlainMessage(prev) &&
-      isPlainMessage(msg)
-    ) {
-      out[out.length - 1] = {
-        role: prev.role,
-        content: [...prev.content, ...msg.content],
-      } as Message;
-      continue;
-    }
-    out.push(msg);
-  }
-  return out;
 }
 
 export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> {
@@ -347,17 +282,7 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
     // to today. This is the ONE per-turn conduct decision the wrapper owns; the
     // in-turn seams (persona/preGate/triage/toolPolicy/outputGuard) all live
     // inside createAgent, bound via the standing `conduct` config below.
-    const conductForGate = runtime.conduct;
-    const instructionsAllowed =
-      conductForGate?.allowPerTurnInstructions === undefined ||
-      conductForGate.allowPerTurnInstructions({
-        sessionId,
-        surface: 'user',
-        model: runtime.model,
-        providerName: runtime.resolvedProvider.transport.name,
-        ...(runtime.cwd !== undefined ? { cwd: runtime.cwd } : {}),
-      });
-    const gatedPerTurnInstructions = instructionsAllowed ? perTurnInstructions : undefined;
+    const gatedPerTurnInstructions = gateTurnInstructions(runtime, sessionId, perTurnInstructions);
 
     const bus = getOrCreateBus(sessionId);
     // POST /turns is fire-and-forget: kick off the background turn loop
@@ -393,114 +318,6 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
   });
 
   return r;
-}
-
-/** Build the per-turn ToolContext for `runTurnInBackground`'s `query()`
- *  call. Once buildRuntime constructs the scheduler + taskManager
- *  (T6 + T7), the turn-time context plumbs them onto the tool surface
- *  so AgentTool / task_create / task_list / task_get / task_output
- *  dispatch correctly. Without these four fields populated, every
- *  sub-agent and task tool throws "no scheduler / task manager in
- *  ToolContext" the moment the model invokes it.
- *
- *  The `parentToolPool` is the runtime's own pool. AgentTool reads it via
- *  ctx.parentToolPool when it forks a child session so the child inherits
- *  the parent's filtered tool surface rather than re-assembling from
- *  scratch. `canUseTool` is the session-scoped gate built in
- *  runTurnInBackground around serverAsk + the bus — the scheduler hands
- *  it through to the child AgentRunner so the same permission policy
- *  applies (parent rule layers, secrets redactor, the live SSE bridge).
- *
- *  Exported so tests/server/turns.subagent.test.ts can pin the contract
- *  without spinning up the full POST /turns + SSE drain.
- */
-export function buildSessionToolContext(
-  runtime: Runtime,
-  sessionId: string,
-  sessionCanUseTool: CanUseTool,
-  opts: {
-    /** Phase 2 T4 — per-turn delegation lifecycle recorder. The runtime's
-     *  /turns route builds this via `synthesizeDelegationEvents(...)` and
-     *  threads it down to AgentTool so the scheduler fires lifecycle
-     *  events that the closure maps onto the four delegator_* SSE events.
-     *  Cron + OpenAI callers pass undefined (no SSE bus to publish to). */
-    delegationLifecycleRecorder?: (event: DelegationLifecycleEvent) => void;
-    /** Feature B — the effective tool pool for THIS turn. Defaults to the
-     *  shared `runtime.toolPool` so every existing caller is byte-unchanged.
-     *  The `/skill` path passes a fresh SCOPED copy (`buildToolScope(...).tools`)
-     *  when the skill declares `allowedTools`, so a forked sub-agent inherits
-     *  the same narrowed pool (`parentToolPool === effectivePool`) and the
-     *  skill-visibility derivation tracks the tools the turn can actually use.
-     *  IMPORTANT vs the shared pool: `runtime.toolPool` is a shared array
-     *  mutated in place on reload; the scope is a FRESH filtered copy
-     *  (`buildToolScope` always returns a new array), never a mutation of —
-     *  nor an alias to — the shared pool. */
-    effectivePool?: Tool<unknown, unknown>[];
-  } = {},
-): ToolContext {
-  // Task 5.1 — the PROPRIETARY per-session resolution half. Resolve the inputs
-  // off the Runtime god-object + the per-session SessionContext, then delegate
-  // the pure assembly to the OPEN `buildToolContext`. The external signature +
-  // returned ToolContext are byte-identical to the pre-split version — every
-  // caller (gateway turns, openai, cron, channels, workflows) is unchanged.
-
-  // M7 T5/T6 — pull the per-session subsystems off the SessionContext so
-  // the orchestrator can call `ctx.learningObserver?.observe(...)` after
-  // every tool call and (T6) `ctx.reviewManager` can guard review forks.
-  // The context is lazily built (or cached) by Runtime.getSessionContext.
-  const sessionCtx = runtime.getSessionContext(sessionId);
-  // Feature B — the pool this turn actually runs against. Defaults to the
-  // shared runtime pool (every existing caller); the `/skill` path overrides
-  // it with the skill-scoped copy. Read-only — never mutate runtime.toolPool.
-  // The open assembler derives skill visibility (activeToolNames /
-  // activeToolsets / filtered skills) from this same effective pool.
-  const effectivePool = opts.effectivePool ?? runtime.toolPool;
-  // Task 2.3 — source WebSearchTool's provider config for `ctx.webSearch` (the
-  // tool no longer reads config ambiently). An injected Settings (SDK seam,
-  // config-file-free) is used verbatim; otherwise re-read config.json per turn
-  // so live `webSearch.*` edits stay read-on-demand (byte-identical to the
-  // tool's prior invoke-time read, now relocated to the per-turn assembler).
-  const webSearch =
-    runtime.injectedSettings?.webSearch ??
-    readConfig({ harnessHome: runtime.harnessHome }).webSearch;
-  return buildToolContext({
-    cwd: runtime.cwd,
-    sessionId,
-    harnessHome: runtime.harnessHome,
-    agents: runtime.agents,
-    // Conditional in the assembler (absent when no bundle is loaded): the
-    // optional `bundleRoot` field is `string | undefined`, so passing
-    // `runtime.bundle?.root` directly is byte-identical to the prior
-    // `runtime.bundle ? { bundleRoot: runtime.bundle.root } : {}` spread.
-    bundleRoot: runtime.bundle?.root,
-    subagentScheduler: runtime.subagentScheduler,
-    taskManager: runtime.taskManager,
-    // Phase 2 T3 — the assembled lane registry (always present on Runtime).
-    laneRegistry: runtime.laneRegistry,
-    effectivePool,
-    // The UNFILTERED registry — the assembler filters it against the effective
-    // pool. Keeping the runtime registry unfiltered preserves the T5
-    // `/skillname` dispatch + the GET /skills route's own per-request view.
-    skills: runtime.skills,
-    canUseTool: sessionCanUseTool,
-    // M8 T3 — per-session subdirectory-hint dedup state (passed by reference so
-    // the dedup Set persists across the session's turn loop).
-    subdirectoryHintState: sessionCtx.subdirectoryHintState,
-    // Backlog #43 — per-session memory manager + project scope.
-    memoryManager: sessionCtx.memoryManager,
-    projectScope: sessionCtx.projectScope,
-    // Task 2.3 — WebSearchTool reads its provider config off `ctx.webSearch`.
-    webSearch,
-    // M7 T5 — per-session learning observer (undefined when learning disabled).
-    learningObserver: sessionCtx.learningObserver,
-    // M7 T6 — per-session review manager (undefined when review disabled).
-    reviewManager: sessionCtx.reviewManager,
-    // Phase E T6 — owning principal (undefined for the implicit single principal).
-    userId: sessionCtx.userId,
-    // Phase 2 T4 — per-turn delegation lifecycle recorder (undefined for callers
-    // with no SSE bus, e.g. cron + OpenAI).
-    delegationLifecycleRecorder: opts.delegationLifecycleRecorder,
-  });
 }
 
 async function runTurnInBackground(
@@ -631,11 +448,9 @@ async function runTurnInBackground(
     role: 'user',
     content: [{ type: 'text', text: expandedText }],
   };
+  const persistence: TurnPersistence = { mode: 'gateway-callbacks', host: runtime };
   // Persist before the try block so a query() failure still preserves the user's prompt in the transcript.
-  persistMessage(runtime, sessionId, {
-    role: userMessage.role,
-    content: userMessage.content,
-  });
+  persistTurnMessage(persistence, sessionId, userMessage);
   // M9 T10 — kick off the live status indicator. The TUI's statusline
   // consumes status_update events to drive the streaming spinner and the
   // live cost field; firing one with streaming:true at turn start is the
@@ -673,21 +488,8 @@ async function runTurnInBackground(
   // /turns call because Anthropic rejects the messages array as
   // invalid. The repair is purely additive and idempotent — no orphan
   // tool_use → no synthesized result → identical messages array.
-  const hydrate = (): Message[] => {
-    const raw = loadHistoryAsMessages(runtime.sessionDb, sessionId);
-    const { messages: repaired, insertedToolResults } = repairMissingToolResults(raw);
-    if (insertedToolResults > 0) {
-      process.stderr.write(
-        `[repair] synthesized ${insertedToolResults} missing tool_result block(s) for session ${sessionId}\n`,
-      );
-    }
-    // Heal legacy-corrupted histories (pre-H7 standalone trailing guidance user
-    // message → two consecutive user messages) so Anthropic's strict
-    // user/assistant alternation holds on resume. Runs AFTER repair so any
-    // synthesized tool_result user message is folded in too. No-op for an
-    // already-alternating timeline.
-    return mergeConsecutiveSameRoleMessages(repaired);
-  };
+  const hydrate = (): Message[] =>
+    hydrateSessionHistory(loadStoredMessages(persistence, sessionId), sessionId);
   let messages: Message[] = hydrate();
 
   // Usage telemetry (T5 / F1). A tool-loop turn makes N provider calls; the
@@ -796,56 +598,10 @@ async function runTurnInBackground(
     // `permission_request` SSE event and parks on the matching
     // ApprovalQueue entry. The bus is per-session and the queue is
     // per-runtime — the wiring lives here because both refs are in scope.
-    const permissionSettings = loadPermissionSettings({
-      cwd: runtime.cwd,
-      harnessHome: runtime.harnessHome,
-    });
+    // The layered rules, `always` persistence and secrets redactor are the
+    // shared composition (buildTurnCanUseTool).
     const sessionAsk = createServerAsk(runtime.approvalQueue, bus, sessionId);
-    const baseCanUseTool = buildCanUseTool({
-      mode: runtime.permissionMode,
-      ask: sessionAsk,
-      // Session-scoped allow set is fresh per turn — the per-turn
-      // canUseTool's lifecycle ends with the turn. Persistence across
-      // turns happens via project-local settings.local.json: an
-      // `always` answer is appended there, and the next turn's
-      // loadPermissionSettings call (above) picks it up as a rule
-      // layer. Backlog #44 (closed 2026-05-19) wired the persistence
-      // path.
-      alwaysAllow: new Set<string>(),
-      ruleLayers: permissionSettings.layers,
-      recordAlwaysAllow: (rule) => {
-        appendProjectLocalPermissionRule({
-          cwd: runtime.cwd,
-          rule,
-          behavior: 'allow',
-        });
-      },
-    });
-    // Defense-in-depth: secrets redactor wraps the resolved canUseTool
-    // identically to the runtime-level chain in buildRuntime — catches
-    // accidental secret writes in any tool input that gets allowed.
-    const sessionCanUseTool = wrapCanUseToolWithTransformers(baseCanUseTool, [
-      redactSecretsTransformer,
-    ]);
-
-    // Feature B — turn-scoped skill tool restriction. When this turn consumes
-    // a `/skill` whose frontmatter declares `allowedTools`, narrow the live
-    // tool pool (and the gate) to that allow-list for THIS turn only.
-    //   - `tools: runtime.toolPool` READS the shared pool; `buildToolScope`
-    //     returns a FRESH filtered copy — runtime.toolPool is never mutated
-    //     (the reload contract mutates it in place, so aliasing/narrowing it
-    //     would corrupt every other session).
-    //   - `skillScope` undefined/empty → identity: scope.tools === the pool
-    //     and scope.canUseTool === sessionCanUseTool, so non-skill / unscoped
-    //     turns are byte-identical to today.
-    //   - `scope.canUseTool` denies out-of-scope calls with
-    //     'tool is outside slash-command scope' as an OUTER allow-list that
-    //     only ever removes capability (composes with the permission cascade).
-    const scope = buildToolScope({
-      allowedTools: skillScope,
-      tools: runtime.toolPool,
-      canUseTool: sessionCanUseTool,
-    });
+    const sessionCanUseTool = buildTurnCanUseTool(runtime, { ask: sessionAsk });
 
     // Phase 2 T4 — per-turn delegation lifecycle recorder. Bound to the
     // initial sessionId so all four delegator_* SSE events publish under
@@ -861,42 +617,44 @@ async function runTurnInBackground(
       agentRegistry: runtime.agents,
     });
 
-    // Task 7.1 — re-seat the turn driver onto the open SDK. The gateway now
-    // runs each turn through `createAgent().run()` instead of calling `query()`
-    // directly; the orchestration around it (SSE bus, persistMessage,
-    // compaction pivot, approval bridge, delegation recorder, the consumption
-    // loop) is byte-unchanged.
-    //
-    // STANDING config = the turn's LIVE values. Live-reload mutates
-    // runtime.{provider,model,systemSegments,hookRunner,toolPool,…} BETWEEN
-    // turns, never within one, so these are stable for the whole turn. Creating
-    // the agent ONCE PER TURN is exactly what preserves live-reload: a `/model`
-    // or `/hooks` change between turns is picked up by the next turn's fresh
-    // createAgent() (it reads the reloaded runtime refs here). `tools` is the
-    // SKILL-SCOPED pool (scope.tools) — a fresh filtered copy, never the shared
-    // runtime.toolPool. NOTE: createAgent has no sessionStore/transcripts ports
-    // wired here — the gateway owns persistence out-of-band via persistMessage,
-    // so passing a store would double-write (mirrors the scheduler re-seat).
-    const agent = createAgent({
-      provider: runtime.resolvedProvider.transport,
-      model: runtime.model,
-      systemPrompt: runtime.systemSegments,
-      tools: scope.tools,
-      hookRunner: runtime.hookRunner,
-      microcompactConfig: runtime.microcompactConfig,
-      maxTokens: runtime.maxTokens,
-      cwd: runtime.cwd,
-      // Conduct Port (1b) — bind the boot-bound governance provider onto the
-      // per-turn agent (persona/preGate/triage/toolPolicy/outputGuard seams).
-      // Standing config reads `runtime.*` refs (a live-reload picks it up on the
-      // next turn's fresh createAgent); `runtime.conduct` === the value threaded
-      // onto sessionCtx.conduct. Conditional spread keeps the field ABSENT when
-      // unbound → createAgent's null provider (byte-identical, exactOptional).
-      ...(runtime.conduct !== undefined ? { conduct: runtime.conduct } : {}),
-      // Loop guard (spec 2026-08-25-progress-aware-loop-guard-design §3.6) —
-      // the standing `loop` config block. Absent block ⇒ absent field ⇒ the
-      // detector's own defaults, byte-identical to before the block existed.
-      ...(runtime.loop !== undefined ? { loop: runtime.loop } : {}),
+    // Mid-turn steering (`sov run --steer-file`): a host thunk polled by the
+    // SDK's turn loop at agent-loop boundaries. The announcement reads the
+    // OUTER `sessionId` let at call time, so a mid-turn injection after a
+    // compaction pivot is published under the id the turn is currently on —
+    // same discipline as every other mid-turn event (additive event —
+    // adapters that don't know the type ignore it).
+    const pollSteering = createSteeringPoller(runtime.steerFile, (count) => {
+      bus.publish({
+        type: 'steer_injected',
+        seq: bus.nextSeq(),
+        sessionId,
+        count,
+      });
+    });
+
+    // Task 7.1 — the gateway runs each turn through `createAgent().run()`,
+    // composed by the shared host composition (src/server/turnComposition.ts)
+    // that the headless SDK host also uses. Created ONCE PER TURN from the
+    // LIVE runtime refs, which is what preserves live-reload. The skill scope
+    // (Feature B) narrows the pool + gate for THIS turn only. Persistence is
+    // 'gateway-callbacks': createAgent gets no store ports and the relay
+    // below writes every message via persistMessage.
+    const composed = composeTurn({
+      runtime,
+      canUseTool: sessionCanUseTool,
+      persistence,
+      ...(skillScope !== undefined ? { skillScope } : {}),
+      ...(perTurnModel !== undefined ? { model: perTurnModel } : {}),
+      ...(perTurnEffort !== undefined ? { effort: perTurnEffort } : {}),
+      ...(perTurnInstructions !== undefined ? { instructions: perTurnInstructions } : {}),
+      ...(pollSteering !== undefined ? { pollSteering } : {}),
+      traceRecorder,
+      delegationLifecycleRecorder,
+      signal: turnSignal,
+      // Task 7.2 — opt OUT of createAgent's convert-throw-to-terminal default
+      // so a pre-loop throw (memory injection, recall, UserPromptSubmit hook)
+      // propagates to the outer catch → `turn_error`.
+      rethrow: true,
     });
 
     // M6 T4 — overflow auto-recovery (M6-02 retry-once). Run the
@@ -905,252 +663,52 @@ async function runTurnInBackground(
     // compaction_complete, then run the iteration ONCE more against the
     // post-compaction child session id. A second overflow on the retry
     // surfaces via the normal turn-error path below (we do NOT recurse).
-    //
-    // The iteration is extracted into an inner runOnce() closure so the
-    // retry doesn't need to re-derive permission/canUseTool plumbing or
-    // rebuild the QueryParams. canUseTool is captured by reference and
-    // remains valid across the hop (the session id it was bound to is the
-    // OUTER `sessionId` let, which the recovery branch reassigns before the
-    // retry — the bound serverAsk continues to publish permission_request
-    // events under whatever the current sessionId is at the moment of the
-    // ask, which is the POST-COMPACTION id post-retry).
-    // Mid-turn steering (`sov run --steer-file`): a host thunk polled by the
-    // SDK's turn loop at agent-loop boundaries. Consumes the file atomically,
-    // frames the operator message(s), and announces the injection on the bus
-    // (additive event — adapters that don't know the type ignore it). Reads
-    // the OUTER `sessionId` let at call time, so a mid-turn injection after a
-    // compaction pivot is published under the id the turn is currently on —
-    // same discipline as every other mid-turn event. A steering failure must
-    // never break the turn: consumeSteerFile swallows IO errors into [].
-    const steerFilePath = runtime.steerFile;
-    const pollSteering =
-      steerFilePath !== undefined
-        ? async (): Promise<string | null> => {
-            const texts = await consumeSteerFile(steerFilePath);
-            if (texts.length === 0) return null;
-            bus.publish({
-              type: 'steer_injected',
-              seq: bus.nextSeq(),
-              sessionId,
-              count: texts.length,
-            });
-            return frameSteers(texts);
-          }
-        : undefined;
-
     const runOnce = async (currentMessages: Message[]): Promise<Terminal | undefined> => {
       // Reads outer `sessionId` let — the recovery branch reassigns it between
       // calls. Do not shadow with a local `const sessionId = …` inside this
-      // closure; doing so would silently break the recovery hop (the second
-      // runOnce would still target the parent session id instead of the
-      // post-compaction child).
-      // Cancel the in-flight provider stream + tool loop when the bus is
-      // disposed (SSE client disconnect or server.stop()). The bus aborts
-      // on close(); agent.run() forwards the signal to query(), which
-      // propagates it to the provider's streaming http request and tool
-      // calls cooperatively, so a stopped server doesn't leave background
-      // turns running.
+      // closure; doing so would silently break the recovery hop.
       //
-      // PER-HOP override = the values that vary across the compaction pivot
-      // WITHIN this turn (the recovery branch reassigns the outer `sessionId`
-      // let + re-fetches `sessionCtx`, then calls runOnce again). The standing
-      // agent (created once per turn above) carries provider/model/systemPrompt/
-      // tools/hookRunner/microcompactConfig/maxTokens/cwd; everything below is
-      // rebuilt fresh per hop and wins via PerTurn. `messages` is the run()
-      // input (first positional arg), not a PerTurn field.
       // Attestation host turn identity (spec §3.3): mint ONE fresh id per
       // drive — the compaction-retry hop calls runOnce again and mints its
-      // own — registered under the sessionId THIS drive runs as (the outer
-      // let, already pivoted), which is the verifier's records↔io join key.
-      // The id rides PerTurn.turnId → ConductContext.turnId so every conduct
-      // capability call of the drive carries the SAME id (all-or-none;
-      // decorum stamps turnIdSource:'host'). `vars` mirror the ConductContext
-      // the hooks see (gateway turns are 'user'; model = the per-turn
-      // override else the standing model — exactly createAgent's resolution).
-      // Absent coordinator ⇒ undefined ⇒ the PerTurn field stays ABSENT
-      // (byte-identical).
+      // own — registered under the sessionId THIS drive runs as. `vars`
+      // mirror the ConductContext the hooks see (gateway turns are 'user';
+      // model = the per-turn override else the standing model). Absent
+      // coordinator ⇒ undefined ⇒ the PerTurn field stays ABSENT.
       const turnId = runtime.attestationEvidence?.beginTurn(sessionId, {
         surface: 'user',
         model: perTurnModel ?? runtime.model,
       });
       if (turnId !== undefined) mintedTurnIds.push(turnId);
-      const stream = agent.run(currentMessages, {
-        // Outer `sessionId` let — reassigned to the post-compaction child id
-        // across the recovery hop. The persistence key + hooks/trace target.
-        sessionId,
-        // Attestation §3.3 — the host-minted turn id for THIS drive (absent
-        // when attestation is off; see the mint above).
-        ...(turnId !== undefined ? { turnId } : {}),
-        // Per-turn model override (PostTurnRequest.model). Present only when the
-        // wire body carried a non-empty `model`; the conditional spread keeps
-        // the field ABSENT otherwise (exactOptionalPropertyTypes) so createAgent
-        // falls back to `config.model` (= runtime.model) — byte-identical to
-        // today. When present, createAgent's `perTurn.model ?? config.model`
-        // runs THIS turn (and the compaction-retry hop) on the override without
-        // touching the process-global model. Stable across the hop (turn-local).
-        ...(perTurnModel !== undefined ? { model: perTurnModel } : {}),
-        // Per-turn system instruction (PostTurnRequest.instructions). Present
-        // only when the wire body carried a non-empty `instructions`; the
-        // conditional spread keeps the field ABSENT otherwise
-        // (exactOptionalPropertyTypes) so createAgent falls back to
-        // `config.systemPrompt` (= runtime.systemSegments) — byte-identical to
-        // today. When present, we AUGMENT (never replace — createAgent resolves
-        // `perTurn.systemPrompt ?? config.systemPrompt`, so passing only the
-        // instruction would DROP the base persona/bundle/skills prompt): the base
-        // segments verbatim, with `{ text: instruction, cacheable: false }`
-        // APPENDED LAST. Appending a non-cacheable tail segment preserves the
-        // cacheable prefix on the base segments, so the provider prompt cache
-        // isn't busted every turn. Ephemeral: the provider `system:` field is
-        // separate from `messages: history` and is never written to the messages
-        // table, so this reaches the model for THIS turn only and never
-        // accumulates. Stable across the compaction-retry hop (turn-local).
-        ...(perTurnInstructions !== undefined
-          ? {
-              systemPrompt: [
-                ...runtime.systemSegments,
-                { text: perTurnInstructions, cacheable: false },
-              ],
-            }
-          : {}),
-        // Reasoning depth for this turn. Base level is THIS session's, mutated
-        // live by `/effort` (backlog #57 — per-session on the SessionContext).
-        // The per-lane meaning of each level (including what `off` puts on the
-        // wire) is the adapters' business, not the gateway's. sessionCtx is
-        // re-fetched across the compaction-retry hop, so the session level
-        // stays correct.
-        //
-        // The per-turn override (PostTurnRequest.effort) WINS when present.
-        // Written as a `??` fallback rather than a conditional spread because
-        // PerTurn.effort must ALWAYS be set here — the session level is the
-        // meaningful default, and omitting the key would drop it. Turn-local
-        // and stable across the compaction-retry hop (like perTurnModel): the
-        // override lives in this function's parameter, so `sessionCtx.effort`
-        // is never mutated and the next turn is back on the session's level.
-        effort: perTurnEffort ?? sessionCtx.effort,
-        // Backlog #43 (D6 fix) — MEMORY.md injection on the server surface.
-        // `sessionCtx.memoryManager` is always present (built unconditionally
-        // in buildSessionContext).
-        memoryManager: sessionCtx.memoryManager,
-        // Learning-loop spike Phase 1 — per-session recall thunk. Present only
-        // when `learning.recall.enabled`; the conditional spread keeps the
-        // field absent otherwise (exactOptionalPropertyTypes + default-off).
-        ...(sessionCtx.recall !== undefined ? { recall: sessionCtx.recall } : {}),
-        // Mid-turn steering thunk (`--steer-file`) — see the closure above.
-        ...(pollSteering !== undefined ? { pollSteering } : {}),
-        // PER-HOP because it's rebuilt with the pivoted `sessionId` (and the
-        // scoped pool sub-agents inherit). buildSessionToolContext re-reads the
-        // child SessionContext, so post-compaction tool calls target the child.
-        toolContext: buildSessionToolContext(runtime, sessionId, scope.canUseTool, {
-          delegationLifecycleRecorder,
-          // Sub-agents forked mid-turn inherit the scoped pool.
-          effectivePool: scope.tools,
+      // PER-HOP slice: sessionId, turnId and the SessionContext-derived
+      // fields (effort, memory, recall, tool context) are rebuilt for the
+      // possibly-pivoted session; the bus/turn abort signal cancels the
+      // provider stream + tool loop on cancel / disconnect / server.stop().
+      const stream = composed.agent.run(
+        currentMessages,
+        composed.perTurn({
+          sessionId,
+          sessionCtx,
+          ...(turnId !== undefined ? { turnId } : {}),
         }),
-        // Session-scoped canUseTool: the `ask` callback emits a
-        // permission_request event on this session's bus and awaits the
-        // matching POST /approvals/:requestId. Feature B wraps it as
-        // `scope.canUseTool` so an out-of-scope tool call on a scoped `/skill`
-        // turn is denied BEFORE the session gate runs (identity-wrapped — i.e.
-        // === sessionCanUseTool — when unscoped). PerTurn-only on createAgent
-        // (no standing canUseTool field), so it MUST ride the per-hop slice.
-        canUseTool: scope.canUseTool,
-        // M7 T3 — server-side trace recorder. Forwards every TraceEvent into
-        // the per-session TraceWriter. The closure dereferences sessionCtx
-        // dynamically, so post-compaction events land in the child's file.
-        traceRecorder,
-        signal: turnSignal,
-        // Task 7.2 — opt OUT of createAgent's convert-throw-to-terminal default.
-        // The three pre-loop async ops query() runs OUTSIDE its per-turn
-        // try/catch (memory injection `prefetchSnapshot`, the recall thunk, the
-        // UserPromptSubmit hook) can THROW. With `rethrow: true` that throw
-        // propagates out of runOnce → the outer catch below → `turn_error`,
-        // byte-identical to the pre-7.1 direct-query() drive. Without it the
-        // SDK would swallow the throw into `terminal{reason:'error'}` →
-        // `turn_complete{finishReason:'error'}` (the 7.1 wire regression).
-        // In-loop errors are unaffected (query() RETURNS those terminals).
-        rethrow: true,
+      );
+      const relayed = await relayAgentRun(stream, {
+        sink: bus,
+        sessionId,
+        sessionCtx,
+        toolPool: runtime.toolPool,
+        persist: composed.relayPersist,
+        conductBound: runtime.conduct !== undefined,
+        sawTextDelta,
+        // Usage telemetry (T5) — fold EVERY StreamEvent into both
+        // accumulators: `hopUsageAcc` sums THIS hop's calls (→ sessionDb),
+        // `turnUsageAcc` sums ALL calls across the turn's hops (→ the wire).
+        onStreamEvent: (streamEvent) => {
+          hopUsageAcc = accumulateUsage(hopUsageAcc, streamEvent);
+          turnUsageAcc = accumulateUsage(turnUsageAcc, streamEvent);
+        },
       });
-
-      // M3 collapses all assistant output onto block 0. Per-block indexing
-      // would require tracking the position of each tool_use within its
-      // assistant message — deferred until the TUI needs it for richer
-      // multi-call rendering (M4+).
-      const currentBlock = 0;
-      const pendingToolUses = new Map<string, PendingToolUse>();
-
-      // Manual iteration — `for await...of` discards the generator's
-      // return value, which is the `Terminal` (the real end-of-turn
-      // signal). We need that to inspect Terminal.error for overflow
-      // recovery and to emit exactly one wire `turn_complete` per user
-      // turn regardless of how many internal model calls query() made.
-      while (true) {
-        const result = await stream.next();
-        if (result.done) {
-          // Task 7.1 — agent.run()'s generator-return is a `RunResult`, not a
-          // bare `Terminal`. Unwrap `.terminal` so runOnce keeps returning
-          // `Terminal | undefined` (the overflow-recovery branch + the
-          // turn_complete path below read it unchanged). The yielded
-          // `StreamEvent | Message` stream is byte-identical to query()'s by
-          // the createAgent stream-passthrough invariant, so the consumption
-          // loop is otherwise untouched.
-          return result.value.terminal;
-        }
-        const event = result.value;
-
-        // User-role Messages flow out of query() for tool-result and
-        // guidance batches (see core/orchestrator.ts and core/query.ts).
-        // Assistant Messages flow out as `assistant_message` StreamEvents,
-        // not as bare Message objects — they're handled below.
-        if (typeof event === 'object' && event !== null && 'role' in event) {
-          handleUserMessage(
-            event,
-            bus,
-            sessionId,
-            currentBlock,
-            pendingToolUses,
-            runtime,
-            sessionCtx,
-          );
-          continue;
-        }
-
-        // StreamEvent. Special-case `assistant_message`: it carries the
-        // full assistant Message whose `tool_use` content blocks need to
-        // be projected onto the wire as `tool_use_start` / `tool_use_done`
-        // pairs. Everything else flows through mapStreamEventToServerEvent.
-        const streamEvent = event;
-        // Usage telemetry (T5) — fold EVERY StreamEvent into both accumulators.
-        // accumulateUsage acts only on message_start / message_stop / usage_delta
-        // (the per-call boundaries + the usage payload) and returns the input
-        // state unchanged for everything else, so feeding it the whole stream is
-        // safe. This replaces the old last-writer-wins `latestUsage` capture:
-        // `hopUsageAcc` sums THIS hop's calls (→ sessionDb), `turnUsageAcc` sums
-        // ALL calls across the turn's hops (→ the wire).
-        hopUsageAcc = accumulateUsage(hopUsageAcc, streamEvent);
-        turnUsageAcc = accumulateUsage(turnUsageAcc, streamEvent);
-        if (streamEvent.type === 'assistant_message') {
-          handleAssistantMessage(
-            streamEvent.message,
-            bus,
-            sessionId,
-            currentBlock,
-            pendingToolUses,
-            runtime.toolPool,
-            runtime,
-            sessionCtx,
-            sawTextDelta,
-            runtime.conduct !== undefined,
-          );
-          continue;
-        }
-        const mapped = mapStreamEventToServerEvent(streamEvent, bus, sessionId, currentBlock);
-        if (mapped !== null) {
-          // Item 3 — record that live text streamed this turn. Guards the
-          // buffered-delivery branch in handleAssistantMessage so a streaming
-          // turn never double-delivers its final (post-governor) text.
-          if (mapped.type === 'text_delta') sawTextDelta = true;
-          bus.publish(mapped);
-        }
-      }
+      sawTextDelta = relayed.sawTextDelta;
+      return relayed.result.terminal;
     };
 
     // Reset the PER-HOP accumulator before each runOnce so this hop's
@@ -1399,212 +957,5 @@ async function runTurnInBackground(
     // turns) would never deliver. Fire-and-forget: flush() never throws and
     // never blocks turn teardown.
     void runtime.assayRecorder?.flush();
-  }
-}
-
-/** Item 3 — process-level guard so the buffered-delivery diagnostic warns
- *  exactly once. The condition (conduct bound + a text-bearing final message
- *  that never streamed a delta) is a configuration footgun worth announcing,
- *  but repeating it on every buffered turn would flood the gateway log. */
-let bufferedDeliveryWarned = false;
-
-/** Emit `tool_use_start` + `tool_use_done` for each `tool_use` block in the
- *  assistant message and stash the call's `tool` / `input` / `renderHint` in
- *  `pending` so the matching `tool_result` wire event can echo them.
- *
- *  Whole-branch review I1 — increments `sessionCtx.trajectoryMetadata
- *  .toolCallCount` exactly once per `tool_use` block so the trajectory
- *  record flushed on disposal carries the actual count. Without this,
- *  every trajectory would ship with `toolCallCount: 0` — the corpus
- *  consumer's per-session activity signal would be dead.
- *
- *  Item 3 — buffered-mode delivery. In buffered (non-streaming) mode the
- *  provider emits ZERO `text_delta` events; the whole answer arrives here on
- *  the final (POST-governor) `assistant_message`. When nothing streamed this
- *  turn (`sawTextDelta === false`), each `type:'text'` block is projected onto
- *  the wire as a `text_delta` server event (reusing the existing shape — zero
- *  client change) so the live UI shows the answer. When ANY delta streamed the
- *  branch is skipped, keeping the streaming path byte-identical (the wire keeps
- *  the original streamed text, never the possibly-substituted accumulated
- *  message). `thinking` blocks are NEVER projected — only assistant text. */
-function handleAssistantMessage(
-  msg: AssistantMessage,
-  bus: ServerEventBus,
-  sessionId: string,
-  block: number,
-  pending: Map<string, PendingToolUse>,
-  toolPool: readonly Tool<unknown, unknown>[],
-  host: PersistMessageHost,
-  sessionCtx: SessionContext,
-  sawTextDelta: boolean,
-  conductBound: boolean,
-): void {
-  // Persist before emitting wire events so resume can reconstruct the full turn even if the SSE subscriber disconnects.
-  persistMessage(host, sessionId, {
-    role: msg.role,
-    content: msg.content,
-  });
-  for (const contentBlock of msg.content) {
-    if (contentBlock.type !== 'tool_use') continue;
-    sessionCtx.trajectoryMetadata.toolCallCount += 1;
-    const tool = toolPool.find((t) => t.name === contentBlock.name);
-    const renderHint: RenderHint = tool?.renderHint ?? { kind: 'text' };
-    pending.set(contentBlock.id, {
-      tool: contentBlock.name,
-      input: contentBlock.input,
-      renderHint,
-    });
-    bus.publish({
-      type: 'tool_use_start',
-      seq: bus.nextSeq(),
-      sessionId,
-      block,
-      tool: contentBlock.name,
-      inputPartial: contentBlock.input,
-    });
-    bus.publish({
-      type: 'tool_use_done',
-      seq: bus.nextSeq(),
-      sessionId,
-      block,
-      input: contentBlock.input,
-    });
-  }
-
-  // Item 3 — buffered-mode delivery. Streaming already put the text on the
-  // wire (delta-by-delta), so only project when NOTHING streamed this turn.
-  if (sawTextDelta) return;
-  let deliveredText = false;
-  for (const contentBlock of msg.content) {
-    if (contentBlock.type !== 'text') continue;
-    deliveredText = true;
-    bus.publish({
-      type: 'text_delta',
-      seq: bus.nextSeq(),
-      sessionId,
-      block,
-      text: contentBlock.text,
-    });
-  }
-  // The footgun announces itself: a bound conduct pack + a text-bearing final
-  // message that never streamed a delta means the provider ran buffered and
-  // the live UI would have shown nothing without this branch. Warn once.
-  if (deliveredText && conductBound && !bufferedDeliveryWarned) {
-    bufferedDeliveryWarned = true;
-    console.warn(
-      '[gateway] buffered-mode delivery: a conduct pack is bound and a turn produced a text-bearing final message with zero streamed text_delta — delivering the final text to the live SSE. The provider ran in buffered (non-streaming) mode; live output arrives only at turn end.',
-    );
-  }
-}
-
-/** Drain pending tool_use entries against the user-role message's
- *  `tool_result` content blocks. Non-tool-result user messages
- *  (e.g. loop-detector guidance text injected back into history) are
- *  not wire-meaningful in M3 and are ignored.
- *
- *  Whole-branch review I1 — increments `sessionCtx.trajectoryMetadata
- *  .iterationsUsed` exactly once per `tool_result` block so the
- *  trajectory record flushed on disposal carries the actual iteration
- *  count. Every tool_result that lands is one iteration through the
- *  tool loop, regardless of error state. */
-function handleUserMessage(
-  msg: Message,
-  bus: ServerEventBus,
-  sessionId: string,
-  block: number,
-  pending: Map<string, PendingToolUse>,
-  host: PersistMessageHost,
-  sessionCtx: SessionContext,
-): void {
-  if (msg.role !== 'user') return;
-  // Persist all user-role messages (tool_result and guidance) so resume reconstructs exact prior context.
-  persistMessage(host, sessionId, {
-    role: msg.role,
-    content: msg.content,
-  });
-  for (const contentBlock of msg.content) {
-    if (contentBlock.type !== 'tool_result') continue;
-    sessionCtx.trajectoryMetadata.iterationsUsed += 1;
-    const pendingEntry = pending.get(contentBlock.tool_use_id);
-    const tool = pendingEntry?.tool ?? 'unknown';
-    const input = pendingEntry?.input ?? null;
-    const renderHint = pendingEntry?.renderHint ?? { kind: 'text' };
-    const event: ServerEvent = {
-      type: 'tool_result',
-      seq: bus.nextSeq(),
-      sessionId,
-      block,
-      tool,
-      input,
-      output: contentBlock.content,
-      renderHint: renderHint.kind,
-      ...('language' in renderHint && renderHint.language !== undefined
-        ? { language: renderHint.language }
-        : {}),
-    };
-    bus.publish(event);
-    pending.delete(contentBlock.tool_use_id);
-  }
-}
-
-/** Translate core/types.Terminal.reason → the wire `finishReason` string.
- *  Keep the model-facing vocabulary (`end_turn`, `max_tokens`, …) on the
- *  wire so the Go TUI doesn't have to know the runtime's internal terms. */
-function mapTerminalReason(terminal: Terminal | undefined): string {
-  if (!terminal) return 'end_turn';
-  switch (terminal.reason) {
-    case 'completed':
-      return 'end_turn';
-    case 'max_tokens':
-      return 'max_tokens';
-    case 'max_turns':
-      return 'max_turns';
-    case 'interrupted':
-      return 'interrupted';
-    case 'checkin':
-      return 'checkin';
-    case 'error':
-      return 'error';
-    default:
-      return 'end_turn';
-  }
-}
-
-/** Pure mapping for the StreamEvent shapes that have a 1:1 wire counterpart.
- *  `assistant_message` is handled separately (it carries the tool_use blocks
- *  the wire needs to project as tool_use_start/_done pairs). `message_stop`
- *  is intentionally NOT mapped — the AsyncGenerator's return value carries
- *  the turn boundary; mapping `message_stop` would emit one `turn_complete`
- *  per internal model call, truncating tool-using turns. See the header. */
-function mapStreamEventToServerEvent(
-  event: StreamEvent,
-  bus: ServerEventBus,
-  sessionId: string,
-  block: number,
-): ServerEvent | null {
-  switch (event.type) {
-    case 'text_delta':
-      return {
-        type: 'text_delta',
-        seq: bus.nextSeq(),
-        sessionId,
-        block,
-        text: event.text,
-      };
-    case 'thinking_delta':
-      return {
-        type: 'thinking_delta',
-        seq: bus.nextSeq(),
-        sessionId,
-        block,
-        text: event.thinking,
-      };
-    // message_stop intentionally NOT mapped — see header.
-    // assistant_message handled separately in runTurnInBackground.
-    // M3 deliberately omits tool_use_delta, usage_delta, message_start,
-    // microcompact, loop_detected, route_decision — those wire onto
-    // richer ServerEvent types in M4+.
-    default:
-      return null;
   }
 }

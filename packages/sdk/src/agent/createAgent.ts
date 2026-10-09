@@ -76,7 +76,11 @@ import type { CanUseTool } from '../permissions/types.js';
 import type { SessionStore } from '../persistence/sessionStore.js';
 import type { TranscriptStore } from '../persistence/transcriptStore.js';
 import type { ReasoningEffort } from '../providers/effort.js';
-import { PersistBeforeRunError, UnknownToolsetError } from '../providers/errors.js';
+import {
+  PersistBeforeRunError,
+  SessionPersistenceError,
+  UnknownToolsetError,
+} from '../providers/errors.js';
 import { estimateCostUsd } from '../providers/pricing.js';
 import { resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
@@ -844,7 +848,7 @@ export function createAgent(config: AgentConfig): Agent {
       } catch (err) {
         const alreadySaved =
           terminal.reason === 'error' && terminal.error instanceof PersistBeforeRunError;
-        if (!alreadySaved) throw err;
+        if (!alreadySaved) throw new SessionPersistenceError(err);
       }
     }
 

@@ -446,6 +446,15 @@ describe('createTelegramListener — getUpdates long-poll adapter', () => {
 
     try {
       const { transport, getUpdatesOffsets, sent } = makeMockTransport([[privateUpdate(500)], []]);
+      let delivered!: () => void;
+      const delivery = new Promise<void>((resolve) => {
+        delivered = resolve;
+      });
+      const send = transport.sendMessage.bind(transport);
+      transport.sendMessage = async (chatId, text) => {
+        await send(chatId, text);
+        delivered();
+      };
       const listener = createTelegramListener({
         runtime,
         botToken: TOKEN,
@@ -461,7 +470,7 @@ describe('createTelegramListener — getUpdates long-poll adapter', () => {
 
       // Fire the captured tick fn → it triggers one poll (fire-and-forget).
       capturedFn?.();
-      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+      await delivery;
       expect(sent).toEqual([{ chatId: 42, text: 'Hello world.' }]);
 
       // Double-start guard: a second start() must not schedule again.
@@ -471,7 +480,7 @@ describe('createTelegramListener — getUpdates long-poll adapter', () => {
 
       // stop() clears the interval; no further getUpdates after the captured fn
       // is no longer fired.
-      listener.stop();
+      await listener.stop();
       expect(cleared).toBe(true);
       const offsetsAfterStop = getUpdatesOffsets.length;
       // Nothing fires the timer now, so no further getUpdates calls accrue.

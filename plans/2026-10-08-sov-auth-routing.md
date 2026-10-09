@@ -5,7 +5,7 @@
 **Scope:** SOV code only (spec §4.1, §4.2, §5, §6, §7). Telekit consumer work is the Telekit node's.
 **Branch:** `feat/sov-auth-routing`. **Progress artifact:** `handoffs/2026-10-08-sov-auth-routing-progress.md`.
 
-Each task gets a fresh Opus implementer and a review before the next dependent task.
+Each task gets a fresh Codex implementer and a review before the next dependent task.
 
 ## T1 — Route and credential contract
 

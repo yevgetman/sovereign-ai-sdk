@@ -85,6 +85,10 @@ function pickEffort(value: unknown): ReasoningEffort | undefined {
 }
 
 export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Promise<number> {
+  if (opts.sdk === true) {
+    const { runSdkRunCommand } = await import('./sdkRunCommand.js');
+    return runSdkRunCommand(opts, io);
+  }
   const writeStdout =
     io.writeStdout ??
     ((s: string): void => {
@@ -101,6 +105,22 @@ export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Pr
 
   if (pickBoolean(opts.json) !== true || pickBoolean(opts.stdin) !== true) {
     writeStderr('sov run: the initial machine contract requires --json and --stdin\n');
+    return 2;
+  }
+
+  if (
+    opts.route !== undefined ||
+    opts.inputFormat === 'json' ||
+    (opts.toolset !== undefined && opts.toolset !== 'coding') ||
+    opts.deadlineMs !== undefined
+  ) {
+    writeJson({
+      type: 'turn.error',
+      sessionId: null,
+      code: 'invalid_input',
+      error: 'Native route and input controls require --sdk; no provider was started.',
+      recoverable: false,
+    });
     return 2;
   }
 

@@ -136,7 +136,7 @@ const DEFINITIONS: Readonly<Record<RouteId, RouteDefinition>> = {
     auth: 'api_key',
     displayName: 'OpenAI (API key)',
     builtinDefaultModel: requiredDefault('openai'),
-    knownModels: ['gpt-4o-mini', 'gpt-4o'],
+    knownModels: ['gpt-4o-mini', 'gpt-4o', 'gpt-5'],
     effortsFor: (model) => allOrOff(modelSupportsReasoning(model, 'openai')),
     isKnownIncompatible: directFamilyRule('openai'),
   },

@@ -75,6 +75,13 @@ const LIVE: SubscriptionRecord = {
   expiresAt: NOW + 3_600_000,
 };
 
+test('OpenAI route advertises reasoning choices without granting them to its non-reasoning default', () => {
+  const route = getRoute('openai-api', {});
+  expect(route.efforts).toContain('high');
+  expect(route.modelEfforts['gpt-4o-mini']).toEqual(['off']);
+  expect(route.modelEfforts['gpt-5']).toContain('high');
+});
+
 describe('route catalog', () => {
   test('six reserved routes with the exact provider/auth pairs', () => {
     const pairs = listRoutes().map((r) => [r.id, r.provider, r.auth]);

@@ -9,6 +9,7 @@ import {
   CredentialUnavailableError,
   PersistBeforeRunError,
   ProviderHttpError,
+  SessionPersistenceError,
   SubscriptionAuthExpiredError,
   SubscriptionHttpError,
   SubscriptionLoginMissingError,
@@ -73,7 +74,8 @@ export function routeErrorCodeFor(err: unknown): RouteErrorCode {
   if (err instanceof CredentialStoreUnavailableError) return 'credential_unavailable';
   if (err instanceof ClaudeMaxTermsError) return 'route_unavailable';
   if (err instanceof CredentialUnavailableError) return 'credential_missing';
-  if (err instanceof PersistBeforeRunError) return 'storage_failed';
+  if (err instanceof PersistBeforeRunError || err instanceof SessionPersistenceError)
+    return 'storage_failed';
   if (err instanceof UnknownToolsetError) return 'invalid_input';
   if (err instanceof ContextOverflowError || isContextOverflowError(err)) return 'context_overflow';
   if (err instanceof SubscriptionHttpError) return codeForStatus(err.status);

@@ -290,7 +290,7 @@ describe('grok provider', () => {
     expect((error as Error).message).toBe(
       'This login tier cannot use the HTTP path. An API-key provider is a separate explicit choice.',
     );
-    expect(urls).toEqual(['https://api.x.ai/v1/chat/completions']);
+    expect(urls).toEqual(['https://api.x.ai/v1/responses']);
   });
 });
 

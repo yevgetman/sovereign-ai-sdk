@@ -179,6 +179,7 @@ export {
   ClaudeMaxTermsError,
   ContextOverflowError,
   PersistBeforeRunError,
+  SessionPersistenceError,
   SubscriptionAuthExpiredError,
   SubscriptionTierBlockedError,
   UnknownToolsetError,

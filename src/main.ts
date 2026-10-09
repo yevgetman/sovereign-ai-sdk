@@ -317,6 +317,11 @@ async function main(argv: string[]): Promise<void> {
     .description(
       'Headless one-shot machine contract — reads all stdin as one prompt, runs one turn through the same server/runtime path as the TUI, and emits JSONL events. Initial contract requires --json --stdin.',
     )
+    .option('--sdk', 'run the selected route directly through the SDK, without a listener')
+    .option('--route <id>', 'explicit authentication route (required with --sdk)')
+    .option('--input-format <format>', 'stdin format: text or strict JSON envelope', 'text')
+    .option('--toolset <name>', 'native SDK toolset: chat, web, ops, coding', 'coding')
+    .option('--deadline-ms <n>', 'native turn deadline in milliseconds', parsePositiveInt)
     .option('--json', 'emit newline-delimited JSON machine events')
     .option('--stdin', 'read the prompt from all of stdin')
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
@@ -343,7 +348,7 @@ async function main(argv: string[]): Promise<void> {
     .option(
       '--effort <level>',
       "reasoning effort for fresh sessions: 'off', 'low', 'medium', 'high', or 'max'",
-      parseReasoningEffort,
+      (value) => (value === 'auto' ? 'auto' : parseReasoningEffort(value)),
     )
     .action(async (opts) => {
       const { runRunCommand } = await import('./cli/runCommand.js');

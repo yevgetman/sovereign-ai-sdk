@@ -43,6 +43,8 @@ The command surface and day-to-day operation.
 
 - [Usage guide](03-cli-reference/usage.md) — CLI flags, subcommands, slash commands, the eval suite, the local-model router, profiles, providers, themes, web tools.
 
+- [Native SDK routes](03-cli-reference/sdk-routes.md) — six explicit authentication routes, read-only discovery and the headless host.
+
 ## 04 — Extending
 
 Recipes for adding extension points.
@@ -61,7 +63,6 @@ Patterns and standing rules contributors must follow. (These are the operating c
 - [`sov` upgrade](05-conventions/sov-upgrade.md) — keep the global `sov` binary current after a runtime/TUI change.
 - [Estimation](05-conventions/estimation.md) — quote effort in sessions / dispatches / wall-minutes, never weeks.
 - [Repo layout](05-conventions/repo-layout.md) — where files go in `src/`, how to name a plan/spec, how to move things.
-- [Subagent policy](05-conventions/subagent-policy.md) — the hard rule on Opus / Sonnet / never-Haiku for dispatched subagents.
 - [Semantic tests](05-conventions/semantic-tests.md) — when and how to run `bun run test:semantic`.
 - [Testing-log obligation](05-conventions/testing-log.md) — the append-an-entry-when-you-test rule (the log itself is in `06-testing/`).
 - [TUI style guide](05-conventions/tui-style-guide.md) — all spacing/borders/glyphs/colors/type come from `style.S.*`; never hardcode layout in components.

@@ -155,6 +155,14 @@ export class PersistBeforeRunError extends Error {
   }
 }
 
+/** A final transcript/usage write failed after the model ran. */
+export class SessionPersistenceError extends Error {
+  constructor(cause?: unknown) {
+    super('session persistence failed', { cause });
+    this.name = 'SessionPersistenceError';
+  }
+}
+
 /**
  * Anthropic's consumer terms, checked 2026-10-06, forbid a third-party HTTP
  * call with a Claude Max login. This build does not send that call.

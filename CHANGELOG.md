@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — native SDK authentication routes
+
+- Six explicit routes share SOV’s SDK loop: OpenRouter, Anthropic, OpenAI and direct xAI keys; ChatGPT and Grok subscriptions.
+- Read-only capabilities, routes and local credential status support headless adapters.
+- Native SDK mode uses shared host composition, restricted toolsets and one durable message writer. It starts no listener or external harness.
+- Subscription refresh/login/logout coordinate across processes. Grok uses the Responses API; failed or truncated responses never count as success.
+- Retired the stale subagent model restriction at the Owner’s instruction.
+- Live account eligibility and installed adapter verification require separate evidence.
+
 ## harness 0.6.74 — subscription logins and an empty conduct port - 2026-10-06
 
 sdk 0.10.3 -> 0.11.0 (minor: new `.` entry exports for toolsets, subscription

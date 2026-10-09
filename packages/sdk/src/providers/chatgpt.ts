@@ -1,12 +1,12 @@
 import { Buffer } from 'node:buffer';
-import type {
-  AssistantMessage,
-  ContentBlock,
-  StopReason,
-  StreamEvent,
-  TokenUsage,
-} from '../core/types.js';
+import type { AssistantMessage, StreamEvent } from '../core/types.js';
 import { VERSION } from '../version.js';
+import {
+  codexReasoning,
+  responsesInput,
+  responsesTools,
+  translateResponsesSse,
+} from './responses.js';
 import {
   type AttemptDeps,
   defaultAttemptDeps,
@@ -20,7 +20,7 @@ import type {
   SubscriptionRecord,
 } from './subscription/port.js';
 import { exchangeUnderLock, loadFreshRecord } from './subscription/tokens.js';
-import type { LLMProvider, ProviderRequest, ToolSchema } from './types.js';
+import type { LLMProvider, ProviderRequest } from './types.js';
 
 /** Codex backend. Never `api.openai.com`. */
 export const CHATGPT_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses';
@@ -62,7 +62,7 @@ export class ChatGptSubscriptionProvider implements LLMProvider {
         }),
       refresh: () => this.refresh(sentRecord, req.signal),
     });
-    return yield* translateCodexSse(response);
+    return yield* translateResponsesSse(response, this.name);
   }
 
   private async send(
@@ -82,6 +82,7 @@ export class ChatGptSubscriptionProvider implements LLMProvider {
     const body = codexBody(req);
     return this.fetchImpl(CHATGPT_RESPONSES_URL, {
       method: 'POST',
+      redirect: 'error',
       headers: {
         authorization: `Bearer ${record.accessToken}`,
         'content-type': 'application/json',
@@ -146,60 +147,23 @@ function codexBody(req: ProviderRequest): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: req.model,
     instructions,
-    input: toCodexInput(req),
+    input: responsesInput(req),
     store: false,
     stream: true,
-    max_output_tokens: req.maxTokens,
+    reasoning: codexReasoning(req.effort),
   };
-  if (req.temperature !== undefined) body.temperature = req.temperature;
-  const tools = toCodexTools(req.tools);
+  const tools = responsesTools(req.tools);
   if (tools) body.tools = tools;
+  if (req.toolChoice)
+    body.tool_choice =
+      req.toolChoice.type === 'tool'
+        ? { type: 'function', name: req.toolChoice.name }
+        : req.toolChoice.type === 'any'
+          ? 'required'
+          : 'auto';
+  // The Codex subscription backend rejects max_output_tokens and temperature.
+  // It sets its own output limit; this route does not send unsupported fields.
   return body;
-}
-
-function toCodexTools(tools: ToolSchema[] | undefined) {
-  if (!tools || tools.length === 0) return undefined;
-  return tools.map((tool) => ({
-    type: 'function',
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.input_schema,
-  }));
-}
-
-function toCodexInput(req: ProviderRequest): unknown[] {
-  const items: unknown[] = [];
-  for (const message of req.messages) {
-    for (const block of message.content) {
-      if (block.type === 'text' && message.role === 'user') {
-        items.push({
-          type: 'message',
-          role: 'user',
-          content: [{ type: 'input_text', text: block.text }],
-        });
-      } else if (block.type === 'text' && message.role === 'assistant') {
-        items.push({
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'output_text', text: block.text }],
-        });
-      } else if (block.type === 'tool_use') {
-        items.push({
-          type: 'function_call',
-          call_id: block.id,
-          name: block.name,
-          arguments: JSON.stringify(block.input ?? {}),
-        });
-      } else if (block.type === 'tool_result') {
-        items.push({
-          type: 'function_call_output',
-          call_id: block.tool_use_id,
-          output: block.content,
-        });
-      }
-    }
-  }
-  return items;
 }
 
 function accountHeaders(accessToken: string): Record<string, string> {
@@ -227,91 +191,4 @@ function accountHeaders(accessToken: string): Record<string, string> {
     // A malformed token fails as HTTP 401, not as a thrown decode error.
   }
   return headers;
-}
-
-async function* translateCodexSse(
-  response: Response,
-): AsyncGenerator<StreamEvent, AssistantMessage> {
-  yield { type: 'message_start' };
-  const textParts: string[] = [];
-  const toolBlocks: ContentBlock[] = [];
-  let usage: TokenUsage | undefined;
-  let sawEvent = false;
-  const raw = await response.text();
-  if (raw.trim().length === 0) {
-    throw new Error('subscription provider chatgpt returned an empty stream');
-  }
-  for (const event of sseData(raw)) {
-    sawEvent = true;
-    const type = typeof event.type === 'string' ? event.type : '';
-    if (type === 'response.output_text.delta' && typeof event.delta === 'string') {
-      textParts.push(event.delta);
-      yield { type: 'text_delta', text: event.delta };
-    }
-    if (type === 'response.output_item.done') {
-      const item = event.item;
-      if (item && typeof item === 'object') {
-        const row = item as Record<string, unknown>;
-        if (row.type === 'function_call') {
-          const id = typeof row.call_id === 'string' ? row.call_id : String(row.id ?? 'tool');
-          const name = typeof row.name === 'string' ? row.name : 'tool';
-          const input = parseArgs(row.arguments);
-          const block: ContentBlock = { type: 'tool_use', id, name, input };
-          toolBlocks.push(block);
-          yield { type: 'tool_use_delta', id, partial: input };
-        }
-      }
-    }
-    if (type === 'response.completed') {
-      usage = usageFrom(event.response);
-    }
-  }
-  if (!sawEvent) throw new Error('subscription provider chatgpt returned an empty stream');
-  if (usage) yield { type: 'usage_delta', usage };
-  const content: ContentBlock[] = [];
-  const text = textParts.join('');
-  if (text.length > 0) content.push({ type: 'text', text });
-  content.push(...toolBlocks);
-  const stopReason: StopReason = toolBlocks.length > 0 ? 'tool_use' : 'end_turn';
-  const message: AssistantMessage = { role: 'assistant', content };
-  yield { type: 'message_stop', stop_reason: stopReason };
-  yield { type: 'assistant_message', message };
-  return message;
-}
-
-function sseData(raw: string): Record<string, unknown>[] {
-  const events: Record<string, unknown>[] = [];
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('data:')) continue;
-    const data = trimmed.slice(5).trim();
-    if (data.length === 0 || data === '[DONE]') continue;
-    try {
-      const parsed = JSON.parse(data) as unknown;
-      if (parsed && typeof parsed === 'object') events.push(parsed as Record<string, unknown>);
-    } catch {
-      // Ignore a non-JSON keep-alive line.
-    }
-  }
-  return events;
-}
-
-function parseArgs(value: unknown): unknown {
-  if (typeof value !== 'string' || value.length === 0) return {};
-  try {
-    return JSON.parse(value) as unknown;
-  } catch {
-    return {};
-  }
-}
-
-function usageFrom(response: unknown): TokenUsage | undefined {
-  if (!response || typeof response !== 'object') return undefined;
-  const usage = (response as { usage?: unknown }).usage;
-  if (!usage || typeof usage !== 'object') return undefined;
-  const row = usage as { input_tokens?: unknown; output_tokens?: unknown };
-  const out: TokenUsage = {};
-  if (typeof row.input_tokens === 'number') out.inputTokens = row.input_tokens;
-  if (typeof row.output_tokens === 'number') out.outputTokens = row.output_tokens;
-  return out;
 }
