@@ -18,6 +18,8 @@ import {
   MAX_CACHE_BREAKPOINTS,
   RECENT_MESSAGE_CACHE_WINDOW,
 } from '@yevgetman/sov-sdk/providers/promptCache';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import { z } from 'zod';
 
 async function* iterate<T>(items: T[]): AsyncIterable<T> {
   for (const item of items) yield item;
@@ -331,6 +333,75 @@ describe('translateOpenAIStream', () => {
     );
     expect(fetches).toBe(1);
     expect(body.locked).toBe(false);
+  });
+
+  test('malformed data cannot authorize a tool call even after a valid finish', async () => {
+    for (const damaged of [
+      'data: {"choices":[{"delta":{"tool_calls":[BROKEN]}}]}\n',
+      'data: {"choices":',
+    ]) {
+      let fetches = 0;
+      let calls = 0;
+      let cancelled = false;
+      const first =
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"Echo","arguments":"{}"}}]}}]}\n';
+      const finish = 'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n';
+      const wire = damaged.endsWith('\n')
+        ? `${first}${damaged}${finish}data: [DONE]\n`
+        : first + finish + damaged;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(wire));
+          if (!damaged.endsWith('\n')) controller.close();
+        },
+        cancel() {
+          cancelled = true;
+        },
+      });
+      const provider = new OpenAIProvider({
+        apiKey: 'offline',
+        fetchImpl: (async () => {
+          fetches++;
+          return new Response(body);
+        }) as unknown as typeof fetch,
+      });
+      const tool = buildTool({
+        name: 'Echo',
+        description: () => 'offline counter',
+        inputSchema: z.object({}),
+        async call() {
+          calls++;
+          return { data: 'called' };
+        },
+      });
+      const gen = createAgent({
+        provider,
+        model: 'offline',
+        systemPrompt: '',
+        maxTokens: 10,
+        tools: [tool],
+        maxTurns: 1,
+      }).run('hello');
+      const events = [];
+      for (;;) {
+        const step = await gen.next();
+        if (step.done) {
+          expect(step.value.terminal.reason).toBe('error');
+          if (step.value.terminal.reason === 'error')
+            expect(step.value.terminal.error).toBeInstanceOf(ProviderStreamError);
+          expect(step.value.finalAssistant).toBeUndefined();
+          break;
+        }
+        events.push(step.value);
+      }
+      expect(events.some((event) => 'type' in event && event.type === 'assistant_message')).toBe(
+        false,
+      );
+      expect(calls).toBe(0);
+      expect(fetches).toBe(1);
+      expect(body.locked).toBe(false);
+      if (damaged.endsWith('\n')) expect(cancelled).toBe(true);
+    }
   });
 
   test('rejects truncated text without a completed assistant message', async () => {

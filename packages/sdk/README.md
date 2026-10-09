@@ -223,7 +223,9 @@ is absent. Built-in `InMemorySessionStore` retains its required rollback method.
 Each dispatched tool call produces one ordered result. Exceptions in permission
 callbacks, hooks, input validation, result rendering, or tool execution become an
 error on that tool's result. A failure after execution retains the available tool
-output alongside the dispatch error. Other tools keep their actual results.
+output alongside the dispatch error. A failing custom output renderer retains
+the raw receipt and valid supplementary messages; unserializable output retains
+a completed-tool marker. Other tools keep their actual results.
 Started concurrent tools are joined before the batch yields or the turn returns,
 including during cancellation. Cancellation prevents further execution once it
 is observed; hosts must provide tools that honor the signal for prompt shutdown.
@@ -237,6 +239,7 @@ cleanup failures do not replace the original outcome.
 OpenAI-compatible responses require an explicit successful `finish_reason` (`stop`,
 `length`, or `tool_calls`/legacy `function_call`). A `[DONE]` marker alone does not
 prove the answer completed. Empty/truncated responses, invalid completion chunks,
+malformed JSON data frames (including a partial trailing data line),
 and malformed or incomplete tool calls throw `ProviderStreamError` (importable from
 `@yevgetman/sov-sdk/providers/errors`). Partial deltas can remain visible, but no
 completed assistant message or executable tool call is emitted for these failures.
