@@ -4,6 +4,19 @@ The **Sovereign AI SDK** — an embeddable `createAgent()` agent-loop engine (op
 
 This is **runtime code**. The business data it operates against lives in a separate repo: `~/code/sovereign-ai-docs/`. This repo reads that one as a *harness bundle* and never writes to business-scope files; runtime state lives under `$HARNESS_HOME` (default `~/.harness`) unless a later phase introduces explicit bundle-state writers.
 
+## Embed the SDK
+
+For a reusable agent engine, install `@yevgetman/sov-sdk` and use its public
+`createAgent()` entry. Start with the [SDK quickstart](packages/sdk/README.md),
+then read [embedding operations](docs/04-extending/embedding-an-agent.md) for
+sessions, permissions, child agents, compaction limits and shutdown.
+
+The app install paths below install the harness, not just the SDK.
+[Contributions](CONTRIBUTING.md) use issues, feature branches and pull requests.
+The [2026-10-09 production review](docs/07-history/audits/2026-10-09-sdk-production-review.md)
+records verified defects and capability gaps. Runtime hardening is proposed,
+not yet shipped. Current PR checks do not enforce the full runtime suite.
+
 ## Surfaces
 
 The same runtime drives several run modes — pick by how you want to reach it:
@@ -18,7 +31,7 @@ The same runtime drives several run modes — pick by how you want to reach it:
 
 Current state lives in [`docs/07-history/state/`](docs/07-history/state/) — newest dated file is canonical.
 
-- **Latest snapshot:** [`docs/07-history/state/2026-06-30-sdk-open-core-extraction.md`](docs/07-history/state/2026-06-30-sdk-open-core-extraction.md) — the harness is now a thin composition over an importable **open-core SDK** (`createAgent()`), with a file-level lint enforcing the open/proprietary boundary. `docs/07-history/state/` carries the most recent close-out. This hard-coded filename can lag, so always confirm the newest with `ls docs/07-history/state/*.md | sort -r | head -1`.
+- **Latest snapshot:** [`docs/07-history/state/2026-10-09-sdk-production-review.md`](docs/07-history/state/2026-10-09-sdk-production-review.md) — SDK 0.12.0 / runtime 0.6.75 and the production review. Full checks pass; five new lifecycle defects are tracked. Confirm the newest dated snapshot before relying on a hard-coded pointer.
 - **Phase history:** [`CHANGELOG.md`](CHANGELOG.md) covers Phases 0–13.3. Phases 13.4 onward + revert history are in [`docs/07-history/state/archive/`](docs/07-history/state/archive/).
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).
@@ -187,12 +200,16 @@ bun run typecheck  # tsc --noEmit
 bun run chat --version
 ```
 
-See [`CLAUDE.md`](CLAUDE.md) for the session boot sequence, doc index, and standing rules when developing this repo.
+See [`AGENTS.md`](AGENTS.md) for the session boot sequence and [`CONTRIBUTING.md`](CONTRIBUTING.md) for the issue/PR process.
 
 ## What this repo contains
 
 | Directory | Purpose | Phase |
 |---|---|---|
+| `packages/sdk/` | MIT embeddable engine; public API, providers, tools, scheduler and persistence ports | SDK |
+| `packages/protocol/` | MIT wire types and typed gateway client | SDK |
+| `.github/ISSUE_TEMPLATE/` | Bug and capability issue templates; PR template is in `.github/` | SDLC |
+| `.kernel/ship-via-pr` | Default feature-branch and pull-request shipping workflow | SDLC |
 | `src/context/` | System/user context assembly, prompt-cache boundaries, injection defense, context references, subdirectory hints | 6, 6.7 |
 | `src/core/` | Async-generator turn loop, content-block types, partition-and-batch orchestrator | 0 scaffold, 1 functional, 4 batched |
 | `src/tool/` | `Tool<I,O>` factory with fail-closed defaults; `affectedPaths` + `renderResult`; `buildToolContext.ts` — the open per-turn tool-context assembler | 0, 4 extensions, SDK extraction |

@@ -61,6 +61,15 @@ schema migration without touching a byte of message content — all *because* of
 invariant. A change to rehydration semantics is breaking even if every type signature
 is unchanged.
 
+## Explicit persisted-prefix boundary (SDK 0.12.0)
+
+`PerTurn.storedPrefixLength` is an optional advanced alternative to verbatim
+prefix comparison. It states how many leading input messages are already stored.
+When supplied, the host owns the accuracy of that boundary and must serialize
+writers. Existing callers can keep the default verbatim path. See
+[embedding operations](../04-extending/embedding-an-agent.md) for the host duties.
+This addition does not remove the existing consumer rehydration contract.
+
 ## Obligations when you change the surface
 
 A change to any of the five entry points/ports, the exported type shapes, or the

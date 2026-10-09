@@ -24,7 +24,10 @@ If you've made multiple unrelated edits, commit them one at a time. A larger num
 
 ## Push autonomously
 
-Same rule as the docs repo: autonomous add / commit / push after every working change. Push target is `origin/master`.
+Stage and commit coherent changes, push a feature branch, and open a pull request.
+Do not push implementation changes directly to `origin/master`. The standing
+`.kernel/ship-via-pr` marker and `CONTRIBUTING.md` define this repo's shipping path.
+The docs sister repo has a separate direct-push policy.
 
 Do this without asking. If a commit or push fails (hook, network, conflict), surface the error and stop — don't force through it.
 
@@ -39,3 +42,8 @@ Do this without asking. If a commit or push fails (hook, network, conflict), sur
 Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`.
 
 Attribution is disabled globally via `~/.claude/settings.json`.
+
+## Read next
+
+- [Contribution process](../../CONTRIBUTING.md)
+- [Design approval](autonomous-feature-builds.md)
