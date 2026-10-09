@@ -1,5 +1,15 @@
 # Testing Log
 
+## 2026-10-09 — Linux regular-file CLI stdin fix
+
+Follow-up to the fixture-transport diagnosis below: shell redirection (`sov run --stdin < file`) reproduced the same failure, so the earlier statement that no production-code failure was involved was incomplete. The supported regular-file stdin contract was broken on Linux Bun 1.3.13 after asynchronous CLI startup. Standalone `process.stdin` iteration and `Bun.stdin.text()` read the same file correctly; no upstream Bun root cause is claimed.
+
+Both wrapper readers now use `Bun.stdin.stream()`. Legacy whole-prompt decoding and the SDK's **2 MiB streaming byte cap** remain intact. No native SDK package gains a Bun dependency. Durable real source-CLI regressions cover legacy pipe and an open regular-file fd; SDK pipe, regular-file and original Blob input; SDK oversized regular-file rejection before credential access. Output/exit assertions remain strict and both SDK streams are drained. No tests are skipped.
+
+`bun test tests/cli/sdkRunCommand.test.ts tests/cli/runCommand.test.ts tests/cli/sdkInput.test.ts` passes on macOS arm64 and isolated Linux arm64 (`node:24-bookworm`, read-only source mount, temporary homes, Bun 1.3.13): **27 pass / zero fail / 138 assertions** on each. Independent Linux shell-file checks now emit legacy `turn.completed`/exit 0 and SDK `credential_missing`/exit 1, as expected without provider calls. `bun run lint` and `bun run typecheck` pass on macOS. Root owns the complete source suite and Linux x64 CI recheck; these local results do not claim that CI has passed.
+
+Additional root aggregate evidence: the actual Agent Casa committed-source consumer passes under its primary Node **24.14.0** runtime: **1,193 pass / zero pending / zero failed**, with its source checkout unchanged. Combined packed consumers also pass at Node 20.19 and Bun 1.2 runtime floors. These consumer checks validate the integrated SDK; they do not exercise the wrapper's Linux stdin path.
+
 ## 2026-10-09 — Linux CLI fixture stdin transport
 
 The new Linux PR gate exposed two source-CLI fixture failures that passed on macOS. Reproduced unchanged in an isolated `node:24-bookworm` Linux arm64 container with Bun 1.3.13, a read-only repository mount and temporary homes: legacy `spawnSync` input reached the CLI as an empty prompt; SDK `Bun.spawn` Blob input produced `invalid_input` before credential resolution. Captured stdout/stderr contained only these safe machine errors; no license or production-code failure was involved.

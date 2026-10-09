@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
@@ -202,59 +210,65 @@ describe('runRunCommand', () => {
     expect(final?.reply).toContain('done.');
   });
 
-  test('real CLI keeps diagnostics on stderr and machine events on stdout', async () => {
-    const missingFlag = spawnSync(process.execPath, [MAIN, 'run', '--json'], {
-      cwd,
-      encoding: 'utf8',
-      env: { ...process.env, HARNESS_HOME: home, SOV_TEST_MOCK_PROVIDER: '1' },
-    });
-    expect(missingFlag.status).toBe(2);
-    expect(missingFlag.stdout).toBe('');
-    expect(missingFlag.stderr).toContain('--json and --stdin');
-
-    const ok = spawn(
-      process.execPath,
-      [
-        MAIN,
-        'run',
-        '--json',
-        '--stdin',
-        '--provider',
-        'mock',
-        '--no-preflight',
-        '--permission-mode',
-        'bypass',
-        '--db',
-        join(home, 'cli-real.db'),
-      ],
-      {
+  test.each(['pipe', 'file'] as const)(
+    'real CLI keeps diagnostics on stderr and machine events on stdout with %s stdin',
+    async (transport) => {
+      const missingFlag = spawnSync(process.execPath, [MAIN, 'run', '--json'], {
         cwd,
+        encoding: 'utf8',
         env: { ...process.env, HARNESS_HOME: home, SOV_TEST_MOCK_PROVIDER: '1' },
-      },
-    );
-    let stdout = '';
-    let stderr = '';
-    ok.stdout.on('data', (chunk) => {
-      stdout += chunk;
-    });
-    ok.stderr.on('data', (chunk) => {
-      stderr += chunk;
-    });
-    const exited = new Promise<number | null>((resolve, reject) => {
-      ok.once('error', reject);
-      ok.once('close', resolve);
-    });
-    // Send through a pipe: Bun's Linux spawnSync input can appear empty to
-    // the child process.stdin iterator. Explicit EOF keeps this portable.
-    ok.stdin.end('hello from a real subprocess');
-    expect(await exited).toBe(0);
-    expect(stderr).toBe('');
-    const lines = stdout.split('\n').filter((line) => line.length > 0);
-    expect(lines.length).toBeGreaterThanOrEqual(3);
-    const events = lines.map((line) => JSON.parse(line) as JsonEvent);
-    expect(events[0]?.type).toBe('session.started');
-    expect(events.at(-1)?.type).toBe('turn.completed');
-  });
+      });
+      expect(missingFlag.status).toBe(2);
+      expect(missingFlag.stdout).toBe('');
+      expect(missingFlag.stderr).toContain('--json and --stdin');
+
+      const inputPath = join(home, 'input.txt');
+      writeFileSync(inputPath, 'hello from a real subprocess');
+      const inputFd = transport === 'file' ? openSync(inputPath, 'r') : undefined;
+      const ok = spawn(
+        process.execPath,
+        [
+          MAIN,
+          'run',
+          '--json',
+          '--stdin',
+          '--provider',
+          'mock',
+          '--no-preflight',
+          '--permission-mode',
+          'bypass',
+          '--db',
+          join(home, 'cli-real.db'),
+        ],
+        {
+          cwd,
+          stdio: [inputFd ?? 'pipe', 'pipe', 'pipe'],
+          env: { ...process.env, HARNESS_HOME: home, SOV_TEST_MOCK_PROVIDER: '1' },
+        },
+      );
+      if (inputFd !== undefined) closeSync(inputFd);
+      let stdout = '';
+      let stderr = '';
+      ok.stdout?.on('data', (chunk) => {
+        stdout += chunk;
+      });
+      ok.stderr?.on('data', (chunk) => {
+        stderr += chunk;
+      });
+      const exited = new Promise<number | null>((resolve, reject) => {
+        ok.once('error', reject);
+        ok.once('close', resolve);
+      });
+      if (transport === 'pipe') ok.stdin?.end('hello from a real subprocess');
+      expect(await exited).toBe(0);
+      expect(stderr).toBe('');
+      const lines = stdout.split('\n').filter((line) => line.length > 0);
+      expect(lines.length).toBeGreaterThanOrEqual(3);
+      const events = lines.map((line) => JSON.parse(line) as JsonEvent);
+      expect(events[0]?.type).toBe('session.started');
+      expect(events.at(-1)?.type).toBe('turn.completed');
+    },
+  );
 
   test('treats whitespace-only stdin as an empty prompt', async () => {
     const result = await invoke('   \n\t\n  \n');

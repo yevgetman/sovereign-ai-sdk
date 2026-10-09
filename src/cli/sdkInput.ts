@@ -123,7 +123,9 @@ export async function parseSdkInput(
 export async function readSdkStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   let length = 0;
-  for await (const part of process.stdin) {
+  // Preserve regular-file stdin on Linux after async CLI startup as well as
+  // piped stdin; keep the streaming byte limit before buffering each chunk.
+  for await (const part of Bun.stdin.stream()) {
     const bytes = Buffer.isBuffer(part) ? part : Buffer.from(part);
     length += bytes.length;
     if (length > MAX_INPUT_BYTES)
