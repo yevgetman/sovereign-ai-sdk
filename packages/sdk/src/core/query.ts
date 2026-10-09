@@ -863,7 +863,9 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         error = err instanceof Error ? err : new Error(String(err));
         // Error subclasses can expose a throwing message getter. Read it
         // inside the guard before preserving the already completed receipt.
-        message = error.message;
+        const reported = error.message;
+        message = String(reported);
+        if (typeof reported !== 'string') error = new Error(message);
       } catch {
         message = 'host callback failed with an unreadable error';
         error = new Error(message);
