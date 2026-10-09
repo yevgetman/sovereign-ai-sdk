@@ -367,6 +367,9 @@ function userNewMessages(
   return newMessages;
 }
 
+// Contain the entire dispatch lifecycle, including host callbacks and schema
+// refinements. Every started task resolves to its own result, so Promise.all
+// joins the wave even when a sibling's policy or hook rejects.
 async function executeOne(
   block: ToolUseBlock,
   ctx: ToolContext,
@@ -374,6 +377,59 @@ async function executeOne(
   canUseTool?: CanUseTool,
   hookRunner?: HookRunner,
   recordTrace: TraceRecorder = NO_TRACE,
+): Promise<{ block: ToolResultBlock; newMessages?: Message[] }> {
+  let completed: ToolResultBlock | undefined;
+  let completedMessages: Message[] | undefined;
+  try {
+    return await executeOneUnchecked(
+      block,
+      ctx,
+      toolsByName,
+      canUseTool,
+      hookRunner,
+      recordTrace,
+      (result, newMessages) => {
+        completed = result;
+        completedMessages = newMessages;
+      },
+    );
+  } catch (error) {
+    let message = 'unknown dispatch error';
+    try {
+      message = error instanceof Error ? String(error.message) : String(error);
+    } catch {
+      // A host can reject with an object whose toString/getters also throw.
+      // Error reporting must not let that rejection escape the joined batch.
+    }
+    let receipt = '';
+    if (completed) {
+      receipt = '[tool completed; output could not be read]\n\n';
+      try {
+        if (typeof completed.content === 'string') receipt = `${completed.content}\n\n`;
+      } catch {
+        // Failure reporting must not execute unreadable host receipt values.
+      }
+    }
+    return {
+      block: {
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: `${receipt}tool dispatch failed: ${message}`,
+        is_error: true,
+      },
+      ...(completedMessages !== undefined ? { newMessages: completedMessages } : {}),
+    };
+  }
+}
+
+async function executeOneUnchecked(
+  block: ToolUseBlock,
+  ctx: ToolContext,
+  toolsByName: Map<string, Tool<unknown, unknown>>,
+  canUseTool?: CanUseTool,
+  hookRunner?: HookRunner,
+  recordTrace: TraceRecorder = NO_TRACE,
+  onResult: (result: ToolResultBlock, newMessages?: Message[]) => void = () => {},
 ): Promise<{ block: ToolResultBlock; newMessages?: Message[] }> {
   // Phase 13.4 follow-up (backlog item 5) — track the terminal observation
   // status so every early-return path in this dispatcher can notify the
@@ -403,7 +459,7 @@ async function executeOne(
   }
 
   // Pre-call cancellation: if the turn was already aborted by the time we
-  // reach this block (fast-failing Promise.all wave or Ctrl-C between
+  // reach this block (cancellation during a wave or Ctrl-C between
   // partitions), surface the result as cancelled rather than running the
   // tool with an aborted signal.
   if (ctx.signal?.aborted) {
@@ -579,6 +635,21 @@ async function executeOne(
   }
 
   recordTrace({ type: 'tool_start', tool: tool.name, toolUseId: block.id, iso: nowIso() });
+  // Tracing is a host callback and can cancel the turn synchronously. Check
+  // after the last callback, immediately before starting the tool's effect.
+  if (ctx.signal?.aborted) {
+    notifyLearningObserver(ctx, tool.name, callInput, 'cancelled', Date.now() - dispatchStart, {
+      traceId: block.id,
+    });
+    return {
+      block: {
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: 'tool dispatch cancelled before execution',
+        is_error: true,
+      },
+    };
+  }
   const callStart = Date.now();
   let result: { data: unknown; observation?: ToolObservation; newMessages?: Message[] };
   let toolError: Error | undefined;
@@ -590,14 +661,37 @@ async function executeOne(
   }
   const callDuration = Date.now() - callStart;
 
-  const formatted = toolError
-    ? ({
-        type: 'tool_result',
-        tool_use_id: block.id,
-        content: result.data as string,
-        is_error: true,
-      } as const)
-    : formatToolResult(tool, block.id, result.data, result.observation);
+  let formatted: ToolResultBlock;
+  try {
+    formatted = toolError
+      ? ({
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: result.data as string,
+          is_error: true,
+        } as const)
+      : formatToolResult(tool, block.id, result.data, result.observation);
+  } catch (error) {
+    // Rendering is a host callback after the tool's effect has completed.
+    // Preserve its raw receipt before the dispatch wrapper reports failure.
+    let content = '[tool completed; output could not be rendered]';
+    try {
+      content =
+        typeof result.data === 'string'
+          ? result.data
+          : (JSON.stringify(result.data, null, 2) ?? content);
+    } catch {
+      // Circular/hostile output cannot be serialized; retain completion fact.
+    }
+    const fallback: ToolResultBlock = { type: 'tool_result', tool_use_id: block.id, content };
+    onResult(fallback);
+    onResult(fallback, userNewMessages(result.newMessages, tool.name));
+    throw error;
+  }
+
+  onResult(formatted);
+  const nm = userNewMessages(result.newMessages, tool.name);
+  onResult(formatted, nm);
 
   if (toolError) {
     recordTrace({
@@ -642,6 +736,8 @@ async function executeOne(
     }
   }
 
+  onResult(final, nm);
+
   // Phase 13.4 — internal observation intercept. Fires after PostToolUse so
   // we capture the terminal state the model actually sees. Fire-and-forget
   // by contract — `observe()` never throws and never blocks.
@@ -682,12 +778,11 @@ async function executeOne(
     });
   }
 
-  // Only user-role newMessages survive; assistant-role is a developer error
-  // (throws, naming the tool). A thrown tool's newMessages never survive (the
+  // Only user-role newMessages survive; assistant-role becomes a per-tool
+  // developer error naming the tool. A thrown tool's newMessages never survive (the
   // catch reassigns `result`), so this path only carries genuinely-returned
   // messages. Omitted entirely when the tool returns none
   // (exactOptionalPropertyTypes: no explicit `undefined` on an optional field).
-  const nm = userNewMessages(result.newMessages, tool.name);
   return {
     block: maybeAppendHints(tool.name, callInput, ctx, final),
     ...(nm !== undefined ? { newMessages: nm } : {}),
@@ -750,13 +845,14 @@ function formatToolResult(
   const baseContent = tool.renderResult
     ? tool.renderResult(data)
     : { content: typeof data === 'string' ? data : JSON.stringify(data, null, 2) };
+  // Keep invalid renderer output inside the raw-receipt fallback boundary.
+  const rendered = baseContent.content;
+  if (typeof rendered !== 'string') throw new TypeError('tool renderer must return string content');
   // Envelope (Phase 12.5) is rendered as a plain-text header before the
   // tool's own content. Provider-agnostic; no JSON in tool_result.
   // status === 'error' forces is_error even if renderResult didn't set it.
   const envelopeHeader = observation ? renderObservationHeader(observation) : '';
-  const content = envelopeHeader
-    ? `${envelopeHeader}\n\n${baseContent.content}`
-    : baseContent.content;
+  const content = envelopeHeader ? `${envelopeHeader}\n\n${rendered}` : rendered;
   const isError = baseContent.isError === true || observation?.status === 'error';
   return {
     type: 'tool_result',

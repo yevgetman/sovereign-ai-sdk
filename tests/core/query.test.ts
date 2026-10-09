@@ -460,7 +460,7 @@ describe('query() — Phase 2 turn loop', () => {
       {
         type: 'tool_result',
         tool_use_id: 't1',
-        content: 'tool call interrupted before a result was available',
+        content: 'tool dispatch failed: prompt aborted',
         is_error: true,
       },
     ]);
@@ -952,4 +952,163 @@ describe('query() — ToolResult.newMessages reaches the model (end-to-end)', ()
       yieldedUser?.content.some((b) => b.type === 'image' && b.source.data === IMAGE_DATA),
     ).toBe(true);
   });
+});
+
+describe('query completed dispatch history on callback failure', () => {
+  test.each(['readable', 'throwing-getter', 'throwing-coercion'] as const)(
+    'steering rejection preserves actual tool results without duplicates (error=%s)',
+    async (kind) => {
+      const unreadable = kind !== 'readable';
+      const output: (StreamEvent | Message)[] = [];
+      const gen = query({
+        provider: oneToolThenDoneProvider(() => {}),
+        model: 'fake',
+        systemPrompt: [],
+        maxTokens: 256,
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'go' }] }],
+        tools: [
+          buildTool({
+            name: 'Echo',
+            description: () => 'echo',
+            inputSchema: z.object({ text: z.string() }),
+            async call() {
+              return { data: 'actual successful output' };
+            },
+          }) as unknown as Tool<unknown, unknown>,
+        ],
+        toolContext: toolCtx,
+        pollSteering: async () => {
+          const error = new Error('steering broke');
+          if (kind === 'throwing-getter') {
+            Object.defineProperty(error, 'message', {
+              get() {
+                throw new Error('error getter broke');
+              },
+            });
+          } else if (kind === 'throwing-coercion') {
+            Object.defineProperty(error, 'message', {
+              value: {
+                toString() {
+                  throw new Error('error coercion broke');
+                },
+              },
+            });
+          }
+          throw error;
+        },
+      });
+      let terminal: Terminal;
+      for (;;) {
+        const step = await gen.next();
+        if (step.done) {
+          terminal = step.value;
+          break;
+        }
+        output.push(step.value);
+      }
+      expect(terminal.reason).toBe('error');
+      const results = output.flatMap((msg) =>
+        'role' in msg && msg.role === 'user'
+          ? msg.content.filter((b) => b.type === 'tool_result')
+          : [],
+      );
+      expect(results).toHaveLength(1);
+      expect(results[0]?.content).toBe('actual successful output');
+      expect(results[0]?.is_error).toBeUndefined();
+      if (unreadable && terminal.reason === 'error') {
+        expect(terminal.error?.message).toBe('host callback failed with an unreadable error');
+      }
+    },
+  );
+});
+
+// A cancelled turn still waits for tools that have already started.
+test('cancelled concurrent dispatch joins uncooperative sibling before terminal return', async () => {
+  let release = () => {};
+  let enter = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    enter = resolve;
+  });
+  let sideEffect = false;
+  const controller = new AbortController();
+  const slow = buildTool({
+    name: 'Slow',
+    description: () => 'gated',
+    inputSchema: z.object({}),
+    isConcurrencySafe: () => true,
+    async call() {
+      enter();
+      await gate;
+      sideEffect = true;
+      return { data: 'slow completed' };
+    },
+  }) as unknown as Tool<unknown, unknown>;
+  const bad = buildTool({
+    name: 'Bad',
+    description: () => 'denied',
+    inputSchema: z.object({}),
+    isConcurrencySafe: () => true,
+    async call() {
+      throw new Error('must not run');
+    },
+  }) as unknown as Tool<unknown, unknown>;
+  const answer: AssistantMessage = {
+    role: 'assistant',
+    content: [
+      { type: 'tool_use', id: 'slow', name: 'Slow', input: {} },
+      { type: 'tool_use', id: 'bad', name: 'Bad', input: {} },
+    ],
+  };
+  const gen = query({
+    provider: scriptedTurns([
+      [
+        { type: 'message_stop', stop_reason: 'tool_use' },
+        { type: 'assistant_message', message: answer },
+      ],
+    ]),
+    model: 'fake',
+    messages: [],
+    systemPrompt: [],
+    maxTokens: 256,
+    tools: [slow, bad],
+    toolContext: toolCtx,
+    signal: controller.signal,
+    canUseTool: async (tool) => {
+      if (tool.name === 'Bad') {
+        await started;
+        controller.abort();
+        throw new Error('permission aborted');
+      }
+      return { behavior: 'allow' };
+    },
+  });
+  const output: (Message | StreamEvent)[] = [];
+  let ended = false;
+  const pending = (async () => {
+    for (;;) {
+      const step = await gen.next();
+      if (step.done) {
+        ended = true;
+        return step.value;
+      }
+      output.push(step.value);
+    }
+  })();
+  await started;
+  await Promise.resolve();
+  expect(ended).toBe(false);
+  expect(sideEffect).toBe(false);
+  release();
+  expect((await pending).reason).toBe('interrupted');
+  expect(sideEffect).toBe(true);
+  const results = output.flatMap((msg) =>
+    'role' in msg && msg.role === 'user' ? msg.content.filter((b) => b.type === 'tool_result') : [],
+  );
+  expect(results.map((b) => b.tool_use_id)).toEqual(['slow', 'bad']);
+  expect(results[0]?.content).toBe('slow completed');
+  expect(results[0]?.is_error).toBeUndefined();
+  expect(results[1]?.is_error).toBe(true);
 });

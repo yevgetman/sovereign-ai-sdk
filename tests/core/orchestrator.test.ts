@@ -805,7 +805,7 @@ describe('notifyLearningObserver helper', () => {
 // role:'user', their content blocks are appended AFTER all tool_result blocks
 // in the single yielded user message, in tool_use block order (serial and
 // parallel alike). role:'assistant' newMessages are a developer error and
-// throw loudly. When no tool returns newMessages the output is unchanged.
+// return a per-tool developer error. Without newMessages the output is unchanged.
 
 async function drainMessages(
   blocks: UseBlock[],
@@ -933,7 +933,7 @@ describe('runTools — ToolResult.newMessages', () => {
     expect((content[3] as Extract<ContentBlock, { type: 'image' }>).source.data).toBe('BBB');
   });
 
-  test('assistant-role newMessages throws a developer error naming the tool', async () => {
+  test('assistant-role newMessages returns a per-tool developer error naming the tool', async () => {
     const tool = buildTool({
       name: 'BadRole',
       description: () => 'returns assistant-role newMessages',
@@ -948,8 +948,10 @@ describe('runTools — ToolResult.newMessages', () => {
       },
     }) as unknown as Tool<unknown, unknown>;
     const blocks: UseBlock[] = [{ type: 'tool_use', id: 'b1', name: 'BadRole', input: {} }];
-    await expect(drainMessages(blocks, [tool])).rejects.toThrow(
-      /ToolResult\.newMessages currently supports role:'user' only; got role:'assistant' from tool 'BadRole'/,
+    const results = await collectResults(blocks, [tool]);
+    expect(results[0]?.is_error).toBe(true);
+    expect(results[0]?.content).toContain(
+      "ToolResult.newMessages currently supports role:'user' only; got role:'assistant' from tool 'BadRole'",
     );
   });
 });
@@ -995,3 +997,308 @@ describe('validateInput dispatch', () => {
     expect(wasCalled()).toBe(true);
   });
 });
+
+// Promise gates, rather than timers, prove the dispatch cannot return early.
+describe('dispatch lifecycle containment', () => {
+  for (const failure of [
+    'permission',
+    'pre-hook',
+    'validation',
+    'schema',
+    'post-hook',
+    'renderer',
+  ] as const) {
+    test(`${failure} failure joins a started sibling and preserves its result`, async () => {
+      let release = () => {};
+      let entered = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let sideEffect = false;
+      let failedCalled = false;
+      const slow = buildTool({
+        name: 'Slow',
+        description: () => 'gated sibling',
+        inputSchema: z.object({}),
+        isConcurrencySafe: () => true,
+        async call() {
+          entered();
+          await gate;
+          sideEffect = true;
+          return { data: 'actual sibling output' };
+        },
+      });
+      const bad = buildTool({
+        name: 'Bad',
+        description: () => 'failing dispatch',
+        inputSchema:
+          failure === 'schema'
+            ? z.object({}).superRefine(() => {
+                throw new Error('schema broke');
+              })
+            : z.object({}),
+        isConcurrencySafe: () => true,
+        validateInput: async () => {
+          if (failure === 'validation') throw new Error('validation broke');
+          return { ok: true as const };
+        },
+        async call() {
+          failedCalled = true;
+          return { data: 'actual bad output' };
+        },
+        ...(failure === 'renderer'
+          ? {
+              renderResult: () => {
+                throw new Error('renderer broke');
+              },
+            }
+          : {}),
+      });
+      const blocks: UseBlock[] = [
+        { type: 'tool_use', id: 'slow', name: 'Slow', input: {} },
+        { type: 'tool_use', id: 'bad', name: 'Bad', input: {} },
+      ];
+      let finished = false;
+      const pending = (async () => {
+        const messages: Message[] = [];
+        for await (const msg of runTools(
+          blocks,
+          ctx,
+          [slow, bad],
+          async (tool) => {
+            if (tool.name === 'Bad' && failure === 'permission')
+              throw new Error('permission broke');
+            return { behavior: 'allow' };
+          },
+          async (event, payload) => {
+            if (
+              'tool_name' in payload &&
+              payload.tool_name === 'Bad' &&
+              ((failure === 'pre-hook' && event === 'PreToolUse') ||
+                (failure === 'post-hook' && event === 'PostToolUse'))
+            ) {
+              throw new Error('hook broke');
+            }
+            return { block: false };
+          },
+        ))
+          messages.push(msg);
+        finished = true;
+        return messages;
+      })();
+      await started;
+      await Promise.resolve();
+      expect(finished).toBe(false);
+      expect(sideEffect).toBe(false);
+      release();
+      const messages = await pending;
+      expect(sideEffect).toBe(true);
+      expect(messages).toHaveLength(1);
+      const results = messages[0]?.content.filter(
+        (b): b is ResultBlock => b.type === 'tool_result',
+      );
+      expect(results?.map((b) => b.tool_use_id)).toEqual(['slow', 'bad']);
+      expect(results?.[0]?.content).toBe('actual sibling output');
+      expect(results?.[0]?.is_error).toBeUndefined();
+      expect(results?.[1]?.is_error).toBe(true);
+      expect(failedCalled).toBe(failure === 'post-hook' || failure === 'renderer');
+      if (failure === 'post-hook' || failure === 'renderer')
+        expect(results?.[1]?.content).toContain('actual bad output');
+    });
+  }
+});
+
+test.each(['post hook', 'renderer'] as const)(
+  '%s failure retains user-role supplementary tool output',
+  async (failure) => {
+    const tool = buildTool({
+      name: 'Output',
+      description: () => 'supplementary output',
+      inputSchema: z.object({}),
+      async call() {
+        return {
+          data: 'real output',
+          newMessages: [
+            {
+              role: 'user' as const,
+              content: [{ type: 'text' as const, text: 'supplementary output' }],
+            },
+          ],
+        };
+      },
+      ...(failure === 'renderer'
+        ? {
+            renderResult: () => {
+              throw new Error('renderer broke');
+            },
+          }
+        : {}),
+    });
+    const messages: Message[] = [];
+    for await (const message of runTools(
+      [{ type: 'tool_use', id: 'output', name: 'Output', input: {} }],
+      ctx,
+      [tool],
+      undefined,
+      async (event) => {
+        if (failure === 'post hook' && event === 'PostToolUse') throw new Error('post hook broke');
+        return { block: false };
+      },
+    ))
+      messages.push(message);
+    expect(messages[0]?.content).toEqual([
+      {
+        type: 'tool_result',
+        tool_use_id: 'output',
+        content: `real output\n\ntool dispatch failed: ${failure} broke`,
+        is_error: true,
+      },
+      { type: 'text', text: 'supplementary output' },
+    ]);
+  },
+);
+
+test.each([false, true])(
+  'trace-triggered cancellation prevents execution (concurrent=%s)',
+  async (concurrent) => {
+    const controller = new AbortController();
+    let effects = 0;
+    const tool = buildTool({
+      name: 'CancelAtStart',
+      description: () => 'offline effect counter',
+      inputSchema: z.object({}),
+      isConcurrencySafe: () => concurrent,
+      async call() {
+        effects++;
+        return { data: 'effect completed' };
+      },
+    });
+    const messages: Message[] = [];
+    for await (const message of runTools(
+      [{ type: 'tool_use', id: 'cancel-at-start', name: tool.name, input: {} }],
+      { ...ctx, signal: controller.signal },
+      [tool],
+      undefined,
+      undefined,
+      (event) => {
+        if (event.type === 'tool_start') controller.abort();
+      },
+    )) {
+      messages.push(message);
+    }
+    expect(controller.signal.aborted).toBe(true);
+    expect(effects).toBe(0);
+    expect(messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'cancel-at-start',
+            content: 'tool dispatch cancelled before execution',
+            is_error: true,
+          },
+        ],
+      },
+    ]);
+  },
+);
+
+test.each(['error-message', 'renderer'] as const)(
+  'unreadable host %s stays contained until a started sibling settles',
+  async (failure) => {
+    let release!: () => void;
+    let enter!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    let siblingFinished = false;
+    const slow = buildTool({
+      name: 'Slow',
+      description: () => 'gated offline sibling',
+      inputSchema: z.object({}),
+      isConcurrencySafe: () => true,
+      async call() {
+        enter();
+        await gate;
+        siblingFinished = true;
+        return { data: 'sibling receipt' };
+      },
+    });
+    const bad = buildTool({
+      name: 'Bad',
+      description: () => 'authored host callback fixture',
+      inputSchema: z.object({}),
+      isConcurrencySafe: () => true,
+      async call() {
+        return { data: 'actual raw receipt' };
+      },
+      ...(failure === 'renderer'
+        ? {
+            renderResult() {
+              return {
+                content: {
+                  toString() {
+                    throw new Error('receipt conversion failed');
+                  },
+                } as unknown as string,
+              };
+            },
+          }
+        : {}),
+    });
+    const unreadable = new Error('fixture');
+    Object.defineProperty(unreadable, 'message', {
+      value: {
+        toString() {
+          throw new Error('message conversion failed');
+        },
+      },
+    });
+    let settled = false;
+    let dispatchError: unknown;
+    let outcome: ResultBlock[] | undefined;
+    const pending = collectResults(
+      [
+        { type: 'tool_use', id: 'bad', name: 'Bad', input: {} },
+        { type: 'tool_use', id: 'slow', name: 'Slow', input: {} },
+      ],
+      [bad, slow] as unknown as Tool<unknown, unknown>[],
+      failure === 'error-message'
+        ? async (tool) => {
+            if (tool.name === 'Bad') throw unreadable;
+            return { behavior: 'allow' };
+          }
+        : undefined,
+    ).then(
+      (results) => {
+        outcome = results;
+        settled = true;
+      },
+      (error: unknown) => {
+        dispatchError = error;
+        settled = true;
+      },
+    );
+    await started;
+    for (let i = 0; i < 15; i++) await Promise.resolve();
+    const returnedBeforeJoin = settled;
+    expect(siblingFinished).toBe(false);
+    release();
+    await pending;
+    expect(returnedBeforeJoin).toBe(false);
+    expect(dispatchError).toBeUndefined();
+    expect(siblingFinished).toBe(true);
+    expect(outcome).toHaveLength(2);
+    expect(outcome?.[0]?.is_error).toBe(true);
+    expect(typeof outcome?.[0]?.content).toBe('string');
+    if (failure === 'renderer') expect(outcome?.[0]?.content).toContain('actual raw receipt');
+    expect(outcome?.[1]?.content).toBe('sibling receipt');
+  },
+);

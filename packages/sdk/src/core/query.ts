@@ -626,6 +626,8 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       }
     }
 
+    let dispatchedResult: Message | undefined;
+    let resultYielded = false;
     try {
       for await (const msg of runTools(
         toolUseBlocks,
@@ -636,6 +638,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         recordTrace,
       )) {
         let out = consumeGuidance(msg);
+        dispatchedResult = out;
         // Mid-turn steering, tool-boundary delivery: steers usually arrive
         // while a long tool runs, so poll after the batch and merge the text
         // into the batch's single user message PRE-yield — the same mechanism
@@ -654,6 +657,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           }
         }
         history.push(out);
+        resultYielded = true;
         yield out;
       }
       // Phase 13.3 — notify the review manager after a successful tool
@@ -768,29 +772,38 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         return { reason: 'checkin', toolCallCount: totalToolCallCount };
       }
     } catch (err) {
-      if (signal?.aborted) {
-        const msg = consumeGuidance(
-          synthesizeToolResultMessage(
-            toolUseBlocks,
-            'tool call interrupted before a result was available',
-          ),
-        );
+      // runTools has joined every started task. Keep real results if a later
+      // host callback fails, and never append a second result for the same id.
+      let error: Error;
+      let message: string;
+      try {
+        error = err instanceof Error ? err : new Error(String(err));
+        // Error subclasses can expose a throwing message getter. Read it
+        // inside the guard before preserving the already completed receipt.
+        const reported = error.message;
+        message = String(reported);
+        if (typeof reported !== 'string') error = new Error(message);
+      } catch {
+        message = 'host callback failed with an unreadable error';
+        error = new Error(message);
+      }
+      if (!resultYielded) {
+        const msg =
+          dispatchedResult ??
+          consumeGuidance(
+            synthesizeToolResultMessage(
+              toolUseBlocks,
+              `tool orchestration failed before a result was available: ${message}`,
+            ),
+          );
         history.push(msg);
         yield msg;
+      }
+      if (signal?.aborted) {
         recordTrace({ type: 'interrupt', stage: `turn-${turn}-tool-dispatch`, iso: nowIso() });
         await maybeFireStop('interrupted');
         return { reason: 'interrupted' };
       }
-      const message = err instanceof Error ? err.message : String(err);
-      const msg = consumeGuidance(
-        synthesizeToolResultMessage(
-          toolUseBlocks,
-          `tool orchestration failed before a result was available: ${message}`,
-        ),
-      );
-      history.push(msg);
-      yield msg;
-      const error = err instanceof Error ? err : new Error(String(err));
       await maybeFireStop('error');
       return { reason: 'error', error };
     }

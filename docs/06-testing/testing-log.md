@@ -1,5 +1,46 @@
 # Testing Log
 
+## 2026-10-09 — PR20 third review: unreadable error and receipt containment
+
+Review of exact PR20 head `d645008` against current GitHub master `3709b25` reproduced two Medium paths around the dispatch failure boundary. An Error.message value with throwing string conversion escaped the guarded property read; malformed renderer content escaped when the saved receipt was interpolated. Both rejected a concurrent wave while a started gated sibling was still running. Findings were reported before fixes. Offline fixtures use authored callback values and counters, not private source or external effects.
+
+Error-message conversion now runs inside its guard. Query also normalizes non-string message values to an ordinary Error. Invalid rendered content is rejected inside the existing formatting/raw-receipt fallback, and failure receipt construction accepts only a string or a stable completion marker. Tool effects and supplementary messages keep their existing ownership; no work is replayed.
+
+The regressions failed before changes: **87 pass / 3 fail** across the two core suites. After changes, `bun test tests/core/orchestrator.test.ts tests/core/query.test.ts` passes: **90 pass / zero fail / 306 assertions**. Deterministic promise gates prove each wave stays pending until its sibling finishes, returns two matching string results, and preserves the actual raw renderer receipt. Query preserves the successful receipt once and returns a safe error for a throwing message conversion. Lint/boundary, typecheck and diff checks pass. Root owns final full/packed/CI gates; no full result, merge, release or installed-runtime change is claimed here.
+
+Final root gate after cross-review approval: configured lint and boundary checks, typecheck, and all 5504 source tests passed (19 skipped, zero failures; 22544 assertions / 523 files). Packed Node/Bun consumer canaries passed. No paid provider request or runtime installation was used.
+
+## 2026-10-09 — PR20 round-two final gate
+
+Root corrected an optional-error test type assertion without changing its expected receipt/terminal checks. Final lint/boundary and typecheck pass. Complete source suite: **5,501 pass / 19 existing skip / zero fail**, 22,522 assertions across 523 files (87.35s). Packed SDK/protocol Node/Bun consumers pass. An independent second reviewer approves both cancellation and unreadable-error corrections. GitHub checks are inspected after push. No master merge, paid request, release or installation.
+
+## 2026-10-09 — PR20 second independent review: start cancellation and unreadable callback errors
+
+Confirmed one Medium defect in the reviewed PR20 head `64aa8b7`: a host `tool_start` trace callback could abort the turn after the final signal check, and the tool effect still started. Offline serial and concurrent regressions fail before the correction (57 pass / 2 fail). The final cancellation guard now runs after start tracing, immediately before tool execution, and records the cancelled observation. The cancelled call returns one ordered error result without performing its effect. A second Medium defect let a steering callback throw an Error with an unreadable message getter, escape query error handling, and lose an already completed receipt. Its regression fails before correction (27 pass / 1 fail); guarded message extraction now preserves the real receipt and a readable terminal error.
+
+Focused `bun test tests/core/orchestrator.test.ts tests/core/query.test.ts` passes: 87 pass / zero fail, 284 assertions (174ms), Bun 1.3.13 on macOS arm64. Focused formatting checks pass. Root coordinates full lint/typecheck/suite and packed gates before committing or pushing this follow-up. No paid call, profile write, release, runtime install, master merge or push occurred in this review pass. Recall quality was not assessed.
+
+## 2026-10-09 — independent PR18–20 review and renderer receipt correction
+
+An independent reviewer (not the PR author) read exact PR18 `32b29e8`, PR19 `b5de9b1` and PR20 `e94dbc6` diffs, their issue acceptance, caller/consumer paths and cleanup contracts. No confirmed finding in PR18 reservation cleanup or PR19 queue deadlines. PR18 scheduler/semaphore/lane/path-lock regressions pass: 40 tests / 94 assertions; PR19: 43 tests / 117 assertions. Each branch's injected-executor/workflow consumer group passes 29 tests / 71 assertions. Canned subprocess fixtures only; no real executor or provider call.
+
+PR20 had one Medium finding: after a completed tool effect, a throwing custom output renderer erased its actual receipt. An offline counter reproduced one completed effect with only the renderer error returned. The new gated sibling/renderer regression fails before the correction. Formatting exceptions now retain a safe raw receipt and valid user supplementary output; unserializable output retains a completed-tool marker. Normal rendering is unchanged. README and packed consumer fixture cover the contract.
+
+macOS arm64, Bun 1.3.13, isolated fixture homes/databases. `bun test tests/core/orchestrator.test.ts tests/core/query.test.ts`: **84 pass / zero fail / 273 assertions**. `bun run lint` and `bun run typecheck` pass. Complete `bun run test`: **5,498 pass / 19 existing skip / zero fail**, 22,511 assertions, 5,517 tests across 523 files (85.24s). `bun run canary` passes SDK/protocol packed consumers on Node and Bun, including the new renderer receipt/supplementary-message regression. No test skips added, runtime installation, merge, release, paid call or learning-benefit claim. GitHub CI is checked separately after push.
+
+## 2026-10-09 — issue #14: join tool dispatch lifecycle and preserve real history
+
+Scope: concurrent and serial SDK tool dispatch, cancellation, host callback failures, and packed consumer behavior. Native Codex subagent implementation was explicitly requested by the owner. Root independently reviewed the focused diff and requested supplementary-output preservation; that correction has a deterministic regression.
+
+Environment: macOS arm64, Bun 1.3.13, Node 25.9.0, Go 1.26.1. Isolated git worktree and frozen-lockfile dependency install. The TUI was built locally before the full suite; the existing launcher fixture isolates the owner profile. Providers and effects in new regressions are offline fixtures only. No recall/synthesis quality claim is made by these tests.
+
+Commands: `bun install --ignore-scripts --frozen-lockfile`; `bun run tui:build`; `bun test tests/core/orchestrator.test.ts tests/core/query.test.ts`; `bun run lint`; `bun run typecheck`; `bun run test`; `bun run canary`.
+
+Results: focused regressions **82 pass / zero fail**, 262 assertions. Final full suite **5,496 pass / 19 skip / zero fail**, 5,515 tests across 523 files, 22,500 assertions, 86.10 seconds. Lint and typecheck pass. Both packed packages pass consumer canaries under Node and Bun; the SDK canary now also checks joined permission failure with real sibling output through both package export conditions.
+
+Coverage: promise gates prove permission, pre/post hook, schema refinement, and semantic validation exceptions cannot return while a started sibling runs. Results remain in tool-call order with exactly one result per id. Post-call failures retain actual output and supplementary messages. A cancelled query joins an already started tool that ignores its signal. Steering failure preserves completed history. Assistant-role supplementary messages now produce a per-tool developer error rather than rejecting the entire batch. No real filesystem/network tool effect was used.
+
+Limit: already started uncooperative tools are joined; bounded shutdown still requires a cooperative tool implementation. No merge, release, live provider call, or global install was performed.
 ## 2026-10-09 — stack child deadline PR on reservation cleanup
 
 Merged the reservation-cleanup branch into the child-deadline branch to resolve
