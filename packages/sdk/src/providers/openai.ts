@@ -16,7 +16,7 @@ import {
   openrouterModelSupportsReasoning,
   openrouterReasoningFor,
 } from './effort.js';
-import { ProviderHttpError } from './errors.js';
+import { ProviderHttpError, ProviderStreamError } from './errors.js';
 import {
   findLastCacheableSegment,
   lastIndexWhere,
@@ -401,13 +401,40 @@ export async function* translateOpenAIStream(
   const textParts: string[] = [];
   const reasoningParts: string[] = [];
   const toolCalls = new Map<number, { id: string; name: string; args: string }>();
-  let stopReason: StopReason = 'end_turn';
+  let stopReason: StopReason | undefined;
   let lastUsage: OpenAIChatChunk['usage'];
 
   for await (const chunk of raw) {
+    if (
+      !chunk ||
+      typeof chunk !== 'object' ||
+      (chunk.choices !== undefined && !Array.isArray(chunk.choices))
+    ) {
+      throw new ProviderStreamError('invalid_completion');
+    }
     if (chunk.usage) lastUsage = chunk.usage;
     const choice = chunk.choices?.[0];
-    if (!choice) continue;
+    if (!choice) {
+      if (chunk.choices?.length) throw new ProviderStreamError('invalid_completion');
+      continue;
+    }
+    if (
+      typeof choice !== 'object' ||
+      (choice.delta != null && typeof choice.delta !== 'object') ||
+      (choice.delta?.content != null && typeof choice.delta.content !== 'string') ||
+      (choice.delta?.tool_calls != null && !Array.isArray(choice.delta.tool_calls))
+    ) {
+      throw new ProviderStreamError('invalid_completion');
+    }
+    if (
+      stopReason !== undefined &&
+      (choice.delta?.content ||
+        choice.delta?.reasoning_content ||
+        choice.delta?.reasoning ||
+        choice.delta?.tool_calls?.length)
+    ) {
+      throw new ProviderStreamError('invalid_completion');
+    }
 
     // reasoning_content (vLLM/SGLang) first, OpenRouter's `reasoning` as the
     // fallback — `??` so a lane emitting both never double-counts.
@@ -430,6 +457,17 @@ export async function* translateOpenAIStream(
     }
 
     for (const call of choice.delta?.tool_calls ?? []) {
+      if (
+        !call ||
+        !Number.isInteger(call.index) ||
+        call.index < 0 ||
+        (call.id != null && typeof call.id !== 'string') ||
+        (call.function != null && typeof call.function !== 'object') ||
+        (call.function?.name != null && typeof call.function.name !== 'string') ||
+        (call.function?.arguments != null && typeof call.function.arguments !== 'string')
+      ) {
+        throw new ProviderStreamError('invalid_tool_call');
+      }
       const current = toolCalls.get(call.index) ?? {
         id: call.id ?? `tool_${call.index}`,
         name: '',
@@ -444,7 +482,21 @@ export async function* translateOpenAIStream(
       toolCalls.set(call.index, current);
     }
 
-    if (choice.finish_reason) stopReason = mapOpenAIStopReason(choice.finish_reason);
+    if (choice.finish_reason != null) {
+      const mapped = mapOpenAIStopReason(choice.finish_reason);
+      if (mapped === 'error' || stopReason !== undefined) {
+        throw new ProviderStreamError('invalid_completion');
+      }
+      stopReason = mapped;
+    }
+  }
+
+  if (stopReason === undefined) throw new ProviderStreamError('missing_completion');
+  if (
+    (toolCalls.size > 0 && stopReason !== 'tool_use') ||
+    (toolCalls.size === 0 && stopReason === 'tool_use')
+  ) {
+    throw new ProviderStreamError('invalid_tool_call');
   }
 
   const content: ContentBlock[] = [];
@@ -452,12 +504,17 @@ export async function* translateOpenAIStream(
   // Thinking precedes text, matching the Anthropic block ordering.
   if (reasoning.length > 0) content.push({ type: 'thinking', thinking: reasoning });
   const text = textParts.join('');
+  const toolIds = new Set<string>();
   if (text.length > 0) content.push({ type: 'text', text });
   for (const [, call] of [...toolCalls.entries()].sort((a, b) => a[0] - b[0])) {
+    if (!call.name || !call.args || toolIds.has(call.id)) {
+      throw new ProviderStreamError('invalid_tool_call');
+    }
+    toolIds.add(call.id);
     content.push({
       type: 'tool_use',
       id: call.id,
-      name: call.name || 'unknown_tool',
+      name: call.name,
       input: parseToolArgs(call.args),
     });
   }
@@ -742,7 +799,7 @@ export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerato
         // A single malformed `data:` line from a non-conformant OpenAI-compatible
         // endpoint or proxy must NOT abort the whole turn with a raw SyntaxError
         // (this path serves openai/openrouter/sov). Skip the unparseable chunk and
-        // keep streaming — mirrors the defensive parse in parseToolArgs below.
+        // keep streaming. Completion is validated by translateOpenAIStream.
         let chunk: OpenAIChatChunk;
         try {
           chunk = JSON.parse(payload) as OpenAIChatChunk;
@@ -843,11 +900,10 @@ function flattenSystem(system: SystemSegment[]): string {
 }
 
 function parseToolArgs(raw: string): unknown {
-  if (!raw) return {};
   try {
     return JSON.parse(raw) as unknown;
   } catch {
-    return { __parse_error: raw };
+    throw new ProviderStreamError('invalid_tool_call');
   }
 }
 
