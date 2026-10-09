@@ -103,7 +103,7 @@ export type SubagentSchedulerOpts = {
   defaultModel: string;
   /** Cap on concurrent active children per parent session. */
   maxChildrenPerParent?: number;
-  /** Per-child wall-clock timeout in ms. Falls back to
+  /** Per-child wall-clock timeout in ms, including lane and write-lock waits. Falls back to
    *  agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS. */
   perChildTimeoutMs?: number;
   /** maxTokens to pass to the child's AgentRunner. */
@@ -252,6 +252,31 @@ export class SubagentScheduler implements Scheduler {
       throw new Error(`unknown subagent: '${input.agentName}'`);
     }
 
+    // Phase 2 T3 — three-step precedence: per-call override (lane
+    // timeout from AgentTool) > scheduler construction-time default >
+    // agent.maxTurns-derived fallback. The override is purely additive:
+    // callers that never set `perChildTimeoutMsOverride` see the
+    // identical fallback chain that shipped pre-T3.
+    const timeoutMs =
+      input.perChildTimeoutMsOverride ??
+      this.opts.perChildTimeoutMs ??
+      agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS;
+    const deadlineAt = Date.now() + timeoutMs;
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const composed: AbortSignal =
+      input.parentSignal !== undefined
+        ? AbortSignal.any([input.parentSignal, timeoutSignal])
+        : timeoutSignal;
+
+    // Native timeout callbacks cannot run during synchronous host hooks. Check
+    // the absolute deadline too, so delayed acquisition never starts a child.
+    const checkDeadline = (): void => {
+      composed.throwIfAborted();
+      if (Date.now() >= deadlineAt) {
+        throw new DOMException('Child delegation deadline exceeded', 'TimeoutError');
+      }
+    };
+
     // Executor selection (hoisted from the body so the write-lock decision below
     // can account for it). When the resolved agent's role is the subscription-
     // executor AND the config enables it, the task runs in a headless `claude -p`
@@ -285,7 +310,9 @@ export class SubagentScheduler implements Scheduler {
     try {
       const { providerName, modelName } = this.resolveProviderModel(agent, input.roleOverride);
       const concurrencyLane = laneFor(providerName);
-      laneRelease = await this.opts.laneSemaphores.acquire(concurrencyLane, input.parentSignal);
+      checkDeadline();
+      laneRelease = await this.opts.laneSemaphores.acquire(concurrencyLane, composed);
+      checkDeadline();
       // 2026-06-15 review fix (C2) — the subscription-executor runs a headless
       // `claude -p --dangerously-skip-permissions` subprocess we CANNOT bound
       // with the write-scope wrap, yet the agent is labelled readOnly:true. It
@@ -297,9 +324,10 @@ export class SubagentScheduler implements Scheduler {
         const lockScope: PathScope = useSubprocessExecutor
           ? { kind: 'all' }
           : (input.writeScope ?? { kind: 'all' });
-        writeLockRelease = await this.opts.pathLock.acquire(lockScope, input.parentSignal);
+        writeLockRelease = await this.opts.pathLock.acquire(lockScope, composed);
       }
 
+      checkDeadline();
       const tools = buildChildToolPool(input.parentToolPool, agent);
 
       // Phase 2 T1 — compute the lane attribution hints for the runtime's
@@ -317,6 +345,7 @@ export class SubagentScheduler implements Scheduler {
           : null;
       const isDelegator = agent.role === 'delegator';
 
+      checkDeadline();
       const childSessionId = this.opts.createChildSession({
         parentSessionId: input.parentSessionId,
         agentName: agent.name,
@@ -368,22 +397,8 @@ export class SubagentScheduler implements Scheduler {
           : undefined;
 
       try {
+        checkDeadline();
         const resolved = this.opts.resolveProvider(providerName, modelName);
-
-        // Phase 2 T3 — three-step precedence: per-call override (lane
-        // timeout from AgentTool) > scheduler construction-time default >
-        // agent.maxTurns-derived fallback. The override is purely additive:
-        // callers that never set `perChildTimeoutMsOverride` see the
-        // identical fallback chain that shipped pre-T3.
-        const timeoutMs =
-          input.perChildTimeoutMsOverride ??
-          this.opts.perChildTimeoutMs ??
-          agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS;
-        const timeoutSignal = AbortSignal.timeout(timeoutMs);
-        const composed: AbortSignal =
-          input.parentSignal !== undefined
-            ? AbortSignal.any([input.parentSignal, timeoutSignal])
-            : timeoutSignal;
 
         // Phase 1 T8 — stamp the child's ToolContext with the name of the
         // agent running in that child session. AgentTool reads this when the
@@ -434,6 +449,7 @@ export class SubagentScheduler implements Scheduler {
           );
         }
 
+        checkDeadline();
         const startedAt = Date.now();
         let result: SubprocessExecutorResult;
         try {

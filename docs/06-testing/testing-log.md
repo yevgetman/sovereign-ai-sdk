@@ -17,6 +17,30 @@ Self-review confirms every post-reservation operation now runs inside the
 existing release `finally`; the resolver error still propagates unchanged.
 No learning recall or synthesis is exercised by these offline fixtures.
 
+
+## 2026-10-09 — issue #12 complete child wall-clock deadlines
+
+Scope: lane and write-lock queue expiry, parent cancellation, and resource reuse
+in child delegation. Environment: macOS arm64, Bun 1.3.13, scripted offline
+providers; TUI built in this isolated worktree. Tests use temporary fixture
+profiles. No live provider, owner profile, runtime install, or release operation.
+
+Commands: `bun install --frozen-lockfile`,
+`bun test tests/runtime/scheduler.test.ts` (14 pass / zero fail),
+`bun run lint`, `bun run typecheck`, `bun run test`, `bun run build`, and
+`bun run canary`. Full suite: 5,491 pass / 19 skip / zero fail,
+22,463 assertions. Lint, boundary, typecheck, SDK/protocol builds, and packed
+Node/Bun consumers pass.
+
+The added queue tests hold real lane/write locks, use a per-call timeout shorter
+than the scheduler default, and require expiry before holder release. They assert
+zero sessions/provider starts, no active reservation, unchanged held locks, and
+a successful retry. Parent cancellation is checked independently. Root review
+confirmed deadline checks precede side effects and both waits share execution's
+composed signal. Queue abort listeners are one-shot; granted queue listeners are
+removed by the existing primitives. The scheduler uses native timeout signals
+and adds no custom timer or abort listener. No learning recall/synthesis runs.
+
 ## 2026-10-09 — correct the pre-existing TUI integration test's profile isolation
 
 Correction to the prior publication entry: the public installer itself did not change existing profile credentials or session rows. The separate unskipped source tests had a pre-existing bare TUI smoke that used the real default profile database. Three current-turn mock sessions and four fixture messages were added. Two sessions were empty; the four messages have exact fixture text, the mock Bash call, and its matching mock tool-result identity. No real-provider turn was involved.
