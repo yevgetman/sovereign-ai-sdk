@@ -1,5 +1,13 @@
 # Testing Log
 
+## 2026-10-09 — PR21 round-three review: generated tool identity
+
+Fresh technical review of exact PR21 head `c1a90b5` against `fix/issue-10-sse-cleanup` confirmed one Medium finding before fixes: the index-based ID fallback reused `tool_0` across real tool rounds and could also reject a distinct engine-supplied `tool_0` in the same response. This reviewer authored the original issue #11 implementation; root cross-review remains independent. The compatible-backend contract already accepts omitted IDs, so the correction changes normalization rather than adding a new refusal rule.
+
+The transport now uses a portable `node:crypto` UUID fallback for each newly encountered call. Supplied IDs remain unchanged; explicit duplicates within a response remain rejected. Authored offline tests cover mixed generated/engine IDs, stable delta IDs, two executed tool rounds, matching tool-result identities, and the retained third-request provider history. The sequential public-agent regression fails against the original fallback (zero pass / one fail, 69 filtered); the mixed-ID regression also fails before the fix. With the fix, `bun test tests/providers/openai.test.ts` passes **70 tests / zero fail / 236 assertions** under Bun 1.3.13 on macOS arm64. Targeted Biome checks pass. Root owns full lint/types/build/packed/CI gates; none is claimed here. No live provider request, private data, owner-profile write, release or installation.
+
+Final root gate and separate cross-review approval: lint/boundary, typecheck, **5506 source tests pass / 19 existing skip / zero fail**, 22557 assertions across 523 files (83.02s); packed SDK/protocol Node/Bun consumers pass. The fetch fixture passes the configured Bun typecheck. No paid calls or installation.
+
 ## 2026-10-09 — PR21 round-two final gate
 
 Root combined local validation: lint/boundary, typecheck and full source suite pass: **5,504 pass / 19 existing skip / zero fail**, 22,544 assertions across 523 files (84.85s). Packed SDK/protocol Node/Bun consumer checks pass. An independent second reviewer verified strict error/reasoning/UTF-8 failures and permissive parser compatibility. GitHub results are checked after push. No paid request, owner-profile write, master merge, release or installation.

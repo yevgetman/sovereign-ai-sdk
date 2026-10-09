@@ -279,8 +279,8 @@ describe('translateOpenAIStream', () => {
             {
               delta: {
                 tool_calls: [
-                  { index: 0, function: { name: 'Echo', arguments: '{}' } },
-                  { index: 1, id: 'tool_0', function: { name: 'Echo', arguments: '{}' } },
+                  { index: 0, id: 'duplicate', function: { name: 'Echo', arguments: '{}' } },
+                  { index: 1, id: 'duplicate', function: { name: 'Echo', arguments: '{}' } },
                 ],
               },
               finish_reason: 'tool_calls',
@@ -292,6 +292,99 @@ describe('translateOpenAIStream', () => {
     await expect(
       drainStream([{ choices: [{ delta: {}, finish_reason: 'content_filter' }] }]),
     ).rejects.toBeInstanceOf(ProviderStreamError);
+  });
+
+  test('generated tool ids remain distinct across responses and engine-supplied fallback-looking ids', async () => {
+    const chunks: OpenAIChatChunk[] = [
+      {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, function: { name: 'Echo', arguments: '{}' } },
+                { index: 1, id: 'tool_0', function: { name: 'Echo', arguments: '{}' } },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ];
+    const first = await drainStream(chunks);
+    const second = await drainStream(chunks);
+    const firstIds = first.returned.content
+      .filter((block) => block.type === 'tool_use')
+      .map((block) => block.id);
+    const secondIds = second.returned.content
+      .filter((block) => block.type === 'tool_use')
+      .map((block) => block.id);
+    expect(firstIds).toHaveLength(2);
+    expect(firstIds[0]).not.toBe(firstIds[1]);
+    expect(firstIds[0]).not.toBe(secondIds[0]);
+    expect(firstIds[1]).toBe('tool_0');
+    expect(secondIds[1]).toBe('tool_0');
+    const deltas = first.yielded.filter((event) => event.type === 'tool_use_delta');
+    expect(deltas.map((event) => event.id)).toEqual(firstIds);
+  });
+
+  test('createAgent preserves distinct generated tool identities across two real tool rounds', async () => {
+    let fetches = 0;
+    let effects = 0;
+    const requests: Array<Array<Record<string, unknown>>> = [];
+    const provider = new OpenAIProvider({
+      apiKey: 'offline',
+      fetchImpl: (async (_url, init) => {
+        requests.push(JSON.parse(String(init?.body)).messages);
+        fetches++;
+        const chunk =
+          fetches <= 2
+            ? {
+                choices: [
+                  {
+                    delta: {
+                      tool_calls: [{ index: 0, function: { name: 'Echo', arguments: '{}' } }],
+                    },
+                    finish_reason: 'tool_calls',
+                  },
+                ],
+              }
+            : { choices: [{ delta: { content: 'done' }, finish_reason: 'stop' }] };
+        return new Response(sseBody(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`));
+      }) as typeof fetch,
+    });
+    const tool = buildTool({
+      name: 'Echo',
+      description: () => 'authored offline fixture',
+      inputSchema: z.object({}),
+      async call() {
+        effects++;
+        return { data: `effect ${effects}` };
+      },
+    });
+    const run = createAgent({ provider, model: 'offline', tools: [tool], maxTurns: 3 }).run(
+      'fixture',
+    );
+    for (;;) {
+      const step = await run.next();
+      if (!step.done) continue;
+      expect(step.value.terminal.reason).toBe('completed');
+      const blocks = step.value.messages.flatMap((message) => message.content);
+      const ids = blocks.filter((block) => block.type === 'tool_use').map((block) => block.id);
+      expect(ids).toHaveLength(2);
+      expect(new Set(ids).size).toBe(2);
+      expect(
+        blocks.filter((block) => block.type === 'tool_result').map((block) => block.tool_use_id),
+      ).toEqual(ids);
+      const wireHistory = requests[2];
+      expect(
+        wireHistory
+          ?.filter((message) => message.role === 'tool')
+          .map((message) => message.tool_call_id),
+      ).toEqual(ids);
+      break;
+    }
+    expect(fetches).toBe(3);
+    expect(effects).toBe(2);
   });
 
   test('createAgent ends a truncated response as an error without replay or final assistant', async () => {

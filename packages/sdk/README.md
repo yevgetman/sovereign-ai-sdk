@@ -188,3 +188,7 @@ and malformed or incomplete tool calls throw `ProviderStreamError` (importable f
 `@yevgetman/sov-sdk/providers/errors`). Partial deltas can remain visible, but no
 completed assistant message or executable tool call is emitted for these failures.
 `createAgent()` ends with terminal reason `error`; it does not replay the response.
+Engine-supplied tool IDs are preserved. If a compatible backend omits an ID, the
+transport generates a unique ID for that call so later tool rounds retain distinct
+identities in the transcript and provider history. Explicit duplicate IDs within
+a response are rejected.
