@@ -367,6 +367,9 @@ function userNewMessages(
   return newMessages;
 }
 
+// Contain the entire dispatch lifecycle, including host callbacks and schema
+// refinements. Every started task resolves to its own result, so Promise.all
+// joins the wave even when a sibling's policy or hook rejects.
 async function executeOne(
   block: ToolUseBlock,
   ctx: ToolContext,
@@ -374,6 +377,50 @@ async function executeOne(
   canUseTool?: CanUseTool,
   hookRunner?: HookRunner,
   recordTrace: TraceRecorder = NO_TRACE,
+): Promise<{ block: ToolResultBlock; newMessages?: Message[] }> {
+  let completed: ToolResultBlock | undefined;
+  let completedMessages: Message[] | undefined;
+  try {
+    return await executeOneUnchecked(
+      block,
+      ctx,
+      toolsByName,
+      canUseTool,
+      hookRunner,
+      recordTrace,
+      (result, newMessages) => {
+        completed = result;
+        completedMessages = newMessages;
+      },
+    );
+  } catch (error) {
+    let message = 'unknown dispatch error';
+    try {
+      message = error instanceof Error ? error.message : String(error);
+    } catch {
+      // A host can reject with an object whose toString/getters also throw.
+      // Error reporting must not let that rejection escape the joined batch.
+    }
+    return {
+      block: {
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: `${completed ? `${completed.content}\n\n` : ''}tool dispatch failed: ${message}`,
+        is_error: true,
+      },
+      ...(completedMessages !== undefined ? { newMessages: completedMessages } : {}),
+    };
+  }
+}
+
+async function executeOneUnchecked(
+  block: ToolUseBlock,
+  ctx: ToolContext,
+  toolsByName: Map<string, Tool<unknown, unknown>>,
+  canUseTool?: CanUseTool,
+  hookRunner?: HookRunner,
+  recordTrace: TraceRecorder = NO_TRACE,
+  onResult: (result: ToolResultBlock, newMessages?: Message[]) => void = () => {},
 ): Promise<{ block: ToolResultBlock; newMessages?: Message[] }> {
   // Phase 13.4 follow-up (backlog item 5) — track the terminal observation
   // status so every early-return path in this dispatcher can notify the
@@ -403,7 +450,7 @@ async function executeOne(
   }
 
   // Pre-call cancellation: if the turn was already aborted by the time we
-  // reach this block (fast-failing Promise.all wave or Ctrl-C between
+  // reach this block (cancellation during a wave or Ctrl-C between
   // partitions), surface the result as cancelled rather than running the
   // tool with an aborted signal.
   if (ctx.signal?.aborted) {
@@ -578,6 +625,17 @@ async function executeOne(
     }
   }
 
+  if (ctx.signal?.aborted) {
+    return {
+      block: {
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: 'tool dispatch cancelled before execution',
+        is_error: true,
+      },
+    };
+  }
+
   recordTrace({ type: 'tool_start', tool: tool.name, toolUseId: block.id, iso: nowIso() });
   const callStart = Date.now();
   let result: { data: unknown; observation?: ToolObservation; newMessages?: Message[] };
@@ -598,6 +656,10 @@ async function executeOne(
         is_error: true,
       } as const)
     : formatToolResult(tool, block.id, result.data, result.observation);
+
+  onResult(formatted);
+  const nm = userNewMessages(result.newMessages, tool.name);
+  onResult(formatted, nm);
 
   if (toolError) {
     recordTrace({
@@ -642,6 +704,8 @@ async function executeOne(
     }
   }
 
+  onResult(final, nm);
+
   // Phase 13.4 — internal observation intercept. Fires after PostToolUse so
   // we capture the terminal state the model actually sees. Fire-and-forget
   // by contract — `observe()` never throws and never blocks.
@@ -682,12 +746,11 @@ async function executeOne(
     });
   }
 
-  // Only user-role newMessages survive; assistant-role is a developer error
-  // (throws, naming the tool). A thrown tool's newMessages never survive (the
+  // Only user-role newMessages survive; assistant-role becomes a per-tool
+  // developer error naming the tool. A thrown tool's newMessages never survive (the
   // catch reassigns `result`), so this path only carries genuinely-returned
   // messages. Omitted entirely when the tool returns none
   // (exactOptionalPropertyTypes: no explicit `undefined` on an optional field).
-  const nm = userNewMessages(result.newMessages, tool.name);
   return {
     block: maybeAppendHints(tool.name, callInput, ctx, final),
     ...(nm !== undefined ? { newMessages: nm } : {}),

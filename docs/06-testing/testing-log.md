@@ -1,5 +1,19 @@
 # Testing Log
 
+## 2026-10-09 — issue #14: join tool dispatch lifecycle and preserve real history
+
+Scope: concurrent and serial SDK tool dispatch, cancellation, host callback failures, and packed consumer behavior. Native Codex subagent implementation was explicitly requested by the owner. Root independently reviewed the focused diff and requested supplementary-output preservation; that correction has a deterministic regression.
+
+Environment: macOS arm64, Bun 1.3.13, Node 25.9.0, Go 1.26.1. Isolated git worktree and frozen-lockfile dependency install. The TUI was built locally before the full suite; the existing launcher fixture isolates the owner profile. Providers and effects in new regressions are offline fixtures only. No recall/synthesis quality claim is made by these tests.
+
+Commands: `bun install --ignore-scripts --frozen-lockfile`; `bun run tui:build`; `bun test tests/core/orchestrator.test.ts tests/core/query.test.ts`; `bun run lint`; `bun run typecheck`; `bun run test`; `bun run canary`.
+
+Results: focused regressions **82 pass / zero fail**, 262 assertions. Final full suite **5,496 pass / 19 skip / zero fail**, 5,515 tests across 523 files, 22,500 assertions, 86.10 seconds. Lint and typecheck pass. Both packed packages pass consumer canaries under Node and Bun; the SDK canary now also checks joined permission failure with real sibling output through both package export conditions.
+
+Coverage: promise gates prove permission, pre/post hook, schema refinement, and semantic validation exceptions cannot return while a started sibling runs. Results remain in tool-call order with exactly one result per id. Post-call failures retain actual output and supplementary messages. A cancelled query joins an already started tool that ignores its signal. Steering failure preserves completed history. Assistant-role supplementary messages now produce a per-tool developer error rather than rejecting the entire batch. No real filesystem/network tool effect was used.
+
+Limit: already started uncooperative tools are joined; bounded shutdown still requires a cooperative tool implementation. No merge, release, live provider call, or global install was performed.
+
 ## 2026-10-09 — correct the pre-existing TUI integration test's profile isolation
 
 Correction to the prior publication entry: the public installer itself did not change existing profile credentials or session rows. The separate unskipped source tests had a pre-existing bare TUI smoke that used the real default profile database. Three current-turn mock sessions and four fixture messages were added. Two sessions were empty; the four messages have exact fixture text, the mock Bash call, and its matching mock tool-result identity. No real-provider turn was involved.
