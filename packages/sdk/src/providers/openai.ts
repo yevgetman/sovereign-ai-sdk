@@ -376,7 +376,9 @@ export class OpenAIProvider
     // assistant's response instead of dim "thinking". Only sov + thinking-off;
     // every other path keeps reasoning_content → thinking.
     const reasoningIsAnswer = this.apiMode === 'sov' && !this.reasoningEnabled(req);
-    return yield* this.normalizeResponse(parseSse(response.body), { reasoningIsAnswer });
+    return yield* this.normalizeResponse(parseSse(response.body, { rejectMalformedData: true }), {
+      reasoningIsAnswer,
+    });
   }
 }
 
@@ -774,7 +776,10 @@ function markedWireMessage(message: OpenAIMessage): OpenAIMessage {
 
 // Exported for direct unit testing of the malformed-line tolerance (deep
 // internal subpath; not part of the frozen SDK barrel / semver surface).
-export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerator<OpenAIChatChunk> {
+export async function* parseSse(
+  body: ReadableStream<Uint8Array>,
+  options: { rejectMalformedData?: boolean } = {},
+): AsyncGenerator<OpenAIChatChunk> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -785,6 +790,11 @@ export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerato
       const { done, value } = await reader.read();
       if (done) {
         reachedEof = true;
+        // A trailing partial data line may hide a lost argument or error frame.
+        // The production transport cannot claim completion after discarding it.
+        if (options.rejectMalformedData && buffer.trimStart().startsWith('data:')) {
+          throw new ProviderStreamError('invalid_completion');
+        }
         break;
       }
       buffer += decoder.decode(value, { stream: true });
@@ -796,14 +806,14 @@ export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerato
         const payload = trimmed.slice('data:'.length).trim();
         if (payload === '[DONE]') return;
         if (payload.length === 0) continue;
-        // A single malformed `data:` line from a non-conformant OpenAI-compatible
-        // endpoint or proxy must NOT abort the whole turn with a raw SyntaxError
-        // (this path serves openai/openrouter/sov). Skip the unparseable chunk and
-        // keep streaming. Completion is validated by translateOpenAIStream.
+        // Preserve permissive parsing for direct callers. The production
+        // transport rejects corrupt data: silently losing an argument frame
+        // could otherwise authorize a different tool input at a valid finish.
         let chunk: OpenAIChatChunk;
         try {
           chunk = JSON.parse(payload) as OpenAIChatChunk;
         } catch {
+          if (options.rejectMalformedData) throw new ProviderStreamError('invalid_completion');
           continue;
         }
         yield chunk;

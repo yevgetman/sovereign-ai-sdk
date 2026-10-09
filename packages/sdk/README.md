@@ -199,6 +199,7 @@ cleanup failures do not replace the original outcome.
 OpenAI-compatible responses require an explicit successful `finish_reason` (`stop`,
 `length`, or `tool_calls`/legacy `function_call`). A `[DONE]` marker alone does not
 prove the answer completed. Empty/truncated responses, invalid completion chunks,
+malformed JSON data frames (including a partial trailing data line),
 and malformed or incomplete tool calls throw `ProviderStreamError` (importable from
 `@yevgetman/sov-sdk/providers/errors`). Partial deltas can remain visible, but no
 completed assistant message or executable tool call is emitted for these failures.

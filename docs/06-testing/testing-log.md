@@ -1,5 +1,11 @@
 # Testing Log
 
+## 2026-10-09 — PR21 independent review: reject damaged SSE data before tool dispatch
+
+The independent code review found one Medium defect: a corrupt JSON tool-argument frame followed by a valid finish, or a partial trailing data frame after a finish, could be discarded and still produce an executable assistant. The regression fails before the correction (63 pass / 1 fail). Production OpenAI-compatible transports now reject these frames with a generic typed `ProviderStreamError`; direct `parseSse()` callers retain permissive parsing. No raw provider payload appears in the error. The regression checks zero tool calls, one fetch, no final assistant, cancellation and released body locks. PR17 cleanup was reviewed separately with no confirmed finding; its unchanged provider tests pass (57 tests, 136 assertions).
+
+Bun 1.3.13, macOS arm64, offline fixtures with isolated existing profiles. Focused provider tests: 64 pass / zero fail, 180 assertions. `bun run lint`, `bun run typecheck` and the unskipped full suite pass: 5,500 pass / 19 skip / zero fail, 22,501 assertions across 523 files (85.23s). Built TUI was present. Package builds and packed SDK/protocol Node/Bun canaries pass. Additional packed SDK Node/Bun regressions verify typed damaged/trailing-data refusal, no final assistant, one fetch, released locks and permissive direct-parser compatibility. No paid provider calls, owner profile writes, release or runtime installation. Recall and synthesis were not assessed by this transport review.
+
 ## 2026-10-09 — composed lifecycle fixes #10–#14 integration base
 
 Validated the five independent lifecycle fixes together on an isolated staging
