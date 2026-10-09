@@ -1,5 +1,20 @@
 # Testing Log
 
+## 2026-10-09 — published SOV 0.6.75 and open SDK 0.12.0 asset
+
+Published the reviewed source `7d5290bc4551053e35ec067dbe280049fd3244b3` through the documented local fallback with official Bun 1.4.2 and the pinned consumer license. Root used the code-review skill to review the version/lock/changelog changes and public notes; no issue above Low was found. Source CI passes at run `37922525796`.
+
+All five configured archives pass unchanged binary, complete-stage, final-archive, inventory, source-revision and version checks. Both Mac binaries pass strict ad hoc signatures, `--version`, schema-1 six-route discovery, SDK capability flags and native JSON-input missing-API-key refusal. Linux arm64 runs `--version` in an isolated no-network container. Linux x64 container image acquisition stalled; its client was stopped. Windows and Linux x64 native execution remain unverified here. The open SDK tarball passes its required-file scan (577 inspected files, zero findings or coverage errors), and this exact tarball passes Node and Bun consumer loops. Protocol 0.1.0 is unchanged; the SDK has no protocol package dependency. No new npm channel was created.
+
+Public release `https://github.com/yevgetman/sov-releases/releases/tag/v0.6.75` published at `2026-10-09T11:22:59Z`. All eight unauthenticated downloads returned HTTP 200 and match the reviewed local bytes and GitHub asset digests. GitHub latest advertises v0.6.75. Exact URLs and SHA-256 values are in `handoffs/2026-10-09-sov-0.6.75-release.json`.
+
+Before closing the evidence commit, lint and typecheck pass again. A bare full-suite rerun under concurrent build load encountered the two known TUI launcher timing failures (5,486 pass / 19 skip / 2 fail, 122.42 seconds). The unchanged launcher file then passes in isolation (6 pass / 1 skip / zero fail, 32.50 seconds). The documented release gate `SOV_SKIP_FLAKY=1 bun run test` passes (5,482 pass / 28 skip / zero fail, 5,510 reported tests, 55.37 seconds). Its existing release-only guard was not changed. The original complete unskipped source gate before publication remains green.
+
+The private tag correctly points to the exact reviewed build source. Its secondary release CI run `37923408017` failed five preflight tests under the stale Bun 1.2.0 workflow; all build/upload jobs were skipped. This does not replace the passing local fallback gates or the verified public bytes. Repair of the stale release workflow remains a follow-up.
+
+On root's authorized local compatibility task, the documented binary `sov upgrade` updated only the standalone installation from 0.6.73 to 0.6.75. All 32 entries in the prior installation remain byte-identical in its backup. The installed binary matches the verified arm64 payload and passes version/discovery and read-only status checks. Existing config/session data and Keychain credentials were not changed. OpenRouter and Anthropic credentials are present; OpenAI, xAI and both subscription credentials are missing. No login, paid inference, app bundle update or Telekit restart was performed by this operator. The separate developer Bun-path SOV remains unchanged; Telekit prefers the standalone binary.
+
+
 ## 2026-10-09 — release preparation for SOV 0.6.75 / SDK 0.12.0
 
 The Owner explicitly requested a new public SOV binary release. The clean source starts at PR #9 merge `ac6080bd5da8298b1a63e6c5344f69268330be0e`, the only application change since public `v0.6.74`. The runtime patch is 0.6.75. SDK source is 0.12.0 because the package adds public route modules and a session-persistence error export. This does not create an npm publication channel.

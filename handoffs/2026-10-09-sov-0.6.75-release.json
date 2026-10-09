@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "product": "sov",
+  "cli_version": "0.6.75",
+  "sdk_source_version": "0.12.0",
+  "source_commit": "7d5290bc4551053e35ec067dbe280049fd3244b3",
+  "feature_merge": "ac6080bd5da8298b1a63e6c5344f69268330be0e",
+  "private_source_tag": "v0.6.75",
+  "public_release": "https://github.com/yevgetman/sov-releases/releases/tag/v0.6.75",
+  "published_at": "2026-10-09T11:22:59Z",
+  "authority": {
+    "date": "2026-10-09",
+    "owner_request": "Cut a new version of the SOV Sovereign AI SDK and release it.",
+    "additional_scope": "Owner requested Kernel binary pin; root authorized open SDK tarball asset on existing GitHub binary release, no npm channel."
+  },
+  "review": {
+    "reviewer": "root, code-review skill",
+    "scope": "four one-line source version/changelog replacements and public release notes",
+    "above_low_findings": 0
+  },
+  "source_ci": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/37922525796",
+  "gates": {
+    "bun": "1.4.2",
+    "go": "1.26.1",
+    "lint": "pass: Biome998files; boundary212modules717dependencies",
+    "typecheck": "pass",
+    "full_suite": {
+      "pass": 5488,
+      "skip": 19,
+      "fail": 0,
+      "total": 5507,
+      "files": 523,
+      "duration_seconds": 102.03
+    },
+    "go_suite": "All seven packages pass.",
+    "open_package_tests": "96pass420assertions",
+    "open_build": "pass",
+    "packed_consumers": "Node and Bun pass.",
+    "exact_sdk_asset_consumers": "Node and Bun pass.",
+    "publish_dry_runs": "Protocol and SDK pass.",
+    "binary_stage_final_scans": "All five targets clean.",
+    "mac_signatures": "Ad hoc strict verification: both binaries on both architectures.",
+    "compiled_mac_smokes": "arm64 and Rosetta x64: version, schema 1, six routes, sdkRun, structured input, JSONL, and missing API key refusal.",
+    "linux_arm64_smoke": "Isolated Docker with no network: --version passes.",
+    "linux_x64_native_smoke": "Not run. The requested amd64 image pull stalled; its own client was stopped.",
+    "windows_native_smoke": "Not run on this Mac. Cross-build archive inventory and metadata pass."
+  },
+  "artifacts": [
+    {
+      "name": "sov-darwin-x64.tar.gz",
+      "url": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.75/sov-darwin-x64.tar.gz",
+      "sha256": "c7ba6f39879e4939e31df7228c962db480a78499ef63338d19b6ccf42248e459",
+      "size": 34740074,
+      "http_status": 200
+    },
+    {
+      "name": "sov-linux-x64.tar.gz",
+      "url": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.75/sov-linux-x64.tar.gz",
+      "sha256": "a4dec98f07ab43ff2343342002d0c3671b0876e334d171c775fc6f19ee789963",
+      "size": 42729359,
+      "http_status": 200
+    },
+    {
+      "name": "sov-linux-arm64.tar.gz",
+      "url": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.75/sov-linux-arm64.tar.gz",
+      "sha256": "78c54adb72c7e1b91bbe14724daa522a0c47eef5fa1c8fd1be6e5878fa554d5e",
+      "size": 42227471,
+      "http_status": 200
+    },
+    {
+      "name": "sov-darwin-arm64.tar.gz",
+      "url": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.75/sov-darwin-arm64.tar.gz",
+      "sha256": "ef62742f062ecd69b2353aff9059d58c7465cdc7ba1f75b87042ad080f8e8233",
+      "size": 31166123,
+      "http_status": 200
+    },
+    {
+      "name": "sov-windows-x64.zip",
+      "url": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.75/sov-windows-x64.zip",
+      "sha256": "3fafae1d1679be7a5f8979918463e6de2fabd070b69fd337c6ba3ad220cb6465",
+      "size": 45865184,
+      "http_status": 200
+    },
+    {
+      "name": "yevgetman-sov-sdk-0.12.0.tgz",
+      "url": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.75/yevgetman-sov-sdk-0.12.0.tgz",
+      "sha256": "db851f0d7f6b2d69013030649f28440aba48df14beed64799bf29198c36c3de1",
+      "size": 877412,
+      "http_status": 200
+    },
+    {
+      "name": "SHA256SUMS",
+      "url": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.75/SHA256SUMS",
+      "sha256": "c7580d9f2b757c8c5428be34ccf5cc52b42b09770f942c499ef8242cdc7759d7",
+      "size": 440,
+      "http_status": 200
+    },
+    {
+      "name": "SDK-SHA256SUMS",
+      "url": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.75/SDK-SHA256SUMS",
+      "sha256": "38d2a7d50594159bb8903e73ae10e5fd2241d59565cf739c94db93f6a06c6fc1",
+      "size": 95,
+      "http_status": 200
+    }
+  ],
+  "public_verification": {
+    "authentication": "none",
+    "all_http_status": 200,
+    "all_bytes_match_local_reviewed_artifacts": true,
+    "all_github_asset_digests_match": true,
+    "latest_tag": "v0.6.75",
+    "download_verification": "/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-0675-public-download-8xuihn45/verification.json"
+  },
+  "limitations": [
+    "No attended subscription login or paid inference performed.",
+    "SDK is published as an open MIT asset in the existing GitHub binary channel; not npm.",
+    "The installed accounts have no ChatGPT or Grok subscription credential.",
+    "Release CI has a stale compiler configuration and failed separately; the documented local fallback is the publication procedure used.",
+    "Native Windows and Linux x64 execution were not verified on this Mac."
+  ],
+  "local_install": {
+    "old_version": "0.6.73",
+    "new_version": "0.6.75",
+    "installed_path": "/Users/julie/.sov/bin/sov",
+    "installed_sha256": "497447ac3a4e3f8f874d3dc449ac9033b6706bd272105c15f1db593701e6f269",
+    "backup_path": "/Users/julie/.sov.bak.1791545196",
+    "backup_inventory_entries_unchanged": 32,
+    "discovery": "Schema 1, sdkRun true, six routes.",
+    "local_readonly_credential_states": {
+      "openrouter-api": "present",
+      "anthropic-api": "present",
+      "openai-api": "missing",
+      "grok-api": "missing",
+      "chatgpt-subscription": "missing",
+      "grok-subscription": "missing"
+    },
+    "upgrade_log": "/tmp/sov-0675-local-upgrade.log",
+    "keychain_writes": false,
+    "login_or_inference": false,
+    "telekit_restart": false,
+    "kernel_app_bundles_modified": false,
+    "shell_rc": "installer reported PATH line already present",
+    "installed_missing_auth_refusal": "Isolated native openai-api JSON input: exactly one credential_missing terminal, nonzero exit, no inference."
+  },
+  "release_ci": {
+    "url": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/37923408017",
+    "status": "completed",
+    "conclusion": "failure",
+    "step": "preflight test suite",
+    "failures": 5,
+    "compiler": "Bun 1.2.0 (stale workflow)",
+    "note": "Existing release CI still selects Bun 1.2.0. The documented local fallback release uses verified Bun 1.4.2; its full source, package and five-target artifact gates passed. No failed CI artifact was published.",
+    "test_counts": {
+      "pass": 5462,
+      "skip": 34,
+      "fail": 5,
+      "duration_seconds": 70.98
+    }
+  },
+  "closing_checks": {
+    "lint": "pass",
+    "typecheck": "pass",
+    "unskipped_full_rerun": {
+      "pass": 5486,
+      "skip": 19,
+      "fail": 2,
+      "total": 5507,
+      "duration_seconds": 122.42,
+      "failures": [
+        "Known TUI launcher bind timeout under build load.",
+        "Known TUI permission approval timing failure."
+      ]
+    },
+    "isolated_tui_file": {
+      "pass": 6,
+      "skip": 1,
+      "fail": 0,
+      "total": 7,
+      "duration_seconds": 32.5
+    },
+    "documented_release_gate": {
+      "command": "SOV_SKIP_FLAKY=1 bun run test",
+      "pass": 5482,
+      "skip": 28,
+      "fail": 0,
+      "total": 5510,
+      "duration_seconds": 55.37,
+      "note": "Uses the existing release-procedure guard only. No skip policy, test timeout or product code changed."
+    }
+  }
+}
