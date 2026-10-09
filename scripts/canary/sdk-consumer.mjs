@@ -19,6 +19,7 @@ import { buildTool, createAgent, createInMemorySessionStore } from '@yevgetman/s
 // the F17/F18/F19 regression guard (asserted at the end) needs VERSION, which
 // lives at the `./version` public subpath, not on the frozen `./sdk` barrel.
 import { VERSION } from '@yevgetman/sov-sdk/version';
+import { runTools } from '@yevgetman/sov-sdk/core/orchestrator';
 import { z } from 'zod';
 
 /** The one user turn this canary runs. */
@@ -151,5 +152,49 @@ assert.equal(
   bareVersion,
   `installed SDK VERSION must be the bare package version with no consumer-SHA suffix, got: ${VERSION}`,
 );
+
+// Regression #14: packed source and compiled exports both join started tools
+// when a permission callback rejects. No timer, network or external effect.
+let releaseSibling;
+let enterSibling;
+const siblingGate = new Promise((resolve) => { releaseSibling = resolve; });
+const siblingStarted = new Promise((resolve) => { enterSibling = resolve; });
+let siblingEffect = false;
+const sibling = buildTool({
+  name: 'Sibling', description: () => 'gated sibling', inputSchema: z.object({}),
+  isConcurrencySafe: () => true,
+  async call() { enterSibling(); await siblingGate; siblingEffect = true; return { data: 'actual packed output' }; },
+});
+const blocked = buildTool({
+  name: 'Blocked', description: () => 'policy rejects', inputSchema: z.object({}),
+  isConcurrencySafe: () => true,
+  async call() { throw new Error('denied tool must not run'); },
+});
+let batchReturned = false;
+const joined = (async () => {
+  const messages = [];
+  for await (const message of runTools([
+    { type: 'tool_use', id: 'sibling', name: 'Sibling', input: {} },
+    { type: 'tool_use', id: 'blocked', name: 'Blocked', input: {} },
+  ], { cwd: process.cwd(), bundleRoot: process.cwd(), sessionId: 'packed-join' }, [sibling, blocked], async (tool) => {
+    if (tool.name === 'Blocked') throw new Error('policy rejected');
+    return { behavior: 'allow' };
+  })) messages.push(message);
+  batchReturned = true;
+  return messages;
+})();
+await siblingStarted;
+await Promise.resolve();
+assert.equal(batchReturned, false, 'batch cannot return while a sibling is running');
+assert.equal(siblingEffect, false);
+releaseSibling();
+const joinedMessages = await joined;
+assert.equal(siblingEffect, true, 'started side effect finishes before batch return');
+assert.equal(joinedMessages.length, 1);
+assert.deepEqual(joinedMessages[0].content.map((block) => block.tool_use_id), ['sibling', 'blocked']);
+assert.equal(joinedMessages[0].content[0].content, 'actual packed output');
+assert.equal(joinedMessages[0].content[0].is_error, undefined);
+assert.equal(joinedMessages[0].content[1].is_error, true);
+assert.match(joinedMessages[0].content[1].content, /policy rejected/);
 
 console.log('SDK_OK');

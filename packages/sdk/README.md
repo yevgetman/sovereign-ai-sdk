@@ -180,6 +180,18 @@ Full policy: [`STABILITY.md`](https://github.com/yevgetman/sovereign-ai-sdk/blob
 
 MIT.
 
+### Tool batch lifecycle
+
+Each dispatched tool call produces one ordered result. Exceptions in permission
+callbacks, hooks, input validation, result rendering, or tool execution become an
+error on that tool's result. A failure after execution retains the available tool
+output alongside the dispatch error. Other tools keep their actual results.
+Started concurrent tools are joined before the batch yields or the turn returns,
+including during cancellation. Cancellation prevents further execution once it
+is observed; hosts must provide tools that honor the signal for prompt shutdown.
+The SDK waits for an already started tool even if it ignores cancellation.
+Host callback failures after dispatch preserve the completed results in history.
+
 OpenAI-compatible streaming transports cancel unfinished response bodies when a consumer
 stops reading or receives `[DONE]`. Reader locks are released on EOF, abort, and errors;
 cleanup failures do not replace the original outcome.
