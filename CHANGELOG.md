@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — native SDK authentication routes
+## harness 0.6.75 / SDK 0.12.0 — native SDK authentication routes - 2026-10-09
 
 - Six explicit routes share SOV’s SDK loop: OpenRouter, Anthropic, OpenAI and direct xAI keys; ChatGPT and Grok subscriptions.
 - Read-only capabilities, routes and local credential status support headless adapters.

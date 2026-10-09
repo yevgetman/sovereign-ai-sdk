@@ -1,5 +1,14 @@
 # Testing Log
 
+## 2026-10-09 — release preparation for SOV 0.6.75 / SDK 0.12.0
+
+The Owner explicitly requested a new public SOV binary release. The clean source starts at PR #9 merge `ac6080bd5da8298b1a63e6c5344f69268330be0e`, the only application change since public `v0.6.74`. The runtime patch is 0.6.75. SDK source is 0.12.0 because the package adds public route modules and a session-persistence error export. This does not create an npm publication channel.
+
+Environment: macOS arm64; previously verified official Bun 1.4.2; Go 1.26.1; frozen hoisted lockfile install. `bun run lint` passes Biome (998 files) and boundary (212 modules / 717 dependencies). `bun run typecheck` passes. Full `bun run test` passes: **5,488 pass / 19 skip / zero fail**, 5,507 tests across 523 files, 22,438 assertions, 102.03 seconds. `go test ./...` passes all seven TUI packages. `bun run build`, `bun test packages/protocol/tests packages/sdk/tests` (96 pass / 420 assertions), `bun run canary` (packed Node/Bun consumers), and each package's `npm publish --dry-run` pass.
+
+The documented local release fallback will use the pinned consumer-license revision, tracked clean source, neutral compile directories, all five configured targets, ad hoc Mac signatures, and unchanged binary/stage/archive scans. Current release CI still selects Bun 1.2.0, which does not establish the required verified compiler privacy gate. Release publication and downloadable-byte checks are still pending at this source preparation commit. Live provider inference, account entitlement, and attended login are not part of this package proof. No installed runtime or daemon is changed by this operator.
+
+
 Append to this log whenever harness testing is performed, including automated test runs, semantic checks, manual CLI checks, and REPL smoke sessions. Entries should capture enough detail for a future maintainer to understand what was exercised, what passed, what failed, and whether a finding was an expected limitation or a regression.
 
 Use newest-first ordering.
