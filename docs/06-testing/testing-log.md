@@ -1,5 +1,15 @@
 # Testing Log
 
+## 2026-10-09 — bounded 30-second host queue soak
+
+Owner follow-up: extend the subsecond load sample into a bounded offline soak. `scripts/bench/host-lifecycle.ts --duration-seconds 30` runs complete 128-job cohorts until the duration is reached, then joins shutdown. Each cohort rotates to a fresh in-memory store and 16 fresh session ids: 32 seeded messages and at most 48 stored messages per session. Telemetry retains at most 4,096 samples per metric while keeping full-run counters and maxima. Every 97th request injects an offline provider error. Count consistency, admission bounds, empty final queue, history limits and absence of unexpected failures are exit-status invariants. Root independently reviewed the script and requested these invariants.
+
+Fresh-process results on shared macOS arm64: Bun 1.3.13 completed **43,452 / 43,904** attempted turns with **452 injected errors** in **30.076 seconds**; Node 25.9.0 completed **41,045 / 41,472** with **427 injected errors** in **30.018 seconds**. Both recorded zero admission/unexpected/cancellation errors; peak four active and 124 queued jobs; final zero active/queued and closed. History never exceeded 48 messages per session. Raw public fixture reports and measured queue/latency/event-loop/RSS values are in [host lifecycle evidence](../07-history/audits/2026-10-09-host-lifecycle-evidence.md).
+
+RSS grew materially (Bun 86.98 → 211.91 MiB; Node 110.02 → 249.48 MiB). The observed window does **not** prove a memory plateau, absence of leaks, or production capacity. Fresh cohorts bound fixture history; they do not model one permanent conversation or distributed deployment. Source checks also ran on the shared host. No real provider, owner data, paid call or global install was involved.
+
+Commands: fresh Bun/Node `--duration-seconds 30` runs; default-mode Node/Bun invariant smoke; `bun run lint`; `bun run typecheck`; `bun run test`. Full source gate completed **5,500 pass / 19 skip / zero fail**, 22,483 assertions, 84.52 seconds. Lint/boundary and typecheck pass. No extra mirror unit test was added for the benchmark implementation.
+
 ## 2026-10-09 — issue #15: injected context management and legacy store compatibility
 
 macOS arm64, Bun 1.3.13, Node 25.9.0, Go 1.26.1. Deterministic host ports and scripted providers only. Added ContextManagementPort/config/per-turn injection, strict replacement checks and independent model history. Tests prove complete transcript rehydration without duplicate rows, tool-call/result adjacency, pre-tool persistence integrity, one overflow retry before output/tools, no replay after effects, cooperative cancellation, config/seed immutability, rejected-summary billing metadata, separately priced usage and unknown-cost persistence handling. Legacy stores without truncateMessages work normally; regeneration needing rollback fails closed with a typed error and one observed tool effect. Root reviewed validator/query changes with no blocker.

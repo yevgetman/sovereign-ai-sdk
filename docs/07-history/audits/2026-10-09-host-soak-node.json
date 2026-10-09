@@ -1,0 +1,84 @@
+{
+  "scope": "offline in-process TEST envelope; not a production certification or distributed guarantee",
+  "runtime": {
+    "node": "25.9.0",
+    "bun": null,
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "envelope": {
+    "sessions": 16,
+    "turnsPerSession": 8,
+    "seedHistoryMessages": 32,
+    "messageCharacters": 512,
+    "mockProviderDelayMs": 2,
+    "maxActiveSessions": 4,
+    "maxQueued": 128,
+    "maxQueuedPerSession": 8,
+    "durationSeconds": 30,
+    "historyPolicy": "fresh store and 16 new session ids after each joined 128-turn cohort; 32 seed messages, at most 48 stored messages/session",
+    "metricWindowSamples": 4096,
+    "injectedProviderErrorEvery": 97
+  },
+  "results": {
+    "attempted": 41472,
+    "completed": 41045,
+    "batches": 324,
+    "providerRequests": 41472,
+    "errors": {
+      "injectedProvider": 427,
+      "admission": 0,
+      "unexpected": 0,
+      "cancelled": 0
+    },
+    "durationMs": 30018.449083,
+    "turnsPerSecond": 1367.3258030923569,
+    "queueWaitMs": {
+      "samples": 41472,
+      "retainedSamples": 4096,
+      "p50": 44.794834000000264,
+      "p95": 91.3068749999984,
+      "max": 125.49229199999996
+    },
+    "totalLatencyMs": {
+      "samples": 41472,
+      "retainedSamples": 4096,
+      "p50": 47.747166000001016,
+      "p95": 94.52312499999971,
+      "max": 127.46987499999994
+    },
+    "eventLoopDelayMs": {
+      "sampleIntervalMs": 5,
+      "samples": 5408,
+      "p95": 1.341207999998005,
+      "max": 17.01525000000038
+    },
+    "rssBytes": {
+      "start": 115359744,
+      "peak": 261603328,
+      "final": 261603328
+    },
+    "admission": {
+      "peakActive": 4,
+      "peakQueued": 124,
+      "final": {
+        "active": 0,
+        "queued": 0,
+        "closed": true
+      }
+    },
+    "history": {
+      "retainedCohorts": 1,
+      "maxMessagesPerSession": 48,
+      "sessions": 16,
+      "messages": 767,
+      "serializedBytes": 521356
+    }
+  },
+  "limits": [
+    "Mock-provider latency and memory only; no real rate limits or provider throughput.",
+    "No async/durable/distributed queue or cross-process lease.",
+    "Shutdown waits for all callbacks; no guaranteed time bound for uncooperative work.",
+    "No exactly-once tool effects or automatic replay after persistence failure."
+  ]
+}

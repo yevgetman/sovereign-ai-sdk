@@ -57,10 +57,48 @@ rows, repairs the missing result in model context, and resumes without replaying
 the tool. Raw stored history remains unchanged; only the new user and reply append.
 SQLite integrity checks pass. The fixture never opens the owner's profile.
 
+## Bounded 30-second offline soak
+
+Run `bun scripts/bench/host-lifecycle.ts --duration-seconds 30` and
+`node scripts/bench/host-lifecycle.ts --duration-seconds 30` in fresh processes.
+The argument accepts a positive duration up to 300 seconds. It starts complete
+128-turn cohorts until the duration expires, then joins the last cohort before
+shutdown. A scripted provider disconnect occurs every 97th request in soak mode.
+The default single-cohort load mode injects no errors.
+
+History is explicitly bounded: each joined cohort rotates to a fresh in-memory
+store and 16 new session ids. Each session begins with 32 seed messages and can
+store at most 48 messages. Only the last cohort's rows remain referenced by the
+report. This measures repeated queue/agent ownership, not growth of one permanent
+conversation. Telemetry retains the last 4,096 observations per metric; reported
+p50/p95 values describe that retained window. Max values and counters cover the
+whole run. An unexpected error, cancellation or rejected admission fails the run.
+
+Both runtimes ran on the same Mac while other offline source checks ran. These
+are observed values on a shared test host, not an isolated throughput comparison.
+
+| Runtime | Elapsed seconds | Cohorts | Attempted turns | Completed | Injected provider errors | Start / final / peak RSS MiB | Queue p95 ms | Latency p95 ms | Event-loop max ms |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| bun | 30.076 | 343 | 43904 | 43452 | 452 | 86.98 / 211.91 / 211.91 | 82.87 | 85.57 | 18.80 |
+| node | 30.018 | 324 | 41472 | 41045 | 427 | 110.02 / 249.48 / 249.48 | 91.31 | 94.52 | 17.02 |
+
+Both runs recorded zero admission failures, unexpected errors and cancellations.
+Peak admission stayed at four active and 124 queued jobs. After every started
+job was joined, shutdown reported zero active and queued jobs. Both retained
+16 sessions, one cohort, and at most 48 messages per session. No owner data or
+real-provider call was used. Full raw reports:
+[Bun](2026-10-09-host-soak-bun.json), [Node](2026-10-09-host-soak-node.json).
+
+RSS increased materially during the observed window. Those samples do not prove
+memory stability, absence of leaks or a sustainable production capacity. Longer
+runs with controlled host load and heap/GC profiling would be needed to explain
+the growth. This 30-second offline soak supplies a bounded repeatability check,
+not an operational service-level promise.
+
 ## Limits
 
-The short load runs are not a sustained soak, distributed load test or service
-level objective. There is no external-effect idempotency certification.
+The 128-turn load samples and the separate 30-second offline soak are not a
+distributed load test, production certification or service-level objective. There is no external-effect idempotency certification.
 Queue callbacks must await their own work; orphan tasks fall outside ownership.
 Shutdown remains pending for uncooperative active work. SIGKILL recovery concerns
 transcript integrity, not completion of lost work. Production history limits,
