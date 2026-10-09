@@ -18,7 +18,7 @@ full suite. Packed Node/Bun consumers also exercise the public queue contract.
 16 sessions, eight turns per session, 32 seeded history messages per session,
 512 characters per message, a scripted 2 ms provider delay, four active
 sessions, 128 global queued jobs and eight queued jobs per session.
-Every run completed 128 turns. Peak reservations were four active sessions and
+Each single-cohort load sample completed 128 turns. Peak reservations were four active sessions and
 124 queued jobs. After shutdown, active and queued counts were zero.
 Final persisted history contained 768 messages; serialized bytes are measured
 per run because fixture row ids and timestamps affect the encoding.
