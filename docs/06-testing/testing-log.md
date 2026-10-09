@@ -1,5 +1,23 @@
 # Testing Log
 
+## 2026-10-09 — composed lifecycle fixes #10–#14 integration base
+
+Validated the five independent lifecycle fixes together on an isolated staging
+branch, not master. Resolved scheduler conflicts by preserving both the #13
+resolver `finally` and #12 absolute queue deadline, plus both regression blocks.
+Preserved all prior testing entries, provider documentation, and #14 packed
+consumer additions. No capability/context/host hardening was included.
+
+Environment: macOS arm64, Bun 1.3.13, offline fixture providers and isolated test
+profiles. Commands: `bun install --frozen-lockfile` (builds TUI),
+`bun test tests/runtime/scheduler.test.ts tests/core/orchestrator.test.ts tests/core/query.test.ts`,
+`bun run lint`, `bun run typecheck`, `bun run test`, `bun run build`, and
+`bun run canary`. Focused: 98 pass / zero fail, 331 assertions. Full suite:
+5,512 pass / 19 skip / zero fail, 22,593 assertions, 5,531 tests across 523 files
+(87.21 seconds). Lint/boundary, typecheck, package builds and packed Node/Bun
+consumers all pass. No live provider, owner-profile write, runtime install,
+master merge or release. Learning-soak behavior was not tested.
+
 ## 2026-10-09 — issue #14: join tool dispatch lifecycle and preserve real history
 
 Scope: concurrent and serial SDK tool dispatch, cancellation, host callback failures, and packed consumer behavior. Native Codex subagent implementation was explicitly requested by the owner. Root independently reviewed the focused diff and requested supplementary-output preservation; that correction has a deterministic regression.
