@@ -46,6 +46,33 @@ Fresh exact-model reasoning metadata now selects completion-token limits and omi
 Scope: exact direct/routed Grok depth, Kimi binary switch, metadata-driven future IDs, route validation, immutable per-turn metadata, unknown/stale refusal and refreshed-unknown compatibility. No paid provider requests or installed upgrade. Focused provider/route tests passed (101 cases); five new reasoning fixtures cover actual wire bodies and omitted-off choices. The former Kimi non-reasoning fixture now uses GPT4o.
 
 Final exact #26 dependency-stack gate: `bun run lint && bun run typecheck && bun run test` passed **5644 / 19 existing skips / zero failures**, 23183 assertions across 536 files. Earlier runs exposed an obsolete Kimi expectation, a local moved-file test-runner ENOENT and one unrelated plugin shell timeout; each was corrected or rechecked. The isolated shell fixture passed 5/5, then the unchanged frozen full gate passed. Snapshot/unknown metadata fixtures are offline evidence, not live-account certification.
+## 2026-10-10 — PR37 separate output-effort and thinking controls
+
+Follow-up contract review confirmed that Anthropic output_config.effort support
+is independent of thinking.type=enabled with budget_tokens. Discovery now keeps
+that published boolean as anthropicEffortSupported through the validated cache.
+A budget-only model can advertise thinking while rejecting output effort;
+PR38's adapter can preserve that distinction without guessing from its ID.
+
+Focused catalog/direct checks passed **16/0**, 78 assertions. Frozen configured
+lint, typecheck, strict SDK build and full tests passed **5645 / 19 skip / 0 fail**,
+23200 assertions across 535 files (94.17s). No inference, credentials, installation
+or release was used. Prior test records remain intact.
+
+## 2026-10-10 — PR37 second review: published Anthropic controls
+
+The second review confirmed that direct discovery dropped official Anthropic
+per-level effort flags and thinking modes. The normalizer now carries published
+levels and exact enabled/adaptive mode support for new IDs. The cache boundary
+keeps the known fields and rejects malformed mode arrays. Missing metadata stays
+unknown. PR38 owns the matching transport implementation.
+
+Validation: catalog/direct focused **15 pass / 0 fail**, 72 assertions; catalog/
+OpenRouter cross-review **13 pass / 0 fail**, 44 assertions. An initial fixture
+missing its normalizer import and Bun fetch type cast was corrected before the
+gate. Configured lint, typecheck, strict SDK build and full suite all passed:
+**5644 pass / 19 skip / 0 fail**, 23194 assertions across 535 files (98.50s).
+No inference, live account data, installed update or release was used.
 
 ## 2026-10-10 — PR37 review fix: unsupported subscription discovery stays unavailable
 
