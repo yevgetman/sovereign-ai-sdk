@@ -90,13 +90,29 @@ export function normalizeDirectModel(
         : support(capability.image_input ?? capability.images),
       reasoning: rawEfforts
         ? rawEfforts.length
-          ? 'supported'
+          ? efforts?.length
+            ? 'supported'
+            : 'unknown'
           : 'unsupported'
         : support(capability.thinking ?? capability.reasoning),
     },
     contextWindow: positiveNumber(row.max_input_tokens ?? row.context_window ?? row.context_length),
     maxOutputTokens: positiveNumber(row.max_tokens ?? row.max_output_tokens),
-    efforts: efforts !== undefined ? ['off', ...new Set(efforts)] : undefined,
+    efforts:
+      publishedEfforts !== undefined || efforts?.length ? ['off', ...new Set(efforts)] : undefined,
+    ...(efforts?.length && (provider === 'openai' || provider === 'xai')
+      ? {
+          reasoningControl: {
+            parameter: provider,
+            disableSupported: false,
+            ...(rawEfforts?.includes('xhigh')
+              ? { maxWireValue: 'xhigh' }
+              : rawEfforts?.includes('max')
+                ? { maxWireValue: 'max' }
+                : {}),
+          },
+        }
+      : {}),
     anthropicThinkingModes,
     anthropicEffortSupported:
       provider === 'anthropic' && typeof effortCapability.supported === 'boolean'

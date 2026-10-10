@@ -1,3 +1,18 @@
+## 2026-10-10 — PR42 fifth-review final parent alignment
+
+Merged actual final PR41 `5a035afd`. Every tracked non-Markdown file is byte-identical to complete-gate commit `d515fc62`; the only query conflict was a blank line, resolved to the tested exact source. Preserved both parent testing histories. Final lint passes. The complete **5715 passed / 19 existing skips / zero failed** result remains applicable.
+
+## 2026-10-10 — PR42 fifth review: reject unsupported effort before context reduction
+
+Fresh review of PR42 CLI discovery, account pools, endpoint scopes, offline snapshots, bounded filters and disk cache found no new independent issue above Low. Initial focused discovery/CLI/catalog fixtures passed **33/0**, 238 assertions. Merged tested final PR38 `56f6c2ed`, preserving PR42's complete prepared-request/model-limit path and adding the exact reasoning preflight before request preparation/context reduction. Combined CLI/preflight checks passed **11/0**, 110 assertions. No reduction or inference occurs for metadata-backed unsupported effort.
+
+The initial merged lint attempt found import ordering only; corrected before the complete gate. `bun run lint`, `bun run typecheck`, strict `bun run --cwd packages/sdk build` and every discovered test file pass: **5715 passed / 19 existing skips / zero failed**, 23678 assertions across 544 files. The full test gate used branch-specific TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture. No file was omitted, and no assertion was weakened. Independent catalog reviewer also inspected and passed the new PR38 regression. No paid inference, live configuration, install, upgrade, learning-loop setting, Telekit or Mac app change.
+
+## 2026-10-10 — PR42 fourth review: inherit final reviewed SDK and compaction fixes
+
+Merged final PR41 `bcd12a5a`, including actual PR40/39/38/37 ancestry. Kept PR42 account-pool ambiguity, custom endpoint isolation and its exact native effort controls intact. Inherited the confirmed High direct-source identity correction and Medium split-usage compaction pricing correction; no additional independent issue above Low was found in PR42.
+
+`bun run lint`, `bun run typecheck` and `bun run --cwd packages/sdk build` pass. Complete gate via `python3 /private/tmp/sdk-fourth-gate.py /private/tmp/sdk-sov-models 42`: **5714 passed / 19 existing skips / zero failed**, 23674 assertions across 543 files. Every discovered test file ran; the global compiler fixture is serialized, the existing shared-theme footer fixture is isolated, and remaining tests use a distinct TMPDIR. No paid inference, live configuration, installed runtime or learning-loop setting changes.
 ## 2026-10-10 — PR41 fifth-review final parent alignment
 
 Merged actual final PR40 `9b26d4f8`. All tracked non-Markdown files are byte-identical to passing complete-gate commit `5805f482`; only preserved parent test records and ancestry changed. Final lint passes.
@@ -40,6 +55,57 @@ Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endp
 
 # Testing Log
 
+## 2026-10-10 — PR42 closes reviewed PR41 ancestry
+
+Merged final PR41 e3e22c1c after the combined PR42 gate. Every tracked functional
+and test file is byte-identical to tested PR42 merge 516076b0; only the testing
+log changed. Both parent testing histories remain. Lint was rerun before this
+history merge. The valid frozen full result remains 5712/19 skips/0 failures.
+
+## 2026-10-10 — PR42 integrates second-review model evidence fixes
+
+Integrated final reviewed PR39 10918ef1 and its PR37/38 ancestry. Preserved exact
+native max wire values, pricing captures, the early model-metadata capture and
+all Anthropic published mode facts. An independent PR38 reasoning/direct recheck
+passed 17 tests / 183 assertions; combined direct/model-evidence/limit fixtures
+passed 20 tests / 119 assertions.
+
+Lint, typecheck and strict SDK build passed on the frozen combined tree. The
+first parallel full run hit 26 pre-existing Date.now temp-name/SQLite collisions
+plus a global /tmp compile-scratch probe collision with the other gate. With no
+source change, a serial run with a task-owned TMPDIR passed **5712 / 19 skip /
+0 fail**, 23647 assertions across 543 files (92.92s). No live runtime, installation
+or paid inference was used.
+
+## 2026-10-10 — PR42 second review: direct account pool isolation
+
+Discovery used the first configured key while the runtime credential pool could
+select a different account by priority, rotation or cooldown. Model discovery
+now requires one distinct configured secret; an ambiguous pool gets a separate
+unavailable cache scope. It never reads or selects pool state. Duplicate secret
+slots retain the single-account catalog. The credential token fallback follows
+the runtime's nullish API-key rule, including an explicit empty API key.
+
+Focused CLI checks passed **9/0**, 84 assertions. Memory-only resolver fixtures
+prove environment/config pool aggregation, explicit priority selection and empty
+API-key token handling without files or inference. The first full candidate
+passed **5702 / 19 skip / 0 fail**, 23558 assertions across 542 files (101.27s).
+After adding the resolver fixture, the final frozen lint, typecheck, strict SDK
+build and full suite passed **5703 / 19 skip / 0 fail**, 23565 assertions across
+542 files (96.07s). Initial Bun fetch-type overlap was corrected before gates.
+No installed upgrade, paid inference, live credential data or release was used.
+
+## 2026-10-10 — PR42 final parent integration and pricing gate
+
+Integrated authoritative reviewed PR41 `08b87cdf` (including final PR40 ancestry). Retained both testing histories and the new tree-budget documentation. All functional tracked files match the independently tested frozen tree exactly; source digest `43777b8e2ade3f10c604e0b7a5172e77ef8bbc9d3f8dc16a6398622ca37a669d`. Only documentation changed after that gate.
+
+Validation: `bun run lint && bun run typecheck && bun run build && bun run test` passed on the exact combined source: **5701 pass / 19 skip / 0 fail**, 23534 assertions across 542 files (96.73s). Lint rerun before the final merge commit. Custom endpoint isolation and immutable/unknown tree tariffs were independently reviewed. No paid inference, installed upgrade or release.
+
+## 2026-10-10 — PR42 inherits the reviewed discovery/reasoning parent
+
+Integrated final PR38 `1fc9d8ed`, including unavailable-subscription reporting, stale-cache persistence, bounded cache ports and verified reasoning restrictions. Runtime source merged without conflicts; retained both testing histories and normalized the Testing Log heading before its entries.
+
+Validation: frozen `bun run lint && bun run typecheck && bun run build && bun run test` passed: **5698 pass / 19 skip / 0 fail**, 23529 assertions across 542 files (90.44s). Tested tree `cf64f92039f64752a5dbc540ab233d5746ad78c5`; only this log entry followed the gate, with lint rerun. No paid inference or installed upgrade.
 ## 2026-10-10 — PR41 third review dependency validation
 
 Independent review found no new above-Low defect in PR41 pricing and budget settlement. Integrated final PR39 `10918ef1`, preserving both immutable tariff capture and immutable model-evidence capture before asynchronous host callbacks. Configured lint, typecheck, strict SDK build and full tests passed: **5701 passed / 19 existing skips / zero failed**, 23534 assertions across 542 files (95.75s). All parent testing records were preserved. No paid inference or installed changes.
@@ -62,6 +128,12 @@ Independent review found no new above-Low defect in PR40. Integrated final PR39 
 Resolved three Medium findings: image transport bytes no longer masquerade as input tokens; per-turn model/provider changes do not inherit another identity's standing record; model evidence is frozen before asynchronous host callbacks. Input accounting exposes incomplete image estimates in traces, preserves the image payload, accepts verified host counters, and retains provider overflow recovery. Merged reviewed PR38 native Anthropic controls with PR39 thinking-budget caps intact.
 
 Configured lint, typecheck, strict SDK build and full tests pass: **5672 passed / 19 existing skips / zero failed**, 23424 assertions across 539 files (89.90s). Focused image/model-evidence checks passed 17 tests / 83 assertions. The initial combined gate caught a missing public type-surface witness; this gate includes its correction. The PNG fixture has valid chunk CRCs. Independent review closed the image and metadata findings. No paid inference or installed changes.
+## 2026-10-10 — PR38 fifth review: reject effort before paid reduction
+
+Confirmed Medium: direct SDK query/createAgent invoked contextManager.reduce before the provider rejected metadata-backed unsupported reasoning effort. Query now validates built-in route selections before context reduction, retaining metadata-less and custom-provider behavior. An isolated fake-provider regression fails before the fix (one reduction) and passes after it (zero reductions and zero fetches). Independent host reviewer closed the finding with the same regression: 1 passed / 0 failed / 4 assertions.
+
+Focused reasoning/preflight: 11 passed / zero failed / 140 assertions. The first gate attempt identified two regression-only TypeScript typing errors; corrected before the complete rerun. Final lint, typecheck and strict SDK build pass. Every discovered test file executed using per-branch TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture: **5657 passed / 19 existing skips / zero failed**, 23365 assertions across 537 files. No paid inference, runtime install, learning settings or host configuration changes.
+
 ## 2026-10-10 — PR38 fourth review: inherit frozen discovery identity
 
 Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endpoint, authorization and account/normalizer identity remain captured at construction. No additional source changes were required on this branch.
@@ -97,6 +169,17 @@ Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endp
 
 Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typecheck and strict SDK build pass. Full suite: 5643 passed, 19 skipped, zero failed; 23183 assertions across 535 files (91.44 seconds).
 
+## 2026-10-10 — PR42 review fix: custom OpenRouter endpoint isolation
+
+Addressed review C4 (Medium). A custom OpenRouter-compatible base URL now uses an endpoint-hashed unavailable discovery source and cannot inherit official public model limits, capabilities or prices. Absent or canonical official HTTPS API URLs (including trailing slash) retain public discovery. Custom refresh performs no fetch. Async/synchronous cache reads, endpoint isolation and query/fragment/userinfo/protocol/path exclusions are covered.
+
+Validation: `bun run lint && bun run typecheck && bun run build && bun run test` passed: **5691 pass / 19 skip / 0 fail**, 23422 assertions across 542 files (101.97s). Focused machine-catalog tests and two independent reviews passed: **7 pass / 0 fail**, 53 assertions. No paid inference, credentials or installed state changed.
+
+## 2026-10-10 — route-scoped machine model discovery (#32)
+
+Added version-1 bounded `sov models`, opt-in refresh, account-isolated disk snapshots, author/search/pagination, safe invalid-query errors and additive capabilities discovery. Shared synchronous snapshots and async reads both mark noncurrent catalogs stale. Root and independent catalog-agent review found and fixed state-freshness and offline author-filter inconsistencies.
+
+`bun run lint && bun run typecheck && bun run test` pass: **5690 pass / 19 skip / 0 fail**, 23393 assertions across 542 files (91.49s), on exact PR #41 parent `cdab5c67`. The strict package build also passed. Focused source-CLI/cache fixtures pass 7/0, including network refusal on offline reads and invalid refresh options. `bun build src/main.ts --compile --outfile /private/tmp/sov-models-contract-check` passed; compiled capabilities, routes, offline model pagination and rejected refresh pagination each emit one version-1 JSON object with expected exit status. These are offline contract checks, not live provider entitlement or Telekit UI proof.
 ## 2026-10-10 — PR40 reviewed parent integration
 
 Integrated the reviewed discovery and reasoning corrections from PR38 into the modality-validation branch. Preserved image/tool fixtures and additive review records. Frozen `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5674 pass / 19 existing skips / 0 fail, 23380 assertions across 539 files (112.59 seconds). No paid inference, installed upgrade or release.
