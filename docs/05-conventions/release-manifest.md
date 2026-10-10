@@ -21,9 +21,11 @@ release when the selected work also changes the wrapper. A library-only cut may
 retain the published CLI version. Protocol/debug-console versions remain unchanged
 unless explicitly selected work requires their own release preparation.
 
-Current targets are SDK **0.13.1** and CLI **0.6.77**. PR23 is included once as its
-master merge commit, with `mainline: 1`. Source package stamps remain at the last
-release until cut preparation. The draft is planning, not an artifact or a pin.
+Current targets are SDK **0.14.0** and CLI **0.6.77**. PR23 and the ten reviewed
+SDK/SOV PRs #34–#43 are included once each as their exact master merge commits,
+with `mainline: 1`. The SDK target is a minor release because numeric-only pricing
+callers must handle unknown cost. The manifest preserves dependency order. Source package stamps remain at the
+last release until cut preparation. The draft is planning, not an artifact or a pin.
 
 ## Adding work
 

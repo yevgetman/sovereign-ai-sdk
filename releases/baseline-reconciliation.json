@@ -1,20 +1,116 @@
 {
-  "checked_at": "2026-10-10T12:09:04.747529+00:00",
+  "checked_at": "2026-10-10T20:45:56.266Z",
   "baseline_source": "7076729a77df8378cfd41f0bfaa350583818842b",
-  "through_master": "1b91237a4f51642ed76d2737d893412338f69c7d",
+  "through_master": "9415f398c0ec5af68e8c7fb506cc3d417fdb1ebd",
   "first_parent_changes": [
+    "9415f398c0ec5af68e8c7fb506cc3d417fdb1ebd Merge pull request #43 from yevgetman/feat/shared-model-menus",
+    "03dc46c81e3885df57b110dbc0bee0ce9d57914f Merge pull request #34 from yevgetman/fix/openrouter-routing-policy",
+    "042395d4ee9b261d6d098cf4cdb207dd332cfd01 Merge pull request #42 from yevgetman/fix/sov-model-catalog-machine",
+    "1d307eb80172bf54a70c50dff0e3aac421dff9d5 Merge pull request #41 from yevgetman/fix/model-pricing-receipts",
+    "68f83423104b834c99344a9127dd2e3727be56fb Merge pull request #40 from yevgetman/fix/model-modalities",
+    "d8fcd7a0468ac1ff7b5e93204a329944aa4d4109 Merge pull request #39 from yevgetman/fix/model-context-limits",
+    "f9e4f4c16ca42fbd0fdf36ac81c723c156d62e86 Merge pull request #38 from yevgetman/fix/model-aware-reasoning",
+    "702ad400d4c0a3b244e91b25ce23f6d65b0830f0 Merge pull request #37 from yevgetman/feat/direct-model-discovery",
+    "b924cad9208455fd1f8976370227ac162446f577 Merge pull request #36 from yevgetman/feat/openrouter-model-discovery",
+    "03634457ec48de59ff6d18e07c803758ca4491e2 Merge pull request #35 from yevgetman/feat/model-catalog-contract",
+    "6a73a68ae73de66fdbcfd493f2e64fd3f533a46c docs: record model discovery gaps and linked closure issues",
+    "f2b59e617e4c4a220428a53e194b5062e52358d5 feat: plan SDK releases with verified source manifests",
     "1b91237a4f51642ed76d2737d893412338f69c7d Merge pull request #23 from yevgetman/fix/delegation-failure-diagnostics",
     "a989e0f85aaf9c0f991c918bb596220ef4b0cf1e docs: reconcile SDK release state and consumer contracts",
     "c590c601f6f6fd083363df0f860971bc83ad8726 Scan Windows release archives on Linux before native verification",
     "806b351a58e69c39466f22fdfa31cd686dad13a3 Preserve pinned scanner bytes in Windows release checkouts"
   ],
   "selected_application_units": [
-    "1b91237a4f51642ed76d2737d893412338f69c7d"
+    "1b91237a4f51642ed76d2737d893412338f69c7d",
+    "03634457ec48de59ff6d18e07c803758ca4491e2",
+    "b924cad9208455fd1f8976370227ac162446f577",
+    "702ad400d4c0a3b244e91b25ce23f6d65b0830f0",
+    "f9e4f4c16ca42fbd0fdf36ac81c723c156d62e86",
+    "d8fcd7a0468ac1ff7b5e93204a329944aa4d4109",
+    "68f83423104b834c99344a9127dd2e3727be56fb",
+    "1d307eb80172bf54a70c50dff0e3aac421dff9d5",
+    "042395d4ee9b261d6d098cf4cdb207dd332cfd01",
+    "03dc46c81e3885df57b110dbc0bee0ce9d57914f",
+    "9415f398c0ec5af68e8c7fb506cc3d417fdb1ebd"
   ],
   "notes": [
-    "Intervening compiler/scanner and documentation corrections are not automatically selected.",
-    "Apply PR23 with git cherry-pick -m 1 to the verified baseline.",
-    "Unlisted commits disqualify a build from arbitrary master; assemble listed source units.",
-    "Review and list version stamps, lockfile updates and notes before freeze."
+    "Preserved the PR23 diagnostic release item and verified SDK0.13.0/CLI0.6.76 published baseline.",
+    "Selected PR34–43 once each as their actual master merge commits, mainline1; feature-branch child commits are not applied again.",
+    "The ten merged source units preserve the exact reviewed feature tree at b9a8759adf9d475b1440b02d5a144acba4969891.",
+    "SDK0.14.0 is planned because the numeric pricing helper migration requires a minor release; companion CLI0.6.77 is unchanged.",
+    "Unlisted documentation/tooling/bookkeeping remains in Git; assemble listed units from the verified baseline rather than building arbitrary master.",
+    "No assembly, freeze, artifact preparation, version-stamp change, publication or consumer pin was performed."
+  ],
+  "merged_prs": [
+    {
+      "number": 35,
+      "merge_commit": "03634457ec48de59ff6d18e07c803758ca4491e2",
+      "first_parent": "6a73a68ae73de66fdbcfd493f2e64fd3f533a46c",
+      "reviewed_head": "b271533464bb2ed770b8056fe2dbd20b957ae924",
+      "merged_at": "2026-10-10T20:43:53Z"
+    },
+    {
+      "number": 36,
+      "merge_commit": "b924cad9208455fd1f8976370227ac162446f577",
+      "first_parent": "03634457ec48de59ff6d18e07c803758ca4491e2",
+      "reviewed_head": "91239886a08fbfc1e2455ed8f41c52fb30a57498",
+      "merged_at": "2026-10-10T20:44:14Z"
+    },
+    {
+      "number": 37,
+      "merge_commit": "702ad400d4c0a3b244e91b25ce23f6d65b0830f0",
+      "first_parent": "b924cad9208455fd1f8976370227ac162446f577",
+      "reviewed_head": "7549c9100bd18d434aead35caed39c9981b14c18",
+      "merged_at": "2026-10-10T20:44:20Z"
+    },
+    {
+      "number": 38,
+      "merge_commit": "f9e4f4c16ca42fbd0fdf36ac81c723c156d62e86",
+      "first_parent": "702ad400d4c0a3b244e91b25ce23f6d65b0830f0",
+      "reviewed_head": "56f6c2ed0421acbe0f07bd6b329425117d2be1f6",
+      "merged_at": "2026-10-10T20:44:26Z"
+    },
+    {
+      "number": 39,
+      "merge_commit": "d8fcd7a0468ac1ff7b5e93204a329944aa4d4109",
+      "first_parent": "f9e4f4c16ca42fbd0fdf36ac81c723c156d62e86",
+      "reviewed_head": "b5c9a293c02f06f4e7f685d6085044f5e3cebd75",
+      "merged_at": "2026-10-10T20:44:32Z"
+    },
+    {
+      "number": 40,
+      "merge_commit": "68f83423104b834c99344a9127dd2e3727be56fb",
+      "first_parent": "d8fcd7a0468ac1ff7b5e93204a329944aa4d4109",
+      "reviewed_head": "9b26d4f8b0c24a5cff799fb73fcac476e71b4679",
+      "merged_at": "2026-10-10T20:44:38Z"
+    },
+    {
+      "number": 41,
+      "merge_commit": "1d307eb80172bf54a70c50dff0e3aac421dff9d5",
+      "first_parent": "68f83423104b834c99344a9127dd2e3727be56fb",
+      "reviewed_head": "5a035afd6329ff0fc9d0fc1bcd4bd0f2ee1b4464",
+      "merged_at": "2026-10-10T20:44:43Z"
+    },
+    {
+      "number": 42,
+      "merge_commit": "042395d4ee9b261d6d098cf4cdb207dd332cfd01",
+      "first_parent": "1d307eb80172bf54a70c50dff0e3aac421dff9d5",
+      "reviewed_head": "c6dc89c94ad8cd7c65d474f008ce42506b785c32",
+      "merged_at": "2026-10-10T20:44:48Z"
+    },
+    {
+      "number": 34,
+      "merge_commit": "03dc46c81e3885df57b110dbc0bee0ce9d57914f",
+      "first_parent": "042395d4ee9b261d6d098cf4cdb207dd332cfd01",
+      "reviewed_head": "bb55c6c200d5c43015d36d6330f82181143bfe8b",
+      "merged_at": "2026-10-10T20:44:54Z"
+    },
+    {
+      "number": 43,
+      "merge_commit": "9415f398c0ec5af68e8c7fb506cc3d417fdb1ebd",
+      "first_parent": "03dc46c81e3885df57b110dbc0bee0ce9d57914f",
+      "reviewed_head": "b9a8759adf9d475b1440b02d5a144acba4969891",
+      "merged_at": "2026-10-10T20:45:00Z"
+    }
   ]
 }

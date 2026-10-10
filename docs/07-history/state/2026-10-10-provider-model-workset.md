@@ -1,10 +1,10 @@
-# Provider/model resilience — completed source work, pending merge
+# Provider/model resilience — merged source work, planned release
 
-**2026-10-10.** All ten SDK/SOV gap issues have completed source changes in unmerged pull requests. This snapshot describes the proposed source state. The published SDK remains **0.13.0** and SOV CLI/gateway remains **0.6.76**. No package release, installed upgrade or live-provider certification is claimed.
+**2026-10-10.** All ten SDK/SOV gap PRs #34–#43 are merged into master. The exact master merge commits are recorded in the SDK 0.14.0 draft manifest. This snapshot describes merged source, pending release. The published SDK remains **0.13.0** and SOV CLI/gateway remains **0.6.76**. No package release, installed upgrade or live-provider certification is claimed.
 
 ## Pull request dependency order
 
-Merge and review in this order. Each pull request uses its prerequisite branch as its base so its diff contains its own issue's work. Use merge commits to preserve the dependency ancestry. Retarget each dependent pull request to master after its prerequisite merges; avoid squashing a prerequisite out of the stack. The repository permits merge commits and does not automatically delete merged branches.
+The PRs were reviewed in this dependency order, retargeted to master after each prerequisite merged, and merged with their reviewed heads unchanged. Merge commits preserve the full dependency ancestry. The repository does not automatically delete merged branches.
 
 | Issue | Pull request | Completed scope |
 |---|---|---|
@@ -25,7 +25,7 @@ All SOV-hosted turns freeze exact provider/model evidence before execution. Nati
 
 ## Release and host follow-ups
 
-The active SDK manifest's draft patch must be replanned before including this work. The legacy numeric cost helper now reports an unknown amount instead of a guessed zero when pricing or usage is incomplete. That API change requires an **SDK minor release**, rather than silently placing it in the draft 0.13.1 patch. No planned-version change or publication is performed by these pull requests.
+The active SDK draft is now **0.14.0**, with companion CLI **0.6.77**. It retains PR23 and adds these ten exact master merges. The legacy numeric cost helper now reports an unknown amount instead of a guessed zero when pricing or usage is incomplete. That API change requires an **SDK minor release**, rather than silently placing it in the draft 0.13.1 patch. The manifest and plan targets agree. Source package stamps remain unchanged until cut preparation. No publication or installed upgrade has occurred.
 
 **Telekit issue #30** and **Kernel Mac installer issue #176** remain open. They cover host discovery/selection integration and release/pin work outside the SDK/SOV scope. Their completion must not be inferred from these SDK pull requests.
 

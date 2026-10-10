@@ -1,3 +1,11 @@
+## 2026-10-10 — Merge SDK model workset and record the minor-release plan
+
+Merged reviewed PRs35→36→37→38→39→40→41→42→34→43 into master with unchanged reviewed heads. Verified each exact master merge SHA, main parent, UTC timestamp and reviewed-head CI evidence. The merged non-Markdown source/test tree matches final review head `b9a8759adf9d475b1440b02d5a144acba4969891`. Added each merge once (`mainline: 1`) to the SDK manifest with ordered dependency IDs; retained the existing PR23 diagnostics item and published baseline. Planned SDK0.14.0 because numeric-only pricing callers must handle unknown cost. CLI0.6.77 target remains unchanged. This is a draft, not an assembled or published release.
+
+`bun run release:validate` passes both schemas and source/dependency/mainline checks: 11 items. Release regression fixture suite: 12 passed, zero failed, 19 assertions. Built the worktree-local Go TUI with `bun run tui:build`. Configured lint, typecheck and strict SDK build pass. Every discovered test file ran: **5741 passed / 19 existing skips / zero failed**, 23801 assertions across 549 files. Global compiler fixture serialized; existing shared-theme footer isolated; all other files used a unique temporary root.
+
+The initial clean-worktree attempt lacked the required TUI binary and failed a launcher check; that test run was stopped, the local binary was built, and the entire gate rerun successfully. No test assertion was changed. No release assembly, freeze, package version stamps, publication, consumer pin, installed upgrade, daemon restart, Telekit or Mac app change occurred.
+
 ## 2026-10-10 — PR43 fifth-review final parent alignment
 
 Merged actual final PR34 `bb55c6c2`. All tracked non-Markdown files are byte-identical to passing complete-gate commit `8efd48b0`; only preserved parent test records and ancestry changed. The downstream output-ceiling reset remains intact. Final lint passes.
