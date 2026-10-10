@@ -86,14 +86,29 @@ export function modelSource(
     return createSubscriptionModelSource(routeId as 'chatgpt-subscription' | 'grok-subscription');
   const provider = route.provider as 'anthropic' | 'openai' | 'xai';
   const config = settings.providers?.[provider];
-  const apiKey =
-    env[
-      { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', xai: 'XAI_API_KEY' }[provider]
-    ] ||
-    config?.apiKey ||
-    config?.apiKeys?.find(Boolean) ||
-    config?.credentials?.find((credential) => credential.apiKey || credential.token)?.apiKey ||
-    config?.credentials?.find((credential) => credential.apiKey || credential.token)?.token;
+  // The runtime can select any usable pool slot (priority, rotation or cooldown).
+  // A first-key catalog must not become evidence for a different account's turn.
+  // Discovery stays read-only: no pool selection or persistent credential reads.
+  const keys = new Set(
+    [
+      env[
+        { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', xai: 'XAI_API_KEY' }[provider]
+      ],
+      config?.apiKey,
+      ...(config?.apiKeys ?? []),
+      ...(config?.credentials?.map((credential) => credential.apiKey ?? credential.token) ?? []),
+    ].filter((key): key is string => Boolean(key)),
+  );
+  if (keys.size > 1) {
+    return {
+      routeId,
+      cacheKey: 'ambiguous-account-pool',
+      async discover() {
+        throw new Error('Discovery requires an unambiguous account');
+      },
+    };
+  }
+  const apiKey = [...keys][0];
   if (!apiKey || config?.baseUrl) {
     return {
       routeId,

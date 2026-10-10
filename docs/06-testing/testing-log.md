@@ -1,5 +1,23 @@
 # Testing Log
 
+## 2026-10-10 — PR42 second review: direct account pool isolation
+
+Discovery used the first configured key while the runtime credential pool could
+select a different account by priority, rotation or cooldown. Model discovery
+now requires one distinct configured secret; an ambiguous pool gets a separate
+unavailable cache scope. It never reads or selects pool state. Duplicate secret
+slots retain the single-account catalog. The credential token fallback follows
+the runtime's nullish API-key rule, including an explicit empty API key.
+
+Focused CLI checks passed **9/0**, 84 assertions. Memory-only resolver fixtures
+prove environment/config pool aggregation, explicit priority selection and empty
+API-key token handling without files or inference. The first full candidate
+passed **5702 / 19 skip / 0 fail**, 23558 assertions across 542 files (101.27s).
+After adding the resolver fixture, the final frozen lint, typecheck, strict SDK
+build and full suite passed **5703 / 19 skip / 0 fail**, 23565 assertions across
+542 files (96.07s). Initial Bun fetch-type overlap was corrected before gates.
+No installed upgrade, paid inference, live credential data or release was used.
+
 ## 2026-10-10 — PR42 final parent integration and pricing gate
 
 Integrated authoritative reviewed PR41 `08b87cdf` (including final PR40 ancestry). Retained both testing histories and the new tree-budget documentation. All functional tracked files match the independently tested frozen tree exactly; source digest `43777b8e2ade3f10c604e0b7a5172e77ef8bbc9d3f8dc16a6398622ca37a669d`. Only documentation changed after that gate.

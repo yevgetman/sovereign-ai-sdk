@@ -140,3 +140,10 @@ Their model metadata remains unknown until a caller provides endpoint-specific
 evidence. Cache identity includes a nonsecret endpoint hash. Absent `baseUrl` or
 the official `https://openrouter.ai/api/v1` (with an optional trailing slash) keeps
 public discovery available. A custom-endpoint refresh does not fetch or infer.
+
+
+Direct discovery requires one distinct configured API secret. If a credential
+pool can rotate between accounts, model metadata stays unavailable rather than
+borrowing the first account's catalog. Discovery does not select a pool slot,
+read credential status, or change rotation state. Duplicate slots with the same
+secret retain single-account discovery.
