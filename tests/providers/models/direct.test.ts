@@ -6,6 +6,7 @@ import {
 import {
   createDirectModelSource,
   createSubscriptionModelSource,
+  normalizeDirectModel,
   resolveModelAlias,
 } from '../../../packages/sdk/src/providers/models/direct.js';
 
@@ -101,4 +102,57 @@ test('publisher-provided limits and xAI modalities grow without model-name guess
   expect(catalog.models[0]?.contextWindow).toBe(8_000_000);
   expect(catalog.models[0]?.capabilities.images).toBe('supported');
   expect(catalog.models[0]?.efforts).toEqual(['off', 'low', 'medium', 'high', 'max']);
+});
+
+test('Anthropic published effort flags and thinking modes survive refresh for new IDs', async () => {
+  const fetch = (async () =>
+    Response.json({
+      data: [
+        {
+          id: 'claude-next-2040',
+          capabilities: {
+            thinking: {
+              supported: true,
+              types: { enabled: { supported: false }, adaptive: { supported: true } },
+            },
+            effort: {
+              supported: true,
+              low: { supported: true },
+              medium: { supported: false },
+              high: { supported: true },
+              max: { supported: false },
+            },
+          },
+        },
+      ],
+    })) as unknown as typeof globalThis.fetch;
+  const discovery = createModelDiscovery({ fetch });
+  const source = createDirectModelSource({ provider: 'anthropic', apiKey: 'fake', accountId: 'a' });
+  for (const result of [await discovery.refresh(source), await discovery.read(source)]) {
+    expect(result.models[0]?.efforts).toEqual(['off', 'low', 'high']);
+    expect(result.models[0]?.anthropicThinkingModes).toEqual(['adaptive']);
+    expect(result.models[0]?.capabilities.reasoning).toBe('supported');
+  }
+  const disabled = normalizeDirectModel(
+    {
+      id: 'claude-next-disabled',
+      capabilities: {
+        thinking: {
+          supported: false,
+          types: { enabled: { supported: false }, adaptive: { supported: false } },
+        },
+        effort: { supported: false },
+      },
+    },
+    'anthropic',
+  );
+  expect(disabled?.efforts).toEqual(['off']);
+  expect(disabled?.anthropicThinkingModes).toEqual([]);
+  expect(disabled?.capabilities.reasoning).toBe('unsupported');
+  const partial = normalizeDirectModel(
+    { id: 'claude-next-partial', capabilities: { thinking: { supported: true } } },
+    'anthropic',
+  );
+  expect(partial?.efforts).toBeUndefined();
+  expect(partial?.anthropicThinkingModes).toBeUndefined();
 });

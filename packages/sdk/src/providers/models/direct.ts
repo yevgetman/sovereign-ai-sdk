@@ -38,13 +38,37 @@ export function normalizeDirectModel(
   const rawEfforts = Array.isArray(capability.reasoning_effort)
     ? capability.reasoning_effort
     : undefined;
-  const efforts = rawEfforts?.flatMap((value) =>
+  const genericEfforts = rawEfforts?.flatMap((value) =>
     value === 'xhigh'
       ? ['max' as const]
       : REASONING_EFFORTS.includes(value as (typeof REASONING_EFFORTS)[number])
         ? [value as (typeof REASONING_EFFORTS)[number]]
         : [],
   );
+  // Anthropic publishes per-level effort flags and independent thinking modes,
+  // not the OpenAI/xAI reasoning_effort array. Never infer these from model IDs.
+  const effortCapability = object(capability.effort);
+  const publishedEfforts =
+    provider === 'anthropic' && typeof effortCapability.supported === 'boolean'
+      ? REASONING_EFFORTS.filter(
+          (level) =>
+            level !== 'off' &&
+            effortCapability.supported === true &&
+            support(effortCapability[level]) === 'supported',
+        )
+      : undefined;
+  const efforts = publishedEfforts ?? genericEfforts;
+  const thinkingTypes = object(object(capability.thinking).types);
+  const knownThinkingTypes =
+    provider === 'anthropic' &&
+    ['enabled', 'adaptive'].some(
+      (mode) => typeof object(thinkingTypes[mode]).supported === 'boolean',
+    );
+  const anthropicThinkingModes = knownThinkingTypes
+    ? (['enabled', 'adaptive'] as const).filter(
+        (mode) => support(thinkingTypes[mode]) === 'supported',
+      )
+    : undefined;
   const routeId = provider === 'xai' ? 'grok-api' : `${provider}-api`;
   return {
     id: row.id,
@@ -72,7 +96,8 @@ export function normalizeDirectModel(
     },
     contextWindow: positiveNumber(row.max_input_tokens ?? row.context_window ?? row.context_length),
     maxOutputTokens: positiveNumber(row.max_tokens ?? row.max_output_tokens),
-    efforts: efforts?.length ? ['off', ...efforts] : undefined,
+    efforts: efforts !== undefined ? ['off', ...new Set(efforts)] : undefined,
+    anthropicThinkingModes,
     // An authenticated model-list response proves listed availability, not that
     // a particular generation endpoint/account will execute a request.
     availability: 'account',

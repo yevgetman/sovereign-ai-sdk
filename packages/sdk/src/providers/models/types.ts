@@ -21,6 +21,8 @@ export interface ModelRecord {
   contextWindow?: number | undefined;
   maxOutputTokens?: number | undefined;
   efforts?: ReasoningEffort[] | undefined;
+  /** Exact advertised Anthropic thinking modes; empty means neither mode is accepted. */
+  anthropicThinkingModes?: ('enabled' | 'adaptive')[] | undefined;
   pricing?:
     | {
         inputPerMillion?: number | undefined;

@@ -59,3 +59,11 @@ SDK providers without changing the six built-in authentication routes.
 Provider references: [Anthropic models](https://platform.claude.com/docs/en/api/models/list),
 [OpenAI models](https://developers.openai.com/api/reference/resources/models/methods/list),
 [xAI models](https://docs.x.ai/developers/rest-api-reference/inference/models).
+
+
+Anthropic's `capabilities.effort` flags supply exact supported depth levels.
+Its independent `thinking.types.enabled/adaptive` flags supply the available
+wire modes in `anthropicThinkingModes`. An explicit empty mode list means no
+supported thinking mode; omitted metadata stays unknown. New model IDs use
+these published facts without family-name rules. The Anthropic transport owns
+how each advertised mode becomes a request.

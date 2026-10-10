@@ -4,6 +4,21 @@ Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typ
 
 # Testing Log
 
+## 2026-10-10 — PR37 second review: published Anthropic controls
+
+The second review confirmed that direct discovery dropped official Anthropic
+per-level effort flags and thinking modes. The normalizer now carries published
+levels and exact enabled/adaptive mode support for new IDs. The cache boundary
+keeps the known fields and rejects malformed mode arrays. Missing metadata stays
+unknown. PR38 owns the matching transport implementation.
+
+Validation: catalog/direct focused **15 pass / 0 fail**, 72 assertions; catalog/
+OpenRouter cross-review **13 pass / 0 fail**, 44 assertions. An initial fixture
+missing its normalizer import and Bun fetch type cast was corrected before the
+gate. Configured lint, typecheck, strict SDK build and full suite all passed:
+**5644 pass / 19 skip / 0 fail**, 23194 assertions across 535 files (98.50s).
+No inference, live account data, installed update or release was used.
+
 ## 2026-10-10 — PR37 review fix: unsupported subscription discovery stays unavailable
 
 Addressed review C2 (Medium). ChatGPT and Grok subscription sources now refuse unsupported discovery explicitly, so refresh returns unavailable with stale bundled suggestions instead of falsely assigning a current discovery timestamp. Availability/auth separation and no-network behavior remain covered for both subscription routes.

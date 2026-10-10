@@ -124,6 +124,19 @@ export function validateModelRecords(
           }
         : undefined,
     };
+    if (row.anthropicThinkingModes !== undefined) {
+      if (
+        !Array.isArray(row.anthropicThinkingModes) ||
+        row.anthropicThinkingModes.some(
+          (mode: unknown) => !['enabled', 'adaptive'].includes(String(mode)),
+        )
+      )
+        return undefined;
+      model.anthropicThinkingModes = [...new Set(row.anthropicThinkingModes)] as (
+        | 'enabled'
+        | 'adaptive'
+      )[];
+    }
     // Recognized additive control fields are kept, arbitrary source fields are not.
     if (row.toolChoices !== undefined) {
       if (
