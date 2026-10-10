@@ -8,6 +8,10 @@ import {
   fallbackModelCatalog,
 } from '@yevgetman/sov-sdk/providers/models/index';
 import {
+  apiKeyCredentialCount,
+  resolveProvider,
+} from '../../packages/sdk/src/providers/resolver.js';
+import {
   diskModelCache,
   modelPage,
   modelSource,
@@ -222,4 +226,103 @@ test('custom OpenRouter endpoints cannot reuse official model limits or pricing'
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('pooled direct credentials cannot borrow first-account metadata', async () => {
+  // An in-memory cache avoids using any real credential state or configuration.
+  const memory = new Map<string, ModelCatalog>();
+  const isolated = {
+    async get(key: string) {
+      return memory.get(key);
+    },
+    async set(key: string, value: ModelCatalog) {
+      memory.set(key, value);
+    },
+  };
+  const single = modelSource(
+    'openai-api',
+    { providers: { openai: { apiKey: 'fake-account-a' } } },
+    {},
+  );
+  const catalog = fallbackModelCatalog('openai-api');
+  catalog.state = 'current';
+  catalog.fetchedAt = new Date().toISOString();
+  const first = catalog.models[0];
+  if (!first) throw new Error('missing model fixture');
+  first.contextWindow = 8_000_000;
+  first.metadata = { source: 'account-a-fixture', stale: false };
+  await isolated.set(`openai-api:${single.cacheKey}`, catalog);
+  let calls = 0;
+  const discovery = createModelDiscovery({
+    cache: isolated,
+    fetch: (async () => {
+      calls++;
+      throw new Error('ambiguous discovery must not fetch');
+    }) as unknown as typeof globalThis.fetch,
+  });
+  const configurations = [
+    { apiKeys: ['fake-account-a', 'fake-account-b'] },
+    { apiKey: 'fake-account-a', credentials: [{ apiKey: 'fake-account-b', priority: 0 }] },
+    {
+      credentials: [
+        { id: 'a', apiKey: 'fake-account-a', priority: 100 },
+        { id: 'b', token: 'fake-account-b', priority: 0 },
+      ],
+    },
+  ];
+  for (const config of configurations) {
+    const source = modelSource('openai-api', { providers: { openai: config } }, {});
+    expect(source.cacheKey).toBe('ambiguous-account-pool');
+    for (const result of [await discovery.read(source), await discovery.refresh(source)]) {
+      expect(result.state).toBe('unavailable');
+      expect(result.models.every((model) => model.contextWindow === undefined)).toBe(true);
+      expect(result.models.every((model) => model.metadata.stale)).toBe(true);
+    }
+  }
+  expect(
+    modelSource(
+      'openai-api',
+      { providers: { openai: { apiKey: 'fake-account-b' } } },
+      { OPENAI_API_KEY: 'fake-account-a' },
+    ).cacheKey,
+  ).toBe('ambiguous-account-pool');
+  expect(
+    modelSource(
+      'openai-api',
+      { providers: { openai: { apiKey: 'fake-account-a', apiKeys: ['fake-account-a'] } } },
+      {},
+    ).cacheKey,
+  ).toBe(single.cacheKey);
+  expect(calls).toBe(0);
+});
+
+test('discovery ambiguity follows the runtime credential pool without touching disk', () => {
+  const settings = { providers: { openai: { apiKey: 'fake-config-b' } } };
+  const env = { OPENAI_API_KEY: 'fake-env-a' };
+  expect(apiKeyCredentialCount('openai', settings, env)).toBe(2);
+  expect(
+    resolveProvider('openai', 'gpt-5', { settings, env, credentialState: 'memory' }).metadata
+      .credentialId,
+  ).toBe('OPENAI_API_KEY');
+  expect(modelSource('openai-api', settings, env).cacheKey).toBe('ambiguous-account-pool');
+  const priority = {
+    providers: {
+      openai: {
+        credentials: [
+          { id: 'a', apiKey: 'fake-a', priority: 100 },
+          { id: 'b', apiKey: 'fake-b', priority: 0 },
+        ],
+      },
+    },
+  };
+  expect(
+    resolveProvider('openai', 'gpt-5', { settings: priority, env: {}, credentialState: 'memory' })
+      .metadata.credentialId,
+  ).toBe('b');
+  expect(modelSource('openai-api', priority, {}).cacheKey).toBe('ambiguous-account-pool');
+  const empty = {
+    providers: { openai: { credentials: [{ apiKey: '', token: 'fake-ignored-token' }] } },
+  };
+  expect(apiKeyCredentialCount('openai', empty, {})).toBe(0);
+  expect(modelSource('openai-api', empty, {}).cacheKey).toBe('unconfigured');
 });

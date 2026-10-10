@@ -1,5 +1,5 @@
 // Exact metadata and transport capabilities, not model-name family guessing.
-import type { ReasoningEffort } from './effort.js';
+import { REASONING_EFFORTS, type ReasoningEffort, modelSupportsReasoning } from './effort.js';
 import type { ModelRecord } from './models/types.js';
 import { RouteError } from './routes/errors.js';
 
@@ -139,4 +139,59 @@ export function modelReasoningParams(
   if (control.parameter === 'openrouter')
     return control.binary ? { reasoning: { enabled: true } } : { reasoning: { effort } };
   return { reasoning_effort: effort === 'max' ? (control.maxWireValue ?? 'high') : effort };
+}
+
+/** Native Anthropic thinking is a different transport from unified router depth.
+ * Fresh published modes/levels constrain it; partial known-model records retain
+ * the established enabled/budget adapter. Unknown future modes stay off. */
+export function anthropicReasoningControlFor(
+  model: string,
+  metadata?: ModelRecord,
+): {
+  efforts: readonly ReasoningEffort[];
+  mode?: 'enabled' | 'adaptive';
+  outputEffort: boolean;
+} {
+  if (metadata && (metadata.id !== model || metadata.provider !== 'anthropic'))
+    throw new RouteError('effort_unsupported', 'model metadata does not match request');
+  const legacy = modelSupportsReasoning(model, 'anthropic');
+  const fallback = {
+    efforts: legacy ? REASONING_EFFORTS : ['off' as const],
+    ...(legacy ? { mode: 'enabled' as const } : {}),
+    outputEffort: false,
+  };
+  if (!hasReasoningMetadata(metadata) || !metadata) return fallback;
+  if (metadata.capabilities.reasoning === 'unsupported')
+    return { efforts: ['off'], outputEffort: false };
+  if (metadata.metadata.stale) return fallback;
+  const modes = metadata.anthropicThinkingModes;
+  const mode = modes?.includes('adaptive')
+    ? 'adaptive'
+    : modes?.includes('enabled')
+      ? 'enabled'
+      : modes === undefined && legacy
+        ? 'enabled'
+        : undefined;
+  if (!mode || (metadata.capabilities.reasoning !== 'supported' && !legacy))
+    return { efforts: ['off'], outputEffort: false };
+  const advertised =
+    metadata.anthropicEffortSupported === false
+      ? mode === 'enabled'
+        ? REASONING_EFFORTS.filter((level) => level !== 'off')
+        : ['high' as const]
+      : metadata.efforts?.filter((level) => level !== 'off');
+  return {
+    efforts: [
+      'off',
+      ...(advertised !== undefined
+        ? advertised
+        : mode === 'adaptive'
+          ? ['high' as const]
+          : REASONING_EFFORTS.filter((level) => level !== 'off')),
+    ],
+    mode,
+    outputEffort:
+      metadata.anthropicEffortSupported !== false &&
+      Boolean(metadata.efforts?.some((level) => level !== 'off')),
+  };
 }
