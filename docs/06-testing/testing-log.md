@@ -1,5 +1,18 @@
 # Testing Log
 
+## 2026-10-10 — PR35 review fixes: cache freshness and bounded cache ports
+
+Addressed review C1 and C3 (Medium). Failed refreshes retain stale evidence in the external cache and keep a fail-safe per-instance snapshot if persistence fails. Cache reads/writes have bounded waits; serialized writes prevent a late old cache operation from overwriting a later successful refresh. Tests cover immediate second-instance reads, failed persistence, unresponsive cache ports, deduplicated retry and delayed write completion. No paid inference or installed upgrade.
+
+Validation: `bun run lint && bun run typecheck && bun run test` passed: **5633 pass / 19 skip / 0 fail**, 23133 assertions across 533 files (93.07s). Targeted catalog regressions: 8 pass / 0 fail. SDK package build passed.
+
+## 2026-10-10 — portable model catalog contract (#24)
+
+Scope: version-1 portable records, explicit refresh/offline read, injected memory/cache/fetch ports, stale/unknown metadata and runtime boundary validation. No credentials, disk defaults or paid inference.
+
+Validation: `bun run lint && bun run typecheck && bun run test` passed (5632 pass / 19 skip / 0 fail); targeted catalog/surface checks; `bun run build:sdk`; local `npm pack --ignore-scripts` and imports of the packed discovery module in Node and Bun passed. Worktree-only missing debug-console dependencies and TUI fixture were restored; additive SDK surface snapshot updated. A donor-workspace test attempt was superseded by a full run after `bun install --frozen-lockfile` in this worktree.
+
+
 ## 2026-10-10 — Provider/model gap report and issue register
 
 Documentation-only assessment at source f2b59e617e4c4a220428a53e194b5062e52358d5 and installed SOV 0.6.76. The formal [gap report](../../specs/2026-10-10-provider-model-discovery-gap-report.md) records source evidence, public metadata, local selection/request probes and the limits of those checks. Filed and read back all 12 open issues: SDK #24–#33, Telekit #30 and Kernel installer #176. Each has acceptance criteria and cross-repository dependencies. This does not implement the gaps or select them into the active release roster.
