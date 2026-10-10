@@ -17,7 +17,7 @@ Merge and review in this order. Each pull request uses its prerequisite branch a
 | #30 | [#41](https://github.com/yevgetman/sovereign-ai-sdk/pull/41) | Immutable pricing snapshots and explicit incomplete usage receipts |
 | #32 | [#42](https://github.com/yevgetman/sovereign-ai-sdk/pull/42) | Versioned machine discovery, bounded pagination and offline snapshots |
 | #31 | [#34](https://github.com/yevgetman/sovereign-ai-sdk/pull/34) | Separate OpenRouter execution-host and privacy policy |
-| #33 | Shared-model-menus branch, pull request pending | Shared model menus and frozen metadata across SOV turns and children |
+| #33 | [#43](https://github.com/yevgetman/sovereign-ai-sdk/pull/43) | Shared model menus and frozen metadata across SOV turns and children |
 
 The menus distinguish direct route → model from OpenRouter route → model author → model. Author names do not imply an observed inference host. Search, current unavailable selections and exact custom IDs remain explicit. Discovery refresh is opt-in; turn execution reads an existing node/account snapshot without a network discovery request.
 
