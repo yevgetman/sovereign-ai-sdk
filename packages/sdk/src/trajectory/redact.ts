@@ -123,8 +123,8 @@ export function redact(text: string, opts: { tagged?: boolean } = {}): string {
   return applyCapped(text, opts.tagged === true);
 }
 
-/** Test seam — runs the patterns regardless of the import-time snapshot.
- *  Used by unit tests so they don't depend on env-var setup. */
+/** Runs patterns regardless of the import-time snapshot. Required for
+ *  mandatory diagnostic redaction and env-independent regression tests. */
 export function redactForce(text: string, opts: { tagged?: boolean } = {}): string {
   return applyCapped(text, opts.tagged === true);
 }

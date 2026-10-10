@@ -55,6 +55,8 @@ export type TraceEvent =
   | { type: 'tool_start'; tool: string; toolUseId: string; iso: string }
   | {
       type: 'tool_end';
+      /** The rendered result is an in-band failure. Absent on legacy traces. */
+      isError?: boolean;
       tool: string;
       toolUseId: string;
       durationMs: number;

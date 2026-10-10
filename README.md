@@ -27,6 +27,8 @@ Current state lives in [`docs/07-history/state/`](docs/07-history/state/) — ne
 
 SDK hosts can opt into [bounded session ownership and joined shutdown](docs/04-extending/host-session-lifecycle.md). This portable helper coordinates one process and does not create persistence or select a production deployment.
 
+For live performance/debugging evidence see [read-only session diagnostics](docs/06-testing/live-session-diagnostics.md).
+
 For day-to-day operation see [`docs/03-cli-reference/usage.md`](docs/03-cli-reference/usage.md). For developing this repo see [`CLAUDE.md`](CLAUDE.md).
 
 ## Install the SDK

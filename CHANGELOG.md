@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — delegated failure diagnostics
+
+- Preserve available captured subprocess work after a failed exit or cancellation, while keeping the result failed and excluding failed-run learning replay.
+- Retain bounded, mandatory-redacted child failure details in AgentTool results. Keep partial output and explain empty child summaries.
+- Record in-band tool failure status in traces. `sov trace show` distinguishes failed results from success; older records without status show "finished".
+- Add a read-only live-session diagnosis guide. These source changes are not installed into running sessions.
+
 ## harness 0.6.76 / SDK 0.13.0 — production contracts and lifecycle fixes - 2026-10-09
 
 - Add an injected context-management port with validated, bounded reductions and one overflow retry. Full stored transcripts stay separate from model context.
