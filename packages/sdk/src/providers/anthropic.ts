@@ -28,9 +28,11 @@ import type {
   SystemSegment,
   TokenUsage,
 } from '../core/types.js';
-import { anthropicThinkingFor, modelSupportsReasoning } from './effort.js';
+import { anthropicThinkingFor } from './effort.js';
 import { ProviderHttpError } from './errors.js';
+import { anthropicReasoningControlFor } from './modelReasoning.js';
 import { findLastCacheableSegment, lastIndexWhere, recentMessageCacheFrom } from './promptCache.js';
+import { RouteError } from './routes/errors.js';
 import type { ProviderRequest, ToolSchema, Transport } from './types.js';
 
 /** Beta flag that keeps reasoning persistent across tool-use turns. */
@@ -43,11 +45,20 @@ const INTERLEAVED_THINKING_BETA = 'interleaved-thinking-2025-05-14';
  * header) agree exactly.
  */
 function thinkingApplies(req: ProviderRequest): boolean {
-  return (
+  const control = anthropicReasoningControlFor(req.model, req.modelMetadata);
+  if (
     req.effort !== undefined &&
-    req.effort !== 'off' &&
-    modelSupportsReasoning(req.model, 'anthropic')
-  );
+    req.modelMetadata &&
+    (req.modelMetadata.capabilities.reasoning !== 'unknown' ||
+      req.modelMetadata.efforts ||
+      req.modelMetadata.anthropicThinkingModes) &&
+    !control.efforts.includes(req.effort)
+  )
+    throw new RouteError(
+      'effort_unsupported',
+      'reasoning effort is unsupported by this Anthropic model',
+    );
+  return req.effort !== undefined && req.effort !== 'off' && control.mode !== undefined;
 }
 
 /**
@@ -114,9 +125,11 @@ export class AnthropicProvider
     const tools = this.toProviderTools(req.tools);
     // Resolve thinking only when it applies; otherwise leave max_tokens and
     // temperature exactly as the caller set them (byte-identical request).
+    const control = anthropicReasoningControlFor(req.model, req.modelMetadata);
+    const thinkingOn = thinkingApplies(req);
     const thinking =
       // narrows req.effort for the call below
-      req.effort !== undefined && thinkingApplies(req)
+      req.effort !== undefined && thinkingOn && control.mode === 'enabled'
         ? anthropicThinkingFor(req.effort, req.maxTokens)
         : undefined;
     // A metadata-budgeted request has already reserved this exact output cap.
@@ -137,12 +150,17 @@ export class AnthropicProvider
     }
     return {
       model: req.model,
-      max_tokens: thinking ? thinking.maxTokens : req.maxTokens,
+      max_tokens: thinking && control.mode !== 'adaptive' ? thinking.maxTokens : req.maxTokens,
       // The API rejects temperature≠1 when thinking is enabled, so omit it.
-      ...(req.temperature !== undefined && !thinking?.dropTemperature
-        ? { temperature: req.temperature }
+      ...(req.temperature !== undefined && !thinkingOn ? { temperature: req.temperature } : {}),
+      ...(thinkingOn && control.mode === 'adaptive'
+        ? { thinking: { type: 'adaptive' as const } }
+        : thinking?.thinking
+          ? { thinking: thinking.thinking }
+          : {}),
+      ...(thinkingOn && control.outputEffort && req.effort && req.effort !== 'off'
+        ? { output_config: { effort: req.effort } }
         : {}),
-      ...(thinking?.thinking !== undefined ? { thinking: thinking.thinking } : {}),
       ...(system !== undefined ? { system } : {}),
       messages: messagesToSdk(req.messages, req.cacheEnabled !== false),
       ...(tools !== undefined ? { tools } : {}),
@@ -167,7 +185,8 @@ export class AnthropicProvider
       // than the beta.* namespace, keeping the streaming pipeline unchanged.
       const options = {
         ...(req.signal ? { signal: req.signal } : {}),
-        ...(thinkingApplies(req)
+        ...(thinkingApplies(req) &&
+        anthropicReasoningControlFor(req.model, req.modelMetadata).mode === 'enabled'
           ? { headers: { 'anthropic-beta': INTERLEAVED_THINKING_BETA } }
           : {}),
       };

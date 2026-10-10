@@ -319,6 +319,15 @@ export function createAgent(config: AgentConfig): Agent {
         ? config.pricingSnapshot
         : undefined);
     const pricingSnapshot = suppliedPricing ? structuredClone(suppliedPricing) : undefined;
+    // Evidence belongs to one model/provider and freezes before host awaits.
+    // An override cannot inherit another route's standing catalog record.
+    const suppliedMetadata =
+      perTurn.modelMetadata ??
+      ((perTurn.model === undefined || perTurn.model === config.model) &&
+      perTurn.provider === undefined
+        ? config.modelMetadata
+        : undefined);
+    const modelMetadata = suppliedMetadata ? structuredClone(suppliedMetadata) : undefined;
     const requestedToolset = perTurn.toolset ?? config.toolset;
     if (
       requestedToolset !== undefined &&
@@ -472,8 +481,6 @@ export function createAgent(config: AgentConfig): Agent {
     // 7. Merge the remaining ports for QueryParams (per-turn wins where allowed).
     const effort = perTurn.effort ?? config.effort;
     const inputTokenCounter = perTurn.inputTokenCounter ?? config.inputTokenCounter;
-    const suppliedMetadata = perTurn.modelMetadata ?? config.modelMetadata;
-    const modelMetadata = suppliedMetadata ? structuredClone(suppliedMetadata) : undefined;
     const memoryManager = perTurn.memoryManager ?? config.memoryManager;
     const recall = perTurn.recall ?? config.recall;
     const pollSteering = perTurn.pollSteering ?? config.pollSteering;
