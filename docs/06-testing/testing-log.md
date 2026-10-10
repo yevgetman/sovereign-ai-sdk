@@ -1,3 +1,17 @@
+## 2026-10-10 — Correct SDK release installation documentation
+
+Updated the package install guide with exact public SDK 0.14.0 download and checksum commands. Documented the previous-release example in the immutable published tarball, corrected PUBLISHING.md to SDK 0.14.0 / SOV 0.6.77 and updated the agent boot snapshot pointer. The public release page now carries the same correction. No released asset bytes, package versions, live provider calls or installed hosts changed.
+
+Ran `python3 /private/tmp/sdk-fifth-gate.py /private/tmp/sdk-manifest-20261010 documentation-gap-fix`: configured lint/boundary, typecheck, strict SDK build and every discovered test file pass. Full totals: **5,741 pass / 19 existing skips / zero failures**, 23,801 assertions across 549 files. The compiler fixture was serialized, the existing shared-theme footer fixture isolated and the rest used a unique temporary root. Edited documentation file links resolve. `shasum -a 256 -c SDK-SHA256SUMS` verifies the downloaded public SDK tarball. Read-back confirms the public release correction and all eight original assets remain present. Corrected package documentation belongs to the next planned SDK 0.14.1 patch.
+
+## 2026-10-10 — Merge SDK model workset and record the minor-release plan
+
+Merged reviewed PRs35→36→37→38→39→40→41→42→34→43 into master with unchanged reviewed heads. Verified each exact master merge SHA, main parent, UTC timestamp and reviewed-head CI evidence. The merged non-Markdown source/test tree matches final review head `b9a8759adf9d475b1440b02d5a144acba4969891`. Added each merge once (`mainline: 1`) to the SDK manifest with ordered dependency IDs; retained the existing PR23 diagnostics item and published baseline. Planned SDK0.14.0 because numeric-only pricing callers must handle unknown cost. CLI0.6.77 target remains unchanged. This is a draft, not an assembled or published release.
+
+`bun run release:validate` passes both schemas and source/dependency/mainline checks: 11 items. Release regression fixture suite: 12 passed, zero failed, 19 assertions. Built the worktree-local Go TUI with `bun run tui:build`. Configured lint, typecheck and strict SDK build pass. Every discovered test file ran: **5741 passed / 19 existing skips / zero failed**, 23801 assertions across 549 files. Global compiler fixture serialized; existing shared-theme footer isolated; all other files used a unique temporary root.
+
+The initial clean-worktree attempt lacked the required TUI binary and failed a launcher check; that test run was stopped, the local binary was built, and the entire gate rerun successfully. No test assertion was changed. No release assembly, freeze, package version stamps, publication, consumer pin, installed upgrade, daemon restart, Telekit or Mac app change occurred.
+
 ## 2026-10-10 — PR43 fifth-review final parent alignment
 
 Merged actual final PR34 `bb55c6c2`. All tracked non-Markdown files are byte-identical to passing complete-gate commit `8efd48b0`; only preserved parent test records and ancestry changed. The downstream output-ceiling reset remains intact. Final lint passes.
@@ -465,6 +479,12 @@ Confirmed three defects in current source using isolated offline fixtures: Agent
 Fixes retain bounded captured receipts and partial output while preserving error terminal status and excluding failed-run learning replay. Child diagnostics are mandatory-redacted, control-filtered, capped2048chars and escaped in rendering. Trace tool_end adds optional isError; legacy unknown status renders “finished”. Seven new regression cases cover cause/partial output, secrecy/escaping/size, empty success, in-band trace failure, process exit precedence and cancellation precedence. Source lint/boundary/types pass. Full Bun1.3.13 gate **5613 pass /19 existing skips /0fail**,23079 assertions across531files (90.30s). Focused group **64pass /0fail**,233assertions across4files. Mandatory diagnostics also passed with redaction opt-out set in an isolated test process (30pass), so the host flag cannot expose the new failure detail. Earlier intermediate source gate5611/5612 also passed before executor/cancellation regressions were added. Only the new CLI legacy-status expectations required adjustment; no test was skipped to pass the change.
 
 No package version/release/pin or host binary change. Changes are submitted for review; the installed turn does not exercise this source patch. Private measurement details are delivered separately to the Owner. Recall quality was not measured.
+
+## 2026-10-09 — SDK documentation currency and consumer inventory
+
+Documentation-only pass against SDK master `c590c60`, released SDK0.13.0/CLI0.6.76. Verified Agent Casa checkout521a2ee still pins0.9.2 and Kernel-sweep binds SDK0.13.0 turn-log types. Checked GitHub source visibility (public), SDK/protocol npm registry queries (E404), no repository rulesets and unprotected master. Current docs now separate compatibility tests from adoption, public tarball from npm, draft pins from deployed releases, and delivered contracts from remaining host deployment work. Closed stale caching/image backlog status from implementation/release evidence; retained historical design and review records.
+
+Frozen hoisted install/TUI build, lint/boundary and types pass. Full configured Bun1.3.13 source suite: **5606 pass / 19 existing skips / zero fail**,23049 assertions across531files (89.47s). Changed/new documentation link checks passed for186 local links (prior append-only testing history excluded); one stale channel anchor was repaired. Every evergreen overview/architecture/extension/convention/testing page is now indexed. Current package/version and newest-state-pointer assertions and diff whitespace pass. No runtime/provider/tool code changed, no paid model request, no install/release or branch-rule activation.
 
 ## 2026-10-09 — SDK package scan and release layout correction
 
