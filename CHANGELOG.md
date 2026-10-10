@@ -1,6 +1,17 @@
 # Changelog
 
-## Unreleased — delegated failure diagnostics
+## harness 0.6.77 / SDK 0.14.0 — resilient provider and model discovery - 2026-10-10
+
+- Add explicit route-scoped model discovery for direct APIs, subscriptions and OpenRouter, with offline cached evidence and bounded refresh.
+- Resolve reasoning, context, output, image and tool limits from verified model records. Freeze evidence for a turn and reject unsupported requests before inference.
+- Preserve OpenRouter host, fallback and privacy policy. Share catalogs across headless, server, scheduler and interactive SOV execution.
+- Keep pricing snapshots with receipts. Report missing or incomplete costs explicitly.
+
+**Compatibility:** SDK 0.14.0 requires callers of numeric-only cost APIs to handle unknown cost. Node 20.19.0 or newer, or Bun 1.2.0 or newer, remains required. Provider eligibility and live metadata depend on the account. Discovery does not make paid inference requests.
+
+The MIT SDK ships as `yevgetman-sov-sdk-0.14.0.tgz` with `SDK-SHA256SUMS` on the public GitHub channel. SOV binaries use separate `SHA256SUMS`. This cut includes PR23 and PR34–43 plus reviewed release preparation. npm publication remains owner-operated.
+
+### Delegated failure diagnostics
 
 - Preserve available captured subprocess work after a failed exit or cancellation, while keeping the result failed and excluding failed-run learning replay.
 - Retain bounded, mandatory-redacted child failure details in AgentTool results. Keep partial output and explain empty child summaries.

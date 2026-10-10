@@ -102,6 +102,10 @@ Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endp
 
 # Testing Log
 
+## 2026-10-10 — SDK0.14.0 / SOV0.6.77 release preparation
+
+Version stamps and workspace lock agree. Cut assembly uses the last verified published source and all eleven selected merges. Windows scanner byte/layout fixes are explicit preparation application units. Only append-only log and README pointer conflicts needed resolution; no runtime-code conflict. Preparation source gate passed lint, boundary, types, strict SDK build and all 5741 tests (19 existing skips, zero failures, 23801 assertions, 549 files). Full pinned cut QA and package/public artifact evidence are recorded separately in the release plan before publication. No live consumer restart is included.
+
 ## 2026-10-10 — PR43 third review: combined model-evidence fixes
 
 Integrated all six new Medium corrections: published Anthropic controls, shared native menu/request validation, explicit incomplete image accounting, immutable model evidence, safe per-turn identity changes, and pooled-account discovery isolation. Preserved prior exact native wire enums, node isolation, immutable pricing and current-output budget traces. Independent merge review found no remaining issue above Low.
