@@ -356,3 +356,13 @@ signal. Distributed leases, durable meters and OS sandboxing remain host duties.
 
 Read next: [Production review](https://github.com/yevgetman/sovereign-ai-sdk/issues/15),
 [Consumer contract](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/05-conventions/consumer-contract.md).
+
+### Portable model discovery
+
+`createModelDiscovery()` provides offline `read(source)` and explicit
+`refresh(source)` operations. The default cache is memory only. Inject fetch,
+clock and cache ports to suit the host. Version-1 model records keep exact IDs,
+authentication routes, authors, hosts, unknown capabilities and stale metadata
+separate. Public catalogs do not prove account entitlement. See
+[src/providers/models/README.md](src/providers/models/README.md) for the contract
+and migration rules. Existing `listRoutes()` remains offline.

@@ -372,3 +372,6 @@ export type {
   RequestBudgetEstimate,
   EstimateRequestBudget,
 } from './runtime/treeBudget.js';
+
+// Portable provider/model discovery (explicit refresh, no disk default).
+export * from './providers/models/index.js';
