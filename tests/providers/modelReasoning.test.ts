@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { AnthropicProvider } from '@yevgetman/sov-sdk/providers/anthropic';
 import { normalizeOpenRouterModel } from '@yevgetman/sov-sdk/providers/models/openrouter';
 import type { ModelRecord } from '@yevgetman/sov-sdk/providers/models/types';
 import { OpenAIProvider } from '@yevgetman/sov-sdk/providers/openai';
@@ -335,4 +336,90 @@ test('fresh future OpenAI reasoning controls select completion token cap and omi
   expect(body.max_completion_tokens).toBe(2048);
   expect(body.max_tokens).toBeUndefined();
   expect(body.temperature).toBeUndefined();
+});
+
+test('native Anthropic metadata constrains menu and wire before inference', async () => {
+  const provider = new AnthropicProvider({ apiKey: 'fixture' });
+  const id = 'claude-sonnet-4-6';
+  const metadata: ModelRecord = {
+    id,
+    provider: 'anthropic',
+    routeId: 'anthropic-api',
+    auth: 'api_key',
+    displayName: id,
+    availability: 'account',
+    metadata: { source: 'fixture', stale: false },
+    capabilities: {
+      reasoning: 'unsupported',
+      tools: 'unknown',
+      images: 'unknown',
+      textOutput: 'supported',
+    },
+  };
+  let calls = 0;
+  (
+    provider as unknown as { client: { messages: { create: () => Promise<never> } } }
+  ).client.messages.create = async () => {
+    calls++;
+    throw new Error('unexpected request');
+  };
+  expect(effortsForModel(getRoute('anthropic-api'), id, metadata)).toEqual(['off']);
+  expect(() => provider.buildKwargs({ ...req(id, 'high'), modelMetadata: metadata })).toThrow(
+    'unsupported',
+  );
+  await expect(
+    (async () => {
+      for await (const event of provider.stream({ ...req(id, 'high'), modelMetadata: metadata }))
+        void event;
+    })(),
+  ).rejects.toThrow('unsupported');
+  expect(calls).toBe(0);
+  for (const mode of ['enabled', 'adaptive'] as const) {
+    const future = {
+      ...metadata,
+      id: 'claude-future',
+      capabilities: { ...metadata.capabilities, reasoning: 'supported' as const },
+      efforts: ['high'] as ModelRecord['efforts'],
+      anthropicThinkingModes: [mode],
+    };
+    expect(effortsForModel(getRoute('anthropic-api'), future.id, future)).toEqual(['off', 'high']);
+    const body = provider.buildKwargs({ ...req(future.id, 'high'), modelMetadata: future });
+    expect(body.thinking?.type).toBe(mode);
+    expect(body.output_config?.effort).toBe('high');
+    if (mode === 'adaptive') expect(body.max_tokens).toBe(2048);
+    expect(() => provider.buildKwargs({ ...req(future.id, 'low'), modelMetadata: future })).toThrow(
+      'unsupported',
+    );
+    const noParameter = { ...future, efforts: ['off' as const], anthropicEffortSupported: false };
+    const noParameterBody = provider.buildKwargs({
+      ...req(future.id, 'high'),
+      modelMetadata: noParameter,
+    });
+    expect(noParameterBody.thinking?.type).toBe(mode);
+    expect(noParameterBody.output_config).toBeUndefined();
+    expect(effortsForModel(getRoute('anthropic-api'), future.id, noParameter)).toEqual(
+      mode === 'enabled' ? ['off', 'low', 'medium', 'high', 'max'] : ['off', 'high'],
+    );
+    const noDepth = { ...future, efforts: ['off' as const] };
+    expect(effortsForModel(getRoute('anthropic-api'), future.id, noDepth)).toEqual(['off']);
+    expect(() =>
+      provider.buildKwargs({ ...req(future.id, 'high'), modelMetadata: noDepth }),
+    ).toThrow('unsupported');
+    const disabled = { ...future, anthropicThinkingModes: [] };
+    expect(effortsForModel(getRoute('anthropic-api'), future.id, disabled)).toEqual(['off']);
+    expect(() =>
+      provider.buildKwargs({ ...req(future.id, 'high'), modelMetadata: disabled }),
+    ).toThrow('unsupported');
+  }
+  const partial = {
+    ...metadata,
+    capabilities: { ...metadata.capabilities, reasoning: 'unknown' as const },
+  };
+  expect(provider.buildKwargs({ ...req(id, 'high'), modelMetadata: partial }).thinking?.type).toBe(
+    'enabled',
+  );
+  expect(provider.buildKwargs(req('claude-3-5-haiku', 'high')).thinking).toBeUndefined();
+  expect(() => provider.buildKwargs({ ...req('other', 'off'), modelMetadata: metadata })).toThrow(
+    'does not match',
+  );
 });

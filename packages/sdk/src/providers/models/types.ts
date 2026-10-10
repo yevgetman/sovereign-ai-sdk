@@ -21,6 +21,10 @@ export interface ModelRecord {
   contextWindow?: number | undefined;
   maxOutputTokens?: number | undefined;
   efforts?: ReasoningEffort[] | undefined;
+  /** Native Anthropic modes explicitly published by its model API. */
+  anthropicThinkingModes?: ('enabled' | 'adaptive')[] | undefined;
+  /** Whether native output_config.effort is supported, separate from thinking budgets. */
+  anthropicEffortSupported?: boolean | undefined;
   /** Verified adapter mapping. Capability=true alone does not establish depth controls. */
   reasoningControl?:
     | {

@@ -31,8 +31,9 @@ import { toToolSchemas } from '../mcp/schemaSerialization.js';
 import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
 import { PersistBeforeRunError, isContextOverflowError } from '../providers/errors.js';
 import {
+  type RequestInputTokenEstimate,
   assertRequestFits,
-  requestInputTokenBound,
+  requestInputTokenEstimate,
   resolveModelLimits,
 } from '../providers/modelLimits.js';
 import type { Tool, ToolContext } from '../tool/types.js';
@@ -442,18 +443,25 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           (modelMetadata.id !== model || modelMetadata.provider !== provider.name)
         )
           throw new ContextManagementError('model metadata does not match selected model/provider');
+        let inputAccounting: RequestInputTokenEstimate | undefined;
         if (effectiveModelLimits) {
-          const inputBound = () =>
-            params.inputTokenCounter
-              ? params.inputTokenCounter({
-                  model,
-                  messages: history,
-                  system: systemPrompt,
-                  tools: toToolSchemas(toolPool),
-                  maxTokens,
-                  ...(modelMetadata ? { modelMetadata } : {}),
-                })
-              : requestInputTokenBound(history, systemPrompt, toToolSchemas(toolPool));
+          const inputBound = () => {
+            inputAccounting = params.inputTokenCounter
+              ? {
+                  tokens: params.inputTokenCounter({
+                    model,
+                    messages: history,
+                    system: systemPrompt,
+                    tools: toToolSchemas(toolPool),
+                    maxTokens,
+                    ...(modelMetadata ? { modelMetadata } : {}),
+                  }),
+                  complete: true,
+                  uncountedImages: 0,
+                }
+              : requestInputTokenEstimate(history, systemPrompt, toToolSchemas(toolPool));
+            return inputAccounting.tokens;
+          };
           let inputTokens = inputBound();
           if (
             inputTokens + maxTokens > effectiveModelLimits.contextTokens &&
@@ -472,6 +480,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           model,
           purpose: 'main',
           ...(effectiveModelLimits ? { modelLimits: effectiveModelLimits } : {}),
+          ...(inputAccounting ? { inputAccounting } : {}),
           messageCount: history.length,
           systemBytes: systemPrompt.reduce((n, s) => n + Buffer.byteLength(s.text, 'utf8'), 0),
           iso: nowIso(),

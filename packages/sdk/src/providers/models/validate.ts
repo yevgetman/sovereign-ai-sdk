@@ -62,6 +62,19 @@ export function validateModelRecords(
         ))
     )
       return undefined;
+    if (
+      row.anthropicThinkingModes !== undefined &&
+      (!Array.isArray(row.anthropicThinkingModes) ||
+        row.anthropicThinkingModes.some(
+          (mode: unknown) => !['enabled', 'adaptive'].includes(String(mode)),
+        ))
+    )
+      return undefined;
+    if (
+      row.anthropicEffortSupported !== undefined &&
+      typeof row.anthropicEffortSupported !== 'boolean'
+    )
+      return undefined;
     if (row.reasoningControl !== undefined) {
       const control = row.reasoningControl;
       if (
@@ -137,6 +150,10 @@ export function validateModelRecords(
         : undefined,
     };
     // Recognized additive control fields are kept, arbitrary source fields are not.
+    if (row.anthropicEffortSupported !== undefined)
+      Object.assign(model, { anthropicEffortSupported: row.anthropicEffortSupported });
+    if (row.anthropicThinkingModes !== undefined)
+      Object.assign(model, { anthropicThinkingModes: [...row.anthropicThinkingModes] });
     if (row.toolChoices !== undefined) {
       if (
         !Array.isArray(row.toolChoices) ||
@@ -145,6 +162,14 @@ export function validateModelRecords(
         return undefined;
       Object.assign(model, { toolChoices: [...row.toolChoices] });
     }
+    if (
+      row.anthropicThinkingModes !== undefined &&
+      (!Array.isArray(row.anthropicThinkingModes) ||
+        row.anthropicThinkingModes.some(
+          (mode: unknown) => !['enabled', 'adaptive'].includes(String(mode)),
+        ))
+    )
+      return undefined;
     if (row.reasoningControl !== undefined) {
       const control = row.reasoningControl;
       if (

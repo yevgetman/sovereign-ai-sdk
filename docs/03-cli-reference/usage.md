@@ -2047,6 +2047,8 @@ Examples:
 
 The level is **per-session**, mutated live (parallel to `/model`) — it is not persisted to disk by the command itself. The boot default comes from the `thinking.effort` config field (below).
 
+**Native Anthropic metadata.** Fresh model API records constrain the effort list and thinking mode. Explicit unsupported reasoning or unsupported levels fail before inference. Published `adaptive` thinking sends `thinking.type: adaptive` with the advertised `output_config.effort`; published `enabled` thinking retains the token-budget adapter. Partial or absent metadata keeps the established adapter. Future IDs can use explicitly published modes without a model-name update. Stale records cannot unlock a new adapter.
+
 **Unsupported-model notice.** When the active model can't reason (e.g. a `claude-3*` model, or `gpt-4o`), `/effort <level>` still records the level but appends: `note: <model> doesn't support reasoning depth — no effect until you switch to a reasoning model.` The request is sent unchanged in that case (the level only takes effect once you switch to a reasoning model), so a thinking parameter is never sent to a model that would reject it.
 
 **Level → provider mapping.** The named level forks per provider at the adapter boundary (`src/providers/effort.ts`):

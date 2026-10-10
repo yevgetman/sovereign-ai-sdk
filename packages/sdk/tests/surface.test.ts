@@ -163,6 +163,7 @@ import type {
   RemoteMcpServerConfig,
   RenderHint,
   RequestBudgetEstimate,
+  RequestInputTokenEstimate,
   ResolveProviderOpts,
   ResolvedPermissionResult,
   ResolvedProvider,
@@ -386,6 +387,7 @@ type TypeSurfaceWitness = {
   treeBudgetLimits?: TreeBudgetLimits;
   treeBudgetSnapshot?: TreeBudgetSnapshot;
   requestBudgetEstimate?: RequestBudgetEstimate;
+  requestInputTokenEstimate?: RequestInputTokenEstimate;
   estimateRequestBudget?: EstimateRequestBudget;
   contextLimits?: ContextLimits;
   effectiveModelLimits?: EffectiveModelLimits;
