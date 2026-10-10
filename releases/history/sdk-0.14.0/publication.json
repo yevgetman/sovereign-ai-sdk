@@ -1,0 +1,63 @@
+{
+  "record_kind": "verified-v4-publication",
+  "checked_at": "2026-10-10T21:10:32.171Z",
+  "version": "0.14.0",
+  "cli_version": "0.6.77",
+  "source_commit": "dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823",
+  "source_tag": "v0.6.77",
+  "sdk_tag": "sdk-v0.14.0",
+  "manifest_sha256": "028048f425ba3f68de98549738ffaf33318bf99ecc54b6d70de398cd20f536fe",
+  "frozen_manifest_commit": "b324db639835549579773eea3a716f18d7e41454",
+  "publication_url": "https://github.com/yevgetman/sov-releases/releases/tag/v0.6.77",
+  "release_ci": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38086207061",
+  "assets_verified": [
+    {
+      "arch": "darwin-arm64",
+      "filename": "sov-darwin-arm64.tar.gz",
+      "sha256": "4d0eb6c58d701602af42328f78439ce15bcc22e18ab189fb7e870ce90242ffd1",
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/sov-darwin-arm64.tar.gz"
+    },
+    {
+      "arch": "darwin-x64",
+      "filename": "sov-darwin-x64.tar.gz",
+      "sha256": "a1d9d72f1804ae0944c379c40f139cd3f3bf4b2d795ed4ce35f116f28ea97f70",
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/sov-darwin-x64.tar.gz"
+    },
+    {
+      "arch": "linux-x64",
+      "filename": "sov-linux-x64.tar.gz",
+      "sha256": "57807a52f134493178081f74b838b780ed7c240168afac69a40070bc928bed76",
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/sov-linux-x64.tar.gz"
+    },
+    {
+      "arch": "linux-arm64",
+      "filename": "sov-linux-arm64.tar.gz",
+      "sha256": "a3bc4c86334b5d8a4309d437f4a30644145866ab26b44ea42f369d6ad0ecf85a",
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/sov-linux-arm64.tar.gz"
+    },
+    {
+      "arch": "windows-x64",
+      "filename": "sov-windows-x64.zip",
+      "sha256": "17fd731725bf10f11ebc1ea6a252e150b50141fda02ddad03f0530c16fe21477",
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/sov-windows-x64.zip"
+    },
+    {
+      "arch": "package",
+      "filename": "yevgetman-sov-sdk-0.14.0.tgz",
+      "sha256": "d68c69d4b5d84c50ba686afda634a92d91f7472988fd3a2d52f79d771d5caebb",
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/yevgetman-sov-sdk-0.14.0.tgz"
+    }
+  ],
+  "verification": [
+    "All6assets independently downloaded frompublicchannel andSHA256checked againstpublisherchecksumfiles.",
+    "SDK packageversion0.14.0 matches reviewedpackedartifact.",
+    "All5binaryarchives versionv0.6.77 andbuild-inputs sourceSHA match exactreviewedbuild.",
+    "Tag-driven release CI passed complete preflight/platformscans/Macnative/Linuxnative/Windowsnative smokes anduploader.",
+    "LocaldownloadedMacarm64 nativeversion andbothadhocsignatures verified."
+  ],
+  "limitations": [
+    "npmregistry remainsowner-operated.",
+    "No consumerrelease orliveagent restart is partofthiscut.",
+    "No livepaid-providereligibility test isclaimed."
+  ]
+}

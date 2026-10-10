@@ -1,111 +1,32 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: 2026-10-10T21:04:22.574Z
+updated_at: 2026-10-10T21:10:32.171Z
 checkout: .
-last_release:
-  version: 0.13.0
-  cli_version: 0.6.76
-  source_commit: 7076729a77df8378cfd41f0bfaa350583818842b
-  evidence: releases/history/sdk-0.13.0/publication.json
-reconciliation:
-  history_start_commit: 7076729a77df8378cfd41f0bfaa350583818842b
-  through_main_commit: 6645daa56f9b5393ac40dba78447d0023bd8426a
-  checked_at: 2026-10-10T20:45:56.266Z
-  evidence: releases/baseline-reconciliation.json
-release:
-  id: sdk-0.14.0
-  product: sovereign-ai-sdk
+last_release: &a1
   version: 0.14.0
   cli_version: 0.6.77
-  status: frozen
-  base:
-    version: 0.13.0
-    cli_version: 0.6.76
-    source_commit: 7076729a77df8378cfd41f0bfaa350583818842b
-    evidence: releases/history/sdk-0.13.0/publication.json
-  applied_commits:
-    - item_id: sdk-pr-23
-      source_commit: 1b91237a4f51642ed76d2737d893412338f69c7d
-      release_commit: 916148d80f3253d8af39f88a1a491681d89af65e
-    - item_id: sdk-pr-35
-      source_commit: 03634457ec48de59ff6d18e07c803758ca4491e2
-      release_commit: f355bebdefe6b38ccad906bffd900f8d830af8cd
-    - item_id: sdk-pr-36
-      source_commit: b924cad9208455fd1f8976370227ac162446f577
-      release_commit: de49921c37ac59b338f82e5648624da49df13fb4
-    - item_id: sdk-pr-37
-      source_commit: 702ad400d4c0a3b244e91b25ce23f6d65b0830f0
-      release_commit: a86d0f48250eb81361c288bcace0bb0d2f317257
-    - item_id: sdk-pr-38
-      source_commit: f9e4f4c16ca42fbd0fdf36ac81c723c156d62e86
-      release_commit: 055e48afa7ed982836ae6946148008c7e24524d5
-    - item_id: sdk-pr-39
-      source_commit: d8fcd7a0468ac1ff7b5e93204a329944aa4d4109
-      release_commit: 5389e20fc40e152a683e31a15bf264c3b07cbccf
-    - item_id: sdk-pr-40
-      source_commit: 68f83423104b834c99344a9127dd2e3727be56fb
-      release_commit: 687d6cec7376bc3eeb30f3b3c3f30299b54c11ed
-    - item_id: sdk-pr-41
-      source_commit: 1d307eb80172bf54a70c50dff0e3aac421dff9d5
-      release_commit: d27d98eacf952eef8e63ca2ed383cd27342c6e9a
-    - item_id: sdk-pr-42
-      source_commit: 042395d4ee9b261d6d098cf4cdb207dd332cfd01
-      release_commit: 8b5a049fc5084a4d411be907d171e698f000d6b9
-    - item_id: sdk-pr-34
-      source_commit: 03dc46c81e3885df57b110dbc0bee0ce9d57914f
-      release_commit: 5df0db522ffe7f02263ee4fcbdfbc762d9801b78
-    - item_id: sdk-pr-43
-      source_commit: 9415f398c0ec5af68e8c7fb506cc3d417fdb1ebd
-      release_commit: ea99fbf07da2d5511dbef7138d7ab1d69cf05350
-    - item_id: sdk-prep-windows-scanner
-      source_commit: 806b351a58e69c39466f22fdfa31cd686dad13a3
-      release_commit: 7fb7507a482877414a2d7e437280ffb3acd57293
-    - item_id: sdk-prep-windows-layout
-      source_commit: c590c601f6f6fd083363df0f860971bc83ad8726
-      release_commit: f0a5a962d92f2198af7fe3dcb26218f4a65e3ca2
-    - item_id: sdk-prep-version
-      source_commit: 6645daa56f9b5393ac40dba78447d0023bd8426a
-      release_commit: dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823
-  preparation_commits:
-    - item_id: sdk-prep-windows-scanner
-      commit: 7fb7507a482877414a2d7e437280ffb3acd57293
-      reason: Reviewed explicit source version, release notes or Windows scanner
-        preparation.
-      review: releases/history/sdk-0.14.0/assembly-review.json
-    - item_id: sdk-prep-windows-layout
-      commit: f0a5a962d92f2198af7fe3dcb26218f4a65e3ca2
-      reason: Reviewed explicit source version, release notes or Windows scanner
-        preparation.
-      review: releases/history/sdk-0.14.0/assembly-review.json
-    - item_id: sdk-prep-version
-      commit: dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823
-      reason: Reviewed explicit source version, release notes or Windows scanner
-        preparation.
-      review: releases/history/sdk-0.14.0/assembly-review.json
-  build_commit: dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823
-  frozen_manifest_commit: b324db639835549579773eea3a716f18d7e41454
-  authorization:
-    kind: owner-approval
-    reference: "Authenticated Owner Telegram request2026-10-10: cut SDK and SOV with
-      all manifestitems and publish public channel, then consumerpins. Scope:
-      GitHub binary/tarball channel, not npm registry."
-    at: 2026-10-10T21:04:06.365Z
-    build_commit: dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823
-  validation:
-    - check: full source lint/types/build/tests
-      result: pass
-      build_commit: dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823
-      evidence: releases/history/sdk-0.14.0/source-qa.json
-    - check: independent final code and assembly review
-      result: pass
-      build_commit: dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823
-      evidence: releases/history/sdk-0.14.0/assembly-review.json
-    - check: packed SDK Node/Bun/scanner and Go QA
-      result: pass
-      build_commit: dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823
-      evidence: releases/history/sdk-0.14.0/packed-qa.json
+  source_commit: dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823
+  evidence: releases/history/sdk-0.14.0/publication.json
+reconciliation:
+  history_start_commit: dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823
+  through_main_commit: 257612203174773ecbf88ae2ba0e56800800cdb4
+  checked_at: 2026-10-10T21:10:32.171Z
+  evidence: releases/history/sdk-0.14.0/publication.json
+release:
+  id: sdk-0.14.1
+  product: sovereign-ai-sdk
+  version: 0.14.1
+  cli_version: 0.6.78
+  status: draft
+  base: *a1
+  applied_commits: []
+  preparation_commits: []
+  build_commit: null
+  frozen_manifest_commit: null
+  authorization: null
+  validation: []
   artifacts: []
   published_at: null
   publication_evidence: null
-  manifest_sha256: 028048f425ba3f68de98549738ffaf33318bf99ecc54b6d70de398cd20f536fe
+  manifest_sha256: null

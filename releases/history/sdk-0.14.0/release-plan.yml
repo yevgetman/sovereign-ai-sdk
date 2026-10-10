@@ -1,7 +1,7 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: 2026-10-10T21:04:22.574Z
+updated_at: 2026-10-10T21:10:32.171Z
 checkout: .
 last_release:
   version: 0.13.0
@@ -18,7 +18,7 @@ release:
   product: sovereign-ai-sdk
   version: 0.14.0
   cli_version: 0.6.77
-  status: frozen
+  status: released
   base:
     version: 0.13.0
     cli_version: 0.6.76
@@ -105,7 +105,35 @@ release:
       result: pass
       build_commit: dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823
       evidence: releases/history/sdk-0.14.0/packed-qa.json
-  artifacts: []
-  published_at: null
-  publication_evidence: null
+    - check: completepublicplatformpublication/independentchecksums/provenance/nativeMac
+      result: pass
+      build_commit: dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823
+      evidence: releases/history/sdk-0.14.0/publication.json
+  artifacts:
+    - arch: darwin-arm64
+      filename: sov-darwin-arm64.tar.gz
+      sha256: 4d0eb6c58d701602af42328f78439ce15bcc22e18ab189fb7e870ce90242ffd1
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/sov-darwin-arm64.tar.gz
+    - arch: darwin-x64
+      filename: sov-darwin-x64.tar.gz
+      sha256: a1d9d72f1804ae0944c379c40f139cd3f3bf4b2d795ed4ce35f116f28ea97f70
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/sov-darwin-x64.tar.gz
+    - arch: linux-x64
+      filename: sov-linux-x64.tar.gz
+      sha256: 57807a52f134493178081f74b838b780ed7c240168afac69a40070bc928bed76
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/sov-linux-x64.tar.gz
+    - arch: linux-arm64
+      filename: sov-linux-arm64.tar.gz
+      sha256: a3bc4c86334b5d8a4309d437f4a30644145866ab26b44ea42f369d6ad0ecf85a
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/sov-linux-arm64.tar.gz
+    - arch: windows-x64
+      filename: sov-windows-x64.zip
+      sha256: 17fd731725bf10f11ebc1ea6a252e150b50141fda02ddad03f0530c16fe21477
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/sov-windows-x64.zip
+    - arch: package
+      filename: yevgetman-sov-sdk-0.14.0.tgz
+      sha256: d68c69d4b5d84c50ba686afda634a92d91f7472988fd3a2d52f79d771d5caebb
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/yevgetman-sov-sdk-0.14.0.tgz
+  published_at: 2026-10-10T21:10:32.171Z
+  publication_evidence: releases/history/sdk-0.14.0/publication.json
   manifest_sha256: 028048f425ba3f68de98549738ffaf33318bf99ecc54b6d70de398cd20f536fe

@@ -1,0 +1,778 @@
+{
+  "conclusion": "success",
+  "headSha": "dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823",
+  "jobs": [
+    {
+      "completedAt": "2026-10-10T21:06:39Z",
+      "conclusion": "success",
+      "databaseId": 114313124822,
+      "name": "preflight",
+      "startedAt": "2026-10-10T21:04:21Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-10T21:04:23Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-10T21:04:22Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:04:24Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v5",
+          "number": 2,
+          "startedAt": "2026-10-10T21:04:23Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:04:25Z",
+          "conclusion": "success",
+          "name": "Derive version",
+          "number": 3,
+          "startedAt": "2026-10-10T21:04:24Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:04:25Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-python@v5",
+          "number": 4,
+          "startedAt": "2026-10-10T21:04:25Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:04:26Z",
+          "conclusion": "success",
+          "name": "Run oven-sh/setup-bun@v2",
+          "number": 5,
+          "startedAt": "2026-10-10T21:04:25Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:04:52Z",
+          "conclusion": "success",
+          "name": "Run bun install --frozen-lockfile --linker hoisted",
+          "number": 6,
+          "startedAt": "2026-10-10T21:04:26Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:04:52Z",
+          "conclusion": "success",
+          "name": "Assert package.json matches tag",
+          "number": 7,
+          "startedAt": "2026-10-10T21:04:52Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:04:58Z",
+          "conclusion": "success",
+          "name": "Run bun run lint",
+          "number": 8,
+          "startedAt": "2026-10-10T21:04:52Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:05:14Z",
+          "conclusion": "success",
+          "name": "Run bun run typecheck",
+          "number": 9,
+          "startedAt": "2026-10-10T21:04:58Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:28Z",
+          "conclusion": "success",
+          "name": "Test suite",
+          "number": 10,
+          "startedAt": "2026-10-10T21:05:14Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:28Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-go@v6",
+          "number": 11,
+          "startedAt": "2026-10-10T21:06:28Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:37Z",
+          "conclusion": "success",
+          "name": "Go suite (sov-tui)",
+          "number": 12,
+          "startedAt": "2026-10-10T21:06:28Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:37Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-go@v6",
+          "number": 21,
+          "startedAt": "2026-10-10T21:06:37Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:37Z",
+          "conclusion": "success",
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "number": 22,
+          "startedAt": "2026-10-10T21:06:37Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:37Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-python@v5",
+          "number": 23,
+          "startedAt": "2026-10-10T21:06:37Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:37Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v5",
+          "number": 24,
+          "startedAt": "2026-10-10T21:06:37Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:37Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 25,
+          "startedAt": "2026-10-10T21:06:37Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38086207061/job/114313124822"
+    },
+    {
+      "completedAt": "2026-10-10T21:07:59Z",
+      "conclusion": "success",
+      "databaseId": 114313570548,
+      "name": "build-windows",
+      "startedAt": "2026-10-10T21:06:41Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-10T21:06:44Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-10T21:06:42Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:45Z",
+          "conclusion": "success",
+          "name": "Checkout sovereign-ai-sdk",
+          "number": 2,
+          "startedAt": "2026-10-10T21:06:44Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:45Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-python@v5",
+          "number": 3,
+          "startedAt": "2026-10-10T21:06:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:46Z",
+          "conclusion": "success",
+          "name": "Read reviewed license revision",
+          "number": 4,
+          "startedAt": "2026-10-10T21:06:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:46Z",
+          "conclusion": "success",
+          "name": "Checkout reviewed consumer license",
+          "number": 5,
+          "startedAt": "2026-10-10T21:06:46Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:48Z",
+          "conclusion": "success",
+          "name": "Run oven-sh/setup-bun@v2",
+          "number": 6,
+          "startedAt": "2026-10-10T21:06:46Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:51Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-go@v6",
+          "number": 7,
+          "startedAt": "2026-10-10T21:06:48Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:16Z",
+          "conclusion": "success",
+          "name": "Run bun install --frozen-lockfile --linker hoisted",
+          "number": 8,
+          "startedAt": "2026-10-10T21:06:51Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:52Z",
+          "conclusion": "success",
+          "name": "Build windows-x64",
+          "number": 9,
+          "startedAt": "2026-10-10T21:07:16Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:55Z",
+          "conclusion": "success",
+          "name": "Run actions/upload-artifact@v6",
+          "number": 10,
+          "startedAt": "2026-10-10T21:07:52Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:55Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-go@v6",
+          "number": 16,
+          "startedAt": "2026-10-10T21:07:55Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:55Z",
+          "conclusion": "success",
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "number": 17,
+          "startedAt": "2026-10-10T21:07:55Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:56Z",
+          "conclusion": "success",
+          "name": "Post Checkout reviewed consumer license",
+          "number": 18,
+          "startedAt": "2026-10-10T21:07:55Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:56Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-python@v5",
+          "number": 19,
+          "startedAt": "2026-10-10T21:07:56Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:56Z",
+          "conclusion": "success",
+          "name": "Post Checkout sovereign-ai-sdk",
+          "number": 20,
+          "startedAt": "2026-10-10T21:07:56Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:56Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 21,
+          "startedAt": "2026-10-10T21:07:56Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38086207061/job/114313570548"
+    },
+    {
+      "completedAt": "2026-10-10T21:07:59Z",
+      "conclusion": "success",
+      "databaseId": 114313570555,
+      "name": "build-linux",
+      "startedAt": "2026-10-10T21:06:41Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-10T21:06:43Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-10T21:06:42Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:44Z",
+          "conclusion": "success",
+          "name": "Checkout sovereign-ai-sdk",
+          "number": 2,
+          "startedAt": "2026-10-10T21:06:43Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:45Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-python@v5",
+          "number": 3,
+          "startedAt": "2026-10-10T21:06:44Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:45Z",
+          "conclusion": "success",
+          "name": "Read reviewed license revision",
+          "number": 4,
+          "startedAt": "2026-10-10T21:06:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:45Z",
+          "conclusion": "success",
+          "name": "Checkout reviewed consumer license",
+          "number": 5,
+          "startedAt": "2026-10-10T21:06:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:47Z",
+          "conclusion": "success",
+          "name": "Run oven-sh/setup-bun@v2",
+          "number": 6,
+          "startedAt": "2026-10-10T21:06:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:47Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-go@v6",
+          "number": 7,
+          "startedAt": "2026-10-10T21:06:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:05Z",
+          "conclusion": "success",
+          "name": "Run bun install --frozen-lockfile --linker hoisted",
+          "number": 8,
+          "startedAt": "2026-10-10T21:06:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:29Z",
+          "conclusion": "success",
+          "name": "Build linux-x64",
+          "number": 9,
+          "startedAt": "2026-10-10T21:07:05Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:49Z",
+          "conclusion": "success",
+          "name": "Build linux-arm64",
+          "number": 10,
+          "startedAt": "2026-10-10T21:07:29Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:49Z",
+          "conclusion": "success",
+          "name": "Native smoke (linux-x64 --version)",
+          "number": 11,
+          "startedAt": "2026-10-10T21:07:49Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:56Z",
+          "conclusion": "success",
+          "name": "Run actions/upload-artifact@v6",
+          "number": 12,
+          "startedAt": "2026-10-10T21:07:49Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:56Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-go@v6",
+          "number": 20,
+          "startedAt": "2026-10-10T21:07:56Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:56Z",
+          "conclusion": "success",
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "number": 21,
+          "startedAt": "2026-10-10T21:07:56Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:56Z",
+          "conclusion": "success",
+          "name": "Post Checkout reviewed consumer license",
+          "number": 22,
+          "startedAt": "2026-10-10T21:07:56Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:57Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-python@v5",
+          "number": 23,
+          "startedAt": "2026-10-10T21:07:56Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:57Z",
+          "conclusion": "success",
+          "name": "Post Checkout sovereign-ai-sdk",
+          "number": 24,
+          "startedAt": "2026-10-10T21:07:57Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:57Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 25,
+          "startedAt": "2026-10-10T21:07:57Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38086207061/job/114313570555"
+    },
+    {
+      "completedAt": "2026-10-10T21:08:42Z",
+      "conclusion": "success",
+      "databaseId": 114313570593,
+      "name": "build-darwin",
+      "startedAt": "2026-10-10T21:06:49Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-10T21:06:51Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-10T21:06:49Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:55Z",
+          "conclusion": "success",
+          "name": "Checkout sovereign-ai-sdk",
+          "number": 2,
+          "startedAt": "2026-10-10T21:06:51Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:55Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-python@v5",
+          "number": 3,
+          "startedAt": "2026-10-10T21:06:55Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:56Z",
+          "conclusion": "success",
+          "name": "Read reviewed license revision",
+          "number": 4,
+          "startedAt": "2026-10-10T21:06:55Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:57Z",
+          "conclusion": "success",
+          "name": "Checkout reviewed consumer license",
+          "number": 5,
+          "startedAt": "2026-10-10T21:06:56Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:06:59Z",
+          "conclusion": "success",
+          "name": "Run oven-sh/setup-bun@v2",
+          "number": 6,
+          "startedAt": "2026-10-10T21:06:57Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:02Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-go@v6",
+          "number": 7,
+          "startedAt": "2026-10-10T21:06:59Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:07:22Z",
+          "conclusion": "success",
+          "name": "Run bun install --frozen-lockfile --linker hoisted",
+          "number": 8,
+          "startedAt": "2026-10-10T21:07:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:00Z",
+          "conclusion": "success",
+          "name": "Build darwin-arm64",
+          "number": 9,
+          "startedAt": "2026-10-10T21:07:22Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:33Z",
+          "conclusion": "success",
+          "name": "Build darwin-x64",
+          "number": 10,
+          "startedAt": "2026-10-10T21:08:00Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:34Z",
+          "conclusion": "success",
+          "name": "Native smoke (darwin-arm64 --version)",
+          "number": 11,
+          "startedAt": "2026-10-10T21:08:33Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:37Z",
+          "conclusion": "success",
+          "name": "Run actions/upload-artifact@v6",
+          "number": 12,
+          "startedAt": "2026-10-10T21:08:34Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:38Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-go@v6",
+          "number": 20,
+          "startedAt": "2026-10-10T21:08:37Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:38Z",
+          "conclusion": "success",
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "number": 21,
+          "startedAt": "2026-10-10T21:08:38Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:38Z",
+          "conclusion": "success",
+          "name": "Post Checkout reviewed consumer license",
+          "number": 22,
+          "startedAt": "2026-10-10T21:08:38Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:38Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-python@v5",
+          "number": 23,
+          "startedAt": "2026-10-10T21:08:38Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:39Z",
+          "conclusion": "success",
+          "name": "Post Checkout sovereign-ai-sdk",
+          "number": 24,
+          "startedAt": "2026-10-10T21:08:38Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:39Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 25,
+          "startedAt": "2026-10-10T21:08:39Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38086207061/job/114313570593"
+    },
+    {
+      "completedAt": "2026-10-10T21:08:06Z",
+      "conclusion": "success",
+      "databaseId": 114313827455,
+      "name": "smoke-windows",
+      "startedAt": "2026-10-10T21:08:01Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-10T21:08:02Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-10T21:08:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:03Z",
+          "conclusion": "success",
+          "name": "Download scanned Windows package",
+          "number": 2,
+          "startedAt": "2026-10-10T21:08:02Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:05Z",
+          "conclusion": "success",
+          "name": "Zip layout smoke (Expand-Archive)",
+          "number": 3,
+          "startedAt": "2026-10-10T21:08:03Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:05Z",
+          "conclusion": "success",
+          "name": "Native smoke (windows-x64 --version)",
+          "number": 4,
+          "startedAt": "2026-10-10T21:08:05Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:05Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 5,
+          "startedAt": "2026-10-10T21:08:05Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38086207061/job/114313827455"
+    },
+    {
+      "completedAt": "2026-10-10T21:09:37Z",
+      "conclusion": "success",
+      "databaseId": 114313960910,
+      "name": "release",
+      "startedAt": "2026-10-10T21:08:44Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-10-10T21:08:46Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-10-10T21:08:45Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:47Z",
+          "conclusion": "success",
+          "name": "Checkout sovereign-ai-sdk",
+          "number": 2,
+          "startedAt": "2026-10-10T21:08:46Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:48Z",
+          "conclusion": "success",
+          "name": "Checkout sov-releases",
+          "number": 3,
+          "startedAt": "2026-10-10T21:08:47Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:48Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-python@v5",
+          "number": 4,
+          "startedAt": "2026-10-10T21:08:48Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:08:50Z",
+          "conclusion": "success",
+          "name": "Run oven-sh/setup-bun@v2",
+          "number": 5,
+          "startedAt": "2026-10-10T21:08:48Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:09:11Z",
+          "conclusion": "success",
+          "name": "Run bun install --frozen-lockfile --linker hoisted",
+          "number": 6,
+          "startedAt": "2026-10-10T21:08:50Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:09:15Z",
+          "conclusion": "success",
+          "name": "Download all build artifacts",
+          "number": 7,
+          "startedAt": "2026-10-10T21:09:11Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:09:15Z",
+          "conclusion": "success",
+          "name": "List downloaded artifacts",
+          "number": 8,
+          "startedAt": "2026-10-10T21:09:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:09:34Z",
+          "conclusion": "success",
+          "name": "Upload release",
+          "number": 9,
+          "startedAt": "2026-10-10T21:09:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:09:34Z",
+          "conclusion": "success",
+          "name": "Post Run oven-sh/setup-bun@v2",
+          "number": 15,
+          "startedAt": "2026-10-10T21:09:34Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:09:34Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-python@v5",
+          "number": 16,
+          "startedAt": "2026-10-10T21:09:34Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:09:34Z",
+          "conclusion": "success",
+          "name": "Post Checkout sov-releases",
+          "number": 17,
+          "startedAt": "2026-10-10T21:09:34Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:09:34Z",
+          "conclusion": "success",
+          "name": "Post Checkout sovereign-ai-sdk",
+          "number": 18,
+          "startedAt": "2026-10-10T21:09:34Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-10T21:09:35Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 19,
+          "startedAt": "2026-10-10T21:09:34Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38086207061/job/114313960910"
+    }
+  ],
+  "status": "completed",
+  "url": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38086207061"
+}
