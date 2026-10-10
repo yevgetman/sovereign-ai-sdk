@@ -1,3 +1,9 @@
+## 2026-10-10 — PR42 fifth review: reject unsupported effort before context reduction
+
+Fresh review of PR42 CLI discovery, account pools, endpoint scopes, offline snapshots, bounded filters and disk cache found no new independent issue above Low. Initial focused discovery/CLI/catalog fixtures passed **33/0**, 238 assertions. Merged tested final PR38 `56f6c2ed`, preserving PR42's complete prepared-request/model-limit path and adding the exact reasoning preflight before request preparation/context reduction. Combined CLI/preflight checks passed **11/0**, 110 assertions. No reduction or inference occurs for metadata-backed unsupported effort.
+
+The initial merged lint attempt found import ordering only; corrected before the complete gate. `bun run lint`, `bun run typecheck`, strict `bun run --cwd packages/sdk build` and every discovered test file pass: **5715 passed / 19 existing skips / zero failed**, 23678 assertions across 544 files. The full test gate used branch-specific TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture. No file was omitted, and no assertion was weakened. Independent catalog reviewer also inspected and passed the new PR38 regression. No paid inference, live configuration, install, upgrade, learning-loop setting, Telekit or Mac app change.
+
 ## 2026-10-10 — PR42 fourth review: inherit final reviewed SDK and compaction fixes
 
 Merged final PR41 `bcd12a5a`, including actual PR40/39/38/37 ancestry. Kept PR42 account-pool ambiguity, custom endpoint isolation and its exact native effort controls intact. Inherited the confirmed High direct-source identity correction and Medium split-usage compaction pricing correction; no additional independent issue above Low was found in PR42.
@@ -85,6 +91,12 @@ Independent review found no new above-Low defect in PR40. Integrated final PR39 
 Resolved three Medium findings: image transport bytes no longer masquerade as input tokens; per-turn model/provider changes do not inherit another identity's standing record; model evidence is frozen before asynchronous host callbacks. Input accounting exposes incomplete image estimates in traces, preserves the image payload, accepts verified host counters, and retains provider overflow recovery. Merged reviewed PR38 native Anthropic controls with PR39 thinking-budget caps intact.
 
 Configured lint, typecheck, strict SDK build and full tests pass: **5672 passed / 19 existing skips / zero failed**, 23424 assertions across 539 files (89.90s). Focused image/model-evidence checks passed 17 tests / 83 assertions. The initial combined gate caught a missing public type-surface witness; this gate includes its correction. The PNG fixture has valid chunk CRCs. Independent review closed the image and metadata findings. No paid inference or installed changes.
+## 2026-10-10 — PR38 fifth review: reject effort before paid reduction
+
+Confirmed Medium: direct SDK query/createAgent invoked contextManager.reduce before the provider rejected metadata-backed unsupported reasoning effort. Query now validates built-in route selections before context reduction, retaining metadata-less and custom-provider behavior. An isolated fake-provider regression fails before the fix (one reduction) and passes after it (zero reductions and zero fetches). Independent host reviewer closed the finding with the same regression: 1 passed / 0 failed / 4 assertions.
+
+Focused reasoning/preflight: 11 passed / zero failed / 140 assertions. The first gate attempt identified two regression-only TypeScript typing errors; corrected before the complete rerun. Final lint, typecheck and strict SDK build pass. Every discovered test file executed using per-branch TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture: **5657 passed / 19 existing skips / zero failed**, 23365 assertions across 537 files. No paid inference, runtime install, learning settings or host configuration changes.
+
 ## 2026-10-10 — PR38 fourth review: inherit frozen discovery identity
 
 Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endpoint, authorization and account/normalizer identity remain captured at construction. No additional source changes were required on this branch.
