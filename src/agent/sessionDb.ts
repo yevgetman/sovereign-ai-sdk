@@ -36,6 +36,7 @@ import type {
 } from '@yevgetman/sov-sdk/core/sessionPort';
 import type { ContentBlock, SystemSegment, TokenUsage } from '@yevgetman/sov-sdk/core/types';
 import type { SessionStore } from '@yevgetman/sov-sdk/persistence/sessionStore';
+import { type CostEstimate, estimateUsageCost } from '@yevgetman/sov-sdk/providers/pricing';
 
 /** Default DB path. Resolved at call time so a profile-aware
  *  HARNESS_HOME (set by `sov -p name` before imports) lands the DB
@@ -49,11 +50,25 @@ export function getDefaultDbPath(): string {
  *  back-compat shim for tests that reference it directly. */
 export const DEFAULT_DB_PATH = join(resolveHarnessHome(), 'sessions.db');
 
-const CURRENT_SCHEMA_VERSION = 5;
+const CURRENT_SCHEMA_VERSION = 6;
 
 type Migration = { from: number; to: number; sql: string };
 
 const MIGRATIONS: Migration[] = [
+  {
+    from: 5,
+    to: 6,
+    sql: `ALTER TABLE sessions ADD COLUMN cost_complete INTEGER NOT NULL DEFAULT 1;
+      UPDATE sessions SET cost_complete = 0 WHERE input_tokens + output_tokens +
+        cache_creation_input_tokens + cache_read_input_tokens +
+        compaction_input_tokens + compaction_output_tokens > 0 OR
+        EXISTS (SELECT 1 FROM messages WHERE messages.session_id = sessions.session_id);
+      CREATE TABLE usage_estimates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+        usage TEXT NOT NULL, estimate TEXT NOT NULL
+      );`,
+  },
   {
     from: 0,
     to: 1,
@@ -610,7 +625,7 @@ export class SessionDb implements SessionStore {
                 s.input_tokens + s.output_tokens + s.cache_creation_input_tokens
                   + s.cache_read_input_tokens + s.compaction_input_tokens
                   + s.compaction_output_tokens AS total_tokens,
-                s.estimated_cost_usd + s.estimated_compaction_cost_usd AS total_cost_usd,
+                s.estimated_cost_usd + s.estimated_compaction_cost_usd AS total_cost_usd, s.cost_complete,
                 (SELECT COUNT(*) FROM messages WHERE session_id = s.session_id) AS msg_count,
                 (SELECT content FROM messages
                   WHERE session_id = s.session_id AND role = 'user'
@@ -662,42 +677,142 @@ export class SessionDb implements SessionStore {
     return rowToSession(row);
   }
 
-  recordTokenUsage(sessionId: string, usage: TokenUsage, estimatedCostUsd: number): void {
+  recordTokenUsage(
+    sessionId: string,
+    usage: TokenUsage,
+    estimatedCostUsd: number | undefined,
+  ): void {
+    const session = this.getSession(sessionId);
+    const estimate = estimateUsageCost(
+      session?.provider ?? 'unknown',
+      session?.model ?? 'unknown',
+      usage,
+    );
+    const supplied =
+      estimatedCostUsd !== undefined && Number.isFinite(estimatedCostUsd) && estimatedCostUsd >= 0;
+    this.recordUsageEstimate(
+      sessionId,
+      usage,
+      supplied
+        ? {
+            ...estimate,
+            amountUsd: estimatedCostUsd,
+            complete: true,
+            state: estimatedCostUsd === 0 ? 'free' : 'paid',
+            source: 'legacy-caller',
+          }
+        : { ...estimate, state: 'unknown', complete: false },
+    );
+  }
+
+  recordUsageEstimate(sessionId: string, usage: TokenUsage, estimate: CostEstimate): void {
+    const known =
+      estimate.complete &&
+      estimate.amountUsd !== undefined &&
+      Number.isFinite(estimate.amountUsd) &&
+      estimate.amountUsd >= 0;
+    const estimatedCostUsd = known ? (estimate.amountUsd ?? 0) : 0;
     const input = usage.inputTokens ?? 0;
     const output = usage.outputTokens ?? 0;
     const cacheCreation = usage.cacheCreationInputTokens ?? 0;
     const cacheRead = usage.cacheReadInputTokens ?? 0;
     const now = Date.now() / 1000;
-    this.writeWithRetry(() => {
-      this.db.run(
-        `UPDATE sessions
+    this.writeWithRetry(
+      this.db.transaction(() => {
+        this.db.run(
+          `UPDATE sessions
          SET input_tokens = input_tokens + ?,
              output_tokens = output_tokens + ?,
              cache_creation_input_tokens = cache_creation_input_tokens + ?,
              cache_read_input_tokens = cache_read_input_tokens + ?,
              estimated_cost_usd = estimated_cost_usd + ?,
+             cost_complete = MIN(cost_complete, ?),
              last_updated = ?
          WHERE session_id = ?`,
-        [input, output, cacheCreation, cacheRead, estimatedCostUsd, now, sessionId],
-      );
-    });
+          [
+            input,
+            output,
+            cacheCreation,
+            cacheRead,
+            estimatedCostUsd,
+            known ? 1 : 0,
+            now,
+            sessionId,
+          ],
+        );
+        this.db.run('INSERT INTO usage_estimates(session_id, usage, estimate) VALUES (?, ?, ?)', [
+          sessionId,
+          JSON.stringify(usage),
+          JSON.stringify(estimate),
+        ]);
+      }),
+    );
   }
 
-  recordCompactionUsage(sessionId: string, usage: TokenUsage, estimatedCostUsd: number): void {
+  /** Immutable per-call pricing receipts; refresh never mutates these rows. */
+  getUsageEstimates(sessionId: string): CostEstimate[] {
+    return this.db
+      .query<{ estimate: string }, [string]>(
+        'SELECT estimate FROM usage_estimates WHERE session_id = ? ORDER BY id',
+      )
+      .all(sessionId)
+      .map((row) => JSON.parse(row.estimate) as CostEstimate);
+  }
+
+  recordCompactionUsage(
+    sessionId: string,
+    usage: TokenUsage,
+    estimatedCostUsd: number | undefined,
+    receipt?: CostEstimate,
+  ): void {
+    const session = this.getSession(sessionId);
+    const supplied =
+      estimatedCostUsd !== undefined && Number.isFinite(estimatedCostUsd) && estimatedCostUsd >= 0;
+    const estimate: CostEstimate = receipt ?? {
+      provider: session?.provider ?? 'unknown',
+      model: session?.model ?? 'unknown',
+      state: supplied ? (estimatedCostUsd === 0 ? 'free' : 'paid') : 'unknown',
+      complete: supplied,
+      source: 'legacy-caller',
+      version: 0,
+      pricedAt: new Date().toISOString(),
+      ...(supplied ? { amountUsd: estimatedCostUsd } : {}),
+    };
+    const known =
+      estimate.complete &&
+      estimate.amountUsd !== undefined &&
+      Number.isFinite(estimate.amountUsd) &&
+      estimate.amountUsd >= 0;
+    const { amountUsd: _amount, ...provenance } = estimate;
+    const recordedEstimate: CostEstimate = known
+      ? estimate
+      : {
+          ...provenance,
+          complete: false,
+          state: estimate.state === 'subscription' ? 'subscription' : 'unknown',
+        };
     const input = usage.inputTokens ?? 0;
     const output = usage.outputTokens ?? 0;
     const now = Date.now() / 1000;
-    this.writeWithRetry(() => {
-      this.db.run(
-        `UPDATE sessions
+    this.writeWithRetry(
+      this.db.transaction(() => {
+        this.db.run(
+          `UPDATE sessions
          SET compaction_input_tokens = compaction_input_tokens + ?,
              compaction_output_tokens = compaction_output_tokens + ?,
              estimated_compaction_cost_usd = estimated_compaction_cost_usd + ?,
+             cost_complete = MIN(cost_complete, ?),
              last_updated = ?
          WHERE session_id = ?`,
-        [input, output, estimatedCostUsd, now, sessionId],
-      );
-    });
+          [input, output, known ? (estimate.amountUsd ?? 0) : 0, known ? 1 : 0, now, sessionId],
+        );
+        this.db.run('INSERT INTO usage_estimates(session_id, usage, estimate) VALUES (?, ?, ?)', [
+          sessionId,
+          JSON.stringify(usage),
+          JSON.stringify(recordedEstimate),
+        ]);
+      }),
+    );
   }
 
   recordCompactionLineage(parentSessionId: string, childSessionId: string): void {
@@ -746,7 +861,12 @@ export class SessionDb implements SessionStore {
         estimatedCompactionCostUsd: 0,
       };
     }
-    return rowToCost(row);
+    const complete = this.db
+      .query<{ cost_complete: number }, [string]>(
+        'SELECT cost_complete FROM sessions WHERE session_id = ?',
+      )
+      .get(sessionId)?.cost_complete;
+    return { ...rowToCost(row), ...(complete === 0 ? { costComplete: false } : {}) };
   }
 
   /** M8 T7 — session-end metrics for the rich `session_summary` SSE event.
@@ -808,6 +928,7 @@ export class SessionDb implements SessionStore {
         cacheRead: cost.cacheReadInputTokens,
         cacheWrite: cost.cacheCreationInputTokens,
         estimatedCostUsd: cost.estimatedCostUsd + cost.estimatedCompactionCostUsd,
+        ...(cost.costComplete === false ? { costComplete: false } : {}),
       },
       toolCalls,
       toolOk,
@@ -948,6 +1069,7 @@ type SessionListRow = {
   owner_id: string | null;
   total_tokens: number;
   total_cost_usd: number;
+  cost_complete: number;
   msg_count: number;
   first_user_content: string | null;
 };
@@ -987,6 +1109,7 @@ function rowToListEntry(row: SessionListRow): SessionListEntry {
     msgCount: row.msg_count,
     totalTokens: row.total_tokens,
     totalCostUsd: row.total_cost_usd,
+    ...(row.cost_complete === 0 ? { costComplete: false } : {}),
   };
 }
 

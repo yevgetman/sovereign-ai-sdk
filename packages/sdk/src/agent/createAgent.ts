@@ -85,7 +85,11 @@ import {
   UnknownToolsetError,
 } from '../providers/errors.js';
 import type { ModelRecord } from '../providers/models/types.js';
-import { PRICE_TABLE, estimateCostUsd } from '../providers/pricing.js';
+import {
+  type CostEstimate,
+  type PricingSnapshot,
+  estimateUsageCost,
+} from '../providers/pricing.js';
 import { resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
 import type { CapabilityProfileRegistry } from '../tool/capabilityProfiles.js';
@@ -194,6 +198,7 @@ export type AgentConfig = {
   microcompactConfig?: MicrocompactConfig;
   contextManager?: ContextManagementPort;
   contextLimits?: ContextLimits;
+  pricingSnapshot?: PricingSnapshot;
   maxTokens?: number;
   maxTurns?: number;
   /** Error-propagation mode for a THROWN pre/in-loop op (memory injection,
@@ -224,6 +229,7 @@ export type PerTurn = Partial<{
   effort: ReasoningEffort;
   modelMetadata: ModelRecord;
   inputTokenCounter: NonNullable<QueryParams['inputTokenCounter']>;
+  pricingSnapshot: PricingSnapshot;
   temperature: number;
   cacheEnabled: boolean;
   maxToolCallsBeforeCheckin: number;
@@ -286,6 +292,7 @@ export type RunResult = {
    *  host summary estimates. Reasoning tokens are excluded. Absent when usage
    *  or any summary estimate is missing; unknown totals are never recorded as zero. */
   estimatedCostUsd?: number;
+  costEstimate?: CostEstimate;
 };
 
 /** A configured agent. `run()` drives one turn loop to terminal, streaming
@@ -305,6 +312,13 @@ export function createAgent(config: AgentConfig): Agent {
     input: string | Message[],
     perTurn: PerTurn = {},
   ): AsyncGenerator<StreamEvent | Message, RunResult> {
+    const suppliedPricing =
+      perTurn.pricingSnapshot ??
+      ((perTurn.model === undefined || perTurn.model === config.model) &&
+      perTurn.provider === undefined
+        ? config.pricingSnapshot
+        : undefined);
+    const pricingSnapshot = suppliedPricing ? structuredClone(suppliedPricing) : undefined;
     const requestedToolset = perTurn.toolset ?? config.toolset;
     if (
       requestedToolset !== undefined &&
@@ -930,19 +944,71 @@ export function createAgent(config: AgentConfig): Agent {
     //    the provider/model this run used — the same `provider.name` the persist
     //    path records under, so the recorded and returned costs match exactly.
     const usage = finalizeUsage(usageAcc);
-    // Context aggregation must not turn an unknown main-provider bill into zero.
-    // Preserve historical no-context pricing; this guard covers the new combined contract.
+    const mainEstimate = estimateUsageCost(
+      provider.name,
+      model,
+      finalizeUsage(providerUsageAcc) ?? {},
+      pricingSnapshot,
+    );
     const aggregateCostKnown =
-      contextCostKnown &&
-      (contextUsageComplete === undefined ||
-        (mainUsageComplete &&
-          (!providerStarted || PRICE_TABLE[`${provider.name}:${model}`] !== undefined)));
+      contextCostKnown && (!providerStarted || (mainEstimate.complete && mainUsageComplete));
     if (contextUsageComplete !== undefined) contextUsageComplete &&= mainUsageComplete;
     const estimatedCostUsd =
       aggregateCostKnown &&
       (usage !== undefined || (contextUsageComplete !== undefined && !providerStarted))
-        ? estimateCostUsd(provider.name, model, finalizeUsage(providerUsageAcc) ?? {}) + contextCost
+        ? (providerStarted ? (mainEstimate.amountUsd ?? 0) : 0) + contextCost
         : undefined;
+    const { amountUsd: _mainAmount, rates: _mainRates, ...pricingReceipt } = mainEstimate;
+    const costEstimate: CostEstimate =
+      contextUsageComplete === undefined
+        ? {
+            ...pricingReceipt,
+            ...(mainEstimate.rates ? { rates: mainEstimate.rates } : {}),
+            ...(estimatedCostUsd !== undefined ? { amountUsd: estimatedCostUsd } : {}),
+            complete: estimatedCostUsd !== undefined,
+            state:
+              estimatedCostUsd === undefined && mainEstimate.state !== 'subscription'
+                ? 'unknown'
+                : mainEstimate.state,
+          }
+        : {
+            ...pricingReceipt,
+            scope: 'aggregate',
+            source: 'aggregate-components',
+            state:
+              estimatedCostUsd === undefined ? 'unknown' : estimatedCostUsd === 0 ? 'free' : 'paid',
+            complete: estimatedCostUsd !== undefined,
+            ...(estimatedCostUsd !== undefined ? { amountUsd: estimatedCostUsd } : {}),
+            components: [
+              ...(providerStarted
+                ? [
+                    {
+                      ...pricingReceipt,
+                      ...(mainEstimate.rates ? { rates: mainEstimate.rates } : {}),
+                      complete: mainEstimate.complete && mainUsageComplete,
+                      state:
+                        !mainUsageComplete && mainEstimate.state !== 'subscription'
+                          ? 'unknown'
+                          : mainEstimate.state,
+                      ...(mainEstimate.complete && mainUsageComplete
+                        ? { amountUsd: mainEstimate.amountUsd }
+                        : {}),
+                      usage: finalizeUsage(providerUsageAcc) ?? {},
+                    },
+                  ]
+                : []),
+              {
+                provider: 'host',
+                model: 'context-reduction',
+                source: 'host-context-estimate',
+                version: 1,
+                pricedAt: mainEstimate.pricedAt,
+                complete: contextCostKnown,
+                state: contextCostKnown ? (contextCost === 0 ? 'free' : 'paid') : 'unknown',
+                ...(contextCostKnown ? { amountUsd: contextCost } : {}),
+              },
+            ],
+          };
 
     // Persistence — only when a port is supplied (no-disk default otherwise).
     if (config.sessionStore !== undefined || config.transcripts !== undefined) {
@@ -955,7 +1021,9 @@ export function createAgent(config: AgentConfig): Agent {
           providerName: provider.name,
           systemPrompt: effectiveSystemPrompt,
           messages,
-          usage: aggregateCostKnown ? usage : undefined,
+          usage,
+          costEstimate,
+          providerStarted,
           estimatedCostUsd,
           ...(savedThrough !== undefined ? { persistFrom: savedThrough } : {}),
         });
@@ -977,6 +1045,7 @@ export function createAgent(config: AgentConfig): Agent {
       ...(usage !== undefined ? { usage } : {}),
       ...(contextUsageComplete !== undefined ? { usageComplete: contextUsageComplete } : {}),
       ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
+      ...(usage !== undefined ? { costEstimate } : {}),
     };
   }
 
@@ -1073,6 +1142,8 @@ function persistTurn(opts: {
    *  passed in so the recorded cost is IDENTICAL to `RunResult.estimatedCostUsd`
    *  — a single `estimateCostUsd` call in `run()`, not a second one here. */
   estimatedCostUsd: number | undefined;
+  costEstimate?: CostEstimate;
+  providerStarted?: boolean;
   /** Explicit boundary from `PerTurn.storedPrefixLength` (advanced past any
    *  early tool-call save). When set, the verbatim-prefix heuristic is skipped. */
   persistFrom?: number;
@@ -1117,8 +1188,12 @@ function persistTurn(opts: {
     seq += 1;
   }
 
-  if (sessionStore !== undefined && usage !== undefined && estimatedCostUsd !== undefined) {
-    sessionStore.recordTokenUsage(sessionId, usage, estimatedCostUsd);
+  if (sessionStore !== undefined && (usage !== undefined || opts.providerStarted)) {
+    if (sessionStore.recordUsageEstimate && opts.costEstimate) {
+      sessionStore.recordUsageEstimate(sessionId, usage ?? {}, opts.costEstimate);
+    } else if (usage !== undefined && estimatedCostUsd !== undefined) {
+      sessionStore.recordTokenUsage(sessionId, usage, estimatedCostUsd);
+    }
   }
 }
 

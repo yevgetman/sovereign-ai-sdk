@@ -426,3 +426,26 @@ route, model ID and a truthful `metadata.source`; for example a verified vision
 contract can explicitly set `record.capabilities.images = 'supported'`. This
 changes request validation only, and does not grant authentication or trigger
 fallbacks. Custom/local providers own their serializer contracts.
+### Model pricing snapshots
+
+`estimateUsageCost(provider, model, usage, snapshot?)` returns an estimate with
+`complete`, a paid/free/subscription/unknown state, source, rates and pricing time.
+Unknown pricing omits `amountUsd`; token usage is retained. Inject a normalized
+`PricingSnapshot` through `createAgent` or a per-turn override. Reasoning tokens
+are already part of output tokens. Rates are per million tokens in USD.
+
+The deprecated numeric `estimateCostUsd` now returns `number | undefined`. Check
+for an unknown value; never coerce it to zero in billing or displays. This is a
+source migration for numeric-only callers and must be included in an SDK minor
+release. Stores can implement additive `recordUsageEstimate` to retain immutable
+receipts, including unknown usage. Legacy stores receive only known numeric
+estimates; unknown usage remains available in `RunResult`. SOV's SQLite store
+records receipts and marks mixed/unknown session estimates incomplete. Its
+numeric counters are known subtotals, never a complete bill when that flag is false.
+
+Agent usage covers its own provider calls plus reported context components. It does
+not include a complete delegated-child bill. Aggregate receipts identify host context
+estimates separately. SOV stores auxiliary-compaction receipts separately from main
+token counters. Historical rows without reliable pricing evidence are marked incomplete.
+
+Tree-budget settlement captures model identity and prices before host callbacks or provider awaits. Explicit model metadata without verified prices keeps the host’s reserved cost upper bound and marks the cost incomplete. Metadata-absent calls retain established built-in pricing.

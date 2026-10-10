@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { TreeBudget, TreeBudgetExceededError, budgetProvider } from '@yevgetman/sov-sdk';
 import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import { fallbackModelCatalog, findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 
 const answer: AssistantMessage = { role: 'assistant', content: [{ type: 'text', text: 'done' }] };
@@ -271,5 +272,65 @@ describe('shared tree budgets', () => {
       'smaller than maxTokens',
     );
     expect(budget.snapshot().accountedTokens).toBe(0);
+  });
+});
+
+test('model-bound unknown pricing keeps the host cost reservation for a known built-in ID', async () => {
+  const budget = new TreeBudget({ maxEstimatedCostUsd: 1 });
+  const metadata = findModel(fallbackModelCatalog('openai-api'), 'gpt-4o-mini');
+  const wrapped = budgetProvider(provider(), budget, () => ({ tokens: 10, estimatedCostUsd: 0.5 }));
+  for await (const _event of wrapped.stream({ ...request, modelMetadata: metadata })) {
+    /* drain */
+  }
+  expect(budget.snapshot()).toMatchObject({
+    accountedTokens: 8,
+    accountedEstimatedCostUsd: 0.5,
+    unknownRequests: 1,
+    tokenUsageComplete: true,
+    estimatedCostComplete: false,
+  });
+  expect(() => budget.reserveRequest({ tokens: 10, estimatedCostUsd: 0.6 })).toThrow(
+    TreeBudgetExceededError,
+  );
+});
+
+test('metadata-absent callers retain established built-in tree pricing', async () => {
+  const budget = new TreeBudget({ maxEstimatedCostUsd: 1 });
+  await drain(budgetProvider(provider(), budget, () => ({ tokens: 10, estimatedCostUsd: 0.5 })));
+  expect(budget.snapshot().accountedEstimatedCostUsd).toBeCloseTo(0.00000255, 10);
+  expect(budget.snapshot()).toMatchObject({ unknownRequests: 0, estimatedCostComplete: true });
+});
+
+test('tree prices and identities are frozen before host callbacks and stream events', async () => {
+  const metadata = {
+    ...findModel(fallbackModelCatalog('openai-api'), 'future'),
+    pricing: {
+      state: 'paid' as const,
+      currency: 'USD' as const,
+      source: 'fixture',
+      inputPerMillion: 1_000_000,
+      outputPerMillion: 1_000_000,
+    },
+  };
+  const mutableRequest = { ...request, model: 'future', modelMetadata: metadata };
+  const underlying = provider();
+  const budget = new TreeBudget({ maxEstimatedCostUsd: 10 });
+  const wrapped = budgetProvider(underlying, budget, () => {
+    metadata.pricing.inputPerMillion = 0;
+    return { tokens: 10, estimatedCostUsd: 10 };
+  });
+  const stream = wrapped.stream(mutableRequest);
+  await stream.next();
+  metadata.pricing.outputPerMillion = 0;
+  mutableRequest.model = 'different';
+  metadata.id = 'different';
+  Object.defineProperty(underlying, 'name', { value: 'other' });
+  while (!(await stream.next()).done) {
+    /* drain */
+  }
+  expect(budget.snapshot()).toMatchObject({
+    accountedEstimatedCostUsd: 8,
+    estimatedCostComplete: true,
+    unknownRequests: 0,
   });
 });

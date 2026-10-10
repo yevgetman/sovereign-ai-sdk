@@ -96,6 +96,7 @@ import type {
   ContextManagementPort,
   ContextManagementRequest,
   ContextManagementResult,
+  CostEstimate,
   CreateSessionInput,
   CreateTaskInput,
   DelegateInput,
@@ -151,6 +152,7 @@ import type {
   PermissionDecision,
   PermissionResult,
   PreGateVerdict,
+  PricingSnapshot,
   ProjectScope,
   PromptCommand,
   ProviderPurpose,
@@ -295,6 +297,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'defaultMaxTurns',
   'dropsFor',
   'estimateCostUsd',
+  'estimateUsageCost',
   'expandSkillPrompt',
   'expandSkillText',
   'fallbackModelCatalog',
@@ -383,6 +386,8 @@ describe('sdk barrel — the 0.1.0 semver-contract surface snapshot', () => {
  *  compilation here — the type-surface half of the 0.1.0 contract (values are
  *  erased at runtime; types are not, so they need a compile-time pin). */
 type TypeSurfaceWitness = {
+  costEstimate?: CostEstimate;
+  pricingSnapshot?: PricingSnapshot;
   childPolicy?: ChildPolicy;
   toolCapabilityProfile?: ToolCapabilityProfile;
   treeBudgetLimits?: TreeBudgetLimits;

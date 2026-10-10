@@ -21,11 +21,12 @@
 
 import type { PostTurnRequest, PostTurnResponse } from '@yevgetman/sov-protocol';
 import { accumulateUsage, createUsageAccumulator, finalizeUsage } from '@yevgetman/sov-sdk';
+import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
 import { expandContextReferences } from '@yevgetman/sov-sdk/context/references';
 import type { Message, Terminal } from '@yevgetman/sov-sdk/core/types';
 import { REASONING_EFFORTS, type ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { isContextOverflowError } from '@yevgetman/sov-sdk/providers/errors';
-import { estimateCostUsd } from '@yevgetman/sov-sdk/providers/pricing';
+import { estimateUsageCost } from '@yevgetman/sov-sdk/providers/pricing';
 import { expandSkillPrompt } from '@yevgetman/sov-sdk/skills/loader';
 import { filterParseableRules } from '@yevgetman/sov-sdk/tool/toolScope';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
@@ -520,6 +521,9 @@ async function runTurnInBackground(
   // the wire fields stay absent exactly as before on a no-usage turn.
   let hopUsageAcc = createUsageAccumulator();
   let turnUsageAcc = createUsageAccumulator();
+  let hopResult: RunResult | undefined;
+  let knownTurnCost = 0;
+  let turnCostComplete = true;
   // Item 3 — turn-level "did any text stream?" flag. Set at the text_delta
   // publish site below; read by handleAssistantMessage to decide whether the
   // final message's text needs projecting onto the wire. Declared OUTSIDE
@@ -528,11 +532,19 @@ async function runTurnInBackground(
   // skipped for every subsequent assistant_message (streaming byte-identical).
   let sawTextDelta = false;
   const recordHopUsage = (currentSessionId: string): void => {
-    const usage = finalizeUsage(hopUsageAcc);
-    if (usage !== undefined) {
-      const cost = estimateCostUsd(runtime.resolvedProvider.transport.name, runtime.model, usage);
-      runtime.sessionDb.recordTokenUsage(currentSessionId, usage, cost);
-    }
+    if (!hopResult) return;
+    const usage = hopResult.usage ?? finalizeUsage(hopUsageAcc) ?? {};
+    const receipt =
+      hopResult.costEstimate ??
+      estimateUsageCost(
+        runtime.resolvedProvider.transport.name,
+        perTurnModel ?? runtime.model,
+        usage,
+        { state: 'unknown', source: 'usage-unavailable' },
+      );
+    runtime.sessionDb.recordUsageEstimate(currentSessionId, usage, receipt);
+    if (hopResult.estimatedCostUsd === undefined) turnCostComplete = false;
+    else knownTurnCost += hopResult.estimatedCostUsd;
   };
 
   try {
@@ -708,6 +720,7 @@ async function runTurnInBackground(
         },
       });
       sawTextDelta = relayed.sawTextDelta;
+      hopResult = relayed.result;
       return relayed.result.terminal;
     };
 
@@ -833,10 +846,8 @@ async function runTurnInBackground(
     // Cost is estimated against the resolved provider so the final cost field
     // matches what disposeSessionContext's session_summary will report.
     const turnUsage = finalizeUsage(turnUsageAcc);
-    const turnCost =
-      turnUsage !== undefined
-        ? estimateCostUsd(runtime.resolvedProvider.transport.name, runtime.model, turnUsage)
-        : undefined;
+    // Sum immutable hop receipts; never reprice an override against the runtime default.
+    const turnCost = turnUsage !== undefined && turnCostComplete ? knownTurnCost : undefined;
     const finalStatusEvent: {
       type: 'status_update';
       seq: number;

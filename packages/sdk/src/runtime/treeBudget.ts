@@ -4,7 +4,11 @@ import {
   createUsageAccumulator,
   finalizeUsage,
 } from '../core/usageAccumulator.js';
-import { PRICE_TABLE, estimateCostUsd } from '../providers/pricing.js';
+import {
+  type PricingSnapshot,
+  estimateUsageCost,
+  pricingSnapshotForModel,
+} from '../providers/pricing.js';
 import type { LLMProvider, ProviderRequest } from '../providers/types.js';
 
 export type TreeBudgetLimits = {
@@ -168,6 +172,39 @@ export function budgetProvider(
     async *stream(
       request,
     ): AsyncGenerator<import('../core/types.js').StreamEvent, AssistantMessage> {
+      // Capture identity and tariffs before host callbacks or provider awaits.
+      const providerName = provider.name;
+      const model = request.model;
+      const metadata = request.modelMetadata;
+      const initialPrice = estimateUsageCost(
+        providerName,
+        model,
+        { inputTokens: 0, outputTokens: 0 },
+        metadata ? pricingSnapshotForModel(metadata) : undefined,
+      );
+      const pricingSnapshot: PricingSnapshot = {
+        provider: providerName,
+        model,
+        state: initialPrice.state,
+        source: initialPrice.source,
+        version: initialPrice.version,
+        fetchedAt: initialPrice.pricedAt,
+        ...(initialPrice.rates
+          ? {
+              rates: {
+                ...initialPrice.rates,
+                // Preserve the legacy table's implicit base-rate cache fallback.
+                ...(!metadata
+                  ? {
+                      cacheCreationInput:
+                        initialPrice.rates.cacheCreationInput ?? initialPrice.rates.input,
+                      cacheReadInput: initialPrice.rates.cacheReadInput ?? initialPrice.rates.input,
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+      };
       const bound = estimate(request);
       if (bound.tokens < request.maxTokens) {
         throw new TreeBudgetExceededError('request token upper bound is smaller than maxTokens');
@@ -208,18 +245,15 @@ export function budgetProvider(
             !failed &&
             cleanupSucceeded &&
             !request.signal?.aborted;
+          const estimate = total
+            ? estimateUsageCost(providerName, model, total, pricingSnapshot)
+            : undefined;
           const priced =
             total !== undefined &&
             total.inputTokens !== undefined &&
             total.outputTokens !== undefined &&
-            PRICE_TABLE[`${provider.name}:${request.model}`] !== undefined;
-          settle(
-            total,
-            usageComplete && priced
-              ? estimateCostUsd(provider.name, request.model, total)
-              : undefined,
-            usageComplete,
-          );
+            estimate?.complete === true;
+          settle(total, usageComplete && priced ? estimate?.amountUsd : undefined, usageComplete);
         }
       }
     },

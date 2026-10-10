@@ -76,8 +76,10 @@ export function renderSessionSummary(m: SessionMetrics): string {
         `${chalk.gray('Cache:')}         ${chalk.gray(`read ${formatCount(t.cacheRead)} · write ${formatCount(t.cacheWrite)}`)}`,
       );
     }
-    if (t.estimatedCostUsd > 0) {
-      body.push(`${chalk.gray('Est. Cost:')}     ${chalk.yellow(formatUsd(t.estimatedCostUsd))}`);
+    if (t.estimatedCostUsd > 0 || t.costComplete === false) {
+      body.push(
+        `${chalk.gray('Est. Cost:')}     ${chalk.yellow(t.costComplete === false ? 'unknown (incomplete pricing)' : formatUsd(t.estimatedCostUsd))}`,
+      );
     }
   }
 

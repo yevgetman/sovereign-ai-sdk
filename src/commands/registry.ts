@@ -289,6 +289,6 @@ function formatCost(ctx: CommandContext): string {
     `provider/model: ${ctx.providerName} / ${ctx.model}`,
     `tokens: total=${totalTokens}, input=${cost.inputTokens}, output=${cost.outputTokens}, cache_write=${cost.cacheCreationInputTokens}, cache_read=${cost.cacheReadInputTokens}`,
     `compaction tokens: input=${cost.compactionInputTokens}, output=${cost.compactionOutputTokens}`,
-    `estimated cost: ${formatUsd(estimatedTotalCost)} (chat ${formatUsd(cost.estimatedCostUsd)}, compaction ${formatUsd(cost.estimatedCompactionCostUsd)})`,
+    `estimated cost: ${cost.costComplete === false ? `unknown (incomplete pricing; known subtotal ${formatUsd(estimatedTotalCost)})` : `${formatUsd(estimatedTotalCost)} (chat ${formatUsd(cost.estimatedCostUsd)}, compaction ${formatUsd(cost.estimatedCompactionCostUsd)})`}`,
   ].join('\n');
 }
