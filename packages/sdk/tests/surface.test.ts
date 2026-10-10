@@ -315,6 +315,8 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'renamesFor',
   'resolveModelAlias',
   'resolveProvider',
+  'serializerSupportsImages',
+  'validateModelRequest',
   'wrapConductAuditSink',
 ];
 

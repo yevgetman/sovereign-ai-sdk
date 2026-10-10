@@ -4,6 +4,15 @@
 
 Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typecheck and strict SDK build pass. Full suite: 5643 passed, 19 skipped, zero failed; 23183 assertions across 535 files (91.44 seconds).
 
+## 2026-10-10 — PR40 reviewed parent integration
+
+Integrated the reviewed discovery and reasoning corrections from PR38 into the modality-validation branch. Preserved image/tool fixtures and additive review records. Frozen `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5674 pass / 19 existing skips / 0 fail, 23380 assertions across 539 files (112.59 seconds). No paid inference, installed upgrade or release.
+
+## 2026-10-10 — Exact model image/tool validation (#29)
+
+Scope: complete replay history, model/provider identity, explicit unsupported capabilities and tool-choice formats, subscription image fences, assistant-role image loss prevention, and native xAI image/function wire bodies. Unknown direct API tools retain the existing transport attempt for future IDs; this does not certify model support or account entitlement. Exact established direct image choices and local/custom serializer contracts retain compatibility. Discovered OpenRouter required unknown capabilities fail safely. No paid inference or installed upgrade.
+
+Focused modality/public-surface checks passed 15/0 (110 assertions). After stacking on exact #28, combined modality/surface/context-budget fixtures passed 26/0 (158 assertions). Final frozen `bun run lint && bun run typecheck && bun run test` passed **5667 pass / 19 existing skips / 0 fail**, 23273 assertions across 539 files in 95.46 seconds. Both pre-reduction and final-request checks preserve #28 output reservations. Earlier standalone checks exposed a missing public export snapshot, corrected before these final gates.
 ## 2026-10-10 — PR39 reviewed parent integration
 
 Integrated the reviewed discovery and reasoning corrections from PR38 into the context-limits branch. Preserved model-limit fixtures and additive review records. Frozen `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5663 pass / 19 existing skips / 0 fail, 23342 assertions across 538 files (112.18 seconds). No paid inference, installed upgrade or release.

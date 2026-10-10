@@ -30,6 +30,8 @@ export interface ModelRecord {
         maxWireValue?: string;
       }
     | undefined;
+  /** Known tool-choice formats; omitted means not advertised. */
+  toolChoices?: ('auto' | 'any' | 'tool')[] | undefined;
   pricing?:
     | {
         inputPerMillion?: number | undefined;
