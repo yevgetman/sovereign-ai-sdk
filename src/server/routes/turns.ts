@@ -24,21 +24,29 @@ import { accumulateUsage, createUsageAccumulator, finalizeUsage } from '@yevgetm
 import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
 import { expandContextReferences } from '@yevgetman/sov-sdk/context/references';
 import type { Message, Terminal } from '@yevgetman/sov-sdk/core/types';
+import { toToolSchemas } from '@yevgetman/sov-sdk/mcp/schemaSerialization';
 import { REASONING_EFFORTS, type ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { isContextOverflowError } from '@yevgetman/sov-sdk/providers/errors';
+import { validateModelRequest } from '@yevgetman/sov-sdk/providers/models/validateRequest';
 import { estimateUsageCost } from '@yevgetman/sov-sdk/providers/pricing';
 import { expandSkillPrompt } from '@yevgetman/sov-sdk/skills/loader';
-import { filterParseableRules } from '@yevgetman/sov-sdk/tool/toolScope';
+import { buildToolScope, filterParseableRules } from '@yevgetman/sov-sdk/tool/toolScope';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { Hono } from 'hono';
 import { type CompactResult, shouldCompactProactively } from '../../compact/compactor.js';
 import { synthesizeDelegationEvents } from '../../router/progressEvents.js';
 import type { AppVariables } from '../auth.js';
 import { type ServerEventBus, getOrCreateBus } from '../eventBus.js';
+import {
+  modelSystemPrompt,
+  selectedTurnModel,
+  shouldCompactModelRequest,
+} from '../modelMetadata.js';
 import { type Runtime, createServerAsk } from '../runtime.js';
 import { isValidSessionId } from '../sessionId.js';
 import {
   type TurnPersistence,
+  appendInstructions,
   buildTurnCanUseTool,
   composeTurn,
   createSteeringPoller,
@@ -548,6 +556,49 @@ async function runTurnInBackground(
   };
 
   try {
+    const modelSnapshot = selectedTurnModel(
+      runtime.resolvedProvider.transport.name,
+      perTurnModel ?? runtime.model,
+      {
+        maxTokens: runtime.maxTokens,
+        harnessHome: runtime.harnessHome,
+        settings: runtime.injectedSettings,
+      },
+    );
+    if (modelSnapshot)
+      sessionCtx.modelBudget = {
+        provider: modelSnapshot.metadata.provider,
+        model: modelSnapshot.metadata.id,
+        contextTokens: modelSnapshot.limits.contextTokens,
+      };
+    const effectiveTools = toToolSchemas(
+      buildToolScope({
+        tools: runtime.toolPool,
+        canUseTool: runtime.canUseTool,
+        allowedTools: skillScope,
+      }).tools,
+    );
+    const projectedSystem = modelSystemPrompt(
+      runtime.systemSegments,
+      effectiveTools,
+      modelSnapshot?.metadata,
+    );
+    const effectiveSystem = perTurnInstructions
+      ? appendInstructions(projectedSystem, perTurnInstructions)
+      : projectedSystem;
+    // Check required features before paid proactive summarization. The SDK
+    // repeats this check on the final request after any history pivot.
+    validateModelRequest(
+      {
+        model: perTurnModel ?? runtime.model,
+        system: effectiveSystem,
+        messages,
+        tools: effectiveTools,
+        maxTokens: modelSnapshot?.limits.outputTokens ?? runtime.maxTokens,
+      },
+      runtime.resolvedProvider.transport.name,
+      modelSnapshot?.metadata,
+    );
     // M6 T3 — proactive compaction. If the hydrated history (including
     // the freshly-persisted user message) is over the configured
     // threshold, compact BEFORE handing it to the model. compactSession
@@ -572,14 +623,21 @@ async function runTurnInBackground(
     // not all compactions per turn. TUI consumers must therefore handle
     // TWO `compaction_complete` events per turn (each with a distinct
     // `activeSessionId`) and pivot to the latest one.
-    if (
-      shouldCompactProactively({
-        messages,
-        systemPrompt: runtime.systemSegments,
-        contextLength: runtime.resolvedProvider.contextLength,
-        threshold: runtime.proactiveCompactThreshold,
-      })
-    ) {
+    const compactNeeded = modelSnapshot
+      ? shouldCompactModelRequest(
+          messages,
+          effectiveSystem,
+          effectiveTools,
+          modelSnapshot.limits,
+          runtime.proactiveCompactThreshold,
+        )
+      : shouldCompactProactively({
+          messages,
+          systemPrompt: effectiveSystem,
+          contextLength: runtime.resolvedProvider.contextLength,
+          threshold: runtime.proactiveCompactThreshold,
+        });
+    if (compactNeeded) {
       const result = await runtime.compact(messages, sessionId, turnSignal);
       // Backlog #36: when the entire history fit within the tail budget,
       // compactSession returns a no-op (parentSessionId === newSessionId,
@@ -595,6 +653,12 @@ async function runTurnInBackground(
         // The `traceRecorder` closure picks up the new ref on its next call
         // because it dereferences `sessionCtx` dynamically.
         sessionCtx = runtime.getSessionContext(sessionId);
+        if (modelSnapshot)
+          sessionCtx.modelBudget = {
+            provider: modelSnapshot.metadata.provider,
+            model: modelSnapshot.metadata.id,
+            contextTokens: modelSnapshot.limits.contextTokens,
+          };
         // The child's persisted state (summary + tail) is now the source of
         // truth for the model. Reload from the DB rather than mutating
         // result.tail in place so we pick up the persisted summary message
@@ -655,6 +719,7 @@ async function runTurnInBackground(
       runtime,
       canUseTool: sessionCanUseTool,
       persistence,
+      ...(modelSnapshot ? { modelMetadata: modelSnapshot.metadata } : {}),
       ...(skillScope !== undefined ? { skillScope } : {}),
       ...(perTurnModel !== undefined ? { model: perTurnModel } : {}),
       ...(perTurnEffort !== undefined ? { effort: perTurnEffort } : {}),
@@ -790,6 +855,12 @@ async function runTurnInBackground(
       // M7 T3 — re-fetch the SessionContext so the retried run's trace
       // events land in the child's trace file rather than the parent's.
       sessionCtx = runtime.getSessionContext(sessionId);
+      if (modelSnapshot)
+        sessionCtx.modelBudget = {
+          provider: modelSnapshot.metadata.provider,
+          model: modelSnapshot.metadata.id,
+          contextTokens: modelSnapshot.limits.contextTokens,
+        };
       messages = hydrate();
       // Reset the PER-HOP accumulator before the retry so the second runOnce
       // starts fresh. recordHopUsage already fired against the parent sessionId

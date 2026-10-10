@@ -42,6 +42,7 @@ import { COMMANDS, buildCommandRegistry } from '../commands/registry.js';
 import { computeRoutingStats } from '../router/stats.js';
 import { runWorkflow } from '../workflows/engine.js';
 import { loadWorkflows } from '../workflows/loader.js';
+import { selectedTurnModel } from './modelMetadata.js';
 import { buildSessionToolContext } from './routes/turns.js';
 import type { Runtime } from './runtime.js';
 import { type SessionContext, rebuildSessionRecall } from './sessionContext.js';
@@ -501,8 +502,19 @@ export function buildServerCommandContext(
     taskManager: runtime.taskManager,
     ...(sessionCtx.reviewManager !== undefined ? { reviewManager: sessionCtx.reviewManager } : {}),
     harnessHome: runtime.harnessHome,
+    getModelCatalogSettings: () =>
+      runtime.injectedSettings ?? readConfig({ harnessHome: runtime.harnessHome }),
     getBudgetReport: () =>
       auditContextBudget({
+        contextWindow:
+          sessionCtx.modelBudget?.provider === runtime.resolvedProvider.transport.name &&
+          sessionCtx.modelBudget.model === runtime.model
+            ? sessionCtx.modelBudget.contextTokens
+            : (selectedTurnModel(runtime.resolvedProvider.transport.name, runtime.model, {
+                maxTokens: runtime.maxTokens,
+                harnessHome: runtime.harnessHome,
+                settings: runtime.injectedSettings,
+              })?.limits.contextTokens ?? runtime.resolvedProvider.contextLength),
         systemSegments: systemSegmentsRef,
         tools: runtime.toolPool,
         skills: filteredSkills.skills,

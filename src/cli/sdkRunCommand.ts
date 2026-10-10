@@ -1,7 +1,11 @@
 /** Native headless host. No server, no preflight inference, and one SDK store writer. */
 import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
+import { ContextManagementError } from '@yevgetman/sov-sdk/compact/contextManagement';
+import { loadSettings } from '@yevgetman/sov-sdk/config/loader';
 import type { Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import { PersistBeforeRunError, UnknownToolsetError } from '@yevgetman/sov-sdk/providers/errors';
+import { type ModelRecord, findModel } from '@yevgetman/sov-sdk/providers/models/index';
+import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
 import {
   resolveRouteProvider,
   routeErrorCodeFor,
@@ -22,6 +26,7 @@ import {
   persistTurnMessage,
 } from '../server/turnComposition.js';
 import { mapTerminalReason } from '../server/turnRelay.js';
+import { readModelCatalogSnapshot } from './modelDiscovery.js';
 import type { RunCommandIO, RunOptions } from './runCommand.js';
 import { SdkInputError, parseSdkInput, readSdkStdin } from './sdkInput.js';
 
@@ -41,7 +46,8 @@ const ERRORS: Record<string, string> = {
   credential_unavailable: 'Selected credential store is unavailable.',
   tier_blocked: 'Selected subscription tier cannot use this inference path.',
   rate_limited: 'Selected provider is rate limited.',
-  context_overflow: 'Session does not fit the selected model. Start a new session.',
+  context_overflow:
+    'Model context budget cannot fit this request. Reduce instructions, history or tools, or use verified model limits.',
   unsupported_input: 'Selected route does not support this input.',
   interrupted: 'Turn interrupted.',
   storage_failed: 'Session storage failed. No automatic retry was performed.',
@@ -87,6 +93,7 @@ export async function runSdkRunCommand(
   let deadline: ReturnType<typeof setTimeout> | undefined;
   let runtime: Runtime | undefined;
   let selected: SelectedRoute | undefined;
+  let selectedMetadata: ModelRecord | undefined;
   let sessionId: string | null = null;
   let activeStream: AsyncGenerator<StreamEvent | Message, RunResult> | undefined;
   let stage: 'input' | 'route' | 'storage' | 'provider' = 'input';
@@ -146,13 +153,28 @@ export async function runSdkRunCommand(
       canceled,
     ]);
     stage = 'route';
+    const settings = loadSettings();
+    const requestedModel =
+      string(opts.model) && opts.model !== 'auto'
+        ? String(opts.model)
+        : getRoute(routeId, settings).defaultModel;
+    selectedMetadata = findModel(readModelCatalogSnapshot(routeId, settings), requestedModel);
     selected = await Promise.race([
       (deps.resolve ?? resolveRouteProvider)(routeId, {
+        settings,
+        modelMetadata: selectedMetadata,
         ...(string(opts.model) ? { model: String(opts.model) } : {}),
         ...(opts.effort !== undefined ? { effort: String(opts.effort) } : {}),
       }),
       canceled,
     ]);
+    // Injected resolvers can return their own default. Freeze evidence for the
+    // actual resolved model; never carry another selection's record into a run.
+    if (selectedMetadata.id !== selected.model || selectedMetadata.routeId !== selected.route.id)
+      selectedMetadata = findModel(
+        readModelCatalogSnapshot(selected.route.id, settings),
+        selected.model,
+      );
     stage = 'storage';
     const runtimeBoot = (deps.runtime ?? buildRuntime)({
       cwd: process.cwd(),
@@ -232,6 +254,7 @@ export async function runSdkRunCommand(
       canUseTool,
       provider: selected.provider,
       model: selected.model,
+      modelMetadata: selectedMetadata,
       effort: selected.effort,
       toolset,
       ...(instructions !== undefined ? { instructions } : {}),
@@ -286,9 +309,11 @@ export async function runSdkRunCommand(
             ? 'invalid_input'
             : err instanceof PersistBeforeRunError
               ? 'storage_failed'
-              : stage === 'storage'
-                ? 'storage_failed'
-                : routeErrorCodeFor(err);
+              : err instanceof ContextManagementError
+                ? 'context_overflow'
+                : stage === 'storage'
+                  ? 'storage_failed'
+                  : routeErrorCodeFor(err);
     if (!ERRORS[code]) code = 'provider_failed';
     finish({
       type: 'turn.error',

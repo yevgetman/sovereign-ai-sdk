@@ -30,17 +30,18 @@ describe('/model — requestPicker branch (M11.5 T3)', () => {
 
     const payload = captured.payload as PickerOpenConfig;
     expect(payload.title).toBe('switch model');
-    expect(payload.subtitle).toBe('provider: anthropic');
+    expect(payload.subtitle).toContain('provider: anthropic');
+    expect(payload.subtitle).toContain('offline/stale');
     expect(payload.onSelect).toEqual({ command: 'model' });
     expect(payload.items.length).toBeGreaterThan(0);
 
     const sonnet = payload.items.find((i) => i.value === 'claude-sonnet-4-6');
     expect(sonnet).toBeDefined();
-    expect(sonnet?.hint).toBe('(current)');
+    expect(sonnet?.hint).toContain('(current)');
 
     const haiku = payload.items.find((i) => i.value === 'claude-haiku-4-5-20251001');
     expect(haiku).toBeDefined();
-    expect(haiku?.hint).toBeUndefined();
+    expect(haiku?.hint).toContain('tools:unknown');
 
     expect(payload.initial).toBe(payload.items.findIndex((i) => i.value === 'claude-sonnet-4-6'));
   });
@@ -74,7 +75,7 @@ describe('/model — requestPicker branch (M11.5 T3)', () => {
     const result = await dispatchSlashCommand('/model', ctx);
     if (result.kind !== 'local') throw new Error('expected local');
     expect(result.output).toContain('current model: haiku');
-    expect(result.output).toContain('requires a TTY');
+    expect(result.output).toContain('Run /model <exact ID>');
   });
 
   test('no-arg + requestPicker defined + unknown provider returns "no preset models" without firing picker', async () => {
@@ -89,8 +90,8 @@ describe('/model — requestPicker branch (M11.5 T3)', () => {
     const result = await dispatchSlashCommand('/model', ctx);
 
     if (result.kind !== 'local') throw new Error('expected local');
-    expect(captured.payload).toBeNull();
-    expect(result.output).toContain('no preset models registered');
+    expect(captured.payload?.items.some((item) => item.value === ctx.model)).toBe(true);
+    expect(result.output).toBe('');
   });
 });
 

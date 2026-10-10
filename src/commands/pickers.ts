@@ -16,18 +16,15 @@
 
 import type { CommandContext, LocalCommand } from '@yevgetman/sov-sdk/commands/types';
 import { readConfig, resolveConfigPath, setAt, writeConfig } from '@yevgetman/sov-sdk/config/store';
+import { findModel } from '@yevgetman/sov-sdk/providers/models/index';
+import {
+  commandModelSettings,
+  modelAuthor,
+  modelDetails,
+  providerModelCatalog,
+} from '../config/modelSuggestions.js';
 import { type PickerItem, pick } from '../ui/picker.js';
 import { type Theme, isThemeName, listThemes, setTheme, theme } from '../ui/theme.js';
-
-/** Provider → models registry. Mirrors configMenu.ts's PROVIDER_MODELS
- *  but exported so /model and the config picker stay in sync. */
-const PROVIDER_MODELS: Record<string, string[]> = {
-  anthropic: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-7'],
-  ollama: ['qwen2.5:7b', 'qwen2.5:3b', 'qwen2.5:14b', 'llama3.1:8b'],
-  openai: ['gpt-4o-mini', 'gpt-4o'],
-  openrouter: ['anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5'],
-  xai: ['grok-4.6'],
-};
 
 export const resumeCommand: LocalCommand = {
   type: 'local',
@@ -41,7 +38,7 @@ export const modelPickerCommand: LocalCommand = {
   type: 'local',
   name: 'model',
   description: 'Switch the active model — opens a picker, or accepts a name as arg.',
-  usage: '/model [<name>]',
+  usage: '/model [<exact ID> | --author <author> | --search <text> | --custom]',
   call: async (args, ctx) => runModelPicker(args, ctx),
 };
 
@@ -166,57 +163,90 @@ function formatResumeReport(chosen: ReturnType<CommandContext['listSessions']>[n
 
 async function runModelPicker(args: string, ctx: CommandContext): Promise<string> {
   const explicit = args.trim();
-  if (explicit) {
+  let authorFilter: string | undefined;
+  if (explicit.startsWith('--author ')) {
+    try {
+      authorFilter = decodeURIComponent(explicit.slice(9).trim());
+    } catch {
+      return 'invalid author selection';
+    }
+  }
+  const search = explicit.startsWith('--search ')
+    ? explicit.slice(9).trim().toLowerCase()
+    : undefined;
+  if (explicit && authorFilter === undefined && search === undefined) {
+    if (explicit === '--custom' && !ctx.requestInput)
+      return 'Use /model <exact ID> to select a custom model.';
+    if (explicit === '--custom' && ctx.requestInput) {
+      ctx.requestInput({
+        title: 'exact model ID',
+        initial: ctx.model,
+        onSubmit: { command: 'model' },
+      });
+      return '';
+    }
     ctx.setModel(explicit);
     return `model set to ${explicit} (persisted to session ${ctx.sessionId.slice(0, 8)}).`;
   }
-  const models = PROVIDER_MODELS[ctx.providerName] ?? [];
-  if (models.length === 0) {
-    return `current model: ${ctx.model}\nno preset models registered for provider \`${ctx.providerName}\`. Run \`/model <name>\` to set explicitly, or edit ${resolveConfigPath()}.`;
-  }
-
-  // M11.5 — server-mode branch: emit pickerOpen side-effect for the
-  // TUI to render an inline card. The selection re-dispatches as
-  // `/model <value>`, which hits the explicit-arg branch above. ADR
-  // M11.5-01.
+  const catalog = providerModelCatalog(
+    ctx.providerName,
+    commandModelSettings(ctx),
+    ctx.harnessHome,
+  );
+  const state = catalog.state === 'current' ? 'cached metadata' : 'offline/stale suggestions';
+  const records = [...catalog.models];
+  if (!records.some((model) => model.id === ctx.model))
+    records.unshift(findModel(catalog, ctx.model));
+  const author = modelAuthor;
+  const openrouter = ctx.providerName === 'openrouter';
+  const rootGroups = openrouter && authorFilter === undefined && search === undefined;
+  const visible = records
+    .filter(
+      (model) =>
+        (!authorFilter || author(model) === authorFilter) &&
+        (!search || `${model.id} ${model.displayName}`.toLowerCase().includes(search)),
+    )
+    .slice(0, 100);
+  const items = rootGroups
+    ? [...new Set(records.map(author))]
+        .sort()
+        .slice(0, 100)
+        .map((group) => ({
+          label: group,
+          value: `--author ${encodeURIComponent(group)}`,
+          ...(group === author(findModel(catalog, ctx.model)) ? { hint: '(current author)' } : {}),
+        }))
+    : visible.map((model) => ({
+        label: model.id,
+        value: model.id,
+        hint: `${model.id === ctx.model ? '(current) · ' : ''}${modelDetails(model)}`,
+      }));
+  if (ctx.requestInput) items.push({ label: 'type custom model ID…', value: '--custom' });
+  const subtitle = `provider: ${ctx.providerName} · ${state}. Search: /model --search text; refresh: sov models --route ${catalog.routeId} --refresh`;
   if (ctx.requestPicker) {
     ctx.requestPicker({
-      title: 'switch model',
-      subtitle: `provider: ${ctx.providerName}`,
-      items: models.map((name) => ({
-        label: name,
-        value: name,
-        ...(name === ctx.model ? { hint: '(current)' } : {}),
-      })),
+      title: rootGroups ? 'model author' : 'switch model',
+      subtitle,
+      items,
       initial: Math.max(
         0,
-        models.findIndex((m) => m === ctx.model),
+        items.findIndex((item) => item.value === ctx.model),
       ),
       onSelect: { command: 'model' },
+      ...(authorFilter ? { onBack: { command: 'model' } } : {}),
     });
     return '';
   }
-
-  if (!process.stdin.isTTY) {
-    return `current model: ${ctx.model}\n(model picker requires a TTY; run \`/model <name>\` to set non-interactively.)`;
-  }
-
-  const items: PickerItem<string>[] = models.map((name) => ({
-    label: name,
-    value: name,
-    ...(name === ctx.model ? { hint: '(current)' } : {}),
-  }));
-  const initial = Math.max(
-    0,
-    models.findIndex((m) => m === ctx.model),
-  );
+  if (!process.stdin.isTTY)
+    return `current model: ${ctx.model}\n${subtitle}\nRun /model <exact ID> to select.`;
   const chosen = await pick<string>({
-    title: 'switch model',
-    subtitle: `provider: ${ctx.providerName}`,
+    title: rootGroups ? 'model author' : 'switch model',
+    subtitle,
     items,
-    initial,
+    initial: 0,
   });
   if (chosen === null) return `model unchanged (current: ${ctx.model}).`;
+  if (chosen.startsWith('--author ')) return runModelPicker(chosen, ctx);
   if (chosen === ctx.model) return `model unchanged (already on ${ctx.model}).`;
   ctx.setModel(chosen);
   return `model set to ${chosen} (persisted to session ${ctx.sessionId.slice(0, 8)}).`;
@@ -354,4 +384,4 @@ function formatUsd(n: number): string {
 }
 
 /** Test seam — exposes the relative-time helper without spinning up a picker. */
-export const __test__ = { formatRelativeTime, PROVIDER_MODELS };
+export const __test__ = { formatRelativeTime, providerModelCatalog };

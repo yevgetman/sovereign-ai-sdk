@@ -262,7 +262,7 @@ describe('/config dispatcher', () => {
       expect(labels).toContain('claude-sonnet-4-6');
       expect(labels).toContain('claude-opus-4-7');
       // Sentinel for custom-type must be present at the end.
-      expect(labels).toContain('↪ type custom value…');
+      expect(labels).toContain('type custom model ID…');
     });
 
     test('defaultModel picker scopes choices to the configured defaultProvider', async () => {
@@ -273,8 +273,8 @@ describe('/config dispatcher', () => {
       const picker = cap.pickers[0];
       if (!picker) return;
       const labels = picker.items.map((i) => i.label);
-      expect(labels).toContain('qwen2.5:7b');
-      expect(labels).toContain('llama3.1:8b');
+      expect(labels).toContain('qwen2.5:3b');
+      expect(labels).toContain('type custom model ID…');
       // Anthropic models should NOT appear.
       expect(labels).not.toContain('claude-opus-4-7');
     });

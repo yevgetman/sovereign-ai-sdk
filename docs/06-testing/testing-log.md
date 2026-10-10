@@ -1,5 +1,8 @@
 # Testing Log
 
+## 2026-10-10 — PR #43 final reviewed dependency integration
+
+Integrated the reviewed cache, subscription, reasoning, endpoint-isolation and immutable pricing fixes with the node-scoped menus and current-model context budget fixes. Lint, typecheck and strict SDK build pass. Full suite: 5725 passed, 19 skipped, zero failed; 23645 assertions across 547 files (96.06 seconds). Independent reviewers confirmed the Medium findings are resolved. No installed configuration changes or paid inference.
 ## 2026-10-10 — PR34 final review fixes integration
 
 Included endpoint-scoped discovery and the exact frozen PR41 tree-budget fixes. Lint, typecheck and strict SDK build pass. Full suite: 5706 passed, 19 skipped, zero failed; 23551 assertions across 543 files (100.17 seconds). Source and regression tests are frozen for final parent ancestry alignment.
@@ -32,6 +35,24 @@ Integrated reviewed discovery/cache and reasoning fixes. Lint, typecheck and str
 
 Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typecheck and strict SDK build pass. Full suite: 5643 passed, 19 skipped, zero failed; 23183 assertions across 535 files (91.44 seconds).
 
+
+## 2026-10-10 — PR #43 review: current model context budget
+
+A second independent review found that `/context-budget` kept a previous model's frozen capacity after `/model` changed the shared model. Budget snapshots now include provider and model identity. Reports reuse a matching snapshot; otherwise they resolve the current selection from the active node and injected settings. Tests preserve unchanged-model snapshots and cover large-to-small model selection, another session's shared model change, rebuilding the command context, and a same-ID provider switch.
+
+Focused command/turn checks pass **13/0**, 43 assertions. Independent catalog-agent rereview closed the Medium finding. Configured `bun run lint && bun run typecheck && bun run test` passed **5714 passed / 19 skipped / zero failed**, 23504 assertions across 547 files (111.55s). Strict build passed. All fixtures use isolated nodes and uncalled provider transports. No paid inference, installation or release.
+
+## 2026-10-10 — PR #43 review: active-node model menus and budget
+
+Independent review found a Medium defect: model menus and the first-turn context budget read the ambient node cache while execution used the runtime's explicit home. Menus now receive the active home and host-owned account settings. Config read/write/path/discard use that same home; explicit config environment overrides retain precedence. Negative fixtures use disjoint ambient/node caches, a separate injected direct account, and active-node set/discard while proving ambient config remains unchanged. The first-turn budget reads the node's 8M window rather than the ambient 99,999 window.
+
+Focused menu/config/command tests passed 122/0; the first-turn runtime-budget suite passed 11/0. Configured `bun run lint && bun run typecheck && bun run test` passed **5714 passed / 19 skipped / zero failed**, 23499 assertions across 547 files (92.10s). Strict build passed. The initial gate found a readonly assignment in the new fixture; the fixture now constructs the real uncalled OpenRouter transport rather than changing its readonly name. No paid inference, live config edits, installation or release.
+
+## 2026-10-10 — Shared model menus and frozen SOV turn evidence (#33)
+
+Focused menus/config fixtures passed 152 cases / 1010 assertions. Host/scheduler fixtures passed 8 cases, then adaptive output/projection/proactive-boundary checks passed 15 cases / 55 assertions. The original 13 native SDK fixtures pass after fixing resolved-model snapshot binding and removing duplicate unused tool descriptions; a new oversized-directives fixture checks a typed context-budget refusal before inference. A broader host run exposed four native binding/unknown-budget failures (438 pass); follow-up isolated diagnostics found context allocation failures, now fixed without weakening the 32K unknown floor or truncating directives. One preliminary full gate was stopped to fix the reviewed proactive-compaction history-space guard. Independent modality review cleared the host and child pricing fixes.
+
+The first completed frozen full gate passed 5709 cases with two fixture failures: the documented model-command usage had changed, and the per-turn pricing fixture needed explicit fresh verified tariff evidence. Both exact fixtures were corrected; the focused pair passed 29 cases / 244 assertions. Final configured `bun run lint && bun run typecheck && bun run test` passed **5711 passed / 19 skipped / zero failed**, 23488 assertions across 547 files (98.19s). Strict SDK build passed. The final frozen source passed packed Node/Bun external-consumer checks and four compiled CLI JSON/exit probes (capabilities, routes, offline pagination and rejected refresh). Fixtures use isolated caches and fake providers. No paid inference, publication or installed upgrade.
 
 ## 2026-10-10 — execution-policy and discovery stack integration
 
