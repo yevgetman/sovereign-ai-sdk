@@ -101,6 +101,7 @@ import type {
   DelegateInput,
   DelegateResult,
   DelegationLifecycleEvent,
+  EffectiveModelLimits,
   EstimateRequestBudget,
   HookCommandSpec,
   HookConfig,
@@ -138,6 +139,7 @@ import type {
   Message,
   MicrocompactConfig,
   MicrocompactInfo,
+  ModelLimitEvidence,
   ObservationStatus,
   ObserveInput,
   OutputFinalVerdict,
@@ -161,6 +163,7 @@ import type {
   RemoteMcpServerConfig,
   RenderHint,
   RequestBudgetEstimate,
+  RequestInputTokenEstimate,
   ResolveProviderOpts,
   ResolvedPermissionResult,
   ResolvedProvider,
@@ -384,8 +387,11 @@ type TypeSurfaceWitness = {
   treeBudgetLimits?: TreeBudgetLimits;
   treeBudgetSnapshot?: TreeBudgetSnapshot;
   requestBudgetEstimate?: RequestBudgetEstimate;
+  requestInputTokenEstimate?: RequestInputTokenEstimate;
   estimateRequestBudget?: EstimateRequestBudget;
   contextLimits?: ContextLimits;
+  effectiveModelLimits?: EffectiveModelLimits;
+  modelLimitEvidence?: ModelLimitEvidence;
   contextManagementInfo?: ContextManagementInfo;
   contextManagementPort?: ContextManagementPort;
   contextManagementRequest?: ContextManagementRequest;

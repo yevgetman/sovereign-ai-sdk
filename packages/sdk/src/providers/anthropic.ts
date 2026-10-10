@@ -132,6 +132,22 @@ export class AnthropicProvider
       req.effort !== undefined && thinkingOn && control.mode === 'enabled'
         ? anthropicThinkingFor(req.effort, req.maxTokens)
         : undefined;
+    // A metadata-budgeted request has already reserved this exact output cap.
+    // Thinking may not raise it after the context check.
+    if (
+      thinking?.thinking &&
+      (req.outputBudgetEnforced || req.modelMetadata) &&
+      thinking.maxTokens > req.maxTokens
+    ) {
+      if (req.maxTokens <= 1024)
+        throw new Error('output reservation is too small for Anthropic thinking');
+      thinking.maxTokens = req.maxTokens;
+      const answerHeadroom = Math.min(8192, Math.floor(req.maxTokens / 2), req.maxTokens - 1024);
+      thinking.thinking.budget_tokens = Math.min(
+        thinking.thinking.budget_tokens,
+        req.maxTokens - answerHeadroom,
+      );
+    }
     return {
       model: req.model,
       max_tokens: thinking && control.mode !== 'adaptive' ? thinking.maxTokens : req.maxTokens,
@@ -202,7 +218,10 @@ export async function* translateAnthropicStream(
     switch (event.type) {
       case 'message_start': {
         yield { type: 'message_start' };
-        yield { type: 'usage_delta', usage: usageToInternal(event.message.usage) };
+        yield {
+          type: 'usage_delta',
+          usage: usageToInternal(event.message.usage),
+        };
         break;
       }
       case 'content_block_start': {
@@ -243,7 +262,10 @@ export async function* translateAnthropicStream(
         break;
       }
       case 'message_stop': {
-        const assistant: AssistantMessage = { role: 'assistant', content: finalized };
+        const assistant: AssistantMessage = {
+          role: 'assistant',
+          content: finalized,
+        };
         yield { type: 'message_stop', stop_reason: stopReason };
         yield { type: 'assistant_message', message: assistant };
         return assistant;
@@ -385,7 +407,10 @@ function withOptionalCacheMarker(
   const block = blocks[boundary];
   if (block === undefined) return blocks;
   const marked = [...blocks];
-  marked[boundary] = { ...block, cache_control: { type: 'ephemeral' } } as ContentBlockParam;
+  marked[boundary] = {
+    ...block,
+    cache_control: { type: 'ephemeral' },
+  } as ContentBlockParam;
   return marked;
 }
 
@@ -401,7 +426,11 @@ function blockToSdk(block: ContentBlock): ContentBlockParam {
       // Replay the signature verbatim — Anthropic verifies it on the tool-use
       // continuation call when interleaved thinking is on. Empty string only
       // when none was captured (non-Anthropic-origin or pre-signature history).
-      return { type: 'thinking', thinking: block.thinking, signature: block.signature ?? '' };
+      return {
+        type: 'thinking',
+        thinking: block.thinking,
+        signature: block.signature ?? '',
+      };
     case 'redacted_thinking':
       return { type: 'redacted_thinking', data: block.data };
     case 'tool_use':

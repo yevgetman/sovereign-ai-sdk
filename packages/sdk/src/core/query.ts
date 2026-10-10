@@ -30,6 +30,12 @@ import { LoopDetectorState } from '../loop/detector.js';
 import { toToolSchemas } from '../mcp/schemaSerialization.js';
 import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
 import { PersistBeforeRunError, isContextOverflowError } from '../providers/errors.js';
+import {
+  type RequestInputTokenEstimate,
+  assertRequestFits,
+  requestInputTokenEstimate,
+  resolveModelLimits,
+} from '../providers/modelLimits.js';
 import { listRoutes } from '../providers/routes/catalog.js';
 import { validateRouteSelection } from '../providers/routes/validate.js';
 import type { Tool, ToolContext } from '../tool/types.js';
@@ -118,13 +124,40 @@ function flattenContentBlock(block: unknown): string {
 /** Run one user turn, including provider streaming and tool-use continuation turns. */
 export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | Message, Terminal> {
   const modelMetadata = params.modelMetadata ? structuredClone(params.modelMetadata) : undefined;
+  // Publisher limits are snapshotted once. Host caps never expand them.
+  const useModelLimits = Boolean(modelMetadata || params.contextLimits?.contextWindowTokens);
+  const effectiveModelLimits = useModelLimits
+    ? resolveModelLimits(
+        modelMetadata
+          ? {
+              contextTokens: modelMetadata.contextWindow,
+              outputTokens: modelMetadata.maxOutputTokens,
+              stale: modelMetadata.metadata.stale,
+              source: modelMetadata.metadata.source,
+            }
+          : undefined,
+        {
+          contextTokens: params.contextLimits?.contextWindowTokens,
+          outputTokens: params.maxTokens,
+        },
+      )
+    : undefined;
+  const maxTokens = effectiveModelLimits
+    ? Math.min(params.maxTokens, effectiveModelLimits.outputTokens)
+    : params.maxTokens;
+  const contextLimits =
+    params.contextLimits && effectiveModelLimits
+      ? {
+          ...params.contextLimits,
+          contextWindowTokens: effectiveModelLimits.contextTokens,
+        }
+      : params.contextLimits;
   const {
     provider,
     model,
     messages,
     systemPrompt,
     tools,
-    maxTokens,
     temperature,
     effort,
     maxTurns = DEFAULT_MAX_TURNS,
@@ -348,7 +381,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   let toolsDispatched = false;
   const contextSignal = signal ?? new AbortController().signal;
   const manageContext = async (reason: 'budget' | 'overflow'): Promise<StreamEvent> => {
-    if (!params.contextManager || !params.contextLimits) {
+    if (!params.contextManager || !contextLimits) {
       throw new ContextManagementError('contextManager requires contextLimits');
     }
     try {
@@ -358,7 +391,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         model,
         provider: provider.name,
         maxTokens,
-        limits: params.contextLimits,
+        limits: contextLimits,
         signal: contextSignal,
         ...(sessionId !== undefined ? { sessionId } : {}),
       });
@@ -378,7 +411,11 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal?.aborted) {
-      recordTrace({ type: 'interrupt', stage: `turn-${turn}-pre-stream`, iso: nowIso() });
+      recordTrace({
+        type: 'interrupt',
+        stage: `turn-${turn}-pre-stream`,
+        iso: nowIso(),
+      });
       await maybeFireStop('interrupted');
       return { reason: 'interrupted' };
     }
@@ -403,14 +440,49 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           );
           if (route) validateRouteSelection(route, { model, effort, modelMetadata });
         }
-        if (params.contextManager || params.contextLimits) {
-          if (!params.contextManager || !params.contextLimits) {
+        if (params.contextManager || contextLimits) {
+          if (!params.contextManager || !contextLimits) {
             throw new ContextManagementError('contextManager requires contextLimits');
           }
-          validateContextLimits(params.contextLimits);
-          if (historyBytes(history) > params.contextLimits.maxHistoryBytes) {
+          validateContextLimits(contextLimits);
+          if (historyBytes(history) > contextLimits.maxHistoryBytes) {
             yield await manageContext('budget');
           }
+        }
+        if (
+          modelMetadata &&
+          (modelMetadata.id !== model || modelMetadata.provider !== provider.name)
+        )
+          throw new ContextManagementError('model metadata does not match selected model/provider');
+        let inputAccounting: RequestInputTokenEstimate | undefined;
+        if (effectiveModelLimits) {
+          const inputBound = () => {
+            inputAccounting = params.inputTokenCounter
+              ? {
+                  tokens: params.inputTokenCounter({
+                    model,
+                    messages: history,
+                    system: systemPrompt,
+                    tools: toToolSchemas(toolPool),
+                    maxTokens,
+                    ...(modelMetadata ? { modelMetadata } : {}),
+                  }),
+                  complete: true,
+                  uncountedImages: 0,
+                }
+              : requestInputTokenEstimate(history, systemPrompt, toToolSchemas(toolPool));
+            return inputAccounting.tokens;
+          };
+          let inputTokens = inputBound();
+          if (
+            inputTokens + maxTokens > effectiveModelLimits.contextTokens &&
+            params.contextManager &&
+            contextLimits
+          ) {
+            yield await manageContext('budget');
+            inputTokens = inputBound();
+          }
+          assertRequestFits(inputTokens, maxTokens, effectiveModelLimits);
         }
         requestStart = Date.now();
         recordTrace({
@@ -418,6 +490,8 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           provider: provider.name,
           model,
           purpose: 'main',
+          ...(effectiveModelLimits ? { modelLimits: effectiveModelLimits } : {}),
+          ...(inputAccounting ? { inputAccounting } : {}),
           messageCount: history.length,
           systemBytes: systemPrompt.reduce((n, s) => n + Buffer.byteLength(s.text, 'utf8'), 0),
           iso: nowIso(),
@@ -432,6 +506,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           ...(temperature !== undefined ? { temperature } : {}),
           ...(effort !== undefined ? { effort } : {}),
           ...(modelMetadata !== undefined ? { modelMetadata } : {}),
+          ...(effectiveModelLimits ? { outputBudgetEnforced: true } : {}),
           ...(signal ? { signal } : {}),
           cacheEnabled,
         })) {
@@ -452,18 +527,22 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         if (err instanceof ContextManagementError && err.info)
           yield { type: 'context_management', info: err.info };
         if (signal?.aborted) {
-          recordTrace({ type: 'interrupt', stage: `turn-${turn}-stream`, iso: nowIso() });
+          recordTrace({
+            type: 'interrupt',
+            stage: `turn-${turn}-stream`,
+            iso: nowIso(),
+          });
           await maybeFireStop('interrupted');
           return { reason: 'interrupted' };
         }
         if (
           providerStarted &&
           params.contextManager &&
-          params.contextLimits &&
+          contextLimits &&
           !toolsDispatched &&
           firstEventAt === undefined &&
           isContextOverflowError(err) &&
-          overflowRecoveries < (params.contextLimits.maxOverflowRetries ?? 1)
+          overflowRecoveries < (contextLimits.maxOverflowRetries ?? 1)
         ) {
           overflowRecoveries += 1;
           try {
@@ -526,7 +605,10 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     const detection = guarded(
       () =>
         loopDetector.addAndCheck({
-          toolCalls: toolUseBlocks.map((b) => ({ name: b.name, input: b.input })),
+          toolCalls: toolUseBlocks.map((b) => ({
+            name: b.name,
+            input: b.input,
+          })),
           assistantText: assistantText(assistant),
         }),
       null,
@@ -749,7 +831,10 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         if (params.pollSteering && out.role === 'user' && turn + 1 < maxTurns) {
           const steerText = await params.pollSteering();
           if (steerText !== null && steerText.length > 0) {
-            out = { role: 'user', content: [...out.content, { type: 'text', text: steerText }] };
+            out = {
+              role: 'user',
+              content: [...out.content, { type: 'text', text: steerText }],
+            };
           }
         }
         history.push(out);
@@ -827,7 +912,12 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         if (recentTurnSummaries.length > 6) recentTurnSummaries.shift();
         const stall = detectStall(recentTurnSummaries);
         if (stall.stalled) {
-          recordTrace({ type: 'stall_detected', reason: stall.reason, turn, iso: nowIso() });
+          recordTrace({
+            type: 'stall_detected',
+            reason: stall.reason,
+            turn,
+            iso: nowIso(),
+          });
         }
       }
       // Microcompaction: clear stale tool results before the next provider
@@ -896,7 +986,11 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         yield msg;
       }
       if (signal?.aborted) {
-        recordTrace({ type: 'interrupt', stage: `turn-${turn}-tool-dispatch`, iso: nowIso() });
+        recordTrace({
+          type: 'interrupt',
+          stage: `turn-${turn}-tool-dispatch`,
+          iso: nowIso(),
+        });
         await maybeFireStop('interrupted');
         return { reason: 'interrupted' };
       }

@@ -49,6 +49,11 @@ export type {
   ContextLimits,
 } from './compact/contextManagement.js';
 export { ContextManagementError } from './compact/contextManagement.js';
+export type {
+  EffectiveModelLimits,
+  ModelLimitEvidence,
+  RequestInputTokenEstimate,
+} from './providers/modelLimits.js';
 export type { MicrocompactConfig } from './compact/microcompact.js';
 // Cross-call usage accumulation (W1) — the exact per-call/summed token semantics
 // the tool loop uses. Public so the gateway and external meters reuse them
