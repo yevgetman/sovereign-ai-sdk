@@ -16,6 +16,26 @@ Configured lint, typecheck, strict SDK build and full tests pass: **5672 passed 
 ## 2026-10-10 — PR #43 final reviewed dependency integration
 
 Integrated the reviewed cache, subscription, reasoning, endpoint-isolation and immutable pricing fixes with the node-scoped menus and current-model context budget fixes. Lint, typecheck and strict SDK build pass. Full suite: 5725 passed, 19 skipped, zero failed; 23645 assertions across 547 files (96.06 seconds). Independent reviewers confirmed the Medium findings are resolved. No installed configuration changes or paid inference.
+## 2026-10-10 — PR34 closes reviewed PR42 ancestry
+
+Merged final PR42 be97f8bf after the combined PR34 gate. All functional and test
+files are byte-identical to the passed PR34 tree 958f8990; only the testing log
+changed. Both testing histories remain intact. Lint was rerun before the history
+merge. The valid full result remains 5717/19 skips/0 failures.
+
+## 2026-10-10 — PR34 integrates the second-review fixes
+
+Integrated final PR39 10918ef1 and its PR37/38 ancestry, plus PR42's read-only
+ambiguous-account discovery correction before the frozen gate. Existing routing
+policy serialization remains intact. The direct normalizer keeps both new
+Anthropic mode facts and existing exact native max-wire controls.
+
+Configured lint, typecheck and strict SDK build passed. The first parallel suite
+hit 26 old Date.now temporary-name/SQLite collisions with the PR42 gate. No source
+change followed. With a task-owned TMPDIR and serial execution, the full suite
+passed **5717 / 19 skip / 0 fail**, 23664 assertions across 544 files (93.25s).
+No installed update, paid inference or release was used.
+
 ## 2026-10-10 — PR34 final review fixes integration
 
 Included endpoint-scoped discovery and the exact frozen PR41 tree-budget fixes. Lint, typecheck and strict SDK build pass. Full suite: 5706 passed, 19 skipped, zero failed; 23551 assertions across 543 files (100.17 seconds). Source and regression tests are frozen for final parent ancestry alignment.
@@ -23,6 +43,46 @@ Included endpoint-scoped discovery and the exact frozen PR41 tree-budget fixes. 
 ## 2026-10-10 — PR34 reviewed dependency integration
 
 Integrated reviewed discovery/cache and reasoning fixes. Lint, typecheck and strict SDK build pass. Full suite: 5702 passed, 19 skipped, zero failed; 23517 assertions across 543 files (109.68 seconds).
+## 2026-10-10 — PR42 closes reviewed PR41 ancestry
+
+Merged final PR41 e3e22c1c after the combined PR42 gate. Every tracked functional
+and test file is byte-identical to tested PR42 merge 516076b0; only the testing
+log changed. Both parent testing histories remain. Lint was rerun before this
+history merge. The valid frozen full result remains 5712/19 skips/0 failures.
+
+## 2026-10-10 — PR42 integrates second-review model evidence fixes
+
+Integrated final reviewed PR39 10918ef1 and its PR37/38 ancestry. Preserved exact
+native max wire values, pricing captures, the early model-metadata capture and
+all Anthropic published mode facts. An independent PR38 reasoning/direct recheck
+passed 17 tests / 183 assertions; combined direct/model-evidence/limit fixtures
+passed 20 tests / 119 assertions.
+
+Lint, typecheck and strict SDK build passed on the frozen combined tree. The
+first parallel full run hit 26 pre-existing Date.now temp-name/SQLite collisions
+plus a global /tmp compile-scratch probe collision with the other gate. With no
+source change, a serial run with a task-owned TMPDIR passed **5712 / 19 skip /
+0 fail**, 23647 assertions across 543 files (92.92s). No live runtime, installation
+or paid inference was used.
+
+## 2026-10-10 — PR42 second review: direct account pool isolation
+
+Discovery used the first configured key while the runtime credential pool could
+select a different account by priority, rotation or cooldown. Model discovery
+now requires one distinct configured secret; an ambiguous pool gets a separate
+unavailable cache scope. It never reads or selects pool state. Duplicate secret
+slots retain the single-account catalog. The credential token fallback follows
+the runtime's nullish API-key rule, including an explicit empty API key.
+
+Focused CLI checks passed **9/0**, 84 assertions. Memory-only resolver fixtures
+prove environment/config pool aggregation, explicit priority selection and empty
+API-key token handling without files or inference. The first full candidate
+passed **5702 / 19 skip / 0 fail**, 23558 assertions across 542 files (101.27s).
+After adding the resolver fixture, the final frozen lint, typecheck, strict SDK
+build and full suite passed **5703 / 19 skip / 0 fail**, 23565 assertions across
+542 files (96.07s). Initial Bun fetch-type overlap was corrected before gates.
+No installed upgrade, paid inference, live credential data or release was used.
+
 ## 2026-10-10 — PR42 final parent integration and pricing gate
 
 Integrated authoritative reviewed PR41 `08b87cdf` (including final PR40 ancestry). Retained both testing histories and the new tree-budget documentation. All functional tracked files match the independently tested frozen tree exactly; source digest `43777b8e2ade3f10c604e0b7a5172e77ef8bbc9d3f8dc16a6398622ca37a669d`. Only documentation changed after that gate.
@@ -34,6 +94,10 @@ Validation: `bun run lint && bun run typecheck && bun run build && bun run test`
 Integrated final PR38 `1fc9d8ed`, including unavailable-subscription reporting, stale-cache persistence, bounded cache ports and verified reasoning restrictions. Runtime source merged without conflicts; retained both testing histories and normalized the Testing Log heading before its entries.
 
 Validation: frozen `bun run lint && bun run typecheck && bun run build && bun run test` passed: **5698 pass / 19 skip / 0 fail**, 23529 assertions across 542 files (90.44s). Tested tree `cf64f92039f64752a5dbc540ab233d5746ad78c5`; only this log entry followed the gate, with lint rerun. No paid inference or installed upgrade.
+## 2026-10-10 — PR41 third review dependency validation
+
+Independent review found no new above-Low defect in PR41 pricing and budget settlement. Integrated final PR39 `10918ef1`, preserving both immutable tariff capture and immutable model-evidence capture before asynchronous host callbacks. Configured lint, typecheck, strict SDK build and full tests passed: **5701 passed / 19 existing skips / zero failed**, 23534 assertions across 542 files (95.75s). All parent testing records were preserved. No paid inference or installed changes.
+
 ## 2026-10-10 — PR #41 review: unknown and immutable tree pricing
 
 Cross-review found two Medium tree-budget defects. An explicit model record with unknown prices could fall back to the built-in table and release its host cost reservation. Settlement also read mutable model identity and prices after the stream, allowing a cache update to reprice a completed call. The wrapper now captures provider/model identity and immutable tariff evidence before the host estimator or any provider await. Unknown prices retain the host upper bound and mark the cost incomplete. Metadata-absent callers keep the established table and implicit cache-rate behavior.
@@ -43,6 +107,16 @@ Focused checks passed **22/0**, 68 assertions: an unknown known-ID price retains
 ## 2026-10-10 — PR41 reviewed dependency integration
 
 Integrated reviewed discovery/cache and reasoning fixes. Lint, typecheck and strict SDK build pass. Full suite: 5689 passed, 19 skipped, zero failed; 23447 assertions across 541 files (111.75 seconds).
+## 2026-10-10 — PR40 third review dependency validation
+
+Independent review found no new above-Low defect in PR40. Integrated final PR39 `10918ef1`, including native Anthropic controls, image-aware input accounting and immutable per-turn model evidence. Configured lint, typecheck, strict SDK build and full tests passed: **5683 passed / 19 existing skips / zero failed**, 23462 assertions across 540 files (97.59s). All parent testing records were preserved. No paid inference or installed changes.
+
+## 2026-10-10 — PR39 third review: image accounting and immutable model evidence
+
+Resolved three Medium findings: image transport bytes no longer masquerade as input tokens; per-turn model/provider changes do not inherit another identity's standing record; model evidence is frozen before asynchronous host callbacks. Input accounting exposes incomplete image estimates in traces, preserves the image payload, accepts verified host counters, and retains provider overflow recovery. Merged reviewed PR38 native Anthropic controls with PR39 thinking-budget caps intact.
+
+Configured lint, typecheck, strict SDK build and full tests pass: **5672 passed / 19 existing skips / zero failed**, 23424 assertions across 539 files (89.90s). Focused image/model-evidence checks passed 17 tests / 83 assertions. The initial combined gate caught a missing public type-surface witness; this gate includes its correction. The PNG fixture has valid chunk CRCs. Independent review closed the image and metadata findings. No paid inference or installed changes.
+
 
 ## 2026-10-10 — PR37 ancestor cache fixes integration
 
