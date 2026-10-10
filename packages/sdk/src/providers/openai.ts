@@ -21,6 +21,7 @@ import { ProviderHttpError, ProviderStreamError } from './errors.js';
 import {
   hasReasoningMetadata,
   modelReasoningParams,
+  preservesEstablishedReasoning,
   reasoningControlFor,
 } from './modelReasoning.js';
 import {
@@ -291,11 +292,13 @@ export class OpenAIProvider
       this.name === 'openrouter'
         ? openrouterModelSupportsReasoning(req.model)
         : modelSupportsReasoning(req.model, this.apiMode);
-    const unknownPreservesEstablished =
-      req.modelMetadata?.capabilities.reasoning === 'unknown' && establishedControl;
+    const partialPreservesEstablished = preservesEstablishedReasoning(
+      req.modelMetadata,
+      establishedControl,
+    );
     if (
       control ||
-      (hasReasoningMetadata(req.modelMetadata) && !unknownPreservesEstablished) ||
+      (hasReasoningMetadata(req.modelMetadata) && !partialPreservesEstablished) ||
       this.name === 'xai'
     )
       return modelReasoningParams(control, req.effort);

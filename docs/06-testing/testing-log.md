@@ -1,5 +1,11 @@
 # Testing Log
 
+## 2026-10-10 — PR38 review: preserve established controls after catalog refresh
+
+Closed a Medium finding: positive OpenRouter reasoning capability with omitted depth fields removed existing effort choices and stopped sending the real `off` switch. The shared route/wire compatibility rule now preserves established adapters when discovery supplies no replacement control facts. Explicit unsupported evidence and narrower controls remain authoritative; unknown future IDs stay conservative. Offline normalizer-to-menu-to-wire fixtures cover GLM 5.2, Claude Sonnet 4.5 and GPT-5, stale snapshots, unsupported evidence, binary overrides and future unknown IDs.
+
+Focused reasoning fixtures: 8 pass / 0 fail, 77 assertions. Frozen `bun run lint && bun run typecheck && bun run test` passed: 5647 pass / 19 existing skips / 0 fail, 23238 assertions across 536 files (93.28 seconds). `bun run build:sdk` also passed. No paid inference, installed upgrade, release or dependency-branch propagation.
+
 ## 2026-10-10 — Future OpenAI reasoning request shape (#27 review)
 
 Fresh exact-model reasoning metadata now selects completion-token limits and omits temperature for IDs outside the legacy families. The synthetic future-ID wire fixture passed. `bun run lint && bun run typecheck && bun run test` passed: 5645 pass / 19 existing skips / 0 fail, 23187 assertions across 536 files. An initial lint run caught local formatting and was corrected before the frozen full gate. No paid inference or installed upgrade.

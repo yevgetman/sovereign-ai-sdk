@@ -43,6 +43,23 @@ export function hasReasoningMetadata(metadata: ModelRecord | undefined): boolean
   );
 }
 
+/** Discovery may advertise reasoning without its depth or disable controls.
+ * Such partial evidence must not replace a working established adapter.
+ * Explicit unsupported evidence and narrower published controls still win. */
+export function preservesEstablishedReasoning(
+  metadata: ModelRecord | undefined,
+  established: boolean,
+): boolean {
+  return Boolean(
+    established &&
+      metadata &&
+      (metadata.capabilities.reasoning === 'unknown' ||
+        (metadata.capabilities.reasoning === 'supported' &&
+          !metadata.efforts?.length &&
+          !metadata.reasoningControl)),
+  );
+}
+
 export function reasoningControlFor(
   provider: string,
   model: string,
