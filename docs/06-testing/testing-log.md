@@ -1,8 +1,8 @@
+# Testing Log
+
 ## 2026-10-10 — PR37 ancestor cache fixes integration
 
 Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typecheck and strict SDK build pass. Full suite: 5643 passed, 19 skipped, zero failed; 23183 assertions across 535 files (91.44 seconds).
-
-# Testing Log
 
 ## 2026-10-10 — PR39 reviewed parent integration
 
