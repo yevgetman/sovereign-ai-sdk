@@ -100,6 +100,11 @@ export function normalizeDirectModel(
     maxOutputTokens: positiveNumber(row.max_tokens ?? row.max_output_tokens),
     efforts:
       publishedEfforts !== undefined || efforts?.length ? ['off', ...new Set(efforts)] : undefined,
+    anthropicThinkingModes,
+    anthropicEffortSupported:
+      provider === 'anthropic' && typeof effortCapability.supported === 'boolean'
+        ? effortCapability.supported
+        : undefined,
     ...(efforts?.length && (provider === 'openai' || provider === 'xai')
       ? {
           reasoningControl: {
@@ -113,11 +118,6 @@ export function normalizeDirectModel(
           },
         }
       : {}),
-    anthropicThinkingModes,
-    anthropicEffortSupported:
-      provider === 'anthropic' && typeof effortCapability.supported === 'boolean'
-        ? effortCapability.supported
-        : undefined,
     // An authenticated model-list response proves listed availability, not that
     // a particular generation endpoint/account will execute a request.
     availability: 'account',

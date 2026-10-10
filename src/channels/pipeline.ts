@@ -1,3 +1,8 @@
+import {
+  modelRunUsageWriter,
+  modelSystemPrompt,
+  selectedTurnModel,
+} from '../server/modelMetadata.js';
 // Phase F-T2 — the channel-agnostic inbound→turn→outbound pipeline.
 //
 // `runChannelTurn` is the core every channel adapter (Telegram / Slack /
@@ -283,6 +288,12 @@ async function runChannelTurnInner(args: {
   // the session INCOMPLETE. Absent coordinator ⇒ undefined ⇒ byte-identical.
   let turnId: string | undefined;
 
+  const recordUsage = modelRunUsageWriter(
+    runtime,
+    sessionId,
+    runtime.resolvedProvider.transport.name,
+    runtime.model,
+  );
   try {
     // Safe channel posture (F-T1): no local-allow inheritance, ask auto-denies,
     // bypass already rejected above. Bash / Write / Edit are denied; read-only
@@ -362,12 +373,25 @@ async function runChannelTurnInner(args: {
     // channel senders can't shift depth via another principal. memory + recall
     // mirror the turns route (recall conditionally spread so a recall-disabled
     // session stays inert).
-    const agent = createAgent(
-      buildChannelAgentConfig({
+    const modelSnapshot = selectedTurnModel(
+      runtime.resolvedProvider.transport.name,
+      runtime.model,
+      {
+        maxTokens: runtime.maxTokens,
+        harnessHome: runtime.harnessHome,
+        settings: runtime.injectedSettings,
+      },
+    );
+    const agent = createAgent({
+      ...buildChannelAgentConfig({
         provider: runtime.resolvedProvider.transport as unknown as LLMProvider,
         model: runtime.model,
         effort: runtime.effort,
-        systemPrompt: runtime.systemSegments,
+        systemPrompt: modelSystemPrompt(
+          runtime.systemSegments,
+          channelToolPool,
+          modelSnapshot?.metadata,
+        ),
         maxTokens: runtime.maxTokens,
         cwd: runtime.cwd,
         tools: channelToolPool,
@@ -382,7 +406,10 @@ async function runChannelTurnInner(args: {
         // (byte-identical, exactOptional).
         ...(runtime.conduct !== undefined ? { conduct: runtime.conduct } : {}),
       }),
-    );
+      ...(modelSnapshot
+        ? { modelMetadata: modelSnapshot.metadata, pricingSnapshot: modelSnapshot.pricing }
+        : {}),
+    });
 
     // Seed the bounded hydrated history (prior turns + the new user message) as
     // the `run(input)` argument — createAgent copies a Message[] seed verbatim,
@@ -413,6 +440,7 @@ async function runChannelTurnInner(args: {
       // matters.
     }
     const result = step.value;
+    recordUsage(result);
 
     // Persist the assistant turn so the conversation transcript accrues on the
     // reused row (the second half of conversation continuity). Saved verbatim —
@@ -446,6 +474,7 @@ async function runChannelTurnInner(args: {
     }
     return { text };
   } finally {
+    recordUsage();
     // Attestation §3.4 — settle the minted turnId on every exit path. A drive
     // that reached terminal already wrote its io row through the provider-
     // mounted evidenceSink (endTurn is then a no-op); an aborted turn gets its

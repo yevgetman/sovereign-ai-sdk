@@ -40,6 +40,7 @@ import type { SessionStore } from '@yevgetman/sov-sdk/persistence/sessionStore';
 import type { TranscriptStore } from '@yevgetman/sov-sdk/persistence/transcriptStore';
 import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { UnknownToolsetError } from '@yevgetman/sov-sdk/providers/errors';
+import type { ModelRecord } from '@yevgetman/sov-sdk/providers/models/index';
 import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
 import { buildToolScope } from '@yevgetman/sov-sdk/tool/toolScope';
 import {
@@ -51,6 +52,7 @@ import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { type PersistMessageHost, persistMessage } from '../agent/persistMessage.js';
 import type { DelegationLifecycleEvent } from '../router/progressEvents.js';
+import { modelSystemPrompt, selectedTurnModel } from './modelMetadata.js';
 import type { Runtime } from './runtime.js';
 import type { SessionContext } from './sessionContext.js';
 import { buildSessionToolContext } from './sessionToolContext.js';
@@ -274,6 +276,8 @@ export type ComposeTurnOptions = {
   provider?: LLMProvider;
   /** Per-turn model override. Absent → runtime.model. */
   model?: string;
+  /** Frozen exact-model evidence, shared with route validation/proactive compaction. */
+  modelMetadata?: ModelRecord;
   /** Per-turn effort. Absent → the session's own level (sessionCtx.effort). */
   effort?: ReasoningEffort;
   /** Trusted instructions appended to the base system prompt for this turn
@@ -315,6 +319,16 @@ export type ComposedTurn = {
  *  runtime refs, so a between-turn reload is picked up by the next turn. */
 export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
   const { runtime, persistence } = opts;
+  const modelSnapshot = selectedTurnModel(
+    (opts.provider ?? runtime.resolvedProvider.transport).name,
+    opts.model ?? runtime.model,
+    {
+      maxTokens: runtime.maxTokens,
+      harnessHome: runtime.harnessHome,
+      settings: runtime.injectedSettings,
+      ...(opts.modelMetadata ? { modelMetadata: opts.modelMetadata } : {}),
+    },
+  );
   if (opts.toolset !== undefined && !isToolsetName(opts.toolset)) {
     throw new UnknownToolsetError(opts.toolset);
   }
@@ -337,13 +351,18 @@ export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
   // from the tool context's effective pool) match the schemas the model sees.
   const tools = toolset === undefined ? scope.tools : filterToolsForToolset(scope.tools, toolset);
 
+  const systemPrompt = modelSystemPrompt(runtime.systemSegments, tools, modelSnapshot?.metadata);
+
   // STANDING config = the turn's LIVE values. Live-reload mutates
   // runtime.{provider,model,systemSegments,hookRunner,toolPool,…} BETWEEN
   // turns, never within one, so these are stable for the whole turn.
   const agent = createAgent({
     provider: opts.provider ?? runtime.resolvedProvider.transport,
     model: runtime.model,
-    systemPrompt: runtime.systemSegments,
+    ...(modelSnapshot
+      ? { modelMetadata: modelSnapshot.metadata, pricingSnapshot: modelSnapshot.pricing }
+      : {}),
+    systemPrompt,
     tools,
     hookRunner: runtime.hookRunner,
     microcompactConfig: runtime.microcompactConfig,
@@ -373,12 +392,15 @@ export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
     sessionId: hop.sessionId,
     ...(hop.turnId !== undefined ? { turnId: hop.turnId } : {}),
     ...(opts.model !== undefined ? { model: opts.model } : {}),
+    ...(modelSnapshot
+      ? { modelMetadata: modelSnapshot.metadata, pricingSnapshot: modelSnapshot.pricing }
+      : {}),
     // Instructions AUGMENT the base prompt (createAgent resolves
     // `perTurn.systemPrompt ?? config.systemPrompt`, so passing only the
     // instruction would drop the bundle prompt). Ephemeral: the provider
     // `system:` field is never written to the messages table.
     ...(opts.instructions !== undefined
-      ? { systemPrompt: appendInstructions(runtime.systemSegments, opts.instructions) }
+      ? { systemPrompt: appendInstructions(systemPrompt, opts.instructions) }
       : {}),
     // Always set: the session level is the meaningful default.
     effort: opts.effort ?? hop.sessionCtx.effort,

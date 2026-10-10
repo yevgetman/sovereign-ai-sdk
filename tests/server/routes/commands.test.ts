@@ -341,8 +341,9 @@ describe('POST /sessions/:id/commands (M10.5)', () => {
       };
       const model = body.commands.find((c) => c.name === 'model');
       expect(model).toBeDefined();
-      // pickers.ts:41 sets usage: '/model [<name>]'
-      expect(model?.usage).toContain('<name>');
+      expect(model?.usage).toBe(
+        '/model [<exact ID> | --author <author> | --search <text> | --custom]',
+      );
     });
 
     test('validation — invalid session id returns 400', async () => {

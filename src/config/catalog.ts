@@ -17,6 +17,7 @@
 
 import type { Settings } from '@yevgetman/sov-sdk/config/schema';
 import { LIVE_APPLY_HOOKS, type LiveApplyHook } from './liveApply.js';
+import { modelsForProvider } from './modelSuggestions.js';
 
 /**
  * Editor types. Drive the renderer choice in the dispatcher:
@@ -111,62 +112,6 @@ const SUBSCRIPTION_EXECUTOR_PERMISSION_MODE_CHOICES = [
   'default',
 ] as const;
 
-// Provider-specific model lists. Mirrors src/commands/pickers.ts. Keep in
-// sync — both surfaces should suggest the same set.
-const ANTHROPIC_MODELS = [
-  'claude-haiku-4-5-20251001',
-  'claude-sonnet-4-6',
-  'claude-opus-4-7',
-] as const;
-const OPENAI_MODELS = ['gpt-4o-mini', 'gpt-4o'] as const;
-const OPENROUTER_MODELS = [
-  'anthropic/claude-haiku-4.5',
-  'anthropic/claude-sonnet-4.5',
-  'z-ai/glm-5.2',
-  'moonshotai/kimi-k2.5',
-] as const;
-// Direct xAI API-key lane. Mirrors the `grok-api` route's known models
-// (packages/sdk/src/providers/routes/catalog.ts) — keep in sync.
-const XAI_MODELS = ['grok-4.6'] as const;
-const OLLAMA_MODELS = ['qwen2.5:7b', 'qwen2.5:3b', 'qwen2.5:14b', 'llama3.1:8b'] as const;
-// The local Sovereign engine advertises models under their real model id (the
-// served-model-name defaults to the model id itself — no alias), so you always
-// know exactly what you're running. List the installed/served model(s) here.
-// (Future: discover these live from the engine's /v1/models — Bucket B.)
-const SOV_MODELS = ['mlx-community/Qwen3-4B-4bit'] as const;
-// The Manifest model router's routing alias. The caller stops choosing a model
-// and asks the lane for `auto`; the router picks the upstream. Pin a real model
-// id via the model editor's freeform to route to a specific model instead.
-const MANIFEST_MODELS = ['auto'] as const;
-
-/**
- * Map a provider name to its known model list. Used by `defaultModel`'s
- * dynamicChoices so the picker shows the right models for the active
- * `defaultProvider`. Falls back to Anthropic's list when the provider
- * is unknown or unset, mirroring the legacy raw-mode picker.
- * 2026-05-24 patch.
- */
-function modelsForProvider(provider: string | undefined): readonly string[] {
-  switch (provider) {
-    case 'anthropic':
-      return ANTHROPIC_MODELS;
-    case 'openai':
-      return OPENAI_MODELS;
-    case 'openrouter':
-      return OPENROUTER_MODELS;
-    case 'xai':
-      return XAI_MODELS;
-    case 'ollama':
-      return OLLAMA_MODELS;
-    case 'sov':
-      return SOV_MODELS;
-    case 'manifest':
-      return MANIFEST_MODELS;
-    default:
-      return ANTHROPIC_MODELS;
-  }
-}
-
 // ──────────────────────────────────────────────────────────────────────
 // Groups
 // ──────────────────────────────────────────────────────────────────────
@@ -192,7 +137,7 @@ const GENERAL_GROUP: ConfigGroup = {
         placeholder: 'e.g. claude-sonnet-4-6',
         // 2026-05-24 patch — dynamic choices scoped by defaultProvider.
         // Mirrors the legacy raw-mode picker's modelsForProvider helper.
-        dynamicChoices: (settings) => modelsForProvider(settings.defaultProvider),
+        dynamicChoices: (settings) => modelsForProvider(settings.defaultProvider, settings),
         allowCustom: true,
       },
     },
@@ -297,7 +242,11 @@ const PROVIDERS_ANTHROPIC_GROUP: ConfigGroup = {
       path: 'providers.anthropic.model',
       label: 'model',
       description: 'Default Anthropic model. Live-applied when Anthropic is the active provider.',
-      editor: { kind: 'string', choices: ANTHROPIC_MODELS },
+      editor: {
+        kind: 'string',
+        dynamicChoices: (settings) => modelsForProvider('anthropic', settings),
+        allowCustom: true,
+      },
     },
   ],
 };
@@ -317,7 +266,11 @@ const PROVIDERS_OPENAI_GROUP: ConfigGroup = {
       path: 'providers.openai.model',
       label: 'model',
       description: 'Default OpenAI model. Live-applied when OpenAI is the active provider.',
-      editor: { kind: 'string', choices: OPENAI_MODELS },
+      editor: {
+        kind: 'string',
+        dynamicChoices: (settings) => modelsForProvider('openai', settings),
+        allowCustom: true,
+      },
     },
     {
       path: 'providers.openai.baseUrl',
@@ -343,7 +296,11 @@ const PROVIDERS_OPENROUTER_GROUP: ConfigGroup = {
       path: 'providers.openrouter.model',
       label: 'model',
       description: 'Default OpenRouter model. Live-applied when OpenRouter is the active provider.',
-      editor: { kind: 'string', choices: OPENROUTER_MODELS },
+      editor: {
+        kind: 'string',
+        dynamicChoices: (settings) => modelsForProvider('openrouter', settings),
+        allowCustom: true,
+      },
     },
   ],
 };
@@ -366,7 +323,11 @@ const PROVIDERS_XAI_GROUP: ConfigGroup = {
       path: 'providers.xai.model',
       label: 'model',
       description: 'Default xAI model. Live-applied when xai is the active provider.',
-      editor: { kind: 'string', choices: XAI_MODELS },
+      editor: {
+        kind: 'string',
+        dynamicChoices: (settings) => modelsForProvider('xai', settings),
+        allowCustom: true,
+      },
     },
   ],
 };
@@ -379,7 +340,11 @@ const PROVIDERS_OLLAMA_GROUP: ConfigGroup = {
       path: 'providers.ollama.model',
       label: 'model',
       description: 'Default local model. Live-applied when Ollama is the active provider.',
-      editor: { kind: 'string', choices: OLLAMA_MODELS },
+      editor: {
+        kind: 'string',
+        dynamicChoices: (settings) => modelsForProvider('ollama', settings),
+        allowCustom: true,
+      },
     },
     {
       path: 'providers.ollama.baseUrl',
@@ -406,7 +371,11 @@ const PROVIDERS_SOV_GROUP: ConfigGroup = {
       label: 'model',
       description:
         'Default model served by the local Sovereign engine. Live-applied when sov is the active provider.',
-      editor: { kind: 'string', choices: SOV_MODELS },
+      editor: {
+        kind: 'string',
+        dynamicChoices: (settings) => modelsForProvider('sov', settings),
+        allowCustom: true,
+      },
     },
     {
       path: 'providers.sov.baseUrl',
@@ -440,7 +409,12 @@ const PROVIDERS_MANIFEST_GROUP: ConfigGroup = {
         'Model requested from the router. "auto" (the default) lets the router pick the upstream; ' +
         'pin a real model id to force a specific model (which also restores exact context-length ' +
         'lookup). Live-applied when manifest is the active provider.',
-      editor: { kind: 'string', choices: MANIFEST_MODELS, allowCustom: true, placeholder: 'auto' },
+      editor: {
+        kind: 'string',
+        dynamicChoices: (settings) => modelsForProvider('manifest', settings),
+        allowCustom: true,
+        placeholder: 'auto',
+      },
     },
     {
       path: 'providers.manifest.baseUrl',
@@ -494,7 +468,7 @@ const TASK_ROUTING_GROUP: ConfigGroup = {
       editor: {
         kind: 'string',
         dynamicChoices: (settings) =>
-          modelsForProvider(settings.taskRouting?.lanes?.['cheap-task']?.provider),
+          modelsForProvider(settings.taskRouting?.lanes?.['cheap-task']?.provider, settings),
         allowCustom: true,
       },
     },
@@ -518,7 +492,7 @@ const TASK_ROUTING_GROUP: ConfigGroup = {
       editor: {
         kind: 'string',
         dynamicChoices: (settings) =>
-          modelsForProvider(settings.taskRouting?.lanes?.['moderate-task']?.provider),
+          modelsForProvider(settings.taskRouting?.lanes?.['moderate-task']?.provider, settings),
         allowCustom: true,
       },
     },
@@ -542,7 +516,7 @@ const TASK_ROUTING_GROUP: ConfigGroup = {
       editor: {
         kind: 'string',
         dynamicChoices: (settings) =>
-          modelsForProvider(settings.taskRouting?.lanes?.['frontier-task']?.provider),
+          modelsForProvider(settings.taskRouting?.lanes?.['frontier-task']?.provider, settings),
         allowCustom: true,
       },
     },

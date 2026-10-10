@@ -9,6 +9,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { PickerOpenConfig } from '@yevgetman/sov-sdk/commands/types';
+import { fallbackModelCatalog, findModel } from '@yevgetman/sov-sdk/providers/models/index';
+import { OpenAIProvider } from '@yevgetman/sov-sdk/providers/openai';
+import { diskModelCache } from '../../src/cli/modelDiscovery.js';
 import { __test_resetProjectIdCache } from '../../src/learning/project.js';
 import { buildServerCommandContext } from '../../src/server/commandContext.js';
 import { type Runtime, buildRuntime } from '../../src/server/runtime.js';
@@ -288,4 +291,97 @@ describe('buildServerCommandContext — per-principal scoping (Phase E)', () => 
 
     expect(stats?.totalAtoms).toBe(1);
   });
+});
+
+test('model budgets use the active node and retain snapshots only for the current model/provider', async () => {
+  const node = mkdtempSync(join(tmpdir(), 'budget-active-node-'));
+  const ambient = mkdtempSync(join(tmpdir(), 'budget-ambient-node-'));
+  const oldHome = process.env.HARNESS_HOME;
+  const oldMock = process.env.SOV_TEST_MOCK_PROVIDER;
+  let runtime: Runtime | undefined;
+  try {
+    process.env.HARNESS_HOME = ambient;
+    process.env.SOV_TEST_MOCK_PROVIDER = '1';
+    const catalog = fallbackModelCatalog('openrouter-api');
+    for (const [home, window] of [
+      [node, 8_000_000],
+      [ambient, 99_999],
+    ] as const) {
+      await diskModelCache(join(home, 'model-catalog')).set('openrouter-api:public', {
+        ...catalog,
+        state: 'current',
+        fetchedAt: new Date().toISOString(),
+        models: [
+          {
+            ...findModel(catalog, 'vendor/model'),
+            contextWindow: window,
+            metadata: { source: 'fixture', stale: false },
+          },
+          {
+            ...findModel(catalog, 'vendor/small'),
+            contextWindow: home === node ? 65_536 : 500_000,
+            metadata: { source: 'fixture', stale: false },
+          },
+        ],
+      });
+    }
+    __test_resetProjectIdCache();
+    runtime = await buildRuntime({
+      cwd: node,
+      harnessHome: node,
+      provider: 'openrouter',
+      settings: { providers: { openrouter: { apiKey: 'fixture-offline' } } },
+      model: 'vendor/model',
+      preflight: false,
+    });
+    const sessionId = runtime.sessionDb.createSession({
+      provider: 'openrouter',
+      model: 'vendor/model',
+    });
+    const sessionCtx = runtime.getSessionContext(sessionId);
+    expect(sessionCtx.modelBudget).toBeUndefined();
+    const { ctx } = buildServerCommandContext(runtime, sessionCtx, sessionId);
+    expect(ctx.getBudgetReport().totals.window).toBe(8_000_000);
+    expect(ctx.harnessHome).toBe(node);
+    sessionCtx.modelBudget = {
+      provider: 'openrouter',
+      model: 'vendor/model',
+      contextTokens: 7_000_000,
+    };
+    expect(ctx.getBudgetReport().totals.window).toBe(7_000_000);
+    const otherId = runtime.sessionDb.createSession({
+      provider: 'openrouter',
+      model: 'vendor/model',
+    });
+    const otherSessionCtx = runtime.getSessionContext(otherId);
+    otherSessionCtx.modelBudget = {
+      provider: 'openrouter',
+      model: 'vendor/model',
+      contextTokens: 7_000_000,
+    };
+    const other = buildServerCommandContext(runtime, otherSessionCtx, otherId).ctx;
+    ctx.setModel('vendor/small');
+    expect(ctx.getBudgetReport().totals.window).toBe(65_536);
+    expect(other.getBudgetReport().totals.window).toBe(65_536);
+    const fresh = buildServerCommandContext(runtime, sessionCtx, sessionId).ctx;
+    expect(fresh.getBudgetReport().totals.window).toBe(65_536);
+    sessionCtx.modelBudget = {
+      provider: 'openrouter',
+      model: 'vendor/small',
+      contextTokens: 65_536,
+    };
+    runtime.resolvedProvider.transport = new OpenAIProvider({
+      name: 'xai',
+      apiKey: 'fixture-offline',
+    });
+    expect(fresh.getBudgetReport().totals.window).toBe(32_768);
+  } finally {
+    await runtime?.dispose();
+    if (oldHome === undefined) Reflect.deleteProperty(process.env, 'HARNESS_HOME');
+    else process.env.HARNESS_HOME = oldHome;
+    if (oldMock === undefined) Reflect.deleteProperty(process.env, 'SOV_TEST_MOCK_PROVIDER');
+    else process.env.SOV_TEST_MOCK_PROVIDER = oldMock;
+    rmSync(node, { recursive: true, force: true });
+    rmSync(ambient, { recursive: true, force: true });
+  }
 });

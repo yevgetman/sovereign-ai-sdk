@@ -18,8 +18,8 @@ The same runtime drives several run modes — pick by how you want to reach it:
 
 Current state lives in [`docs/07-history/state/`](docs/07-history/state/) — newest dated file is canonical.
 
-- **Latest snapshot:** [`docs/07-history/state/2026-06-30-sdk-open-core-extraction.md`](docs/07-history/state/2026-06-30-sdk-open-core-extraction.md) — the harness is now a thin composition over an importable **open-core SDK** (`createAgent()`), with a file-level lint enforcing the open/proprietary boundary. `docs/07-history/state/` carries the most recent close-out. This hard-coded filename can lag, so always confirm the newest with `ls docs/07-history/state/*.md | sort -r | head -1`.
-- **Phase history:** [`CHANGELOG.md`](CHANGELOG.md) covers Phases 0–13.3. Phases 13.4 onward + revert history are in [`docs/07-history/state/archive/`](docs/07-history/state/archive/).
+- **Latest snapshot:** [Provider/model resilience workset](docs/07-history/state/2026-10-10-provider-model-workset.md) — completed unmerged SDK/SOV changes, dependencies and remaining host/release gates. Published components remain [SDK 0.13.0 / SOV 0.6.76](docs/07-history/state/2026-10-09-sdk-release-013.md).
+- **Release history:** [`CHANGELOG.md`](CHANGELOG.md) records SDK and harness changes separately. Dated build snapshots and older phase/revert records remain in [`docs/07-history/state/`](docs/07-history/state/).
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).
 

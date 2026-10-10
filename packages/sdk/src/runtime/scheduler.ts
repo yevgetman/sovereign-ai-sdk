@@ -1,3 +1,5 @@
+import type { ModelRecord } from '../providers/models/types.js';
+import { pricingSnapshotForModel } from '../providers/pricing.js';
 // Phase 13.5 — sub-agent scheduler. Owns the per-parent child cap, lane
 // concurrency caps, write-path lock, per-child timeout, parent-child
 // session lineage, and provider/model resolution for delegated work.
@@ -81,6 +83,9 @@ export type SubagentSchedulerOpts = {
    *  passes a closure that calls resolveProvider() with the live
    *  settings/credentials. */
   resolveProvider: (providerName: string, model: string | undefined) => ResolvedProvider;
+  /** Optional host catalog port. Called once with the actual resolved child;
+   * the SDK never reads a cache, disk, credentials or network for metadata. */
+  resolveModelMetadata?: (provider: string, model: string) => ModelRecord | undefined;
   /** Caller-supplied child session creation. Returns the new sessionId.
    *  The caller is responsible for writing the parent_session_id link
    *  to the session DB.
@@ -505,6 +510,7 @@ export class SubagentScheduler implements Scheduler {
         let usageCalls = 0;
         let unknownUsageCalls = 0;
         const startedAt = Date.now();
+        let nativeCostComplete = false;
         let result: SubprocessExecutorResult;
         try {
           if (useSubprocessExecutor) {
@@ -575,8 +581,25 @@ export class SubagentScheduler implements Scheduler {
               policy?.treeBudget && policy.estimateRequestBudget
                 ? budgetProvider(nativeProvider, policy.treeBudget, policy.estimateRequestBudget)
                 : nativeProvider;
+            const suppliedMetadata = this.opts.resolveModelMetadata?.(
+              resolved.transport.name,
+              resolved.model,
+            );
+            const childMetadata = suppliedMetadata ? structuredClone(suppliedMetadata) : undefined;
+            // Parent evidence cannot certify a different child's model or bill.
+            const {
+              modelMetadata: _parentModel,
+              pricingSnapshot: _parentPrice,
+              ...inheritedConfig
+            } = policy?.inheritedConfig ?? {};
             const childAgent = createAgent({
-              ...policy?.inheritedConfig,
+              ...inheritedConfig,
+              ...(childMetadata
+                ? {
+                    modelMetadata: childMetadata,
+                    pricingSnapshot: pricingSnapshotForModel(childMetadata),
+                  }
+                : {}),
               provider: childProvider,
               model: resolved.model,
               systemPrompt,
@@ -594,7 +617,9 @@ export class SubagentScheduler implements Scheduler {
               signal: composed,
               ...(childCanUseTool !== undefined ? { canUseTool: childCanUseTool } : {}),
             });
-            result = await drainRunner(gen);
+            const nativeResult = await drainRunner(gen);
+            nativeCostComplete = nativeResult.costEstimate?.complete === true;
+            result = nativeResult;
           }
         } catch (err) {
           // Timeout aborts manifest as a thrown error from query.next();
@@ -639,7 +664,9 @@ export class SubagentScheduler implements Scheduler {
           result.estimatedCostUsd !== undefined &&
           result.usage?.inputTokens !== undefined &&
           result.usage.outputTokens !== undefined &&
-          PRICE_TABLE[`${resolved.transport.name}:${resolved.model}`] !== undefined
+          (nativeCostComplete ||
+            (useSubprocessExecutor &&
+              PRICE_TABLE[`${resolved.transport.name}:${resolved.model}`] !== undefined))
             ? result.estimatedCostUsd
             : undefined;
         const summary = extractSummary(result.finalAssistant);
@@ -926,6 +953,7 @@ async function drainRunner(
       distinctToolNames: string[];
       usage?: TokenUsage;
       estimatedCostUsd?: number;
+      costEstimate?: import('../providers/pricing.js').CostEstimate;
       usageComplete?: boolean;
       messages: import('../core/types.js').Message[];
     }
@@ -938,6 +966,7 @@ async function drainRunner(
   distinctToolNames: string[];
   usage?: TokenUsage;
   estimatedCostUsd?: number;
+  costEstimate?: import('../providers/pricing.js').CostEstimate;
   usageComplete?: boolean;
   messages: import('../core/types.js').Message[];
 }> {
