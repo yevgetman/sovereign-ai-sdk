@@ -1,3 +1,7 @@
+## 2026-10-10 — PR43 final fourth-review dependency alignment
+
+Merged final PR34 `44e0590d`. All source and test files remain byte-identical to the complete passing 5740-test gate at `6e4abb60`; this merge adds testing evidence and final parent ancestry only. Final lint passes.
+
 ## 2026-10-10 — PR43 fourth review: reject invalid effort before paid compaction
 
 **Scope:** Fixed a Medium issue where model-incompatible per-turn or session effort could trigger paid proactive history reduction before native request rejection. The gateway now applies the shared route/model effort contract before compaction. Included the reviewed PR37 factory identity freeze and PR41 cumulative native auxiliary usage correction. Custom providers without catalog snapshots retain their existing path.
@@ -13,6 +17,23 @@
 **Environment and commands:** macOS, Bun 1.3.13; injected fetch and fake credentials only. `bun test tests/providers/models/direct.test.ts`: 8 passed, 0 failed, 67 assertions. `bun run lint`, `bun run typecheck` and `bun run --cwd packages/sdk build` pass. `TMPDIR=/private/tmp/sdk-fourth-37-tmp bun run test`: 5646 passed, 19 existing skips, 0 failed; 23220 assertions across 535 files (91.67 seconds).
 
 **Manual coverage and limits:** Isolated pre-fix reproduction observed an OpenAI fake bearer credential addressed to the xAI endpoint after caller mutation. No real credentials, paid inference, host configuration, runtime installation or learning-loop settings changed. No new regression observed; the prior account-isolation, native capability and cache contracts remain intact.
+## 2026-10-10 — PR34 fourth review: integrate reviewed discovery and billing corrections
+
+No new finding above Low in the OpenRouter routing-policy changes. Integrated the reviewed PR37 factory identity freeze and PR41 native auxiliary cumulative usage correction while retaining this branch's pooled-account catalog handling and strict inference policy.
+
+Configured lint, typecheck and strict SDK build pass. The full discovered test set passed: **5719 passed / 19 existing skips / 0 failed**, 23691 assertions across 544 files. All test files were covered; compiler and footer fixtures ran separately and the remaining suite used a branch-specific TMPDIR. No paid inference, live configuration or installed change. Merged final PR42 `367334f7` after verifying that its ancestry merge changes only testing-log documentation; functional code and test files remain identical to this exact passing gate. Final lint passes.
+## 2026-10-10 — PR42 fourth review: inherit final reviewed SDK and compaction fixes
+
+Merged final PR41 `bcd12a5a`, including actual PR40/39/38/37 ancestry. Kept PR42 account-pool ambiguity, custom endpoint isolation and its exact native effort controls intact. Inherited the confirmed High direct-source identity correction and Medium split-usage compaction pricing correction; no additional independent issue above Low was found in PR42.
+
+`bun run lint`, `bun run typecheck` and `bun run --cwd packages/sdk build` pass. Complete gate via `python3 /private/tmp/sdk-fourth-gate.py /private/tmp/sdk-sov-models 42`: **5714 passed / 19 existing skips / zero failed**, 23674 assertions across 543 files. Every discovered test file ran; the global compiler fixture is serialized, the existing shared-theme footer fixture is isolated, and remaining tests use a distinct TMPDIR. No paid inference, live configuration, installed runtime or learning-loop setting changes.
+
+## 2026-10-10 — PR39 fourth review: inherit frozen discovery identity
+
+Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endpoint, authorization and account/normalizer identity remain captured at construction. No additional source changes were required on this branch.
+
+`bun run lint`, `bun run typecheck` and strict `bun run --cwd packages/sdk build` pass. The complete gate executes every discovered test file with a branch-specific TMPDIR; the global temporary-compiler fixture is serialized and the shared-theme footer fixture runs in its own process. Final result: **5673 passed / 19 existing skips / zero failed**, 23444 assertions across 539 files. The first alphabetic all-file attempt failed one existing footer-color assertion due to shared theme state; standalone footer checks and the final complete isolated gate pass. No test was skipped to avoid that issue, and no production/test source was changed for it. No paid inference, installed runtime or host configuration changes.
+
 # Testing Log
 
 ## 2026-10-10 — PR43 third review: combined model-evidence fixes
@@ -131,6 +152,11 @@ Independent review found no new above-Low defect in PR40. Integrated final PR39 
 Resolved three Medium findings: image transport bytes no longer masquerade as input tokens; per-turn model/provider changes do not inherit another identity's standing record; model evidence is frozen before asynchronous host callbacks. Input accounting exposes incomplete image estimates in traces, preserves the image payload, accepts verified host counters, and retains provider overflow recovery. Merged reviewed PR38 native Anthropic controls with PR39 thinking-budget caps intact.
 
 Configured lint, typecheck, strict SDK build and full tests pass: **5672 passed / 19 existing skips / zero failed**, 23424 assertions across 539 files (89.90s). Focused image/model-evidence checks passed 17 tests / 83 assertions. The initial combined gate caught a missing public type-surface witness; this gate includes its correction. The PNG fixture has valid chunk CRCs. Independent review closed the image and metadata findings. No paid inference or installed changes.
+## 2026-10-10 — PR38 fourth review: inherit frozen discovery identity
+
+Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endpoint, authorization and account/normalizer identity remain captured at construction. No additional source changes were required on this branch.
+
+`bun run lint`, `bun run typecheck` and strict `bun run --cwd packages/sdk build` pass. The complete gate executes every discovered test file with a branch-specific TMPDIR; the global temporary-compiler fixture is serialized and the shared-theme footer fixture runs in its own process. Final result: **5656 passed / 19 existing skips / zero failed**, 23361 assertions across 536 files. The first alphabetic all-file attempt failed one existing footer-color assertion due to shared theme state; standalone footer checks and the final complete isolated gate pass. No test was skipped to avoid that issue, and no production/test source was changed for it. No paid inference, installed runtime or host configuration changes.
 
 
 ## 2026-10-10 — PR37 ancestor cache fixes integration
@@ -8148,3 +8174,15 @@ Mac cross-compilation can retain an invalid upstream Bun signature. Both final M
 Merged PR #8 (Decorum retired, conduct port stays empty) and PR #7 (headless subscription loop). SDK `.` entry gains toolset helpers, `loadSubscriptionProvider`, and the subscription error types, so the SDK moves 0.10.3 → 0.11.0. The harness moves 0.6.73 → 0.6.74.
 
 On the rebased subscription branch, before the version bump: `bun run typecheck` pass, `bun run lint` pass (biome + boundary, 203 modules), `bun test` 5404 pass / 31 skip / 0 fail (5435 tests, 515 files, 93.40s). PR #7 CI run 37501465646: lint + boundary + typecheck pass, open packages pass. Master CI for the PR #8 merge, run 37500573636, both jobs pass.
+
+## 2026-10-10 — Fourth review pass, PR #41
+
+Fixed Medium auxiliary compaction usage loss. Shared accumulation preserves split input/cache usage and the final cumulative output count. Isolated native-stream regression verifies a complete immutable receipt.
+
+Lint, type checking, strict SDK build and all discovered tests passed: 5703 passed, 19 existing skips, zero failures, 23561 assertions across 542 files. The global compile fixture ran under a lock; the existing footer theme fixture ran in an isolated process after the sorted full run exposed shared theme state. All test files remained covered. No live inference or learning soak performed.
+
+## 2026-10-10 — Fourth review pass, PR #40
+
+No new independent finding above Low. Propagated the reviewed catalog metadata correction from PR #37.
+
+Lint, type checking, strict SDK build and all discovered tests passed: 5684 passed, 19 existing skips, zero failures, 23482 assertions across 540 files. The global compile fixture ran under a lock; the existing footer theme fixture ran in an isolated process after the sorted full run exposed shared theme state. All test files remained covered. No live inference or learning soak performed.
