@@ -4,7 +4,11 @@
 // `auto` (or an absent value) selects the route default.
 
 import { REASONING_EFFORTS, type ReasoningEffort } from '../effort.js';
-import { hasReasoningMetadata, reasoningControlFor } from '../modelReasoning.js';
+import {
+  hasReasoningMetadata,
+  preservesEstablishedReasoning,
+  reasoningControlFor,
+} from '../modelReasoning.js';
 import type { ModelRecord } from '../models/types.js';
 import { routeDefinition } from './catalog.js';
 import { RouteError } from './errors.js';
@@ -46,9 +50,11 @@ export function effortsForModel(
   const control = reasoningControlFor(route.provider, model, metadata);
   if (control) return [...control.efforts];
   const established = routeDefinition(route.id).effortsFor(model);
-  const unknownPreservesEstablished =
-    metadata?.capabilities.reasoning === 'unknown' && established.some((level) => level !== 'off');
-  if (hasReasoningMetadata(metadata) && !unknownPreservesEstablished) return ['off'];
+  const partialPreservesEstablished = preservesEstablishedReasoning(
+    metadata,
+    established.some((level) => level !== 'off'),
+  );
+  if (hasReasoningMetadata(metadata) && !partialPreservesEstablished) return ['off'];
   const known = route.modelEfforts[model];
   if (known) return [...known];
   const levels = new Set(routeDefinition(route.id).effortsFor(model));
