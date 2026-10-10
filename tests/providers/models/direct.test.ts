@@ -6,8 +6,10 @@ import {
 import {
   createDirectModelSource,
   createSubscriptionModelSource,
+  normalizeDirectModel,
   resolveModelAlias,
 } from '../../../packages/sdk/src/providers/models/direct.js';
+import { OpenAIProvider } from '../../../packages/sdk/src/providers/openai.js';
 
 test('direct discovery uses explicit route credentials with account-isolated caches', async () => {
   const calls: Array<{ url: string; headers: unknown }> = [];
@@ -95,4 +97,48 @@ test('publisher-provided limits and xAI modalities grow without model-name guess
   expect(catalog.models[0]?.contextWindow).toBe(8_000_000);
   expect(catalog.models[0]?.capabilities.images).toBe('supported');
   expect(catalog.models[0]?.efforts).toEqual(['off', 'low', 'medium', 'high', 'max']);
+});
+
+test('future direct effort metadata preserves exact published max wire enums', () => {
+  for (const provider of ['openai', 'xai'] as const) {
+    for (const maxWireValue of ['xhigh', 'max']) {
+      const metadata = normalizeDirectModel(
+        { id: 'future-exact', capabilities: { reasoning_effort: ['low', 'high', maxWireValue] } },
+        provider,
+      );
+      expect(metadata?.reasoningControl?.maxWireValue).toBe(maxWireValue);
+      if (!metadata) throw new Error('fixture model did not normalize');
+      const body = new OpenAIProvider({ name: provider, apiKey: 'fake' }).buildKwargs({
+        model: metadata.id,
+        modelMetadata: metadata,
+        system: [],
+        messages: [],
+        maxTokens: 4096,
+        temperature: 0.5,
+        effort: 'max',
+      });
+      expect(body.reasoning_effort).toBe(maxWireValue);
+      if (provider === 'openai') {
+        expect(body.max_completion_tokens).toBe(4096);
+        expect(body.max_tokens).toBeUndefined();
+        expect(body.temperature).toBeUndefined();
+      } else {
+        expect(body.max_tokens).toBe(4096);
+        expect(body.temperature).toBe(0.5);
+      }
+    }
+  }
+});
+
+test('unknown direct effort vocabulary never invents an adapter control', () => {
+  const model = normalizeDirectModel(
+    {
+      id: 'future-unknown',
+      capabilities: { reasoning_effort: ['publisher-unrecognized-control'] },
+    },
+    'openai',
+  );
+  expect(model?.capabilities.reasoning).toBe('unknown');
+  expect(model?.reasoningControl).toBeUndefined();
+  expect(model?.efforts).toBeUndefined();
 });

@@ -65,12 +65,13 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
     if (!saved || saved.version !== 1 || saved.routeId !== source.routeId)
       return fallbackModelCatalog(source.routeId);
     const stale =
+      saved.state !== 'current' ||
       !saved.fetchedAt ||
       now() - Date.parse(saved.fetchedAt) >= ttl ||
       !Number.isFinite(Date.parse(saved.fetchedAt));
     return {
       ...saved,
-      state: stale ? 'stale' : saved.state,
+      state: saved.state === 'current' && stale ? 'stale' : saved.state,
       models: saved.models.map((model) => ({
         ...model,
         metadata: { ...model.metadata, stale: stale || model.metadata.stale },

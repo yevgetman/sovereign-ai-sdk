@@ -1,5 +1,11 @@
 # Testing Log
 
+## 2026-10-10 — route-scoped machine model discovery (#32)
+
+Added version-1 bounded `sov models`, opt-in refresh, account-isolated disk snapshots, author/search/pagination, safe invalid-query errors and additive capabilities discovery. Shared synchronous snapshots and async reads both mark noncurrent catalogs stale. Root and independent catalog-agent review found and fixed state-freshness and offline author-filter inconsistencies.
+
+`bun run lint && bun run typecheck && bun run test` pass: **5690 pass / 19 skip / 0 fail**, 23393 assertions across 542 files (91.49s), on exact PR #41 parent `cdab5c67`. The strict package build also passed. Focused source-CLI/cache fixtures pass 7/0, including network refusal on offline reads and invalid refresh options. `bun build src/main.ts --compile --outfile /private/tmp/sov-models-contract-check` passed; compiled capabilities, routes, offline model pagination and rejected refresh pagination each emit one version-1 JSON object with expected exit status. These are offline contract checks, not live provider entitlement or Telekit UI proof.
+
 ## 2026-10-10 — pricing completeness and immutable receipts (#30)
 
 Final exact stack on PR40 (`0cd4edf`): `bun run lint`, `bun run typecheck`, `bun run build` and `bun run test` pass: **5682 pass / 19 skip / 0 fail**, 23340 assertions across 541 files (103.96s). Independent reviews include gateway hop receipts and exact per-turn override billing. Missing auxiliary usage now persists an incomplete compaction receipt; immutable rates/source/time/version are retained separately from main tokens. Focused compaction/store checks pass 53/0. The final public packed canary passed on Node and Bun.

@@ -45,7 +45,7 @@ The command surface and day-to-day operation.
 
 - [Usage guide](03-cli-reference/usage.md) — CLI flags, subcommands, slash commands, the eval suite, the local-model router, profiles, providers, themes, web tools.
 
-- [Native SDK routes](03-cli-reference/sdk-routes.md) — six explicit authentication routes, read-only discovery and the headless host.
+- [Native SDK routes](03-cli-reference/sdk-routes.md) — six authentication routes, bounded model discovery, offline snapshots and the headless host.
 
 ## 04 — Extending
 

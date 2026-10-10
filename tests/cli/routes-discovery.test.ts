@@ -14,6 +14,8 @@ describe('route CLI discovery in an isolated home', () => {
       for (const args of [
         ['capabilities'],
         ['routes'],
+        ['models', '--route', 'openrouter-api'],
+        ['models', '--route', 'grok-subscription'],
         ['auth', 'status', '--route', 'openai-api'],
       ]) {
         const child = Bun.spawn([process.execPath, cli, ...args, '--json'], {
