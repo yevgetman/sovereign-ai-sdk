@@ -26,7 +26,9 @@ describe('metadata reasoning and exact transport controls', () => {
   });
   test('OpenRouter Grok has depth; Kimi has a toggle and rejects fake depth', () => {
     const p = new OpenAIProvider({ name: 'openrouter', apiKey: 'fake' });
-    expect(p.buildKwargs(req('x-ai/grok-4.6', 'high')).reasoning).toEqual({ effort: 'high' });
+    expect(p.buildKwargs(req('x-ai/grok-4.6', 'high')).reasoning).toEqual({
+      effort: 'high',
+    });
     expect(p.buildKwargs(req('x-ai/grok-4.6', 'off')).reasoning).toBeUndefined();
     expect(p.buildKwargs(req('moonshotai/kimi-k2.5', 'high')).reasoning).toEqual({ enabled: true });
     expect(p.buildKwargs(req('moonshotai/kimi-k2.5', 'off')).reasoning).toEqual({ enabled: false });
@@ -63,7 +65,10 @@ describe('metadata reasoning and exact transport controls', () => {
     expect(() =>
       p.buildKwargs({
         ...req(record.id, 'high'),
-        modelMetadata: { ...record, metadata: { ...record.metadata, stale: true } },
+        modelMetadata: {
+          ...record,
+          metadata: { ...record.metadata, stale: true },
+        },
       }),
     ).toThrow();
     expect(() => p.buildKwargs({ ...req('other/model', 'high'), modelMetadata: record })).toThrow();
@@ -137,4 +142,36 @@ test('native API no-control remains valid when published depth list omits off', 
   expect(
     p.buildKwargs({ ...req(metadata.id, 'off'), modelMetadata: metadata }).reasoning,
   ).toBeUndefined();
+});
+
+test('fresh future OpenAI reasoning controls select completion token cap and omit temperature', () => {
+  const metadata: ModelRecord = {
+    id: 'future-exact',
+    provider: 'openai',
+    routeId: 'openai-api',
+    auth: 'api_key',
+    displayName: 'Future',
+    availability: 'advertised',
+    efforts: ['off', 'high'],
+    capabilities: {
+      textOutput: 'supported',
+      tools: 'unknown',
+      images: 'unknown',
+      reasoning: 'supported',
+    },
+    metadata: { source: 'fixture', stale: false },
+    reasoningControl: { parameter: 'openai', disableSupported: false },
+  };
+  const body = new OpenAIProvider({
+    name: 'openai',
+    apiKey: 'fake',
+  }).buildKwargs({
+    ...req(metadata.id, 'high'),
+    modelMetadata: metadata,
+    temperature: 0.5,
+  });
+  expect(body.reasoning_effort).toBe('high');
+  expect(body.max_completion_tokens).toBe(2048);
+  expect(body.max_tokens).toBeUndefined();
+  expect(body.temperature).toBeUndefined();
 });

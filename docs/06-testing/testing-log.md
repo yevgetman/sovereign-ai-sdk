@@ -1,5 +1,9 @@
 # Testing Log
 
+## 2026-10-10 — Future OpenAI reasoning request shape (#27 review)
+
+Fresh exact-model reasoning metadata now selects completion-token limits and omits temperature for IDs outside the legacy families. The synthetic future-ID wire fixture passed. `bun run lint && bun run typecheck && bun run test` passed: 5645 pass / 19 existing skips / 0 fail, 23187 assertions across 536 files. An initial lint run caught local formatting and was corrected before the frozen full gate. No paid inference or installed upgrade.
+
 ## 2026-10-10 — Model-aware reasoning controls (#27)
 
 Scope: exact direct/routed Grok depth, Kimi binary switch, metadata-driven future IDs, route validation, immutable per-turn metadata, unknown/stale refusal and refreshed-unknown compatibility. No paid provider requests or installed upgrade. Focused provider/route tests passed (101 cases); five new reasoning fixtures cover actual wire bodies and omitted-off choices. The former Kimi non-reasoning fixture now uses GPT4o.
