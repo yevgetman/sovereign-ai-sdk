@@ -15,6 +15,11 @@ import type {
   SystemSegment,
   TokenUsage,
 } from '@yevgetman/sov-sdk/core/types';
+import {
+  accumulateUsage,
+  createUsageAccumulator,
+  finalizeUsage,
+} from '@yevgetman/sov-sdk/core/usageAccumulator';
 import { auxiliaryClient } from '@yevgetman/sov-sdk/providers/auxiliary';
 import {
   NoAuxiliaryAvailableError,
@@ -348,7 +353,7 @@ async function summarizeWithAuxiliary(
   const capturedPrice = estimateUsageCost(String(resolved.metadata.provider), resolved.model, {});
   let text = '';
   let lastAssistant: AssistantMessage | undefined;
-  let usage: TokenUsage | undefined;
+  let usageAccumulator = createUsageAccumulator();
   const prompt = buildSummarizerPrompt(input);
   const stream = resolved.transport.stream({
     model: resolved.model,
@@ -361,8 +366,9 @@ async function summarizeWithAuxiliary(
   for await (const event of stream) {
     if (event.type === 'text_delta') text += event.text;
     if (event.type === 'assistant_message') lastAssistant = event.message;
-    if (event.type === 'usage_delta') usage = event.usage;
+    usageAccumulator = accumulateUsage(usageAccumulator, event);
   }
+  const usage = finalizeUsage(usageAccumulator);
   if (text.trim() === '' && lastAssistant) text = assistantTextBlocks(lastAssistant);
   if (text.trim() === '') throw new Error('compaction auxiliary returned an empty summary');
   const estimated = estimateUsageCost(

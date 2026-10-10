@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import type { ContentBlock, Message, SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import { SessionDb } from '../../src/agent/sessionDb.js';
 import {
@@ -569,4 +571,67 @@ test('non-finite compaction receipts cannot certify a complete bill', () => {
   expect(db.getUsageEstimates(session)[0]?.complete).toBe(false);
   expect(db.getUsageEstimates(session)[0]?.amountUsd).toBeUndefined();
   db.close();
+});
+
+test('native auxiliary split usage keeps input, cache, and cumulative output in one receipt', () => {
+  // Keep the module mock in its own process so other compaction tests retain
+  // the real auxiliary resolver, including when the full suite runs together.
+  const script = `
+    import { mock } from 'bun:test';
+    mock.module('@yevgetman/sov-sdk/providers/auxiliary', () => ({
+      auxiliaryClient: () => ({
+        model: 'claude-haiku-4-5-20251001', metadata: { provider: 'anthropic' },
+        transport: { async *stream() {
+          yield { type: 'message_start' };
+          yield { type: 'usage_delta', usage: {
+            inputTokens: 100, cacheReadInputTokens: 50, cacheCreationInputTokens: 20,
+          } };
+          yield { type: 'text_delta', text: 'valid summary' };
+          yield { type: 'usage_delta', usage: { outputTokens: 3 } };
+          yield { type: 'usage_delta', usage: { outputTokens: 10 } };
+          yield { type: 'message_stop', stop_reason: 'end_turn' };
+          return { role: 'assistant', content: [{ type: 'text', text: 'valid summary' }] };
+        } },
+      }),
+    }));
+    const { compactSession } = await import('./src/compact/compactor.ts');
+    const { SessionDb } = await import('./src/agent/sessionDb.ts');
+    const db = SessionDb.open({ path: ':memory:' });
+    const parent = db.createSession({ provider: 'anthropic', model: 'claude-haiku-4-5-20251001' });
+    const result = await compactSession({
+      db, sessionId: parent, model: 'claude-haiku-4-5-20251001', providerName: 'anthropic',
+      systemPrompt: [], tailTokenBudget: 1, minTailMessages: 1,
+      history: [
+        { role: 'user', content: [{ type: 'text', text: 'old '.repeat(100) }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'answer' }] },
+        { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+      ],
+    });
+    const usage = db.handle.query('SELECT usage FROM usage_estimates WHERE session_id = ?')
+      .get(result.newSessionId);
+    console.log(JSON.stringify({
+      cost: db.getSessionCost(result.newSessionId),
+      receipt: db.getUsageEstimates(result.newSessionId)[0],
+      usage: JSON.parse(usage.usage),
+    }));
+    db.close();
+  `;
+  const child = spawnSync(process.execPath, ['-e', script], {
+    cwd: resolve(import.meta.dir, '../..'),
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+  expect(child.status).toBe(0);
+  const result = JSON.parse(child.stdout.trim());
+  expect(result.cost.compactionInputTokens).toBe(100);
+  expect(result.cost.compactionOutputTokens).toBe(10);
+  expect(result.cost.costComplete).not.toBe(false);
+  expect(result.usage).toEqual({
+    inputTokens: 100,
+    outputTokens: 10,
+    cacheReadInputTokens: 50,
+    cacheCreationInputTokens: 20,
+  });
+  expect(result.receipt.complete).toBe(true);
+  expect(result.receipt.amountUsd).toBeCloseTo(0.00018, 10);
 });

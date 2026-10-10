@@ -29,6 +29,8 @@ import { REASONING_EFFORTS, type ReasoningEffort } from '@yevgetman/sov-sdk/prov
 import { isContextOverflowError } from '@yevgetman/sov-sdk/providers/errors';
 import { validateModelRequest } from '@yevgetman/sov-sdk/providers/models/validateRequest';
 import { estimateUsageCost } from '@yevgetman/sov-sdk/providers/pricing';
+import { listRoutes } from '@yevgetman/sov-sdk/providers/routes/catalog';
+import { validateRouteSelection } from '@yevgetman/sov-sdk/providers/routes/validate';
 import { expandSkillPrompt } from '@yevgetman/sov-sdk/skills/loader';
 import { buildToolScope, filterParseableRules } from '@yevgetman/sov-sdk/tool/toolScope';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
@@ -586,6 +588,18 @@ async function runTurnInBackground(
     const effectiveSystem = perTurnInstructions
       ? appendInstructions(projectedSystem, perTurnInstructions)
       : projectedSystem;
+    // The same model-specific effort contract used by menus applies before
+    // paying for history reduction. Omitted effort retains the existing default.
+    const effectiveEffort = perTurnEffort ?? sessionCtx.effort;
+    if (modelSnapshot && effectiveEffort !== undefined) {
+      const route = listRoutes().find((item) => item.id === modelSnapshot.metadata.routeId);
+      if (route)
+        validateRouteSelection(route, {
+          model: perTurnModel ?? runtime.model,
+          effort: effectiveEffort,
+          modelMetadata: modelSnapshot.metadata,
+        });
+    }
     // Check required features before paid proactive summarization. The SDK
     // repeats this check on the final request after any history pivot.
     validateModelRequest(

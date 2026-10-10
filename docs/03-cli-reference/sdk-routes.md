@@ -159,7 +159,9 @@ Fresh published context windows can grow beyond former static provider values.
 Stale or unknown evidence uses the SDK's conservative limits. Explicit output
 budgets still cap the output reservation. Gateway proactive compaction uses
 those same limits, system/schema/history accounting and output reservation.
-Required capabilities are checked before paid history summarization. A system
+Required capabilities and the model-specific effort selection are checked before
+paid history summarization. This includes both per-turn effort and the current
+session effort. A system
 or tool-schema overflow is refused rather than repeatedly summarized.
 Custom transports retain their established host limit contract.
 

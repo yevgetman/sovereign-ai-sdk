@@ -1,3 +1,18 @@
+## 2026-10-10 — PR43 fourth review: reject invalid effort before paid compaction
+
+**Scope:** Fixed a Medium issue where model-incompatible per-turn or session effort could trigger paid proactive history reduction before native request rejection. The gateway now applies the shared route/model effort contract before compaction. Included the reviewed PR37 factory identity freeze and PR41 cumulative native auxiliary usage correction. Custom providers without catalog snapshots retain their existing path.
+
+**Checks:** Focused gateway model-evidence/effort checks: 10 passed, 0 failed, 56 assertions. Independent PR37 direct-discovery recheck: 8 passed, 0 failed, 67 assertions. Independent PR41 compactor recheck: 15 passed, 0 failed, 82 assertions. Configured lint, typecheck and strict SDK build pass. The complete discovered test set passes: **5740 passed / 19 existing skips / 0 failed**, 23797 assertions across 548 files. The compiler fixture runs under a shared lock; the footer theme fixture runs in its own process; all other files run with a branch-specific TMPDIR. No test file was omitted.
+
+**Gate recovery and limits:** The initial complete run caught an existing test-order-sensitive footer color assertion (5717 passes, 19 skips, 1 failure in that process). Its isolated recheck passed 10/0; the complete gate was rerun with the fixture isolated and passed. Standard unpartitioned GitHub CI remains the final external gate. No real credentials, paid inference, runtime installation, release, live configuration or learning settings changed.
+
+## 2026-10-10 — PR37 fourth review: freeze direct discovery identity
+
+**Scope:** A confirmed High issue coupled headers captured at construction with a provider/endpoint read from mutable host options during refresh. Direct sources now capture the provider, endpoint, API key and account identity together. The regression repurposes the options before refresh and again during a two-page fetch for both OpenAI and Anthropic; endpoint, headers and normalized route remain tied to the original account.
+
+**Environment and commands:** macOS, Bun 1.3.13; injected fetch and fake credentials only. `bun test tests/providers/models/direct.test.ts`: 8 passed, 0 failed, 67 assertions. `bun run lint`, `bun run typecheck` and `bun run --cwd packages/sdk build` pass. `TMPDIR=/private/tmp/sdk-fourth-37-tmp bun run test`: 5646 passed, 19 existing skips, 0 failed; 23220 assertions across 535 files (91.67 seconds).
+
+**Manual coverage and limits:** Isolated pre-fix reproduction observed an OpenAI fake bearer credential addressed to the xAI endpoint after caller mutation. No real credentials, paid inference, host configuration, runtime installation or learning-loop settings changed. No new regression observed; the prior account-isolation, native capability and cache contracts remain intact.
 # Testing Log
 
 ## 2026-10-10 — PR43 third review: combined model-evidence fixes
