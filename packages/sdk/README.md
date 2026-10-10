@@ -356,3 +356,21 @@ signal. Distributed leases, durable meters and OS sandboxing remain host duties.
 
 Read next: [Production review](https://github.com/yevgetman/sovereign-ai-sdk/issues/15),
 [Consumer contract](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/05-conventions/consumer-contract.md).
+
+### OpenRouter execution policy
+
+Use `settings.providers.openrouter.routing` with `createAgent`, or pass
+`openrouterPolicy` when constructing `OpenAIProvider` directly. The optional
+policy supports `order`, `only`, `ignore`, `allow_fallbacks`,
+`require_parameters`, `data_collection`, `zdr`, `enforce_distillable_text`, and
+`sort` (`price`, `throughput`, `latency`). Fields use OpenRouter's wire names.
+For a strict host pin, set `only: ['host/endpoint']` and
+`allow_fallbacks: false`. `order` alone expresses a preference. Endpoint names
+are not a frozen SDK allowlist. Invalid and contradictory policies fail before
+inference. Only the OpenRouter transport accepts these fields; omitted policy
+keeps existing router defaults. If no allowed endpoint is available, the call
+fails without broadening the policy. Model-author prefixes identify the model,
+not the selected inference host. This adapter does not infer or certify the
+actual host; absent response evidence it remains unknown.
+
+Policy field definitions follow the [OpenRouter provider routing contract](https://openrouter.ai/docs/guides/routing/provider-selection).

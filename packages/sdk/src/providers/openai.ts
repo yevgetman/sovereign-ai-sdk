@@ -1,3 +1,4 @@
+import { type OpenRouterPolicy, validateOpenRouterPolicy } from './openrouterPolicy.js';
 // OpenAI-compatible chat transport. Used for OpenAI proper and OpenRouter;
 // both share the Chat Completions streaming/tool-call shape.
 
@@ -78,6 +79,7 @@ type OpenAIToolCall = {
 };
 
 type OpenAIChatBody = {
+  provider?: OpenRouterPolicy;
   model: string;
   messages: OpenAIMessage[];
   stream: true;
@@ -144,7 +146,8 @@ export type OpenAIChatChunk = {
   };
 };
 
-type OpenAIProviderConfig = {
+export type OpenAIProviderConfig = {
+  openrouterPolicy?: OpenRouterPolicy;
   apiKey?: string;
   baseURL?: string;
   name?: string;
@@ -165,6 +168,14 @@ export class OpenAIProvider
     // gate by overriding `requiresApiKey()` + the default base URL.
     if (this.requiresApiKey() && !config.apiKey) throw new Error('OpenAIProvider requires apiKey');
     this.name = config.name ?? this.defaultName();
+    if (config.openrouterPolicy !== undefined) {
+      if (this.name !== 'openrouter')
+        throw new Error('OpenRouter policy requires openrouter transport');
+      this.config = {
+        ...config,
+        openrouterPolicy: validateOpenRouterPolicy(config.openrouterPolicy),
+      };
+    }
     this.baseURL = (config.baseURL ?? this.defaultBaseUrl()).replace(/\/$/, '');
     this.fetchImpl = config.fetchImpl ?? fetch;
   }
@@ -339,6 +350,9 @@ export class OpenAIProvider
       // real. Only sov gets this key; openai/ollama keep a byte-identical
       // default-off body.
       ...(this.apiMode === 'sov' ? { chat_template_kwargs: { enable_thinking: reasoningOn } } : {}),
+      ...(this.name === 'openrouter' && this.config.openrouterPolicy !== undefined
+        ? { provider: validateOpenRouterPolicy(this.config.openrouterPolicy) }
+        : {}),
     };
   }
 

@@ -1,3 +1,4 @@
+import type { OpenRouterPolicy } from './openrouterPolicy.js';
 // Unified provider resolver. Every surface should come through here so model
 // aliases, base URLs, credential selection, and rate-limit guard behavior do
 // not fork across CLI/gateway/cron/API server.
@@ -139,6 +140,7 @@ export function resolveProvider(
     selected?.secret,
     numCtx,
     routerHeaders,
+    providerName === 'openrouter' ? settings.providers?.openrouter?.routing : undefined,
   );
   const guarded = wrapWithProviderHardening(transport, providerName, selected, opts);
 
@@ -324,6 +326,7 @@ function instantiateTransport(
   apiKey: string | undefined,
   numCtx: number | undefined,
   headers: Record<string, string> | undefined,
+  openrouterPolicy?: OpenRouterPolicy,
 ): Transport {
   if (apiMode === 'anthropic') {
     if (!apiKey) throw new CredentialUnavailableError(providerName);
@@ -331,7 +334,12 @@ function instantiateTransport(
   }
   if (apiMode === 'openai') {
     if (!apiKey) throw new CredentialUnavailableError(providerName);
-    return new OpenAIProvider({ apiKey, baseURL: baseUrl, name: providerName }) as Transport;
+    return new OpenAIProvider({
+      apiKey,
+      baseURL: baseUrl,
+      name: providerName,
+      ...(openrouterPolicy !== undefined ? { openrouterPolicy } : {}),
+    }) as Transport;
   }
   if (apiMode === 'sov') {
     // Keyless local lane — never throws on a missing key; only attaches the

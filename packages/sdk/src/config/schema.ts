@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { REASONING_EFFORTS } from '../providers/effort.js';
+import { OpenRouterPolicySchema } from '../providers/openrouterPolicy.js';
 
 const CredentialConfigSchema = z
   .object({
@@ -357,7 +358,9 @@ export const SettingsSchema = z
       .object({
         anthropic: ProviderConfigSchema.optional(),
         openai: ProviderConfigSchema.optional(),
-        openrouter: ProviderConfigSchema.optional(),
+        openrouter: ProviderConfigSchema.extend({ routing: OpenRouterPolicySchema.optional() })
+          .strict()
+          .optional(),
         /** Direct xAI API-key lane (`XAI_API_KEY`, https://api.x.ai/v1). Not the
          *  `grok` subscription login, and not OpenRouter-hosted Grok. */
         xai: ProviderConfigSchema.optional(),

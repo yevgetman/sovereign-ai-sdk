@@ -140,6 +140,7 @@ import type {
   MicrocompactInfo,
   ObservationStatus,
   ObserveInput,
+  OpenRouterPolicy,
   OutputFinalVerdict,
   ParsedPermissionRule,
   PathLockManager,
@@ -302,6 +303,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'query',
   'renamesFor',
   'resolveProvider',
+  'validateOpenRouterPolicy',
   'wrapConductAuditSink',
 ];
 
@@ -467,6 +469,7 @@ type TypeSurfaceWitness = {
   providerRequest?: ProviderRequest;
   queryParams?: QueryParams;
   reasoningEffort?: ReasoningEffort;
+  openrouterPolicy?: OpenRouterPolicy;
   recalledLesson?: RecalledLesson;
   recallResult?: RecallResult;
   recallTurn?: RecallTurn;

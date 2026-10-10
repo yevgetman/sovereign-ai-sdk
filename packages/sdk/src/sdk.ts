@@ -372,3 +372,6 @@ export type {
   RequestBudgetEstimate,
   EstimateRequestBudget,
 } from './runtime/treeBudget.js';
+
+export type { OpenRouterPolicy } from './providers/openrouterPolicy.js';
+export { validateOpenRouterPolicy } from './providers/openrouterPolicy.js';

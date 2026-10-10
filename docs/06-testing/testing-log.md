@@ -1,5 +1,12 @@
 # Testing Log
 
+## 2026-10-10 — OpenRouter execution-policy isolation (#31)
+
+Added optional typed host order/allow/deny, fallback, parameter-support and privacy policy. Unknown endpoint slugs remain usable without a frozen host allowlist; invalid or contradictory policy fails instead of widening selection. Exact offline fixtures cover default bodies, strict host pin, native transport isolation, SDK/SOV settings resolution and unavailable endpoint failure without a second request. Model author is not reported as an observed inference host. No paid request, release, package bump or installed upgrade.
+
+Focused policy + public surface tests **9 pass /zero fail**. Final configured gate lint/boundary/types passes; full Bun suite **5630 pass /19 existing skips /zero fail**,23115 assertions across533files (95.37s). Intermediate gates found a missing ignored TUI binary in the isolated worktree, then the deliberate public-barrel addition guard; restored the known built test binary and updated the type witness/value snapshot. Local workspace dependencies resolve to this worktree, not the source seat. Recall quality was not measured.
+
+
 ## 2026-10-10 — Provider/model gap report and issue register
 
 Documentation-only assessment at source f2b59e617e4c4a220428a53e194b5062e52358d5 and installed SOV 0.6.76. The formal [gap report](../../specs/2026-10-10-provider-model-discovery-gap-report.md) records source evidence, public metadata, local selection/request probes and the limits of those checks. Filed and read back all 12 open issues: SDK #24–#33, Telekit #30 and Kernel installer #176. Each has acceptance criteria and cross-repository dependencies. This does not implement the gaps or select them into the active release roster.
