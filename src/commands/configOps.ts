@@ -68,6 +68,7 @@ import {
   unsetAt,
   writeConfig,
 } from '@yevgetman/sov-sdk/config/store';
+import { findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import {
   CONFIG_CATALOG,
   type ConfigEditor,
@@ -80,6 +81,18 @@ import {
   listUnmanagedKeys,
 } from '../config/catalog.js';
 import type { LiveApplySideEffect } from '../config/liveApply.js';
+import {
+  commandModelSettings,
+  modelAuthor,
+  modelDetails,
+  modelProviderForSetting,
+  providerModelCatalog,
+} from '../config/modelSuggestions.js';
+
+/** Read and write the active node; explicit config overrides still win. */
+function readCommandConfig(ctx: CommandContext) {
+  return readConfig(ctx.harnessHome === undefined ? {} : { harnessHome: ctx.harnessHome });
+}
 
 // ──────────────────────────────────────────────────────────────────────
 // Side-effect relay — bridges LiveApplySideEffect to CommandContext
@@ -205,7 +218,7 @@ export async function dispatchConfigCommand(args: string, ctx: CommandContext): 
 
   // Legacy `show` shortcut — preserved as a JSON-dump escape hatch.
   if (trimmed === 'show') {
-    return showJson();
+    return showJson(ctx);
   }
 
   // 2026-05-24 patch — open a draft for the current session on every
@@ -217,7 +230,7 @@ export async function dispatchConfigCommand(args: string, ctx: CommandContext): 
   const rest = firstSpace === -1 ? '' : trimmed.slice(firstSpace + 1).trim();
   const readOnlyVerbs = new Set(['path', 'get', 'show', 'commit', 'discard']);
   if (!readOnlyVerbs.has(verb)) {
-    ensureDraft(ctx.sessionId, readConfig());
+    ensureDraft(ctx.sessionId, readCommandConfig(ctx));
   }
 
   // No verb: root menu picker.
@@ -226,8 +239,8 @@ export async function dispatchConfigCommand(args: string, ctx: CommandContext): 
   }
 
   try {
-    if (verb === 'path') return resolveConfigPath();
-    if (verb === 'get') return runGet(rest);
+    if (verb === 'path') return resolveConfigPath(undefined, ctx.harnessHome);
+    if (verb === 'get') return runGet(rest, ctx);
     if (verb === 'set') return await runSet(rest, ctx);
     if (verb === 'unset') return await runUnset(rest, ctx);
     if (verb === 'edit') return runEdit(rest, ctx);
@@ -261,7 +274,7 @@ export async function dispatchConfigCommand(args: string, ctx: CommandContext): 
 
 function openRootMenu(ctx: CommandContext): string {
   const groups = listRootMenuGroups();
-  const settings = readConfig();
+  const settings = readCommandConfig(ctx);
   const unmanaged = listUnmanagedKeys(settings);
 
   // Surfaces without requestPicker (headless dispatch): fall back to a
@@ -337,7 +350,7 @@ function openGroup(groupId: string, ctx: CommandContext): string {
     return '';
   }
 
-  const settings = readConfig();
+  const settings = readCommandConfig(ctx);
   const redacted = redactSecrets(settings);
 
   if (ctx.requestPicker === undefined) {
@@ -390,7 +403,7 @@ function openGroup(groupId: string, ctx: CommandContext): string {
 }
 
 function openAdvancedGroup(ctx: CommandContext): string {
-  const settings = readConfig();
+  const settings = readCommandConfig(ctx);
   const unmanaged = listUnmanagedKeys(settings);
   const redacted = redactSecrets(settings);
 
@@ -474,7 +487,7 @@ function formatValueColumnRaw(raw: unknown): string {
 
 function runEdit(rest: string, ctx: CommandContext): string {
   if (!rest) return 'usage: /config edit <dotpath>';
-  const path = rest;
+  const [path = '', ...modelArgs] = rest.split(/\s+/);
   // 2026-05-24 Phase 2.5 — task-routing submenu's preset shortcut
   // sentinels route through the dispatcher's `edit` verb. Detect them
   // here and route to the preset handlers instead of the field-editor
@@ -486,9 +499,19 @@ function runEdit(rest: string, ctx: CommandContext): string {
     return `unknown config field: ${path}\nlist available: /config`;
   }
 
-  const settings = readConfig();
+  const settings = readCommandConfig(ctx);
   const currentRaw = getAt(settings as Record<string, unknown>, path);
   const editor = item.editor;
+  const modelProvider = modelProviderForSetting(path, settings);
+  if (modelProvider && editor.kind === 'string')
+    return openCatalogModelEditor(
+      item,
+      modelProvider,
+      settings,
+      currentRaw,
+      ctx,
+      modelArgs.join(' '),
+    );
 
   // Boolean / enum / string-with-choices → picker
   if (editor.kind === 'boolean') {
@@ -511,6 +534,85 @@ function runEdit(rest: string, ctx: CommandContext): string {
 
   // String / number / secret → inputOpen
   return openInputEditor(item, editor, currentRaw, ctx);
+}
+
+function openCatalogModelEditor(
+  item: ConfigItem,
+  provider: string,
+  settings: import('@yevgetman/sov-sdk/config/schema').Settings,
+  currentRaw: unknown,
+  ctx: CommandContext,
+  args: string,
+): string {
+  if (args === '--custom') return openInputEditor(item, item.editor, currentRaw, ctx);
+  let selectedAuthor: string | undefined;
+  if (args.startsWith('--author ')) {
+    try {
+      selectedAuthor = decodeURIComponent(args.slice(9));
+    } catch {
+      return 'invalid author selection';
+    }
+  }
+  const search = args.startsWith('--search ') ? args.slice(9).toLowerCase() : undefined;
+  const catalog = providerModelCatalog(
+    provider,
+    ctx.getModelCatalogSettings ? commandModelSettings(ctx) : settings,
+    ctx.harnessHome,
+  );
+  const current = typeof currentRaw === 'string' ? currentRaw : '';
+  const records = [...catalog.models];
+  if (current && !records.some((model) => model.id === current))
+    records.unshift(findModel(catalog, current));
+  const grouped = provider === 'openrouter' && selectedAuthor === undefined && search === undefined;
+  const notice = catalog.state === 'current' ? 'cached metadata' : 'offline/stale suggestions';
+  const subtitle = `route:${catalog.routeId} · ${notice}. Search: /config edit ${item.path} --search text`;
+  if (!ctx.requestPicker)
+    return `${item.path}\ncurrent: ${current || '(unset)'}\n${subtitle}\nset: /config set ${item.path} <exact ID>`;
+  if (grouped) {
+    ctx.requestPicker({
+      title: 'model author',
+      subtitle,
+      items: [...new Set(records.map(modelAuthor))]
+        .sort()
+        .slice(0, 100)
+        .map((author) => ({ label: author, value: `--author ${encodeURIComponent(author)}` }))
+        .concat([{ label: 'type custom model ID…', value: '--custom' }]),
+      initial: 0,
+      onSelect: { command: `config edit ${item.path}` },
+      ...configPickerBindings(),
+    });
+    return '';
+  }
+  const visible = records
+    .filter(
+      (model) =>
+        (!selectedAuthor || modelAuthor(model) === selectedAuthor) &&
+        (!search || `${model.id} ${model.displayName}`.toLowerCase().includes(search)),
+    )
+    .slice(0, 100);
+  ctx.requestPicker({
+    title: item.path,
+    subtitle,
+    items: visible
+      .map((model) => ({
+        label: model.id,
+        value: model.id,
+        hint: `${model.id === current ? '(current) · ' : ''}${modelDetails(model)}`,
+      }))
+      .concat([{ label: 'type custom model ID…', value: CUSTOM_VALUE_SENTINEL, hint: 'exact ID' }]),
+    initial: Math.max(
+      0,
+      visible.findIndex((model) => model.id === current),
+    ),
+    onSelect: { command: `config set ${item.path}` },
+    onBack: {
+      command: selectedAuthor
+        ? `config edit ${item.path}`
+        : (backCommandForEditor(item) ?? 'config'),
+    },
+    ...configPickerBindings(),
+  });
+  return '';
 }
 
 function openBooleanPicker(item: ConfigItem, currentRaw: unknown, ctx: CommandContext): string {
@@ -686,7 +788,7 @@ async function runSet(rest: string, ctx: CommandContext): Promise<string> {
   // recognizes it and reroutes to the input editor for free-text entry
   // instead of trying to persist the literal sentinel string.
   if (rawValue === CUSTOM_VALUE_SENTINEL && item !== undefined) {
-    const settings = readConfig();
+    const settings = readCommandConfig(ctx);
     const currentRaw = getAt(settings as Record<string, unknown>, path);
     return openInputEditor(item, item.editor, currentRaw, ctx);
   }
@@ -699,7 +801,7 @@ async function runSet(rest: string, ctx: CommandContext): Promise<string> {
   // user lost their typed value. Fix: on validation failure, re-emit
   // the SAME editor with the user's value preserved + the error as
   // the editor's subtitle, so they can correct in place.
-  const before = readConfig();
+  const before = readCommandConfig(ctx);
   let next: ReturnType<typeof setAt>;
   try {
     next = setAt(before, path, value);
@@ -707,7 +809,7 @@ async function runSet(rest: string, ctx: CommandContext): Promise<string> {
     const message = err instanceof Error ? err.message : String(err);
     return reopenEditorWithError(item, path, rawValue, message, ctx);
   }
-  writeConfig(next);
+  writeConfig(next, resolveConfigPath(undefined, ctx.harnessHome));
   // 2026-05-24 patch — track this path in the active draft so
   // /config discard knows what to roll back.
   recordModification(ctx.sessionId, path);
@@ -725,13 +827,13 @@ async function runSet(rest: string, ctx: CommandContext): Promise<string> {
   // change isn't silent.
   let cascadeNote = '';
   if (path === 'defaultModel') {
-    const afterSet = readConfig();
+    const afterSet = readCommandConfig(ctx);
     const activeProvider = afterSet.defaultProvider ?? 'anthropic';
     const overridePath = `providers.${activeProvider}.model`;
     const providerModel = getAt(afterSet as Record<string, unknown>, overridePath);
     if (providerModel !== undefined && providerModel !== null) {
       const cleared = unsetAt(afterSet, overridePath);
-      writeConfig(cleared);
+      writeConfig(cleared, resolveConfigPath(undefined, ctx.harnessHome));
       recordModification(ctx.sessionId, overridePath);
       cascadeNote = ` (also cleared ${overridePath} = ${String(providerModel)} so the new default takes effect)`;
     }
@@ -770,9 +872,9 @@ async function runSet(rest: string, ctx: CommandContext): Promise<string> {
 async function runUnset(rest: string, ctx: CommandContext): Promise<string> {
   if (!rest) return 'usage: /config unset <dotpath>';
   const path = rest;
-  const before = readConfig();
+  const before = readCommandConfig(ctx);
   const next = unsetAt(before, path);
-  writeConfig(next);
+  writeConfig(next, resolveConfigPath(undefined, ctx.harnessHome));
   recordModification(ctx.sessionId, path);
 
   const standalone = ctx.isConfigStandalone === true;
@@ -977,7 +1079,7 @@ function pickToast(
  * <id>` which writes the preset's values into config.
  */
 function openPresetPicker(ctx: CommandContext): string {
-  const settings = readConfig();
+  const settings = readCommandConfig(ctx);
   const saved = readSavedPresets(settings);
   const savedEntries = Object.entries(saved);
 
@@ -1037,14 +1139,14 @@ async function runApplyPreset(rest: string, ctx: CommandContext): Promise<string
   if (!rest) return 'usage: /config apply-preset <name>';
   const name = rest.trim();
   const builtin = findBuiltinPreset(name);
-  const settings = readConfig();
+  const settings = readCommandConfig(ctx);
   const saved = readSavedPresets(settings);
   const shape: PresetShape | undefined = builtin?.shape ?? saved[name];
   if (shape === undefined) {
     return `unknown preset: ${name}\nlist: /config preset`;
   }
   const next = applyPresetToSettings(settings, shape);
-  writeConfig(next);
+  writeConfig(next, resolveConfigPath(undefined, ctx.harnessHome));
   // 2026-05-24 patch — record every path the preset writes so /config
   // discard rolls them back. Preset touches delegator.model + each
   // lane's provider + model.
@@ -1062,7 +1164,7 @@ async function runApplyPreset(rest: string, ctx: CommandContext): Promise<string
     await ctx.rebuildTaskRouting();
     liveApplied = true;
     const { detectActivePreset } = await import('@yevgetman/sov-sdk/config/presets');
-    const freshSettings = readConfig();
+    const freshSettings = readCommandConfig(ctx);
     const preset = detectActivePreset(freshSettings) ?? '';
     if (ctx.recordTaskRouterChange !== undefined) {
       ctx.recordTaskRouterChange(preset);
@@ -1103,12 +1205,12 @@ function runSavePreset(rest: string, ctx: CommandContext): string {
   if (validation !== null) {
     return `config error: ${validation}`;
   }
-  const settings = readConfig();
+  const settings = readCommandConfig(ctx);
   const shape = snapshotCurrentAsPreset(settings);
   // Merge into savedPresets via setAt so the existing immutable-update
   // helpers in store.ts handle the nested path.
   const next = setAt(settings, `taskRouting.savedPresets.${trimmed}`, shape);
-  writeConfig(next);
+  writeConfig(next, resolveConfigPath(undefined, ctx.harnessHome));
   recordModification(ctx.sessionId, `taskRouting.savedPresets.${trimmed}`);
   // Re-emit the task-routing submenu so the user can immediately
   // verify the snapshot landed.
@@ -1128,13 +1230,13 @@ function runDeletePreset(rest: string, ctx: CommandContext): string {
   if (findBuiltinPreset(name) !== undefined) {
     return `cannot delete built-in preset '${name}'`;
   }
-  const settings = readConfig();
+  const settings = readCommandConfig(ctx);
   const saved = readSavedPresets(settings);
   if (!Object.hasOwn(saved, name)) {
     return `no saved preset named '${name}'`;
   }
   const next = unsetAt(settings, `taskRouting.savedPresets.${name}`);
-  writeConfig(next);
+  writeConfig(next, resolveConfigPath(undefined, ctx.harnessHome));
   recordModification(ctx.sessionId, `taskRouting.savedPresets.${name}`);
   if (ctx.requestPicker !== undefined) {
     openGroup('task-routing', ctx);
@@ -1190,7 +1292,7 @@ async function runDiscard(ctx: CommandContext): Promise<string> {
   }
   // Restore the baseline to disk in one write. The pre-modification
   // settings overwrite whatever's there.
-  writeConfig(taken.baseline);
+  writeConfig(taken.baseline, resolveConfigPath(undefined, ctx.harnessHome));
   // Re-fire live-apply hooks for each modified path with the value
   // from the baseline, so runtime state reverts to its pre-draft
   // shape. Hook side-effects (themeChanged / verboseChanged) flow
@@ -1220,14 +1322,14 @@ async function runDiscard(ctx: CommandContext): Promise<string> {
 // Legacy verbs: show / get
 // ──────────────────────────────────────────────────────────────────────
 
-function showJson(): string {
-  const settings = readConfig();
+function showJson(ctx: CommandContext): string {
+  const settings = readCommandConfig(ctx);
   return JSON.stringify(redactSecrets(settings), null, 2);
 }
 
-function runGet(rest: string): string {
+function runGet(rest: string, ctx: CommandContext): string {
   if (!rest) return 'usage: /config get <dotpath>';
-  const settings = readConfig();
+  const settings = readCommandConfig(ctx);
   const value = getAt(redactSecrets(settings), rest);
   return formatValue(value);
 }

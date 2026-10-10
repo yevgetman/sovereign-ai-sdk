@@ -1,3 +1,5 @@
+import { fallbackModelCatalog, findModel } from '@yevgetman/sov-sdk/providers/models/index';
+import { diskModelCache, modelSource } from '../../src/cli/modelDiscovery.js';
 // Usage-telemetry T5 (F1 + F3) — full-turn usage accumulation on the gateway.
 //
 // The load-bearing regression pin: a tool-loop turn makes N provider calls,
@@ -277,6 +279,36 @@ describe('turns route — full-turn usage accumulation (T5 / F1 + F3)', () => {
     const priced = new CacheReportingProvider();
     Object.defineProperty(priced, 'name', { value: 'anthropic' });
     runtime.resolvedProvider.transport = priced;
+    // The catalog snapshot intentionally refuses unknown pricing. This fixture
+    // supplies verified rates for the exact per-turn model, not the runtime default.
+    const catalog = fallbackModelCatalog('anthropic-api');
+    const source = modelSource('anthropic-api', runtime.injectedSettings ?? {});
+    const fetchedAt = new Date().toISOString();
+    await diskModelCache(join(home, 'model-catalog')).set(
+      `${source.routeId}:${source.cacheKey ?? 'public'}`,
+      {
+        ...catalog,
+        state: 'current',
+        fetchedAt,
+        models: [
+          {
+            ...findModel(catalog, 'claude-haiku-4-5-20251001'),
+            contextWindow: 200_000,
+            pricing: {
+              state: 'paid',
+              currency: 'USD',
+              source: 'fixture-per-turn',
+              inputPerMillion: 1,
+              outputPerMillion: 5,
+              cacheReadPerMillion: 0.1,
+              cacheWritePerMillion: 1.25,
+              fetchedAt,
+            },
+            metadata: { source: 'fixture', stale: false, fetchedAt },
+          },
+        ],
+      },
+    );
     try {
       const app = buildAppWithRuntime(runtime);
       const response = await app.request('/sessions', { method: 'POST' });
@@ -292,6 +324,7 @@ describe('turns route — full-turn usage accumulation (T5 / F1 + F3)', () => {
       const receipt = runtime.sessionDb.getUsageEstimates(sessionId)[0];
       expect(receipt?.model).toBe('claude-haiku-4-5-20251001');
       expect(receipt?.complete).toBe(true);
+      expect(receipt?.source).toBe('fixture-per-turn');
       expect(receipt?.amountUsd).toBeCloseTo(0.0002925, 9);
       expect(finalStatusUpdate(events)?.cost).toBe(receipt?.amountUsd);
     } finally {

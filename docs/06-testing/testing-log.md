@@ -1,3 +1,7 @@
+## 2026-10-10 — PR43 fifth-review final parent alignment
+
+Merged actual final PR34 `bb55c6c2`. All tracked non-Markdown files are byte-identical to passing complete-gate commit `8efd48b0`; only preserved parent test records and ancestry changed. The downstream output-ceiling reset remains intact. Final lint passes.
+
 ## 2026-10-10 — PR34 fifth review: final parent history alignment
 
 Aligned the actual latest parent `c6dc89c9` after complete gating at `7b973f9b`. All tracked non-Markdown files are byte-identical to the gated source and tests. This ordinary feature-branch merge adds only review documentation and ancestry. Final lint passes; the complete gated test result remains applicable. No release, installed runtime or host change.
@@ -46,12 +50,39 @@ Fresh code-review of the PR's own change and callers found no new above-Low defe
 
 Configured lint, typecheck and strict SDK build pass. Complete test coverage with branch TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture: **5720 passed / 19 existing skips / 0 failed**, 23695 assertions across 545 files. No paid inference, installed runtime change, release or host configuration edits. Telekit and Mac app excluded.
 
+## 2026-10-10 — PR43 fifth review and SDK reasoning preflight integration
+
+Fresh independent review found no additional above-Low defect in this PR's own changes. Integrated reviewed PR38 `56f6c2ed` through an ordinary feature-branch merge. The direct SDK now rejects impossible metadata-backed effort selections before a host can pay for context reduction. Existing downstream request accounting, modalities and host evidence contracts remain intact. Independent new preflight regression: **1 passed / zero failed**, 4 assertions; zero reductions and provider fetches.
+
+Owned model menus, model metadata, gateway effort preflight, child metadata, command context and CLI lifecycle checks: **41 passed / zero failed**, 174 assertions. Root independent prior-correction checks (direct discovery, compactor, gateway model metadata and model limits): **39 passed / zero failed**, 238 assertions. Catalog-agent unchanged-source focused checks: PR35 **12/0**, 96 assertions; PR36 **17/0**, 112 assertions; PR37 **25/0**, 183 assertions; PR42 **33/0**, 238 assertions.
+
+Configured lint, typecheck and strict SDK build pass. Complete gate executes every discovered test file with unique TMPDIR, a serialized compiler fixture and isolated existing footer/theme fixture: **5741 passed / 19 existing skips / zero failed**, 23801 assertions across 549 files. No paid inference, live runtime upgrade, provider credentials, release, Telekit or Mac app changes. Actual final parent ancestry is aligned separately only when all non-Markdown files are proven unchanged from this tested tree.
+
 ## 2026-10-10 — PR38 fifth review: reject effort before paid reduction
 
 Confirmed Medium: direct SDK query/createAgent invoked contextManager.reduce before the provider rejected metadata-backed unsupported reasoning effort. Query now validates built-in route selections before context reduction, retaining metadata-less and custom-provider behavior. An isolated fake-provider regression fails before the fix (one reduction) and passes after it (zero reductions and zero fetches). Independent host reviewer closed the finding with the same regression: 1 passed / 0 failed / 4 assertions.
 
 Focused reasoning/preflight: 11 passed / zero failed / 140 assertions. The first gate attempt identified two regression-only TypeScript typing errors; corrected before the complete rerun. Final lint, typecheck and strict SDK build pass. Every discovered test file executed using per-branch TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture: **5657 passed / 19 existing skips / zero failed**, 23365 assertions across 537 files. No paid inference, runtime install, learning settings or host configuration changes.
 
+## 2026-10-10 — PR43 final fourth-review dependency alignment
+
+Merged final PR34 `44e0590d`. All source and test files remain byte-identical to the complete passing 5740-test gate at `6e4abb60`; this merge adds testing evidence and final parent ancestry only. Final lint passes.
+
+## 2026-10-10 — PR43 fourth review: reject invalid effort before paid compaction
+
+**Scope:** Fixed a Medium issue where model-incompatible per-turn or session effort could trigger paid proactive history reduction before native request rejection. The gateway now applies the shared route/model effort contract before compaction. Included the reviewed PR37 factory identity freeze and PR41 cumulative native auxiliary usage correction. Custom providers without catalog snapshots retain their existing path.
+
+**Checks:** Focused gateway model-evidence/effort checks: 10 passed, 0 failed, 56 assertions. Independent PR37 direct-discovery recheck: 8 passed, 0 failed, 67 assertions. Independent PR41 compactor recheck: 15 passed, 0 failed, 82 assertions. Configured lint, typecheck and strict SDK build pass. The complete discovered test set passes: **5740 passed / 19 existing skips / 0 failed**, 23797 assertions across 548 files. The compiler fixture runs under a shared lock; the footer theme fixture runs in its own process; all other files run with a branch-specific TMPDIR. No test file was omitted.
+
+**Gate recovery and limits:** The initial complete run caught an existing test-order-sensitive footer color assertion (5717 passes, 19 skips, 1 failure in that process). Its isolated recheck passed 10/0; the complete gate was rerun with the fixture isolated and passed. Standard unpartitioned GitHub CI remains the final external gate. No real credentials, paid inference, runtime installation, release, live configuration or learning settings changed.
+
+## 2026-10-10 — PR37 fourth review: freeze direct discovery identity
+
+**Scope:** A confirmed High issue coupled headers captured at construction with a provider/endpoint read from mutable host options during refresh. Direct sources now capture the provider, endpoint, API key and account identity together. The regression repurposes the options before refresh and again during a two-page fetch for both OpenAI and Anthropic; endpoint, headers and normalized route remain tied to the original account.
+
+**Environment and commands:** macOS, Bun 1.3.13; injected fetch and fake credentials only. `bun test tests/providers/models/direct.test.ts`: 8 passed, 0 failed, 67 assertions. `bun run lint`, `bun run typecheck` and `bun run --cwd packages/sdk build` pass. `TMPDIR=/private/tmp/sdk-fourth-37-tmp bun run test`: 5646 passed, 19 existing skips, 0 failed; 23220 assertions across 535 files (91.67 seconds).
+
+**Manual coverage and limits:** Isolated pre-fix reproduction observed an OpenAI fake bearer credential addressed to the xAI endpoint after caller mutation. No real credentials, paid inference, host configuration, runtime installation or learning-loop settings changed. No new regression observed; the prior account-isolation, native capability and cache contracts remain intact.
 ## 2026-10-10 — PR34 fourth review: integrate reviewed discovery and billing corrections
 
 No new finding above Low in the OpenRouter routing-policy changes. Integrated the reviewed PR37 factory identity freeze and PR41 native auxiliary cumulative usage correction while retaining this branch's pooled-account catalog handling and strict inference policy.
@@ -71,6 +102,22 @@ Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endp
 
 # Testing Log
 
+## 2026-10-10 — PR43 third review: combined model-evidence fixes
+
+Integrated all six new Medium corrections: published Anthropic controls, shared native menu/request validation, explicit incomplete image accounting, immutable model evidence, safe per-turn identity changes, and pooled-account discovery isolation. Preserved prior exact native wire enums, node isolation, immutable pricing and current-output budget traces. Independent merge review found no remaining issue above Low.
+
+Configured lint, typecheck, strict SDK build and full tests pass: **5736 passed / 19 existing skips / zero failed**, 23758 assertions across 548 files (98.02s). No paid inference or installed changes. New public API type witness and the image fixture CRC are independently verified. The combined source is frozen for actual final parent ancestry alignment; later documentation-only merges reuse this exact gate.
+
+
+## 2026-10-10 — PR39 third review: image accounting and immutable model evidence
+
+Resolved three Medium findings: image transport bytes no longer masquerade as input tokens; per-turn model/provider changes do not inherit another identity's standing record; model evidence is frozen before asynchronous host callbacks. Input accounting exposes incomplete image estimates in traces, preserves the image payload, accepts verified host counters, and retains provider overflow recovery. Merged reviewed PR38 native Anthropic controls with PR39 thinking-budget caps intact.
+
+Configured lint, typecheck, strict SDK build and full tests pass: **5672 passed / 19 existing skips / zero failed**, 23424 assertions across 539 files (89.90s). Focused image/model-evidence checks passed 17 tests / 83 assertions. The initial combined gate caught a missing public type-surface witness; this gate includes its correction. The PNG fixture has valid chunk CRCs. Independent review closed the image and metadata findings. No paid inference or installed changes.
+
+## 2026-10-10 — PR #43 final reviewed dependency integration
+
+Integrated the reviewed cache, subscription, reasoning, endpoint-isolation and immutable pricing fixes with the node-scoped menus and current-model context budget fixes. Lint, typecheck and strict SDK build pass. Full suite: 5725 passed, 19 skipped, zero failed; 23645 assertions across 547 files (96.06 seconds). Independent reviewers confirmed the Medium findings are resolved. No installed configuration changes or paid inference.
 ## 2026-10-10 — PR34 closes reviewed PR42 ancestry
 
 Merged final PR42 be97f8bf after the combined PR34 gate. All functional and test
@@ -177,13 +224,6 @@ Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endp
 
 `bun run lint`, `bun run typecheck` and strict `bun run --cwd packages/sdk build` pass. The complete gate executes every discovered test file with a branch-specific TMPDIR; the global temporary-compiler fixture is serialized and the shared-theme footer fixture runs in its own process. Final result: **5656 passed / 19 existing skips / zero failed**, 23361 assertions across 536 files. The first alphabetic all-file attempt failed one existing footer-color assertion due to shared theme state; standalone footer checks and the final complete isolated gate pass. No test was skipped to avoid that issue, and no production/test source was changed for it. No paid inference, installed runtime or host configuration changes.
 
-## 2026-10-10 — PR37 fourth review: freeze direct discovery identity
-
-**Scope:** A confirmed High issue coupled headers captured at construction with a provider/endpoint read from mutable host options during refresh. Direct sources now capture the provider, endpoint, API key and account identity together. The regression repurposes the options before refresh and again during a two-page fetch for both OpenAI and Anthropic; endpoint, headers and normalized route remain tied to the original account.
-
-**Environment and commands:** macOS, Bun 1.3.13; injected fetch and fake credentials only. `bun test tests/providers/models/direct.test.ts`: 8 passed, 0 failed, 67 assertions. `bun run lint`, `bun run typecheck` and `bun run --cwd packages/sdk build` pass. `TMPDIR=/private/tmp/sdk-fourth-37-tmp bun run test`: 5646 passed, 19 existing skips, 0 failed; 23220 assertions across 535 files (91.67 seconds).
-
-**Manual coverage and limits:** Isolated pre-fix reproduction observed an OpenAI fake bearer credential addressed to the xAI endpoint after caller mutation. No real credentials, paid inference, host configuration, runtime installation or learning-loop settings changed. No new regression observed; the prior account-isolation, native capability and cache contracts remain intact.
 
 ## 2026-10-10 — PR37 ancestor cache fixes integration
 
@@ -206,6 +246,24 @@ Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endp
 
 Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typecheck and strict SDK build pass. Full suite: 5643 passed, 19 skipped, zero failed; 23183 assertions across 535 files (91.44 seconds).
 
+
+## 2026-10-10 — PR #43 review: current model context budget
+
+A second independent review found that `/context-budget` kept a previous model's frozen capacity after `/model` changed the shared model. Budget snapshots now include provider and model identity. Reports reuse a matching snapshot; otherwise they resolve the current selection from the active node and injected settings. Tests preserve unchanged-model snapshots and cover large-to-small model selection, another session's shared model change, rebuilding the command context, and a same-ID provider switch.
+
+Focused command/turn checks pass **13/0**, 43 assertions. Independent catalog-agent rereview closed the Medium finding. Configured `bun run lint && bun run typecheck && bun run test` passed **5714 passed / 19 skipped / zero failed**, 23504 assertions across 547 files (111.55s). Strict build passed. All fixtures use isolated nodes and uncalled provider transports. No paid inference, installation or release.
+
+## 2026-10-10 — PR #43 review: active-node model menus and budget
+
+Independent review found a Medium defect: model menus and the first-turn context budget read the ambient node cache while execution used the runtime's explicit home. Menus now receive the active home and host-owned account settings. Config read/write/path/discard use that same home; explicit config environment overrides retain precedence. Negative fixtures use disjoint ambient/node caches, a separate injected direct account, and active-node set/discard while proving ambient config remains unchanged. The first-turn budget reads the node's 8M window rather than the ambient 99,999 window.
+
+Focused menu/config/command tests passed 122/0; the first-turn runtime-budget suite passed 11/0. Configured `bun run lint && bun run typecheck && bun run test` passed **5714 passed / 19 skipped / zero failed**, 23499 assertions across 547 files (92.10s). Strict build passed. The initial gate found a readonly assignment in the new fixture; the fixture now constructs the real uncalled OpenRouter transport rather than changing its readonly name. No paid inference, live config edits, installation or release.
+
+## 2026-10-10 — Shared model menus and frozen SOV turn evidence (#33)
+
+Focused menus/config fixtures passed 152 cases / 1010 assertions. Host/scheduler fixtures passed 8 cases, then adaptive output/projection/proactive-boundary checks passed 15 cases / 55 assertions. The original 13 native SDK fixtures pass after fixing resolved-model snapshot binding and removing duplicate unused tool descriptions; a new oversized-directives fixture checks a typed context-budget refusal before inference. A broader host run exposed four native binding/unknown-budget failures (438 pass); follow-up isolated diagnostics found context allocation failures, now fixed without weakening the 32K unknown floor or truncating directives. One preliminary full gate was stopped to fix the reviewed proactive-compaction history-space guard. Independent modality review cleared the host and child pricing fixes.
+
+The first completed frozen full gate passed 5709 cases with two fixture failures: the documented model-command usage had changed, and the per-turn pricing fixture needed explicit fresh verified tariff evidence. Both exact fixtures were corrected; the focused pair passed 29 cases / 244 assertions. Final configured `bun run lint && bun run typecheck && bun run test` passed **5711 passed / 19 skipped / zero failed**, 23488 assertions across 547 files (98.19s). Strict SDK build passed. The final frozen source passed packed Node/Bun external-consumer checks and four compiled CLI JSON/exit probes (capabilities, routes, offline pagination and rejected refresh). Fixtures use isolated caches and fake providers. No paid inference, publication or installed upgrade.
 
 ## 2026-10-10 — execution-policy and discovery stack integration
 

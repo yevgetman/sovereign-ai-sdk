@@ -381,7 +381,7 @@ describe('config catalog', () => {
       expect(model?.editor.kind).toBe('string');
       if (model?.editor.kind === 'string') {
         // `auto` is the sole suggested choice, with freeform to pin a real id.
-        expect(model.editor.choices).toEqual(['auto']);
+        expect(model.editor.dynamicChoices?.({})).toEqual(['auto']);
         expect(model.editor.allowCustom).toBe(true);
       }
     });

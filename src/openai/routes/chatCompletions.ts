@@ -1,3 +1,8 @@
+import {
+  modelRunUsageWriter,
+  modelSystemPrompt,
+  selectedTurnModel,
+} from '../../server/modelMetadata.js';
 // Phase 18 T2 + T5 — POST /v1/chat/completions.
 //
 // Validates the OpenAI ChatRequest against the Zod schema, resolves the
@@ -292,10 +297,18 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
     const settleTurnEvidence = (): void => {
       if (turnId !== undefined) runtime.attestationEvidence?.endTurn(turnId);
     };
+    const modelSnapshot = selectedTurnModel(resolved.transport.name, resolved.model, {
+      maxTokens: parsed.max_tokens ?? runtime.maxTokens,
+      harnessHome: runtime.harnessHome,
+      settings: runtime.injectedSettings,
+    });
     const agentConfig: AgentConfig = {
+      ...(modelSnapshot
+        ? { modelMetadata: modelSnapshot.metadata, pricingSnapshot: modelSnapshot.pricing }
+        : {}),
       provider: resolved.transport,
       model: resolved.model,
-      systemPrompt,
+      systemPrompt: modelSystemPrompt(systemPrompt, requestToolPool, modelSnapshot?.metadata),
       tools: requestToolPool,
       maxTokens: parsed.max_tokens ?? runtime.maxTokens,
       cwd: runtime.cwd,
@@ -324,6 +337,12 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       ...(parsed.temperature !== undefined ? { temperature: parsed.temperature } : {}),
     };
     const agent = createAgent(agentConfig);
+    const recordUsage = modelRunUsageWriter(
+      runtime,
+      sessionId,
+      resolved.transport.name,
+      resolved.model,
+    );
     const buildRun = (): ReturnType<Agent['run']> => agent.run(messages, perTurn);
 
     // 7.5) T8 — persist the latest user-role message from the request
@@ -390,6 +409,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       let firstStep: IteratorResult<unknown, RunResult>;
       try {
         firstStep = (await gen.next()) as IteratorResult<unknown, RunResult>;
+        if (firstStep.done) recordUsage(firstStep.value);
       } catch (err) {
         // Defense-in-depth: an exception that escapes query() before the
         // first event (rather than being caught into a Terminal). Surface
@@ -397,6 +417,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         // never opened the stream, so this returns a normal JSON response.
         console.error('[openai] streaming /v1/chat/completions pre-stream error:', err);
         settleTurnEvidence();
+        recordUsage();
         await runtime.disposeSession(sessionId);
         return buildProviderErrorResponse(c, err);
       }
@@ -406,6 +427,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
         // it and return a real non-200 OpenAI error envelope rather than a 200
         // empty [DONE] stream (identical to the prior bare-Terminal check).
         settleTurnEvidence();
+        recordUsage();
         await runtime.disposeSession(sessionId);
         return buildProviderErrorResponse(c, firstStep.value.terminal.error);
       }
@@ -450,7 +472,10 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
             // Unwrap RunResult.terminal — translateStream's deriveFinishReason
             // reads `.reason` off a Terminal, preserving max_tokens/max_turns →
             // 'length' parity.
-            if (step.done) return step.value.terminal;
+            if (step.done) {
+              recordUsage(step.value);
+              return step.value.terminal;
+            }
             captureAssistant(step.value);
             yield step.value;
           }
@@ -509,6 +534,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
           // (no-op when the sink already wrote the row; backfills `delivered`-
           // omitted for a turn that died mid-stream).
           settleTurnEvidence();
+          recordUsage();
           await runtime.disposeSession(sessionId);
         }
       });
@@ -564,6 +590,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
           // Unwrap the RunResult's nested Terminal — createAgent converts a
           // thrown provider exception into terminal{reason:'error'} too, so the
           // H2(a) check below still fires and emits the SAME OpenAI envelope.
+          recordUsage(step.value);
           terminal = step.value.terminal;
           break;
         }
@@ -648,6 +675,7 @@ export function chatCompletionsRoute(runtime: Runtime): Hono {
       // Always tear down per-session subsystems (trace writer flush,
       // trajectory write) — even on error. The session row stays in the
       // DB so traces and cost records are preserved.
+      recordUsage();
       await runtime.disposeSession(sessionId);
     }
   });

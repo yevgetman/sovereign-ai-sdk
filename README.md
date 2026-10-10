@@ -20,7 +20,7 @@ The same runtime drives several run modes — pick by how you want to reach it:
 
 Current state lives in [`docs/07-history/state/`](docs/07-history/state/) — newest dated file is canonical.
 
-- **Latest snapshot:** [SDK 0.13.0 / SOV 0.6.76](docs/07-history/state/2026-10-09-sdk-release-013.md) — published components, consumers, validation and remaining deployment gates.
+- **Latest snapshot:** [Provider/model resilience workset](docs/07-history/state/2026-10-10-provider-model-workset.md) — completed unmerged SDK/SOV changes, dependencies and remaining host/release gates. Published components remain [SDK 0.13.0 / SOV 0.6.76](docs/07-history/state/2026-10-09-sdk-release-013.md).
 - **Release history:** [`CHANGELOG.md`](CHANGELOG.md) records SDK and harness changes separately. Dated build snapshots and older phase/revert records remain in [`docs/07-history/state/`](docs/07-history/state/).
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).

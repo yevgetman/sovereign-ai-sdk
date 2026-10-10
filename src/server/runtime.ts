@@ -1,3 +1,4 @@
+import { selectedTurnModel } from './modelMetadata.js';
 // Phase 16.1 M3.3 — server-side runtime construction.
 //
 // buildRuntime() produces the shared building blocks the server needs:
@@ -1500,6 +1501,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
         ...(injected !== undefined ? { settings: injected } : {}),
       });
     },
+    resolveModelMetadata: (provider, model) =>
+      selectedTurnModel(provider, model, {
+        harnessHome,
+        settings: injected,
+        maxTokens: runtime.maxTokens,
+      })?.metadata,
     createChildSession: (input) => {
       // Phase 2 T1 — pick the metadata shape based on the routing attribution
       // hints the scheduler computes for us.

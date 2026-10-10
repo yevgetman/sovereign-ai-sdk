@@ -21,7 +21,7 @@ const ESC = String.fromCharCode(27);
 const ANSI = new RegExp(`${ESC}\\[[0-9;]*m`, 'g');
 const strip = (s: string): string => s.replace(ANSI, '');
 
-const { formatRelativeTime, PROVIDER_MODELS } = __test__;
+const { formatRelativeTime, providerModelCatalog } = __test__;
 
 describe('formatRelativeTime', () => {
   const NOW_SEC = Date.now() / 1000;
@@ -62,21 +62,16 @@ describe('formatRelativeTime', () => {
   });
 });
 
-describe('PROVIDER_MODELS registry', () => {
-  test('exposes every provider the CLI accepts', () => {
-    expect(Object.keys(PROVIDER_MODELS).sort()).toEqual([
-      'anthropic',
-      'ollama',
-      'openai',
-      'openrouter',
-      'xai',
-    ]);
+describe('shared catalog suggestions', () => {
+  test('direct and subscription routes retain separate route identities', () => {
+    expect(providerModelCatalog('openai').routeId).toBe('openai-api');
+    expect(providerModelCatalog('chatgpt').routeId).toBe('chatgpt-subscription');
+    expect(providerModelCatalog('xai').routeId).toBe('grok-api');
+    expect(providerModelCatalog('grok').routeId).toBe('grok-subscription');
   });
-
-  test('every provider has at least one model', () => {
-    for (const models of Object.values(PROVIDER_MODELS)) {
-      expect(models.length).toBeGreaterThan(0);
-    }
+  test('offline suggestions include the same OpenAI IDs as the SDK route', () => {
+    expect(providerModelCatalog('openai').models.map((model) => model.id)).toContain('gpt-5');
+    expect(providerModelCatalog('unknown').models).toEqual([]);
   });
 });
 
@@ -137,7 +132,7 @@ describe('/model — inline argument path', () => {
     const result = await dispatchSlashCommand('/model', ctx);
     if (result.kind !== 'local') throw new Error('expected local');
     expect(result.output).toContain('current model: haiku');
-    expect(result.output).toContain('requires a TTY');
+    expect(result.output).toContain('Run /model <exact ID>');
   });
 
   test('non-TTY no-arg with unknown provider includes config edit hint', async () => {
