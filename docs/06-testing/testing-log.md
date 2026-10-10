@@ -1,3 +1,11 @@
+## 2026-10-10 — PR41 reviewed dependency integration
+
+Integrated reviewed discovery/cache and reasoning fixes. Lint, typecheck and strict SDK build pass. Full suite: 5689 passed, 19 skipped, zero failed; 23447 assertions across 541 files (111.75 seconds).
+
+## 2026-10-10 — PR37 ancestor cache fixes integration
+
+Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typecheck and strict SDK build pass. Full suite: 5643 passed, 19 skipped, zero failed; 23183 assertions across 535 files (91.44 seconds).
+
 # Testing Log
 
 ## 2026-10-10 — pricing completeness and immutable receipts (#30)
@@ -18,6 +26,21 @@ Focused modality/public-surface checks passed 15/0 (110 assertions). After stack
 Scope: fresh growing context windows, stale/unknown fallbacks, host caps, output reservation, resumed history downgrade, authorized reducer refusal, verified accounting port and Anthropic thinking output bounds. Offline fixtures cover Grok500K and routed Sonnet1M, plus host-only reservations and 1025/1500-token thinking minima. No paid inference or installed upgrade.
 
 Focused checks passed 34/0 for public surface/context fixtures and 11/0 after the two review fixes; existing context management checks passed 21/0. Initial full gate exposed only a missing public type witness, corrected before frozen gates. The first frozen gate passed 5653/19/0; reviewed host-only/minimum-budget fixes passed 5655/19/0. Final exact PR38 dependency-stack `bun run lint && bun run typecheck && bun run test` passed **5656 pass / 19 existing skips / 0 fail**, 23235 assertions across 538 files. The byte estimate remains a documented heuristic; tokenizer/vision certification requires the host accounting port.
+## 2026-10-10 — PR38 independent rereview R2: fresh verified-model constraints
+
+Closed Medium R2: built-in verified Grok controls no longer override fresh exact-model effort restrictions or wire values. Current effort lists intersect established model constraints; metadata wire mappings take effect. Partial/stale evidence retains established fallback, and known Kimi controls remain binary despite generic publisher depth flags. Route/menu/wire fixtures cover native Grok, routed Grok and Kimi, including unsupported low/max refusal before fetch. Independent host rereview closed the finding with no new Medium issues.
+
+Focused reasoning fixtures: 9 pass / 0 fail, 106 assertions. An initial typecheck caught the fake-fetch fixture's Bun-specific function cast; corrected before the frozen gate. `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5652 pass / 19 existing skips / 0 fail, 23294 assertions across 536 files (91.06 seconds). No paid inference, installed upgrade or release.
+
+## 2026-10-10 — PR38 reviewed dependency integration
+
+Integrated PR35 cache-freshness/bounded-port corrections and PR37 unavailable-subscription correction with PR38's reasoning compatibility fix. Retained both append-only test histories and the source-property whitelist fixture. Offline catalog/direct/reasoning checks passed 22 / 0 with 138 assertions. Frozen `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5651 pass / 19 existing skips / 0 fail, 23265 assertions across 536 files (90.61 seconds). No paid inference, installed upgrade or release.
+
+## 2026-10-10 — PR38 review: preserve established controls after catalog refresh
+
+Closed a Medium finding: positive OpenRouter reasoning capability with omitted depth fields removed existing effort choices and stopped sending the real `off` switch. The shared route/wire compatibility rule now preserves established adapters when discovery supplies no replacement control facts. Explicit unsupported evidence and narrower controls remain authoritative; unknown future IDs stay conservative. Offline normalizer-to-menu-to-wire fixtures cover GLM 5.2, Claude Sonnet 4.5 and GPT-5, stale snapshots, unsupported evidence, binary overrides and future unknown IDs.
+
+Focused reasoning fixtures: 8 pass / 0 fail, 77 assertions. Frozen `bun run lint && bun run typecheck && bun run test` passed: 5647 pass / 19 existing skips / 0 fail, 23238 assertions across 536 files (93.28 seconds). `bun run build:sdk` also passed. No paid inference, installed upgrade, release or dependency-branch propagation.
 
 ## 2026-10-10 — Future OpenAI reasoning request shape (#27 review)
 
@@ -29,12 +52,29 @@ Scope: exact direct/routed Grok depth, Kimi binary switch, metadata-driven futur
 
 Final exact #26 dependency-stack gate: `bun run lint && bun run typecheck && bun run test` passed **5644 / 19 existing skips / zero failures**, 23183 assertions across 536 files. Earlier runs exposed an obsolete Kimi expectation, a local moved-file test-runner ENOENT and one unrelated plugin shell timeout; each was corrected or rechecked. The isolated shell fixture passed 5/5, then the unchanged frozen full gate passed. Snapshot/unknown metadata fixtures are offline evidence, not live-account certification.
 
+## 2026-10-10 — PR37 review fix: unsupported subscription discovery stays unavailable
+
+Addressed review C2 (Medium). ChatGPT and Grok subscription sources now refuse unsupported discovery explicitly, so refresh returns unavailable with stale bundled suggestions instead of falsely assigning a current discovery timestamp. Availability/auth separation and no-network behavior remain covered for both subscription routes.
+
+Validation: `bun run lint && bun run typecheck && bun run test` passed: **5639 pass / 19 skip / 0 fail**, 23166 assertions across 535 files (92.73s). Targeted direct discovery checks: 5 pass / 0 fail, 30 assertions. SDK package build passed. No paid inference, credential reads or installed upgrade.
+
 ## 2026-10-10 — direct API and separate subscription model discovery (#26)
 
 Scope: explicit caller credentials and account-scoped caches for Anthropic/OpenAI/xAI, documented pagination and richer capability/window metadata, alias cycle checks, generation-only filtering and unknown subscription availability with zero login/network side effects.
 
 Validation: `bun run lint && bun run typecheck && bun run test` passed — 5639 pass / 19 skip / 0 fail across 535 files (also reruns #25 unchanged after its parallel-load timing flake). `bun run build:sdk` passed including SDK exact-optional-property checks. Catalog/surface targeted fixtures passed 17/0 before the final additional xAI growth fixture. PR #25's six clean-worker CI gates also passed. No paid inference, publication or installed upgrade.
 
+## 2026-10-10 — PR36 inherits reviewed discovery cache fixes
+
+Merged PR35's reviewed C1/C3 fixes into the OpenRouter branch. Preserved the credential-whitelist regression and all four cache regressions when resolving an additive test-file conflict. Preserved both documentation sections and existing testing records.
+
+Validation: `bun run lint && bun run typecheck && bun run build && bun run test` passed: **5638 pass / 19 skip / 0 fail**, 23149 assertions across 534 files (92.58s). Tested source tree `2a3de4fa606fbed81d5dc302617a3c6e8709e417`; catalog source blob `337d84ba32a2feac246a3f1108873e1c6af22cc3`. Only this testing-log entry was added after the gate; lint was rerun before commit. No paid inference or installed upgrade.
+
+## 2026-10-10 — PR35 review fixes: cache freshness and bounded cache ports
+
+Addressed review C1 and C3 (Medium). Failed refreshes retain stale evidence in the external cache and keep a fail-safe per-instance snapshot if persistence fails. Cache reads/writes have bounded waits; serialized writes prevent a late old cache operation from overwriting a later successful refresh. Tests cover immediate second-instance reads, failed persistence, unresponsive cache ports, deduplicated retry and delayed write completion. No paid inference or installed upgrade.
+
+Validation: `bun run lint && bun run typecheck && bun run test` passed: **5633 pass / 19 skip / 0 fail**, 23133 assertions across 533 files (93.07s). Targeted catalog regressions: 8 pass / 0 fail. SDK package build passed.
 
 ## 2026-10-10 — OpenRouter model discovery (#25)
 
@@ -42,6 +82,11 @@ Scope: public model normalization, unknown metadata, text-output candidate filte
 
 Validation: `bun run lint && bun run typecheck && bun run test` — lint/typecheck passed; full suite 5633 pass / 19 skip / 1 unrelated timing failure (`secretRedactor` PEM test elapsed 133ms against 100ms threshold under parallel load). Isolated `bun run test tests/permissions/secretRedactor.test.ts` passed 42/0 in 60ms. Catalog/surface fixtures passed 13/0. No paid inference or defaults changed.
 
+## 2026-10-10 — PR35 review fixes: cache freshness and bounded cache ports
+
+Addressed review C1 and C3 (Medium). Failed refreshes retain stale evidence in the external cache and keep a fail-safe per-instance snapshot if persistence fails. Cache reads/writes have bounded waits; serialized writes prevent a late old cache operation from overwriting a later successful refresh. Tests cover immediate second-instance reads, failed persistence, unresponsive cache ports, deduplicated retry and delayed write completion. No paid inference or installed upgrade.
+
+Validation: `bun run lint && bun run typecheck && bun run test` passed: **5633 pass / 19 skip / 0 fail**, 23133 assertions across 533 files (93.07s). Targeted catalog regressions: 8 pass / 0 fail. SDK package build passed.
 
 ## 2026-10-10 — portable model catalog contract (#24)
 
