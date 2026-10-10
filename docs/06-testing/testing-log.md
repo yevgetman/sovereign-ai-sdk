@@ -1,3 +1,9 @@
+# Testing Log
+
+## 2026-10-10 — PR34 final review fixes integration
+
+Included endpoint-scoped discovery and the exact frozen PR41 tree-budget fixes. Lint, typecheck and strict SDK build pass. Full suite: 5706 passed, 19 skipped, zero failed; 23551 assertions across 543 files (100.17 seconds). Source and regression tests are frozen for final parent ancestry alignment.
+
 ## 2026-10-10 — PR34 reviewed dependency integration
 
 Integrated reviewed discovery/cache and reasoning fixes. Lint, typecheck and strict SDK build pass. Full suite: 5702 passed, 19 skipped, zero failed; 23517 assertions across 543 files (109.68 seconds).
@@ -6,11 +12,15 @@ Integrated reviewed discovery/cache and reasoning fixes. Lint, typecheck and str
 
 Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typecheck and strict SDK build pass. Full suite: 5643 passed, 19 skipped, zero failed; 23183 assertions across 535 files (91.44 seconds).
 
-# Testing Log
 
 ## 2026-10-10 — execution-policy and discovery stack integration
 
 Merged the exact machine-discovery prerequisite `8d335b00` into the policy branch. Resolved additive public exports, surface snapshots and documentation without dropping either feature. Lint, typecheck, strict build and full suite passed: **5695 passed / 19 skipped / zero failed**, 23410 assertions across 543 files (94.35s). Packed external-consumer checks passed on Node and Bun. The compiled CLI passed capabilities, routes, offline model pagination and invalid-refresh JSON/exit-status probes. No inference, release or installation.
+## 2026-10-10 — PR42 review fix: custom OpenRouter endpoint isolation
+
+Addressed review C4 (Medium). A custom OpenRouter-compatible base URL now uses an endpoint-hashed unavailable discovery source and cannot inherit official public model limits, capabilities or prices. Absent or canonical official HTTPS API URLs (including trailing slash) retain public discovery. Custom refresh performs no fetch. Async/synchronous cache reads, endpoint isolation and query/fragment/userinfo/protocol/path exclusions are covered.
+
+Validation: `bun run lint && bun run typecheck && bun run build && bun run test` passed: **5691 pass / 19 skip / 0 fail**, 23422 assertions across 542 files (101.97s). Focused machine-catalog tests and two independent reviews passed: **7 pass / 0 fail**, 53 assertions. No paid inference, credentials or installed state changed.
 
 ## 2026-10-10 — route-scoped machine model discovery (#32)
 
