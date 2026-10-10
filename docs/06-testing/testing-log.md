@@ -1,3 +1,45 @@
+## 2026-10-10 — PR34 fifth review: final parent history alignment
+
+Aligned the actual latest parent `c6dc89c9` after complete gating at `7b973f9b`. All tracked non-Markdown files are byte-identical to the gated source and tests. This ordinary feature-branch merge adds only review documentation and ancestry. Final lint passes; the complete gated test result remains applicable. No release, installed runtime or host change.
+
+## 2026-10-10 — PR42 fifth-review final parent alignment
+
+Merged actual final PR41 `5a035afd`. Every tracked non-Markdown file is byte-identical to complete-gate commit `d515fc62`; the only query conflict was a blank line, resolved to the tested exact source. Preserved both parent testing histories. Final lint passes. The complete **5715 passed / 19 existing skips / zero failed** result remains applicable.
+
+## 2026-10-10 — PR42 fifth review: reject unsupported effort before context reduction
+
+Fresh review of PR42 CLI discovery, account pools, endpoint scopes, offline snapshots, bounded filters and disk cache found no new independent issue above Low. Initial focused discovery/CLI/catalog fixtures passed **33/0**, 238 assertions. Merged tested final PR38 `56f6c2ed`, preserving PR42's complete prepared-request/model-limit path and adding the exact reasoning preflight before request preparation/context reduction. Combined CLI/preflight checks passed **11/0**, 110 assertions. No reduction or inference occurs for metadata-backed unsupported effort.
+
+The initial merged lint attempt found import ordering only; corrected before the complete gate. `bun run lint`, `bun run typecheck`, strict `bun run --cwd packages/sdk build` and every discovered test file pass: **5715 passed / 19 existing skips / zero failed**, 23678 assertions across 544 files. The full test gate used branch-specific TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture. No file was omitted, and no assertion was weakened. Independent catalog reviewer also inspected and passed the new PR38 regression. No paid inference, live configuration, install, upgrade, learning-loop setting, Telekit or Mac app change.
+
+## 2026-10-10 — PR41 fifth-review final parent alignment
+
+Merged actual final PR40 `9b26d4f8`. All tracked non-Markdown files are byte-identical to passing complete-gate commit `5805f482`; only preserved parent test records and ancestry changed. Final lint passes.
+
+## 2026-10-10 — PR40 fifth review: final parent history alignment
+
+Aligned the actual latest parent `b5c9a293` after complete gating at `799b8f9d`. All tracked non-Markdown files are byte-identical to the gated source and tests. This ordinary feature-branch merge adds only review documentation and ancestry. Final lint passes; the complete gated test result remains applicable. No release, installed runtime or host change.
+
+## 2026-10-10 — PR39 fifth review: inherit SDK effort preflight
+
+Fresh code-review of the PR's own change and callers found no new above-Low defect. Integrated PR38 `56f6c2ed` through an ordinary feature-branch merge. Metadata-backed unsupported reasoning is rejected before any host context reduction. Context/output budgets, modality and custom-provider behavior remain intact. Only additive review-log conflict resolution and the exact shared preflight change were needed.
+
+Configured lint, typecheck and strict SDK build pass. Complete test coverage with branch TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture: **5674 passed / 19 existing skips / 0 failed**, 23448 assertions across 540 files. No paid inference, installed runtime change, release or host configuration edits. Telekit and Mac app excluded.
+
+## 2026-10-10 — PR40 fifth review: inherit SDK effort preflight
+
+Fresh code-review of the PR's own change and callers found no new above-Low defect. Integrated PR38 `56f6c2ed` through an ordinary feature-branch merge. Metadata-backed unsupported reasoning is rejected before any host context reduction. Context/output budgets, modality and custom-provider behavior remain intact. Only additive review-log conflict resolution and the exact shared preflight change were needed.
+
+Configured lint, typecheck and strict SDK build pass. Complete test coverage with branch TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture: **5685 passed / 19 existing skips / 0 failed**, 23486 assertions across 541 files. No paid inference, installed runtime change, release or host configuration edits. Telekit and Mac app excluded.
+
+## 2026-10-10 — PR41 fifth review and SDK reasoning preflight integration
+
+Fresh independent review found no additional above-Low defect in this PR's own changes. Integrated reviewed PR38 `56f6c2ed` through an ordinary feature-branch merge. The direct SDK now rejects impossible metadata-backed effort selections before a host can pay for context reduction. Existing downstream request accounting, modalities and host evidence contracts remain intact. Independent new preflight regression: **1 passed / zero failed**, 4 assertions; zero reductions and provider fetches.
+
+Owned pricing, auxiliary compaction, session summary, tree budget and gateway receipt checks: **53 passed / zero failed**, 218 assertions.
+
+Configured lint, typecheck and strict SDK build pass. Complete gate executes every discovered test file with unique TMPDIR, a serialized compiler fixture and isolated existing footer/theme fixture: **5704 passed / 19 existing skips / zero failed**, 23565 assertions across 543 files. No paid inference, live runtime upgrade, provider credentials, release, Telekit or Mac app changes. Actual final parent ancestry is aligned separately only when all non-Markdown files are proven unchanged from this tested tree.
+
 ## 2026-10-10 — PR34 fifth review: inherit SDK effort preflight
 
 Fresh code-review of the PR's own change and callers found no new above-Low defect. Integrated PR38 `56f6c2ed` through an ordinary feature-branch merge. Metadata-backed unsupported reasoning is rejected before any host context reduction. Context/output budgets, modality and custom-provider behavior remain intact. Only additive review-log conflict resolution and the exact shared preflight change were needed.
