@@ -60,6 +60,8 @@ export type TrajectoryMetadata = {
  *  disabled in user settings. */
 export type SessionContext = {
   sessionId: string;
+  /** Last frozen turn budget; local to this session, including model overrides. */
+  modelBudget?: { model: string; contextTokens: number };
   traceWriter: TraceWriter;
   /** T4 — accumulated turn-level metadata for the final trajectory write.
    *  Mutated as the session runs; flushed by `disposeSessionContext`. */

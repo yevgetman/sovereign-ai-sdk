@@ -10,6 +10,7 @@ import { loadSettings } from '../../config/loader.js';
 import type { Settings } from '../../config/schema.js';
 import type { ReasoningEffort } from '../effort.js';
 import { CredentialUnavailableError } from '../errors.js';
+import type { ModelRecord } from '../models/types.js';
 import { type ResolveProviderOpts, type ResolvedProvider, resolveProvider } from '../resolver.js';
 import { macKeychainPort } from '../subscription/keychain.js';
 import type { LLMProvider } from '../types.js';
@@ -21,6 +22,7 @@ import { validateRouteSelection } from './validate.js';
 
 export type ResolveRouteOpts = Omit<ResolveProviderOpts, 'allowSubscriptionAuth' | 'settings'> & {
   settings?: Settings;
+  modelMetadata?: ModelRecord;
   /** Requested model; `auto` or absent selects the route default. */
   model?: string;
   /** Requested effort; `auto` or absent selects the route default. */
@@ -57,6 +59,7 @@ export async function resolveRouteProvider(
     });
   }
   const selection = validateRouteSelection(route, {
+    ...(opts.modelMetadata ? { modelMetadata: opts.modelMetadata } : {}),
     ...(opts.model !== undefined ? { model: opts.model } : {}),
     ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
   });
@@ -76,7 +79,13 @@ export async function resolveRouteProvider(
     ...(opts.credentialTimeoutMs !== undefined ? { timeoutMs: opts.credentialTimeoutMs } : {}),
   });
 
-  const { model: _model, effort: _effort, credentialTimeoutMs: _timeout, ...rest } = opts;
+  const {
+    modelMetadata: _metadata,
+    model: _model,
+    effort: _effort,
+    credentialTimeoutMs: _timeout,
+    ...rest
+  } = opts;
   let resolved: ResolvedProvider;
   try {
     resolved = resolveProvider(route.provider, selection.model, {

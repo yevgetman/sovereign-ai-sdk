@@ -513,3 +513,26 @@ test('incompatible signed Anthropic history is refused before new user row or in
     reopened.close();
   }
 });
+
+test('unknown model budget refuses oversized standing instructions before inference with a useful diagnostic', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls += 1;
+      yield { type: 'message_start' };
+      return { role: 'assistant', content: [] };
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.systemSegments.splice(0, runtime.systemSegments.length, {
+      text: 'standing instruction '.repeat(3000),
+      cacheable: false,
+    });
+  });
+  const c = capture();
+  expect(await runSdkRunCommand(opts, c.io, f.deps)).toBe(1);
+  expect(calls).toBe(0);
+  expect(c.events.at(-1)).toMatchObject({ type: 'turn.error', code: 'context_overflow' });
+  expect(c.events.at(-1)?.error).toContain('Reduce instructions');
+});

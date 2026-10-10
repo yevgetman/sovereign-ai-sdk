@@ -1,3 +1,8 @@
+import {
+  modelRunUsageWriter,
+  modelSystemPrompt,
+  selectedTurnModel,
+} from '../server/modelMetadata.js';
 // Phase 17 T7 — production wiring of CronRunner against the live Runtime.
 //
 // `createProductionCronRunner(runtime, harnessHome)` builds a CronRunner whose
@@ -300,6 +305,12 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
       // undefined ⇒ byte-identical (no mint, no settle).
       let turnId: string | undefined;
 
+      const recordUsage = modelRunUsageWriter(
+        runtime,
+        sessionId,
+        runtime.resolvedProvider.transport.name,
+        runtime.model,
+      );
       try {
         // Cron is non-interactive. Default mode honors explicit allow/deny
         // rules in layered settings; any fall-through to `ask` auto-denies
@@ -371,12 +382,25 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
         // field, so cron stays isolated from any principal's `/effort`. memory +
         // recall mirror the turns route + channel pipeline (recall conditionally
         // spread so a recall-disabled session stays inert).
-        const agent = createAgent(
-          buildCronAgentConfig({
+        const modelSnapshot = selectedTurnModel(
+          runtime.resolvedProvider.transport.name,
+          runtime.model,
+          {
+            maxTokens: runtime.maxTokens,
+            harnessHome: runtime.harnessHome,
+            settings: runtime.injectedSettings,
+          },
+        );
+        const agent = createAgent({
+          ...buildCronAgentConfig({
             provider: runtime.resolvedProvider.transport as unknown as LLMProvider,
             model: runtime.model,
             effort: runtime.effort,
-            systemPrompt: runtime.systemSegments,
+            systemPrompt: modelSystemPrompt(
+              runtime.systemSegments,
+              cronToolPool,
+              modelSnapshot?.metadata,
+            ),
             maxTokens: runtime.maxTokens,
             cwd: runtime.cwd,
             tools: cronToolPool,
@@ -392,7 +416,10 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
             // provider (byte-identical, exactOptional).
             ...(runtime.conduct !== undefined ? { conduct: runtime.conduct } : {}),
           }),
-        );
+          ...(modelSnapshot
+            ? { modelMetadata: modelSnapshot.metadata, pricingSnapshot: modelSnapshot.pricing }
+            : {}),
+        });
 
         // Mint ONE fresh host turnId for this scheduled drive — exactly the
         // turns-route pattern — so every conduct capability call of the turn
@@ -419,6 +446,7 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
           // what matters.
         }
         const result = final.value;
+        recordUsage(result);
         const output = extractFinalText(result.finalAssistant);
 
         if (result.terminal.reason === 'completed') {
@@ -434,6 +462,7 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
           error: `terminal=${result.terminal.reason}: ${errMsg}`,
         };
       } finally {
+        recordUsage();
         // Attestation §3.4 — settle the minted turnId on every exit path. A
         // drive that reached terminal already wrote its io row through the
         // provider-mounted evidenceSink (endTurn is then a no-op); an aborted

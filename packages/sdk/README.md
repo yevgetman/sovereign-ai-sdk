@@ -464,3 +464,20 @@ not the selected inference host. This adapter does not infer or certify the
 actual host; absent response evidence it remains unknown.
 
 Policy field definitions follow the [OpenRouter provider routing contract](https://openrouter.ai/docs/guides/routing/provider-selection).
+
+Hosts that use `SubagentScheduler` can inject
+`resolveModelMetadata(provider, model): ModelRecord | undefined` to provide one
+model-bound snapshot for each resolved child. The scheduler clones the record,
+passes it to the child agent and derives child pricing from that same record.
+Parent model metadata and prices are not inherited by a different child.
+The callback is host-owned; the SDK adds no disk, network or credential lookup.
+A SOV host uses its node-scoped catalog cache. A custom SDK host can use an
+in-memory catalog or supply its own verified metadata.
+
+`maxTokens` is an output ceiling. Each provider call can reserve fewer output
+tokens when the conservative input bound leaves less room in the effective
+context window. The actual request cap and trace reservation agree. Standing
+instructions and request history are not truncated. Input that fills the window
+still needs an authorized context reducer or fails before inference. A
+reasoning adapter that requires a larger minimum reservation still refuses an
+insufficient cap before contacting the provider.

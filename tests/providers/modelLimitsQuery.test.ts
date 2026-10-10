@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
 import { query } from '@yevgetman/sov-sdk/core/query';
+import { AnthropicProvider } from '@yevgetman/sov-sdk/providers/anthropic';
+import { requestInputTokenBound } from '@yevgetman/sov-sdk/providers/modelLimits';
 import type { ModelRecord } from '@yevgetman/sov-sdk/providers/models/types';
 import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 const metadata = (window: number, output: number): ModelRecord => ({
@@ -130,4 +132,107 @@ test('explicit host context cap marks output budget without model metadata', asy
   expect(calls[0]?.outputBudgetEnforced).toBe(true);
   expect(calls[0]?.maxTokens).toBe(1500);
   expect(calls[0]?.modelMetadata).toBeUndefined();
+});
+
+test('unknown 32K window adapts output ceiling without truncating standing input or paying for summary', async () => {
+  const calls: ProviderRequest[] = [];
+  const record = metadata(32768, 8192);
+  record.contextWindow = undefined;
+  record.maxOutputTokens = undefined;
+  record.metadata = { source: 'bundled-suggestions', stale: true };
+  const systemPrompt = [{ text: 'x'.repeat(28000), cacheable: false }];
+  const messages = [
+    { role: 'user' as const, content: [{ type: 'text' as const, text: 'continue' }] },
+  ];
+  const expected = 32768 - requestInputTokenBound(messages, systemPrompt, []);
+  let reductions = 0;
+  const loop = query({
+    provider: mockProvider(calls),
+    model: record.id,
+    modelMetadata: record,
+    systemPrompt,
+    messages,
+    maxTokens: 12000,
+    contextLimits: { maxHistoryBytes: 100000, contextWindowTokens: 32768 },
+    contextManager: {
+      async reduce(req) {
+        reductions++;
+        return { messages: [...req.messages] };
+      },
+    },
+  });
+  for (;;) {
+    const step = await loop.next();
+    if (step.done) {
+      expect(step.value.reason).toBe('completed');
+      break;
+    }
+  }
+  expect(calls[0]?.maxTokens).toBe(expected);
+  expect(expected).toBeGreaterThan(0);
+  expect(expected).toBeLessThan(8192);
+  expect(calls[0]?.system).toEqual(systemPrompt);
+  expect(calls[0]?.messages[0]).toEqual(messages[0]);
+  expect(reductions).toBe(0);
+});
+
+test('adaptive output never hides input that fills or exceeds the context window', async () => {
+  for (const inputTokens of [1000, 1001]) {
+    const calls: ProviderRequest[] = [];
+    const record = metadata(1000, 100);
+    const loop = query({
+      provider: mockProvider(calls),
+      model: record.id,
+      modelMetadata: record,
+      systemPrompt: [],
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'keep intact' }] }],
+      maxTokens: 100,
+      inputTokenCounter: () => inputTokens,
+    });
+    for (;;) {
+      const step = await loop.next();
+      if (step.done) {
+        expect(step.value.reason).toBe('error');
+        break;
+      }
+    }
+    expect(calls).toHaveLength(0);
+  }
+});
+
+test('adapted output below Anthropic thinking minimum fails before inference', async () => {
+  const calls: ProviderRequest[] = [];
+  const base = mockProvider(calls);
+  const adapter = new AnthropicProvider({ apiKey: 'fake' });
+  const record = {
+    ...metadata(2000, 1500),
+    provider: 'anthropic',
+    routeId: 'anthropic-api',
+    id: 'claude-sonnet-4-6',
+  };
+  const provider: LLMProvider = {
+    name: 'anthropic',
+    async *stream(req) {
+      adapter.buildKwargs(req);
+      return yield* base.stream(req);
+    },
+  };
+  const loop = query({
+    provider,
+    model: record.id,
+    modelMetadata: record,
+    systemPrompt: [],
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'keep input' }] }],
+    maxTokens: 1500,
+    effort: 'high',
+    inputTokenCounter: () => 1500,
+  });
+  for (;;) {
+    const step = await loop.next();
+    if (step.done) {
+      expect(step.value.reason).toBe('error');
+      break;
+    }
+  }
+  expect(calls).toHaveLength(0);
 });

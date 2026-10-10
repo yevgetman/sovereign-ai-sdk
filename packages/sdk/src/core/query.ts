@@ -141,9 +141,10 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         },
       )
     : undefined;
-  const maxTokens = effectiveModelLimits
+  const outputCeiling = effectiveModelLimits
     ? Math.min(params.maxTokens, effectiveModelLimits.outputTokens)
     : params.maxTokens;
+  let maxTokens = outputCeiling;
   const contextLimits =
     params.contextLimits && effectiveModelLimits
       ? {
@@ -430,6 +431,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     for (;;) {
       let providerStarted = false;
       try {
+        maxTokens = outputCeiling;
         const request: ProviderRequest = {
           model,
           system: systemPrompt,
@@ -473,16 +475,26 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
               : requestInputTokenBound(history, systemPrompt, toToolSchemas(toolPool));
           let inputTokens = inputBound();
           if (
-            inputTokens + maxTokens > effectiveModelLimits.contextTokens &&
+            inputTokens >= effectiveModelLimits.contextTokens &&
             params.contextManager &&
             contextLimits
           ) {
             yield await manageContext('budget');
             inputTokens = inputBound();
           }
+          // maxTokens is a ceiling, not a promise to consume that many tokens.
+          // Preserve all input; reserve only positive remaining context. If the
+          // input itself fills the window, compaction or a clear failure is required.
+          const remaining = effectiveModelLimits.contextTokens - inputTokens;
+          if (!Number.isSafeInteger(remaining) || remaining <= 0)
+            throw new ContextManagementError(
+              'request input leaves no output room in effective model limits',
+            );
+          maxTokens = Math.min(outputCeiling, remaining);
           assertRequestFits(inputTokens, maxTokens, effectiveModelLimits);
         }
         request.messages = history;
+        request.maxTokens = maxTokens;
         validateModelRequest(request, provider.name, modelMetadata);
         requestStart = Date.now();
         recordTrace({
@@ -490,7 +502,9 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           provider: provider.name,
           model,
           purpose: 'main',
-          ...(effectiveModelLimits ? { modelLimits: effectiveModelLimits } : {}),
+          ...(effectiveModelLimits
+            ? { modelLimits: { ...effectiveModelLimits, outputTokens: maxTokens } }
+            : {}),
           messageCount: history.length,
           systemBytes: systemPrompt.reduce((n, s) => n + Buffer.byteLength(s.text, 'utf8'), 0),
           iso: nowIso(),

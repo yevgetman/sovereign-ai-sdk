@@ -134,3 +134,39 @@ and cross-process credential coordination. They do not prove account eligibility
 Live proof still needs authorized keys for all API routes and eligible ChatGPT/Grok
 logins, followed by subscription tool cycles and resumed turns. Do not infer this
 proof from local credential presence or a mock provider.
+
+## Shared model selection and turn evidence
+
+`/model`, `/config edit providers.<provider>.model`, the default model setting,
+and task-lane model settings read the same offline catalog snapshot. Direct
+routes show models. OpenRouter shows model authors, then their exact model IDs.
+Use `--author <author>` or `--search <text>` to narrow an OpenRouter picker.
+Use `--custom` to enter an exact ID. A missing or retired current ID remains
+visible until you choose a replacement. Picking a model does not change routes.
+
+Catalog rows show tools, images, reasoning efforts, context window and account
+availability. Unknown values remain unknown. Offline or stale catalogs tell you
+to run `sov models --route <route> --refresh`; opening a picker never contacts
+providers. Subscription suggestions do not certify account entitlement.
+
+SOV captures the selected model's evidence at the start of each turn on the
+gateway, channel, cron, OpenAI facade and native SDK host paths. Delegated
+children resolve their own exact model snapshot through an injected host port;
+parent model metadata and prices cannot certify a different child. The native
+`sov sdk run` route receives that evidence before reasoning validation. The
+agent receives the same model-bound capability, pricing and limit snapshot.
+Fresh published context windows can grow beyond former static provider values.
+Stale or unknown evidence uses the SDK's conservative limits. Explicit output
+budgets still cap the output reservation. Gateway proactive compaction uses
+those same limits, system/schema/history accounting and output reservation.
+Required capabilities are checked before paid history summarization. A system
+or tool-schema overflow is refused rather than repeatedly summarized.
+Custom transports retain their established host limit contract.
+
+For unverified windows, SOV removes only duplicated generated tool descriptions
+from the system prompt and lists the actual scoped tool names. Provider request
+schemas still carry descriptions and parameter definitions. Standing directives,
+project files and per-turn instructions remain intact. Output is a ceiling: the
+SDK can reserve fewer tokens to fit the input in the conservative window. It
+reports that actual reservation in the trace. An irreducible input overflow
+produces a clear context-budget error before inference.

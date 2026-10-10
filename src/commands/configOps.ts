@@ -68,6 +68,7 @@ import {
   unsetAt,
   writeConfig,
 } from '@yevgetman/sov-sdk/config/store';
+import { findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import {
   CONFIG_CATALOG,
   type ConfigEditor,
@@ -80,6 +81,12 @@ import {
   listUnmanagedKeys,
 } from '../config/catalog.js';
 import type { LiveApplySideEffect } from '../config/liveApply.js';
+import {
+  modelAuthor,
+  modelDetails,
+  modelProviderForSetting,
+  providerModelCatalog,
+} from '../config/modelSuggestions.js';
 
 // ──────────────────────────────────────────────────────────────────────
 // Side-effect relay — bridges LiveApplySideEffect to CommandContext
@@ -474,7 +481,7 @@ function formatValueColumnRaw(raw: unknown): string {
 
 function runEdit(rest: string, ctx: CommandContext): string {
   if (!rest) return 'usage: /config edit <dotpath>';
-  const path = rest;
+  const [path = '', ...modelArgs] = rest.split(/\s+/);
   // 2026-05-24 Phase 2.5 — task-routing submenu's preset shortcut
   // sentinels route through the dispatcher's `edit` verb. Detect them
   // here and route to the preset handlers instead of the field-editor
@@ -489,6 +496,16 @@ function runEdit(rest: string, ctx: CommandContext): string {
   const settings = readConfig();
   const currentRaw = getAt(settings as Record<string, unknown>, path);
   const editor = item.editor;
+  const modelProvider = modelProviderForSetting(path, settings);
+  if (modelProvider && editor.kind === 'string')
+    return openCatalogModelEditor(
+      item,
+      modelProvider,
+      settings,
+      currentRaw,
+      ctx,
+      modelArgs.join(' '),
+    );
 
   // Boolean / enum / string-with-choices → picker
   if (editor.kind === 'boolean') {
@@ -511,6 +528,81 @@ function runEdit(rest: string, ctx: CommandContext): string {
 
   // String / number / secret → inputOpen
   return openInputEditor(item, editor, currentRaw, ctx);
+}
+
+function openCatalogModelEditor(
+  item: ConfigItem,
+  provider: string,
+  settings: import('@yevgetman/sov-sdk/config/schema').Settings,
+  currentRaw: unknown,
+  ctx: CommandContext,
+  args: string,
+): string {
+  if (args === '--custom') return openInputEditor(item, item.editor, currentRaw, ctx);
+  let selectedAuthor: string | undefined;
+  if (args.startsWith('--author ')) {
+    try {
+      selectedAuthor = decodeURIComponent(args.slice(9));
+    } catch {
+      return 'invalid author selection';
+    }
+  }
+  const search = args.startsWith('--search ') ? args.slice(9).toLowerCase() : undefined;
+  const catalog = providerModelCatalog(provider, settings);
+  const current = typeof currentRaw === 'string' ? currentRaw : '';
+  const records = [...catalog.models];
+  if (current && !records.some((model) => model.id === current))
+    records.unshift(findModel(catalog, current));
+  const grouped = provider === 'openrouter' && selectedAuthor === undefined && search === undefined;
+  const notice = catalog.state === 'current' ? 'cached metadata' : 'offline/stale suggestions';
+  const subtitle = `route:${catalog.routeId} · ${notice}. Search: /config edit ${item.path} --search text`;
+  if (!ctx.requestPicker)
+    return `${item.path}\ncurrent: ${current || '(unset)'}\n${subtitle}\nset: /config set ${item.path} <exact ID>`;
+  if (grouped) {
+    ctx.requestPicker({
+      title: 'model author',
+      subtitle,
+      items: [...new Set(records.map(modelAuthor))]
+        .sort()
+        .slice(0, 100)
+        .map((author) => ({ label: author, value: `--author ${encodeURIComponent(author)}` }))
+        .concat([{ label: 'type custom model ID…', value: '--custom' }]),
+      initial: 0,
+      onSelect: { command: `config edit ${item.path}` },
+      ...configPickerBindings(),
+    });
+    return '';
+  }
+  const visible = records
+    .filter(
+      (model) =>
+        (!selectedAuthor || modelAuthor(model) === selectedAuthor) &&
+        (!search || `${model.id} ${model.displayName}`.toLowerCase().includes(search)),
+    )
+    .slice(0, 100);
+  ctx.requestPicker({
+    title: item.path,
+    subtitle,
+    items: visible
+      .map((model) => ({
+        label: model.id,
+        value: model.id,
+        hint: `${model.id === current ? '(current) · ' : ''}${modelDetails(model)}`,
+      }))
+      .concat([{ label: 'type custom model ID…', value: CUSTOM_VALUE_SENTINEL, hint: 'exact ID' }]),
+    initial: Math.max(
+      0,
+      visible.findIndex((model) => model.id === current),
+    ),
+    onSelect: { command: `config set ${item.path}` },
+    onBack: {
+      command: selectedAuthor
+        ? `config edit ${item.path}`
+        : (backCommandForEditor(item) ?? 'config'),
+    },
+    ...configPickerBindings(),
+  });
+  return '';
 }
 
 function openBooleanPicker(item: ConfigItem, currentRaw: unknown, ctx: CommandContext): string {

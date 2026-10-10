@@ -1,5 +1,11 @@
 # Testing Log
 
+## 2026-10-10 — Shared model menus and frozen SOV turn evidence (#33)
+
+Focused menus/config fixtures passed 152 cases / 1010 assertions. Host/scheduler fixtures passed 8 cases, then adaptive output/projection/proactive-boundary checks passed 15 cases / 55 assertions. The original 13 native SDK fixtures pass after fixing resolved-model snapshot binding and removing duplicate unused tool descriptions; a new oversized-directives fixture checks a typed context-budget refusal before inference. A broader host run exposed four native binding/unknown-budget failures (438 pass); follow-up isolated diagnostics found context allocation failures, now fixed without weakening the 32K unknown floor or truncating directives. One preliminary full gate was stopped to fix the reviewed proactive-compaction history-space guard. Independent modality review cleared the host and child pricing fixes.
+
+The first completed frozen full gate passed 5709 cases with two fixture failures: the documented model-command usage had changed, and the per-turn pricing fixture needed explicit fresh verified tariff evidence. Both exact fixtures were corrected; the focused pair passed 29 cases / 244 assertions. Final configured `bun run lint && bun run typecheck && bun run test` passed **5711 passed / 19 skipped / zero failed**, 23488 assertions across 547 files (98.19s). Strict SDK build passed. The final frozen source passed packed Node/Bun external-consumer checks and four compiled CLI JSON/exit probes (capabilities, routes, offline pagination and rejected refresh). Fixtures use isolated caches and fake providers. No paid inference, publication or installed upgrade.
+
 ## 2026-10-10 — execution-policy and discovery stack integration
 
 Merged the exact machine-discovery prerequisite `8d335b00` into the policy branch. Resolved additive public exports, surface snapshots and documentation without dropping either feature. Lint, typecheck, strict build and full suite passed: **5695 passed / 19 skipped / zero failed**, 23410 assertions across 543 files (94.35s). Packed external-consumer checks passed on Node and Bun. The compiled CLI passed capabilities, routes, offline model pagination and invalid-refresh JSON/exit-status probes. No inference, release or installation.
