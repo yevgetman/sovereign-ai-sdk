@@ -1,5 +1,9 @@
 # Testing Log
 
+## 2026-10-10 — PR38 reviewed dependency integration
+
+Integrated PR35 cache-freshness/bounded-port corrections and PR37 unavailable-subscription correction with PR38's reasoning compatibility fix. Retained both append-only test histories and the source-property whitelist fixture. Offline catalog/direct/reasoning checks passed 22 / 0 with 138 assertions. Frozen `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5651 pass / 19 existing skips / 0 fail, 23265 assertions across 536 files (90.61 seconds). No paid inference, installed upgrade or release.
+
 ## 2026-10-10 — PR38 review: preserve established controls after catalog refresh
 
 Closed a Medium finding: positive OpenRouter reasoning capability with omitted depth fields removed existing effort choices and stopped sending the real `off` switch. The shared route/wire compatibility rule now preserves established adapters when discovery supplies no replacement control facts. Explicit unsupported evidence and narrower controls remain authoritative; unknown future IDs stay conservative. Offline normalizer-to-menu-to-wire fixtures cover GLM 5.2, Claude Sonnet 4.5 and GPT-5, stale snapshots, unsupported evidence, binary overrides and future unknown IDs.
@@ -16,6 +20,12 @@ Scope: exact direct/routed Grok depth, Kimi binary switch, metadata-driven futur
 
 Final exact #26 dependency-stack gate: `bun run lint && bun run typecheck && bun run test` passed **5644 / 19 existing skips / zero failures**, 23183 assertions across 536 files. Earlier runs exposed an obsolete Kimi expectation, a local moved-file test-runner ENOENT and one unrelated plugin shell timeout; each was corrected or rechecked. The isolated shell fixture passed 5/5, then the unchanged frozen full gate passed. Snapshot/unknown metadata fixtures are offline evidence, not live-account certification.
 
+## 2026-10-10 — PR37 review fix: unsupported subscription discovery stays unavailable
+
+Addressed review C2 (Medium). ChatGPT and Grok subscription sources now refuse unsupported discovery explicitly, so refresh returns unavailable with stale bundled suggestions instead of falsely assigning a current discovery timestamp. Availability/auth separation and no-network behavior remain covered for both subscription routes.
+
+Validation: `bun run lint && bun run typecheck && bun run test` passed: **5639 pass / 19 skip / 0 fail**, 23166 assertions across 535 files (92.73s). Targeted direct discovery checks: 5 pass / 0 fail, 30 assertions. SDK package build passed. No paid inference, credential reads or installed upgrade.
+
 ## 2026-10-10 — direct API and separate subscription model discovery (#26)
 
 Scope: explicit caller credentials and account-scoped caches for Anthropic/OpenAI/xAI, documented pagination and richer capability/window metadata, alias cycle checks, generation-only filtering and unknown subscription availability with zero login/network side effects.
@@ -29,6 +39,11 @@ Scope: public model normalization, unknown metadata, text-output candidate filte
 
 Validation: `bun run lint && bun run typecheck && bun run test` — lint/typecheck passed; full suite 5633 pass / 19 skip / 1 unrelated timing failure (`secretRedactor` PEM test elapsed 133ms against 100ms threshold under parallel load). Isolated `bun run test tests/permissions/secretRedactor.test.ts` passed 42/0 in 60ms. Catalog/surface fixtures passed 13/0. No paid inference or defaults changed.
 
+## 2026-10-10 — PR35 review fixes: cache freshness and bounded cache ports
+
+Addressed review C1 and C3 (Medium). Failed refreshes retain stale evidence in the external cache and keep a fail-safe per-instance snapshot if persistence fails. Cache reads/writes have bounded waits; serialized writes prevent a late old cache operation from overwriting a later successful refresh. Tests cover immediate second-instance reads, failed persistence, unresponsive cache ports, deduplicated retry and delayed write completion. No paid inference or installed upgrade.
+
+Validation: `bun run lint && bun run typecheck && bun run test` passed: **5633 pass / 19 skip / 0 fail**, 23133 assertions across 533 files (93.07s). Targeted catalog regressions: 8 pass / 0 fail. SDK package build passed.
 
 ## 2026-10-10 — portable model catalog contract (#24)
 
