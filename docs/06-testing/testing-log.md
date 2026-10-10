@@ -1,3 +1,13 @@
+## 2026-10-10 — PR40 fifth review: final parent history alignment
+
+Aligned the actual latest parent `b5c9a293` after complete gating at `799b8f9d`. All tracked non-Markdown files are byte-identical to the gated source and tests. This ordinary feature-branch merge adds only review documentation and ancestry. Final lint passes; the complete gated test result remains applicable. No release, installed runtime or host change.
+
+## 2026-10-10 — PR39 fifth review: inherit SDK effort preflight
+
+Fresh code-review of the PR's own change and callers found no new above-Low defect. Integrated PR38 `56f6c2ed` through an ordinary feature-branch merge. Metadata-backed unsupported reasoning is rejected before any host context reduction. Context/output budgets, modality and custom-provider behavior remain intact. Only additive review-log conflict resolution and the exact shared preflight change were needed.
+
+Configured lint, typecheck and strict SDK build pass. Complete test coverage with branch TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture: **5674 passed / 19 existing skips / 0 failed**, 23448 assertions across 540 files. No paid inference, installed runtime change, release or host configuration edits. Telekit and Mac app excluded.
+
 ## 2026-10-10 — PR40 fifth review: inherit SDK effort preflight
 
 Fresh code-review of the PR's own change and callers found no new above-Low defect. Integrated PR38 `56f6c2ed` through an ordinary feature-branch merge. Metadata-backed unsupported reasoning is rejected before any host context reduction. Context/output budgets, modality and custom-provider behavior remain intact. Only additive review-log conflict resolution and the exact shared preflight change were needed.
