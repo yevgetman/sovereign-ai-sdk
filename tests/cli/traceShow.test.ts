@@ -82,7 +82,7 @@ describe('formatTrace', () => {
     const turn0Pos = out.indexOf('Turn 0');
     const turn1Pos = out.indexOf('Turn 1');
     expect(turn0Pos).toBeLessThan(out.indexOf('→ request'));
-    expect(out.indexOf('Read#tu_1: ok')).toBeGreaterThan(turn1Pos);
+    expect(out.indexOf('Read#tu_1: finished')).toBeGreaterThan(turn1Pos);
   });
 
   test('renders provider_response usage and latency', () => {
@@ -136,7 +136,7 @@ describe('formatTrace', () => {
       },
     ]);
     expect(out).toContain('permission Bash: allow');
-    expect(out).toContain('Bash#t1: ok (12ms, 84 bytes)');
+    expect(out).toContain('Bash#t1: finished (12ms, 84 bytes)');
     expect(out).toContain(
       'microcompact: cleared 4 stale results (~1500 tokens saved, 6 kept recent)',
     );
@@ -230,4 +230,22 @@ describe('showTrace (IO)', () => {
     if (result.ok) throw new Error('expected failure');
     expect(result.error).toContain("no trace file found for session 'ghost'");
   });
+});
+
+test('trace rendering distinguishes returned errors from successful and legacy calls', () => {
+  const base = {
+    type: 'tool_end',
+    tool: 'AgentTool',
+    toolUseId: 'failed-child',
+    durationMs: 482360,
+    outputBytes: 351,
+    iso: ISO,
+  } as const;
+  expect(formatTrace([{ ...base, isError: true } as TraceEvent])).toContain(
+    'AgentTool#failed-child: error',
+  );
+  expect(formatTrace([{ ...base, isError: false } as TraceEvent])).toContain(
+    'AgentTool#failed-child: ok',
+  );
+  expect(formatTrace([base])).toContain('AgentTool#failed-child: finished');
 });

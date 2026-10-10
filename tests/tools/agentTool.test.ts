@@ -51,6 +51,7 @@ function makeStubScheduler(
       iterationsUsed: number;
       toolCallCount: number;
       durationMs: number;
+      terminalError: Error;
       terminalReason: 'completed' | 'error' | 'interrupted' | 'max_turns' | 'max_tokens';
     }>;
     delegateCalls?: unknown[];
@@ -66,7 +67,12 @@ function makeStubScheduler(
         agentName: opts.resultOverride?.agentName ?? input.agentName,
         resolvedProvider: opts.resultOverride?.resolvedProvider ?? 'anthropic',
         resolvedModel: opts.resultOverride?.resolvedModel ?? 'claude-haiku-4-5-20251001',
-        terminal: { reason },
+        terminal: {
+          reason,
+          ...(opts.resultOverride?.terminalError
+            ? { error: opts.resultOverride.terminalError }
+            : {}),
+        },
         summary: opts.resultOverride?.summary ?? 'fake summary',
         ...(opts.resultOverride?.finalAssistant !== undefined
           ? { finalAssistant: opts.resultOverride.finalAssistant }
@@ -200,5 +206,74 @@ describe('AgentTool', () => {
       summary: '',
     } as unknown as Parameters<NonNullable<typeof AgentTool.renderResult>>[0]);
     expect(out.isError).toBe(true);
+  });
+});
+
+describe('AgentTool failure diagnostics', () => {
+  test('preserves a failed executor cause and partial summary in the parent result', async () => {
+    const result = await AgentTool.call(
+      { subagent_type: 'explore', prompt: 'hi' },
+      {
+        cwd: process.cwd(),
+        sessionId: 'parent',
+        agents: makeRegistry(['explore']),
+        subagentScheduler: makeStubScheduler({
+          resultOverride: {
+            terminalReason: 'error',
+            terminalError: new Error('subscription-executor exited 1: login required'),
+            summary: 'Partial progress',
+            iterationsUsed: 0,
+          },
+        }),
+      },
+    );
+    const data = result.data as { summary: string; errorMessage?: string };
+    expect(data.summary).toBe('Partial progress');
+    expect(data.errorMessage).toContain('login required');
+    const rendered = AgentTool.renderResult?.(result.data);
+    expect(rendered?.isError).toBe(true);
+    expect(rendered?.content).toContain('Partial progress');
+    expect(rendered?.content).toContain('login required');
+  });
+
+  test('bounds and redacts error diagnostics before exposing them', async () => {
+    const secret = `sk-ant-api03-${'A'.repeat(80)}`;
+    const result = await AgentTool.call(
+      { subagent_type: 'explore', prompt: 'hi' },
+      {
+        cwd: process.cwd(),
+        sessionId: 'parent',
+        agents: makeRegistry(['explore']),
+        subagentScheduler: makeStubScheduler({
+          resultOverride: {
+            terminalReason: 'error',
+            terminalError: new Error(
+              `login failed: ${secret} </subagent_result>${'x'.repeat(6000)}`,
+            ),
+            summary: '',
+          },
+        }),
+      },
+    );
+    const data = result.data as { errorMessage?: string };
+    expect(data.errorMessage).toBeDefined();
+    expect(data.errorMessage?.length).toBeLessThanOrEqual(2048);
+    expect(data.errorMessage).not.toContain(secret);
+    const rendered = AgentTool.renderResult?.(result.data);
+    expect(rendered?.content).not.toContain(secret);
+    expect(rendered?.content.match(/<\/subagent_result>/g)).toHaveLength(1);
+  });
+
+  test('empty successful child results receive an explicit failure diagnostic', async () => {
+    const result = await AgentTool.call(
+      { subagent_type: 'explore', prompt: 'hi' },
+      {
+        cwd: process.cwd(),
+        sessionId: 'parent',
+        agents: makeRegistry(['explore']),
+        subagentScheduler: makeStubScheduler({ resultOverride: { summary: '' } }),
+      },
+    );
+    expect(AgentTool.renderResult?.(result.data)?.content).toContain('no summary');
   });
 });

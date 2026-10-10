@@ -283,6 +283,7 @@ export async function runSubprocessExecutor(
         abortWasTimeout
           ? new Error(`subscription-executor timed out after ${timeoutMs}ms`)
           : new Error('subscription-executor cancelled by scheduler signal'),
+        stdout,
       );
     }
 
@@ -290,6 +291,7 @@ export async function runSubprocessExecutor(
       const detail = stderr.trim().slice(0, 2048);
       return errorResult(
         new Error(`subscription-executor exited ${exitCode}${detail ? `: ${detail}` : ''}`),
+        stdout,
       );
     }
 
@@ -438,6 +440,7 @@ function parseStreamJson(stdout: string, opts: ParseStreamJsonOpts = {}): Subpro
       toolCallCount,
       distinctToolNames: Array.from(distinctTools).sort(),
       messages,
+      ...(finalAssistant !== undefined ? { finalAssistant } : {}),
     };
   }
 
@@ -600,14 +603,20 @@ function toUserMessage(message: unknown): Message | undefined {
   return { role: 'user', content: blocks };
 }
 
-function errorResult(error: Error): SubprocessExecutorResult {
-  return {
-    terminal: { reason: 'error', error },
-    iterationsUsed: 0,
-    toolCallCount: 0,
-    distinctToolNames: [],
-    messages: [],
-  };
+function errorResult(error: Error, stdout?: string): SubprocessExecutorResult {
+  // A failed process may already have changed files or run external effects.
+  // Preserve available receipts, but never replay a failed run into learning,
+  // and never accept a completed stdout marker over the process failure.
+  const observed =
+    stdout !== undefined
+      ? parseStreamJson(stdout)
+      : {
+          iterationsUsed: 0,
+          toolCallCount: 0,
+          distinctToolNames: [],
+          messages: [],
+        };
+  return { ...observed, terminal: { reason: 'error', error } };
 }
 
 /** Read a stream reader to a string, capping total bytes. Mirrors

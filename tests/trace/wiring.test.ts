@@ -206,7 +206,51 @@ describe('query() trace recording', () => {
     expect(toolEnd.tool).toBe('Echo');
     expect(toolEnd.toolUseId).toBe('t1');
     expect(toolEnd.outputBytes).toBeGreaterThan(0);
+    expect(toolEnd.isError).toBe(false);
     expect(toolEnd.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test('records an in-band tool failure without treating the call as a throw', async () => {
+    const events: TraceEvent[] = [];
+    const tool = buildTool({
+      name: 'FailedChild',
+      description: () => 'returns an error',
+      inputSchema: z.object({}),
+      async call() {
+        return { data: 'failed' };
+      },
+      renderResult() {
+        return { content: 'child login required', isError: true };
+      },
+    }) as unknown as Tool<unknown, unknown>;
+    await drain(
+      query({
+        provider: scriptedTurns([
+          [
+            { type: 'message_stop', stop_reason: 'tool_use' },
+            {
+              type: 'assistant_message',
+              message: {
+                role: 'assistant',
+                content: [{ type: 'tool_use', id: 't1', name: 'FailedChild', input: {} }],
+              },
+            },
+          ],
+          completedEvents,
+        ]),
+        model: 'm',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'go' }] }],
+        systemPrompt: [],
+        tools: [tool],
+        toolContext: toolCtx,
+        canUseTool: async () => ({ behavior: 'allow' }),
+        maxTokens: 256,
+        traceRecorder: (e) => events.push(e),
+      }),
+    );
+    const end = events.find((e) => e.type === 'tool_end');
+    expect(end?.type === 'tool_end' && end.isError).toBe(true);
+    expect(events.some((e) => e.type === 'tool_error')).toBe(false);
   });
 
   test('emits tool_error when a tool throws', async () => {

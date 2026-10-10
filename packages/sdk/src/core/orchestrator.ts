@@ -705,6 +705,7 @@ async function executeOneUnchecked(
   } else {
     recordTrace({
       type: 'tool_end',
+      isError: formatted.is_error === true,
       tool: tool.name,
       toolUseId: block.id,
       durationMs: callDuration,

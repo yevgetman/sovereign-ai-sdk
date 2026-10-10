@@ -12,6 +12,7 @@
 
 import { z } from 'zod';
 import { buildTool } from '../tool/buildTool.js';
+import { redactForce } from '../trajectory/redact.js';
 
 const AgentToolInputSchema = z.object({
   subagent_type: z.string().min(1).describe('The name of the loaded sub-agent to delegate to.'),
@@ -35,6 +36,8 @@ export type AgentToolOutput = {
   toolCallCount: number;
   durationMs: number;
   summary: string;
+  /** Bounded, always-redacted terminal failure detail; absent on successful output. */
+  errorMessage?: string;
 };
 
 export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
@@ -116,6 +119,17 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
     const nominalSuccess =
       result.terminal.reason === 'completed' || result.terminal.reason === 'max_turns';
     const hasOutput = result.summary.trim().length > 0;
+    const errorMessage =
+      !nominalSuccess || !hasOutput
+        ? redactForce(
+            result.terminal.error?.message?.trim() ||
+              (nominalSuccess
+                ? 'Child returned no summary.'
+                : `Child ended with ${result.terminal.reason} without a diagnostic.`),
+          )
+            .replace(/[\p{Cc}\p{Cf}]/gu, ' ')
+            .slice(0, 2048)
+        : undefined;
     return {
       data: {
         childSessionId: result.childSessionId,
@@ -127,6 +141,7 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
         toolCallCount: result.toolCallCount,
         durationMs: result.durationMs,
         summary: result.summary,
+        ...(errorMessage !== undefined ? { errorMessage } : {}),
       },
       observation: {
         status: nominalSuccess && hasOutput ? 'success' : 'error',
@@ -139,6 +154,11 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
     const lines = [
       `<subagent_result name="${output.agentName}" session="${output.childSessionId}" lane="${output.resolvedProvider}/${output.resolvedModel}" turns="${output.iterationsUsed}" tool_calls="${output.toolCallCount}" duration_ms="${output.durationMs}" terminal="${output.terminalReason}">`,
       output.summary,
+      ...(output.errorMessage !== undefined
+        ? [
+            `<diagnostic>${output.errorMessage.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</diagnostic>`,
+          ]
+        : []),
       '</subagent_result>',
     ];
     const nominalSuccess =

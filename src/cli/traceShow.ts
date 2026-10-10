@@ -126,7 +126,7 @@ function renderEvent(event: TraceEvent): string | null {
     case 'tool_start':
       return `${event.tool}#${event.toolUseId}: start`;
     case 'tool_end':
-      return `${event.tool}#${event.toolUseId}: ok (${event.durationMs}ms, ${event.outputBytes} bytes)`;
+      return `${event.tool}#${event.toolUseId}: ${event.isError === true ? 'error' : event.isError === false ? 'ok' : 'finished'} (${event.durationMs}ms, ${event.outputBytes} bytes)`;
     case 'tool_error':
       return `${event.tool}#${event.toolUseId}: ERROR (${event.durationMs}ms) — ${event.message}`;
     case 'microcompact':
