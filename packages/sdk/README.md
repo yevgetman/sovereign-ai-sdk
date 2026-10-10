@@ -447,6 +447,9 @@ Agent usage covers its own provider calls plus reported context components. It d
 not include a complete delegated-child bill. Aggregate receipts identify host context
 estimates separately. SOV stores auxiliary-compaction receipts separately from main
 token counters. Historical rows without reliable pricing evidence are marked incomplete.
+
+Tree-budget settlement captures model identity and prices before host callbacks or provider awaits. Explicit model metadata without verified prices keeps the host’s reserved cost upper bound and marks the cost incomplete. Metadata-absent calls retain established built-in pricing.
+
 ### OpenRouter execution policy
 
 Use `settings.providers.openrouter.routing` with `createAgent`, or pass

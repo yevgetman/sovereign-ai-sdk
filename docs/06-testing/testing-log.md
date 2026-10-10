@@ -7,6 +7,26 @@ Included endpoint-scoped discovery and the exact frozen PR41 tree-budget fixes. 
 ## 2026-10-10 — PR34 reviewed dependency integration
 
 Integrated reviewed discovery/cache and reasoning fixes. Lint, typecheck and strict SDK build pass. Full suite: 5702 passed, 19 skipped, zero failed; 23517 assertions across 543 files (109.68 seconds).
+## 2026-10-10 — PR42 final parent integration and pricing gate
+
+Integrated authoritative reviewed PR41 `08b87cdf` (including final PR40 ancestry). Retained both testing histories and the new tree-budget documentation. All functional tracked files match the independently tested frozen tree exactly; source digest `43777b8e2ade3f10c604e0b7a5172e77ef8bbc9d3f8dc16a6398622ca37a669d`. Only documentation changed after that gate.
+
+Validation: `bun run lint && bun run typecheck && bun run build && bun run test` passed on the exact combined source: **5701 pass / 19 skip / 0 fail**, 23534 assertions across 542 files (96.73s). Lint rerun before the final merge commit. Custom endpoint isolation and immutable/unknown tree tariffs were independently reviewed. No paid inference, installed upgrade or release.
+
+## 2026-10-10 — PR42 inherits the reviewed discovery/reasoning parent
+
+Integrated final PR38 `1fc9d8ed`, including unavailable-subscription reporting, stale-cache persistence, bounded cache ports and verified reasoning restrictions. Runtime source merged without conflicts; retained both testing histories and normalized the Testing Log heading before its entries.
+
+Validation: frozen `bun run lint && bun run typecheck && bun run build && bun run test` passed: **5698 pass / 19 skip / 0 fail**, 23529 assertions across 542 files (90.44s). Tested tree `cf64f92039f64752a5dbc540ab233d5746ad78c5`; only this log entry followed the gate, with lint rerun. No paid inference or installed upgrade.
+## 2026-10-10 — PR #41 review: unknown and immutable tree pricing
+
+Cross-review found two Medium tree-budget defects. An explicit model record with unknown prices could fall back to the built-in table and release its host cost reservation. Settlement also read mutable model identity and prices after the stream, allowing a cache update to reprice a completed call. The wrapper now captures provider/model identity and immutable tariff evidence before the host estimator or any provider await. Unknown prices retain the host upper bound and mark the cost incomplete. Metadata-absent callers keep the established table and implicit cache-rate behavior.
+
+Focused checks passed **22/0**, 68 assertions: an unknown known-ID price retains a $0.5 reservation and fences the next $0.6 request; legacy calls retain known prices; callback/stream mutations leave the original $8 estimate intact. Independent request-agent review closed both findings. On final PR40 parent `a4c9e2ce`, configured lint, typecheck, strict build and full tests passed **5692 passed / 19 skipped / zero failed**, 23452 assertions across 541 files (97.90s). Parent testing records were preserved. No paid inference, installation or release.
+
+## 2026-10-10 — PR41 reviewed dependency integration
+
+Integrated reviewed discovery/cache and reasoning fixes. Lint, typecheck and strict SDK build pass. Full suite: 5689 passed, 19 skipped, zero failed; 23447 assertions across 541 files (111.75 seconds).
 
 ## 2026-10-10 — PR37 ancestor cache fixes integration
 
@@ -40,6 +60,44 @@ On the contract baseline: `bun run lint`, `bun run typecheck`, `bun run build` a
 Scope: complete replay history, model/provider identity, explicit unsupported capabilities and tool-choice formats, subscription image fences, assistant-role image loss prevention, and native xAI image/function wire bodies. Unknown direct API tools retain the existing transport attempt for future IDs; this does not certify model support or account entitlement. Exact established direct image choices and local/custom serializer contracts retain compatibility. Discovered OpenRouter required unknown capabilities fail safely. No paid inference or installed upgrade.
 
 Focused modality/public-surface checks passed 15/0 (110 assertions). After stacking on exact #28, combined modality/surface/context-budget fixtures passed 26/0 (158 assertions). Final frozen `bun run lint && bun run typecheck && bun run test` passed **5667 pass / 19 existing skips / 0 fail**, 23273 assertions across 539 files in 95.46 seconds. Both pre-reduction and final-request checks preserve #28 output reservations. Earlier standalone checks exposed a missing public export snapshot, corrected before these final gates.
+
+## 2026-10-10 — Exact model context/output budgets (#28)
+
+Scope: fresh growing context windows, stale/unknown fallbacks, host caps, output reservation, resumed history downgrade, authorized reducer refusal, verified accounting port and Anthropic thinking output bounds. Offline fixtures cover Grok500K and routed Sonnet1M, plus host-only reservations and 1025/1500-token thinking minima. No paid inference or installed upgrade.
+
+Focused checks passed 34/0 for public surface/context fixtures and 11/0 after the two review fixes; existing context management checks passed 21/0. Initial full gate exposed only a missing public type witness, corrected before frozen gates. The first frozen gate passed 5653/19/0; reviewed host-only/minimum-budget fixes passed 5655/19/0. Final exact PR38 dependency-stack `bun run lint && bun run typecheck && bun run test` passed **5656 pass / 19 existing skips / 0 fail**, 23235 assertions across 538 files. The byte estimate remains a documented heuristic; tokenizer/vision certification requires the host accounting port.
+## 2026-10-10 — PR38 independent rereview R2: fresh verified-model constraints
+
+## 2026-10-10 — PR42 review fix: custom OpenRouter endpoint isolation
+
+Addressed review C4 (Medium). A custom OpenRouter-compatible base URL now uses an endpoint-hashed unavailable discovery source and cannot inherit official public model limits, capabilities or prices. Absent or canonical official HTTPS API URLs (including trailing slash) retain public discovery. Custom refresh performs no fetch. Async/synchronous cache reads, endpoint isolation and query/fragment/userinfo/protocol/path exclusions are covered.
+
+Validation: `bun run lint && bun run typecheck && bun run build && bun run test` passed: **5691 pass / 19 skip / 0 fail**, 23422 assertions across 542 files (101.97s). Focused machine-catalog tests and two independent reviews passed: **7 pass / 0 fail**, 53 assertions. No paid inference, credentials or installed state changed.
+
+## 2026-10-10 — route-scoped machine model discovery (#32)
+
+Added version-1 bounded `sov models`, opt-in refresh, account-isolated disk snapshots, author/search/pagination, safe invalid-query errors and additive capabilities discovery. Shared synchronous snapshots and async reads both mark noncurrent catalogs stale. Root and independent catalog-agent review found and fixed state-freshness and offline author-filter inconsistencies.
+
+`bun run lint && bun run typecheck && bun run test` pass: **5690 pass / 19 skip / 0 fail**, 23393 assertions across 542 files (91.49s), on exact PR #41 parent `cdab5c67`. The strict package build also passed. Focused source-CLI/cache fixtures pass 7/0, including network refusal on offline reads and invalid refresh options. `bun build src/main.ts --compile --outfile /private/tmp/sov-models-contract-check` passed; compiled capabilities, routes, offline model pagination and rejected refresh pagination each emit one version-1 JSON object with expected exit status. These are offline contract checks, not live provider entitlement or Telekit UI proof.
+## 2026-10-10 — PR40 reviewed parent integration
+
+Integrated the reviewed discovery and reasoning corrections from PR38 into the modality-validation branch. Preserved image/tool fixtures and additive review records. Frozen `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5674 pass / 19 existing skips / 0 fail, 23380 assertions across 539 files (112.59 seconds). No paid inference, installed upgrade or release.
+
+## 2026-10-10 — pricing completeness and immutable receipts (#30)
+
+Final exact stack on PR40 (`0cd4edf`): `bun run lint`, `bun run typecheck`, `bun run build` and `bun run test` pass: **5682 pass / 19 skip / 0 fail**, 23340 assertions across 541 files (103.96s). Independent reviews include gateway hop receipts and exact per-turn override billing. Missing auxiliary usage now persists an incomplete compaction receipt; immutable rates/source/time/version are retained separately from main tokens. Focused compaction/store checks pass 53/0. The final public packed canary passed on Node and Bun.
+
+Portable paid/free/subscription/unknown estimates, immutable identity-bound tariffs, missing cache prices, no-usage and interrupted streams, historical SQLite migration, aggregate context provenance and terminal/protocol rendering were reviewed independently. All above-Low findings were fixed. Unknown bills omit amounts and preserve observed usage; numeric counters remain known subtotals.
+
+On the contract baseline: `bun run lint`, `bun run typecheck`, `bun run build` and `bun run test` pass: **5640 pass / 19 skip / 0 fail**, 23155 assertions across 535 files (97.06s). Focused pricing/context/agent checks passed after updating the no-usage receipt contract. Go `go test ./internal/transport ./internal/components` passed; Bun schema regression passed 1/0. Earlier attempts exposed a strict package optional-field type error (fixed) and an unrelated Bash timeout under parallel load; final unchanged timeout test passes in the full gate. Packed external-consumer pricing assertions run on Node and Bun through `bun run canary`. No paid inference or installed changes.
+## 2026-10-10 — Exact model image/tool validation (#29)
+
+Scope: complete replay history, model/provider identity, explicit unsupported capabilities and tool-choice formats, subscription image fences, assistant-role image loss prevention, and native xAI image/function wire bodies. Unknown direct API tools retain the existing transport attempt for future IDs; this does not certify model support or account entitlement. Exact established direct image choices and local/custom serializer contracts retain compatibility. Discovered OpenRouter required unknown capabilities fail safely. No paid inference or installed upgrade.
+
+Focused modality/public-surface checks passed 15/0 (110 assertions). After stacking on exact #28, combined modality/surface/context-budget fixtures passed 26/0 (158 assertions). Final frozen `bun run lint && bun run typecheck && bun run test` passed **5667 pass / 19 existing skips / 0 fail**, 23273 assertions across 539 files in 95.46 seconds. Both pre-reduction and final-request checks preserve #28 output reservations. Earlier standalone checks exposed a missing public export snapshot, corrected before these final gates.
+## 2026-10-10 — PR39 reviewed parent integration
+
+Integrated the reviewed discovery and reasoning corrections from PR38 into the context-limits branch. Preserved model-limit fixtures and additive review records. Frozen `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5663 pass / 19 existing skips / 0 fail, 23342 assertions across 538 files (112.18 seconds). No paid inference, installed upgrade or release.
 
 ## 2026-10-10 — Exact model context/output budgets (#28)
 
@@ -101,12 +159,6 @@ Validation: `bun run lint && bun run typecheck && bun run test` passed: **5633 p
 Scope: public model normalization, unknown metadata, text-output candidate filtering, bounded same-origin pages and 16-MiB streamed response limit, stale cache/failure fallback and whitelisted output records.
 
 Validation: `bun run lint && bun run typecheck && bun run test` — lint/typecheck passed; full suite 5633 pass / 19 skip / 1 unrelated timing failure (`secretRedactor` PEM test elapsed 133ms against 100ms threshold under parallel load). Isolated `bun run test tests/permissions/secretRedactor.test.ts` passed 42/0 in 60ms. Catalog/surface fixtures passed 13/0. No paid inference or defaults changed.
-
-## 2026-10-10 — PR35 review fixes: cache freshness and bounded cache ports
-
-Addressed review C1 and C3 (Medium). Failed refreshes retain stale evidence in the external cache and keep a fail-safe per-instance snapshot if persistence fails. Cache reads/writes have bounded waits; serialized writes prevent a late old cache operation from overwriting a later successful refresh. Tests cover immediate second-instance reads, failed persistence, unresponsive cache ports, deduplicated retry and delayed write completion. No paid inference or installed upgrade.
-
-Validation: `bun run lint && bun run typecheck && bun run test` passed: **5633 pass / 19 skip / 0 fail**, 23133 assertions across 533 files (93.07s). Targeted catalog regressions: 8 pass / 0 fail. SDK package build passed.
 
 ## 2026-10-10 — portable model catalog contract (#24)
 
