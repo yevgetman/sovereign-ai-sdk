@@ -2,7 +2,12 @@
 
 No new finding above Low in the OpenRouter routing-policy changes. Integrated the reviewed PR37 factory identity freeze and PR41 native auxiliary cumulative usage correction while retaining this branch's pooled-account catalog handling and strict inference policy.
 
-Configured lint, typecheck and strict SDK build pass. The full discovered test set passed: **5719 passed / 19 existing skips / 0 failed**, 23691 assertions across 544 files. All test files were covered; compiler and footer fixtures ran separately and the remaining suite used a branch-specific TMPDIR. No paid inference, live configuration or installed change. Final parent PR42 ancestry will be aligned only after verifying no functional/test delta from this exact gate.
+Configured lint, typecheck and strict SDK build pass. The full discovered test set passed: **5719 passed / 19 existing skips / 0 failed**, 23691 assertions across 544 files. All test files were covered; compiler and footer fixtures ran separately and the remaining suite used a branch-specific TMPDIR. No paid inference, live configuration or installed change. Merged final PR42 `367334f7` after verifying that its ancestry merge changes only testing-log documentation; functional code and test files remain identical to this exact passing gate. Final lint passes.
+## 2026-10-10 — PR42 fourth review: inherit final reviewed SDK and compaction fixes
+
+Merged final PR41 `bcd12a5a`, including actual PR40/39/38/37 ancestry. Kept PR42 account-pool ambiguity, custom endpoint isolation and its exact native effort controls intact. Inherited the confirmed High direct-source identity correction and Medium split-usage compaction pricing correction; no additional independent issue above Low was found in PR42.
+
+`bun run lint`, `bun run typecheck` and `bun run --cwd packages/sdk build` pass. Complete gate via `python3 /private/tmp/sdk-fourth-gate.py /private/tmp/sdk-sov-models 42`: **5714 passed / 19 existing skips / zero failed**, 23674 assertions across 543 files. Every discovered test file ran; the global compiler fixture is serialized, the existing shared-theme footer fixture is isolated, and remaining tests use a distinct TMPDIR. No paid inference, live configuration, installed runtime or learning-loop setting changes.
 
 ## 2026-10-10 — PR39 fourth review: inherit frozen discovery identity
 
