@@ -1,8 +1,18 @@
+## 2026-10-10 — PR40 fifth review: final parent history alignment
+
+Aligned the actual latest parent `b5c9a293` after complete gating at `799b8f9d`. All tracked non-Markdown files are byte-identical to the gated source and tests. This ordinary feature-branch merge adds only review documentation and ancestry. Final lint passes; the complete gated test result remains applicable. No release, installed runtime or host change.
+
 ## 2026-10-10 — PR39 fifth review: inherit SDK effort preflight
 
 Fresh code-review of the PR's own change and callers found no new above-Low defect. Integrated PR38 `56f6c2ed` through an ordinary feature-branch merge. Metadata-backed unsupported reasoning is rejected before any host context reduction. Context/output budgets, modality and custom-provider behavior remain intact. Only additive review-log conflict resolution and the exact shared preflight change were needed.
 
 Configured lint, typecheck and strict SDK build pass. Complete test coverage with branch TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture: **5674 passed / 19 existing skips / 0 failed**, 23448 assertions across 540 files. No paid inference, installed runtime change, release or host configuration edits. Telekit and Mac app excluded.
+
+## 2026-10-10 — PR40 fifth review: inherit SDK effort preflight
+
+Fresh code-review of the PR's own change and callers found no new above-Low defect. Integrated PR38 `56f6c2ed` through an ordinary feature-branch merge. Metadata-backed unsupported reasoning is rejected before any host context reduction. Context/output budgets, modality and custom-provider behavior remain intact. Only additive review-log conflict resolution and the exact shared preflight change were needed.
+
+Configured lint, typecheck and strict SDK build pass. Complete test coverage with branch TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture: **5685 passed / 19 existing skips / 0 failed**, 23486 assertions across 541 files. No paid inference, installed runtime change, release or host configuration edits. Telekit and Mac app excluded.
 
 ## 2026-10-10 — PR38 fifth review: reject effort before paid reduction
 
@@ -17,6 +27,10 @@ Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endp
 `bun run lint`, `bun run typecheck` and strict `bun run --cwd packages/sdk build` pass. The complete gate executes every discovered test file with a branch-specific TMPDIR; the global temporary-compiler fixture is serialized and the shared-theme footer fixture runs in its own process. Final result: **5673 passed / 19 existing skips / zero failed**, 23444 assertions across 539 files. The first alphabetic all-file attempt failed one existing footer-color assertion due to shared theme state; standalone footer checks and the final complete isolated gate pass. No test was skipped to avoid that issue, and no production/test source was changed for it. No paid inference, installed runtime or host configuration changes.
 
 # Testing Log
+
+## 2026-10-10 — PR40 third review dependency validation
+
+Independent review found no new above-Low defect in PR40. Integrated final PR39 `10918ef1`, including native Anthropic controls, image-aware input accounting and immutable per-turn model evidence. Configured lint, typecheck, strict SDK build and full tests passed: **5683 passed / 19 existing skips / zero failed**, 23462 assertions across 540 files (97.59s). All parent testing records were preserved. No paid inference or installed changes.
 
 ## 2026-10-10 — PR39 third review: image accounting and immutable model evidence
 
@@ -58,6 +72,15 @@ Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endp
 
 Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typecheck and strict SDK build pass. Full suite: 5643 passed, 19 skipped, zero failed; 23183 assertions across 535 files (91.44 seconds).
 
+## 2026-10-10 — PR40 reviewed parent integration
+
+Integrated the reviewed discovery and reasoning corrections from PR38 into the modality-validation branch. Preserved image/tool fixtures and additive review records. Frozen `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5674 pass / 19 existing skips / 0 fail, 23380 assertions across 539 files (112.59 seconds). No paid inference, installed upgrade or release.
+
+## 2026-10-10 — Exact model image/tool validation (#29)
+
+Scope: complete replay history, model/provider identity, explicit unsupported capabilities and tool-choice formats, subscription image fences, assistant-role image loss prevention, and native xAI image/function wire bodies. Unknown direct API tools retain the existing transport attempt for future IDs; this does not certify model support or account entitlement. Exact established direct image choices and local/custom serializer contracts retain compatibility. Discovered OpenRouter required unknown capabilities fail safely. No paid inference or installed upgrade.
+
+Focused modality/public-surface checks passed 15/0 (110 assertions). After stacking on exact #28, combined modality/surface/context-budget fixtures passed 26/0 (158 assertions). Final frozen `bun run lint && bun run typecheck && bun run test` passed **5667 pass / 19 existing skips / 0 fail**, 23273 assertions across 539 files in 95.46 seconds. Both pre-reduction and final-request checks preserve #28 output reservations. Earlier standalone checks exposed a missing public export snapshot, corrected before these final gates.
 ## 2026-10-10 — PR39 reviewed parent integration
 
 Integrated the reviewed discovery and reasoning corrections from PR38 into the context-limits branch. Preserved model-limit fixtures and additive review records. Frozen `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5663 pass / 19 existing skips / 0 fail, 23342 assertions across 538 files (112.18 seconds). No paid inference, installed upgrade or release.
@@ -7966,3 +7989,10 @@ Mac cross-compilation can retain an invalid upstream Bun signature. Both final M
 Merged PR #8 (Decorum retired, conduct port stays empty) and PR #7 (headless subscription loop). SDK `.` entry gains toolset helpers, `loadSubscriptionProvider`, and the subscription error types, so the SDK moves 0.10.3 → 0.11.0. The harness moves 0.6.73 → 0.6.74.
 
 On the rebased subscription branch, before the version bump: `bun run typecheck` pass, `bun run lint` pass (biome + boundary, 203 modules), `bun test` 5404 pass / 31 skip / 0 fail (5435 tests, 515 files, 93.40s). PR #7 CI run 37501465646: lint + boundary + typecheck pass, open packages pass. Master CI for the PR #8 merge, run 37500573636, both jobs pass.
+
+
+## 2026-10-10 — Fourth review pass, PR #40
+
+No new independent finding above Low. Propagated the reviewed catalog metadata correction from PR #37.
+
+Lint, type checking, strict SDK build and all discovered tests passed: 5684 passed, 19 existing skips, zero failures, 23482 assertions across 540 files. The global compile fixture ran under a lock; the existing footer theme fixture ran in an isolated process after the sorted full run exposed shared theme state. All test files remained covered. No live inference or learning soak performed.

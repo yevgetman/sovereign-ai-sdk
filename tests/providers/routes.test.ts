@@ -166,7 +166,7 @@ describe('route catalog', () => {
   });
 
   test('image support is declared per route', () => {
-    expect(imageRoutes()).toEqual(['openrouter-api', 'anthropic-api', 'openai-api']);
+    expect(imageRoutes()).toEqual(['openrouter-api', 'anthropic-api', 'openai-api', 'grok-api']);
     expect(routeSupportsImages('chatgpt-subscription')).toBe(false);
     expect(routeSupportsImages('nope')).toBe(false);
   });
