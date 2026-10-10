@@ -53,24 +53,65 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
     throw new Error('Model discovery TTL must be nonnegative and timeout positive');
   }
   const pending = new Map<string, Promise<ModelCatalog>>();
+  // A failed write cannot make this instance trust a still-current external cache.
+  const failedSnapshots = new Map<string, ModelCatalog>();
+  const writes = new Map<string, Promise<void>>();
+  async function bounded<T>(operation: () => Promise<T>, abort?: () => void): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        Promise.resolve().then(operation),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            abort?.();
+            reject(new Error('Model discovery operation timed out'));
+          }, timeout);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async function persist(key: string, catalog: ModelCatalog): Promise<void> {
+    // Serialize even ports that ignore timeout: a late old write cannot overwrite
+    // a later successful refresh. A stuck port never starts additional writes.
+    const prior = writes.get(key);
+    if (prior) await bounded(() => prior);
+    const write = Promise.resolve().then(() => cache.set(key, structuredClone(catalog)));
+    writes.set(key, write);
+    void write.then(
+      () => {
+        if (writes.get(key) === write) writes.delete(key);
+      },
+      () => {
+        if (writes.get(key) === write) writes.delete(key);
+      },
+    );
+    await bounded(() => write);
+  }
   const keyFor = (source: ModelDiscoverySource) =>
     `${source.routeId}:${source.cacheKey ?? 'public'}`;
   async function read(source: ModelDiscoverySource): Promise<ModelCatalog> {
     let saved: ModelCatalog | undefined;
     try {
-      saved = validateModelCatalog(await cache.get(keyFor(source)), source.routeId, now());
+      saved =
+        (failedSnapshots.has(keyFor(source))
+          ? structuredClone(failedSnapshots.get(keyFor(source)))
+          : undefined) ??
+        validateModelCatalog(await bounded(() => cache.get(keyFor(source))), source.routeId, now());
     } catch {
       /* corrupt/unavailable cache is an offline fallback */
     }
     if (!saved || saved.version !== 1 || saved.routeId !== source.routeId)
       return fallbackModelCatalog(source.routeId);
     const stale =
+      saved.state !== 'current' ||
       !saved.fetchedAt ||
       now() - Date.parse(saved.fetchedAt) >= ttl ||
       !Number.isFinite(Date.parse(saved.fetchedAt));
     return {
       ...saved,
-      state: stale ? 'stale' : saved.state,
+      state: saved.state === 'current' && stale ? 'stale' : saved.state,
       models: saved.models.map((model) => ({
         ...model,
         metadata: { ...model.metadata, stale: stale || model.metadata.stale },
@@ -83,18 +124,16 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
     if (existing) return existing;
     const operation = (async (): Promise<ModelCatalog> => {
       const controller = new AbortController();
-      let timer: ReturnType<typeof setTimeout> | undefined;
+      const previous = await read(source);
       try {
-        const deadline = new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => {
-            controller.abort();
-            reject(new Error('Model discovery timed out'));
-          }, timeout);
-        });
-        const rawModels = await Promise.race([
-          source.discover({ fetch: options.fetch ?? globalThis.fetch, signal: controller.signal }),
-          deadline,
-        ]);
+        const rawModels = await bounded(
+          () =>
+            source.discover({
+              fetch: options.fetch ?? globalThis.fetch,
+              signal: controller.signal,
+            }),
+          () => controller.abort(),
+        );
         const models = validateModelRecords(rawModels, source.routeId, now());
         if (!models) throw new Error('Invalid discovery metadata');
         const fetchedAt = new Date(now()).toISOString();
@@ -108,11 +147,11 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
             metadata: { ...model.metadata, fetchedAt, stale: false },
           })),
         };
-        await cache.set(key, catalog);
+        await persist(key, catalog);
+        failedSnapshots.delete(key);
         return structuredClone(catalog);
       } catch {
-        const previous = await read(source);
-        return {
+        const failed: ModelCatalog = {
           ...previous,
           state: previous.fetchedAt ? 'stale' : 'unavailable',
           error: 'Model discovery unavailable',
@@ -121,8 +160,13 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
             metadata: { ...model.metadata, stale: true },
           })),
         };
-      } finally {
-        clearTimeout(timer);
+        failedSnapshots.set(key, structuredClone(failed));
+        try {
+          await persist(key, failed);
+        } catch {
+          /* in-memory invalidation remains */
+        }
+        return structuredClone(failed);
       }
     })();
     pending.set(key, operation);
