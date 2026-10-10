@@ -1,3 +1,9 @@
+## 2026-10-10 — PR39 fourth review: inherit frozen discovery identity
+
+Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endpoint, authorization and account/normalizer identity remain captured at construction. No additional source changes were required on this branch.
+
+`bun run lint`, `bun run typecheck` and strict `bun run --cwd packages/sdk build` pass. The complete gate executes every discovered test file with a branch-specific TMPDIR; the global temporary-compiler fixture is serialized and the shared-theme footer fixture runs in its own process. Final result: **5673 passed / 19 existing skips / zero failed**, 23444 assertions across 539 files. The first alphabetic all-file attempt failed one existing footer-color assertion due to shared theme state; standalone footer checks and the final complete isolated gate pass. No test was skipped to avoid that issue, and no production/test source was changed for it. No paid inference, installed runtime or host configuration changes.
+
 # Testing Log
 
 ## 2026-10-10 — PR41 third review dependency validation
@@ -22,6 +28,11 @@ Independent review found no new above-Low defect in PR40. Integrated final PR39 
 Resolved three Medium findings: image transport bytes no longer masquerade as input tokens; per-turn model/provider changes do not inherit another identity's standing record; model evidence is frozen before asynchronous host callbacks. Input accounting exposes incomplete image estimates in traces, preserves the image payload, accepts verified host counters, and retains provider overflow recovery. Merged reviewed PR38 native Anthropic controls with PR39 thinking-budget caps intact.
 
 Configured lint, typecheck, strict SDK build and full tests pass: **5672 passed / 19 existing skips / zero failed**, 23424 assertions across 539 files (89.90s). Focused image/model-evidence checks passed 17 tests / 83 assertions. The initial combined gate caught a missing public type-surface witness; this gate includes its correction. The PNG fixture has valid chunk CRCs. Independent review closed the image and metadata findings. No paid inference or installed changes.
+## 2026-10-10 — PR38 fourth review: inherit frozen discovery identity
+
+Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endpoint, authorization and account/normalizer identity remain captured at construction. No additional source changes were required on this branch.
+
+`bun run lint`, `bun run typecheck` and strict `bun run --cwd packages/sdk build` pass. The complete gate executes every discovered test file with a branch-specific TMPDIR; the global temporary-compiler fixture is serialized and the shared-theme footer fixture runs in its own process. Final result: **5656 passed / 19 existing skips / zero failed**, 23361 assertions across 536 files. The first alphabetic all-file attempt failed one existing footer-color assertion due to shared theme state; standalone footer checks and the final complete isolated gate pass. No test was skipped to avoid that issue, and no production/test source was changed for it. No paid inference, installed runtime or host configuration changes.
 
 ## 2026-10-10 — PR37 fourth review: freeze direct discovery identity
 
@@ -7982,3 +7993,9 @@ On the rebased subscription branch, before the version bump: `bun run typecheck`
 Fixed Medium auxiliary compaction usage loss. Shared accumulation preserves split input/cache usage and the final cumulative output count. Isolated native-stream regression verifies a complete immutable receipt.
 
 Lint, type checking, strict SDK build and all discovered tests passed: 5703 passed, 19 existing skips, zero failures, 23561 assertions across 542 files. The global compile fixture ran under a lock; the existing footer theme fixture ran in an isolated process after the sorted full run exposed shared theme state. All test files remained covered. No live inference or learning soak performed.
+
+## 2026-10-10 — Fourth review pass, PR #40
+
+No new independent finding above Low. Propagated the reviewed catalog metadata correction from PR #37.
+
+Lint, type checking, strict SDK build and all discovered tests passed: 5684 passed, 19 existing skips, zero failures, 23482 assertions across 540 files. The global compile fixture ran under a lock; the existing footer theme fixture ran in an isolated process after the sorted full run exposed shared theme state. All test files remained covered. No live inference or learning soak performed.
