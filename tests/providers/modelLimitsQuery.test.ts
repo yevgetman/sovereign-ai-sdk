@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
 import { query } from '@yevgetman/sov-sdk/core/query';
+import { requestInputTokenEstimate } from '@yevgetman/sov-sdk/providers/modelLimits';
 import type { ModelRecord } from '@yevgetman/sov-sdk/providers/models/types';
 import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
+import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 const metadata = (window: number, output: number): ModelRecord => ({
   id: 'future',
   provider: 'fake',
@@ -130,4 +132,116 @@ test('explicit host context cap marks output budget without model metadata', asy
   expect(calls[0]?.outputBudgetEnforced).toBe(true);
   expect(calls[0]?.maxTokens).toBe(1500);
   expect(calls[0]?.modelMetadata).toBeUndefined();
+});
+
+test('image payload bytes do not become text tokens and uncertainty is explicit', async () => {
+  const png =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
+  // Valid ancillary tEXt chunk before IEND: payload size is independent of pixels.
+  const original = Buffer.from(png, 'base64');
+  const text = Buffer.from(`Comment\0${'A'.repeat(200000)}`);
+  const chunkTypeAndData = Buffer.concat([Buffer.from('tEXt'), text]);
+  let crc = 0xffffffff;
+  for (const byte of chunkTypeAndData) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(text.length);
+  const checksum = Buffer.alloc(4);
+  checksum.writeUInt32BE((crc ^ 0xffffffff) >>> 0);
+  const bytes = Buffer.concat([
+    original.subarray(0, -12),
+    length,
+    chunkTypeAndData,
+    checksum,
+    original.subarray(-12),
+  ]);
+  const image = {
+    type: 'image' as const,
+    source: { type: 'base64' as const, media_type: 'image/png', data: bytes.toString('base64') },
+  };
+  const messages = [{ role: 'user' as const, content: [image] }];
+  const estimate = requestInputTokenEstimate(messages, [], []);
+  expect(estimate.complete).toBe(false);
+  expect(estimate.uncountedImages).toBe(1);
+  expect(estimate.tokens).toBeLessThan(1000);
+  // Foreign URL-shaped image blocks are still images, never URL-text token counts.
+  const urlMessages = [
+    {
+      role: 'user' as const,
+      content: [{ type: 'image', source: { type: 'url', url: 'https://example.test/image.png' } }],
+    },
+  ] as unknown as typeof messages;
+  expect(requestInputTokenEstimate(urlMessages, [], []).uncountedImages).toBe(1);
+  expect(requestInputTokenEstimate(urlMessages, [], []).tokens).toBe(estimate.tokens);
+  for (const inputTokenCounter of [undefined, () => 200000]) {
+    const calls: ProviderRequest[] = [];
+    const record = metadata(128000, 8192);
+    const traces: TraceEvent[] = [];
+    const loop = query({
+      provider: mockProvider(calls),
+      model: record.id,
+      modelMetadata: record,
+      messages,
+      systemPrompt: [],
+      maxTokens: 8192,
+      traceRecorder: (event) => traces.push(event),
+      ...(inputTokenCounter ? { inputTokenCounter } : {}),
+    });
+    for (;;) {
+      const step = await loop.next();
+      if (step.done) {
+        expect(step.value.reason).toBe(inputTokenCounter ? 'error' : 'completed');
+        break;
+      }
+    }
+    expect(calls).toHaveLength(inputTokenCounter ? 0 : 1);
+    if (calls[0]) {
+      expect(calls[0].messages[0]?.content[0]).toEqual(image);
+      const request = traces.find((event) => event.type === 'provider_request');
+      expect(request?.type === 'provider_request' ? request.inputAccounting : undefined).toEqual(
+        estimate,
+      );
+    }
+  }
+  const calls: ProviderRequest[] = [];
+  expect((await run(metadata(1000, 100), 'x'.repeat(2000), calls)).reason).toBe('error');
+  expect(calls).toHaveLength(0);
+});
+
+test('uncounted image costs leave provider context overflow visible', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'fake',
+    async *stream() {
+      calls++;
+      yield* [];
+      throw new Error('maximum context length exceeded by image tokens');
+    },
+  };
+  const loop = query({
+    provider,
+    model: 'future',
+    modelMetadata: metadata(128000, 8192),
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'fixture' } },
+        ],
+      },
+    ],
+    systemPrompt: [],
+    maxTokens: 8192,
+  });
+  for (;;) {
+    const step = await loop.next();
+    if (step.done) {
+      expect(step.value.reason).toBe('error');
+      expect(step.value.error?.message).toContain('image tokens');
+      break;
+    }
+  }
+  expect(calls).toBe(1);
 });
