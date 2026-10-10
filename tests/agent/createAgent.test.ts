@@ -837,12 +837,16 @@ describe('createAgent — cross-call token-usage accumulation (Task 4.2)', () =>
    *  that reached recordTokenUsage (field split + absence, not just totals). */
   function capturingStore(): {
     store: SessionStore;
-    recorded: { usage: TokenUsage; costUsd: number }[];
+    recorded: { usage: TokenUsage; costUsd: number | undefined }[];
   } {
     const inner = createInMemorySessionStore();
-    const recorded: { usage: TokenUsage; costUsd: number }[] = [];
+    const recorded: { usage: TokenUsage; costUsd: number | undefined }[] = [];
     const store: SessionStore = {
       ...inner,
+      recordUsageEstimate(sessionId, usage, estimate) {
+        recorded.push({ usage, costUsd: estimate.amountUsd });
+        inner.recordUsageEstimate?.(sessionId, usage, estimate);
+      },
       recordTokenUsage(sessionId, usage, estimatedCostUsd) {
         recorded.push({ usage, costUsd: estimatedCostUsd });
         inner.recordTokenUsage(sessionId, usage, estimatedCostUsd);
@@ -914,8 +918,8 @@ describe('createAgent — cross-call token-usage accumulation (Task 4.2)', () =>
     );
   });
 
-  test('a run whose provider emits NO usage_delta records nothing (recordTokenUsage skipped, as today)', async () => {
-    // The original fixtures emit no usage_delta — the pre-4.2 skip contract.
+  test('a run with no usage keeps counters empty and records unknown cost', async () => {
+    // Missing provider usage must not certify a free completed turn.
     const { store, recorded } = capturingStore();
     const agent = createAgent({
       provider: scriptedProvider([
@@ -934,7 +938,7 @@ describe('createAgent — cross-call token-usage accumulation (Task 4.2)', () =>
     });
     const { result } = await drain(agent.run('use the tool', { sessionId: 'sess-4-2-none' }));
     expect(result.terminal.reason).toBe('completed');
-    expect(recorded.length).toBe(0);
+    expect(recorded).toEqual([{ usage: {}, costUsd: undefined }]);
   });
 
   test("a rehydration run records only THIS run's usage (no re-count of prior runs)", async () => {
@@ -1166,12 +1170,16 @@ describe('createAgent — RunResult per-run usage + estimatedCostUsd (Task 4.4 /
    *  reached recordTokenUsage — the single-finalize sharing pin. */
   function capturingStore(): {
     store: SessionStore;
-    recorded: { usage: TokenUsage; costUsd: number }[];
+    recorded: { usage: TokenUsage; costUsd: number | undefined }[];
   } {
     const inner = createInMemorySessionStore();
-    const recorded: { usage: TokenUsage; costUsd: number }[] = [];
+    const recorded: { usage: TokenUsage; costUsd: number | undefined }[] = [];
     const store: SessionStore = {
       ...inner,
+      recordUsageEstimate(sessionId, usage, estimate) {
+        recorded.push({ usage, costUsd: estimate.amountUsd });
+        inner.recordUsageEstimate?.(sessionId, usage, estimate);
+      },
       recordTokenUsage(sessionId, usage, estimatedCostUsd) {
         recorded.push({ usage, costUsd: estimatedCostUsd });
         inner.recordTokenUsage(sessionId, usage, estimatedCostUsd);

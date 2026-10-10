@@ -4,7 +4,8 @@ import {
   createUsageAccumulator,
   finalizeUsage,
 } from '../core/usageAccumulator.js';
-import { PRICE_TABLE, estimateCostUsd } from '../providers/pricing.js';
+import type { ModelRecord } from '../providers/models/types.js';
+import { estimateUsageCost, pricingSnapshotForModel } from '../providers/pricing.js';
 import type { LLMProvider, ProviderRequest } from '../providers/types.js';
 
 export type TreeBudgetLimits = {
@@ -208,18 +209,24 @@ export function budgetProvider(
             !failed &&
             cleanupSucceeded &&
             !request.signal?.aborted;
+          const metadata = (request as ProviderRequest & { modelMetadata?: ModelRecord })
+            .modelMetadata;
+          const estimate = total
+            ? estimateUsageCost(
+                provider.name,
+                request.model,
+                total,
+                metadata?.pricing || metadata?.auth === 'subscription'
+                  ? pricingSnapshotForModel(metadata)
+                  : undefined,
+              )
+            : undefined;
           const priced =
             total !== undefined &&
             total.inputTokens !== undefined &&
             total.outputTokens !== undefined &&
-            PRICE_TABLE[`${provider.name}:${request.model}`] !== undefined;
-          settle(
-            total,
-            usageComplete && priced
-              ? estimateCostUsd(provider.name, request.model, total)
-              : undefined,
-            usageComplete,
-          );
+            estimate?.complete === true;
+          settle(total, usageComplete && priced ? estimate?.amountUsd : undefined, usageComplete);
         }
       }
     },

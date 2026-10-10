@@ -17,12 +17,12 @@ describe('provider pricing helpers', () => {
     expect(cost).toBe(22.05);
   });
 
-  test('unknown models still report zero estimated dollars', () => {
+  test('unknown models do not report fabricated zero dollars', () => {
     const cost = estimateCostUsd('unknown', 'unknown', {
       inputTokens: 1_000_000,
       outputTokens: 1_000_000,
     });
-    expect(cost).toBe(0);
+    expect(cost).toBeUndefined();
   });
 
   test('formats tiny and normal dollar amounts', () => {

@@ -87,6 +87,7 @@ export type Session = {
 
 /** Per-session token + cost accounting (chat + compaction lanes). */
 export type SessionCost = {
+  costComplete?: boolean;
   inputTokens: number;
   outputTokens: number;
   cacheCreationInputTokens: number;
@@ -99,6 +100,7 @@ export type SessionCost = {
 
 /** One row in the session list (newest-first), as surfaced by `/resume`. */
 export type SessionListEntry = {
+  costComplete?: boolean;
   sessionId: string;
   parentSessionId: string | null;
   model: string;
@@ -138,6 +140,7 @@ export type SessionMetrics = {
     cacheRead: number;
     cacheWrite: number;
     estimatedCostUsd: number;
+    costComplete?: boolean;
   };
   /** Phase 13.3 (B3) — count of review-fork dispatches that happened
    *  during the session. Rendered as a "Reviews" section when nonzero. */
