@@ -20,6 +20,12 @@ unknown enum values as supported. New capability fields must default to unknown.
 Future breaking schema changes require a new version and a migration adapter.
 Model metadata should be captured as an immutable snapshot for each turn.
 
+Cache reads and writes have bounded waits too. Failed refreshes persist stale
+evidence when possible and keep a fail-safe stale snapshot in the current service
+when persistence fails. Writes are serialized: an older cache port that ignores
+a timeout cannot overwrite a newer successful refresh. Each source or cache-port
+wait is bounded by `timeoutMs`; a refresh can include several such waits.
+
 ## OpenRouter public discovery
 
 Pass `createOpenRouterModelSource()` to `refresh`. It fetches the documented
