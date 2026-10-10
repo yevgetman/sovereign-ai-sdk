@@ -159,3 +159,67 @@ test('explicit node homes read their own offline model limits', async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('custom OpenRouter endpoints cannot reuse official model limits or pricing', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'sov-model-endpoint-'));
+  let fetches = 0;
+  const fetch = (async () => {
+    fetches++;
+    throw new Error('custom discovery must not fetch');
+  }) as unknown as typeof globalThis.fetch;
+  try {
+    const cache = diskModelCache(join(root, 'model-catalog'));
+    const catalog = fallbackModelCatalog('openrouter-api');
+    catalog.state = 'current';
+    catalog.fetchedAt = new Date().toISOString();
+    const first = catalog.models[0];
+    if (!first) throw new Error('missing model fixture');
+    first.contextWindow = 8_000_000;
+    first.metadata = { source: 'official-fixture', stale: false };
+    first.pricing = { inputPerMillion: 1, outputPerMillion: 2, currency: 'USD', source: 'fixture' };
+    await cache.set('openrouter-api:public', catalog);
+    const settings = { providers: { openrouter: { baseUrl: 'https://private.example/v1' } } };
+    const source = modelSource('openrouter-api', settings);
+    expect(source.cacheKey).toMatch(/^endpoint-[a-f0-9]{64}$/);
+    expect(source.cacheKey).not.toContain('private.example');
+    expect(
+      modelSource('openrouter-api', {
+        providers: { openrouter: { baseUrl: 'https://different.example/v1' } },
+      }).cacheKey,
+    ).not.toBe(source.cacheKey);
+    const discovery = createModelDiscovery({ cache, fetch });
+    for (const result of [
+      await discovery.read(source),
+      readModelCatalogSnapshot('openrouter-api', settings, root),
+      await discovery.refresh(source),
+    ]) {
+      expect(result.state).toBe('unavailable');
+      expect(result.models.every((model) => model.metadata.stale)).toBe(true);
+      expect(result.models.every((model) => model.contextWindow === undefined)).toBe(true);
+      expect(result.models.every((model) => model.pricing === undefined)).toBe(true);
+    }
+    expect(fetches).toBe(0);
+    expect((await cache.get('openrouter-api:public'))?.models[0]?.contextWindow).toBe(8_000_000);
+    for (const baseUrl of ['https://openrouter.ai/api/v1', 'https://openrouter.ai/api/v1/']) {
+      const official = { providers: { openrouter: { baseUrl } } };
+      const source = modelSource('openrouter-api', official);
+      expect(source.cacheKey).toBeUndefined();
+      expect((await discovery.read(source)).models[0]?.contextWindow).toBe(8_000_000);
+      expect(readModelCatalogSnapshot('openrouter-api', official, root).state).toBe('current');
+    }
+    for (const baseUrl of [
+      'https://openrouter.ai/api/v1?proxy=1',
+      'https://openrouter.ai/api/v1?',
+      'https://openrouter.ai/api/v1#',
+      'https://user:secret@openrouter.ai/api/v1',
+      'https://openrouter.ai/private',
+      'http://openrouter.ai/api/v1',
+    ]) {
+      expect(
+        modelSource('openrouter-api', { providers: { openrouter: { baseUrl } } }).cacheKey,
+      ).toMatch(/^endpoint-/);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

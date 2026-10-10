@@ -174,3 +174,9 @@ produces a clear context-budget error before inference.
 Model menus and the first-turn context budget use the active runtime node’s catalog and account settings. Config model changes and discard actions use that same node’s config path. An explicit config-path environment override still takes precedence.
 
 Context-budget reports keep a frozen turn snapshot while its provider and model match the current selection. After a model or provider change, they read the active node’s current model evidence, including changes made from another session.
+
+Custom OpenRouter-compatible endpoints do not reuse the official public catalog.
+Their model metadata remains unknown until a caller provides endpoint-specific
+evidence. Cache identity includes a nonsecret endpoint hash. Absent `baseUrl` or
+the official `https://openrouter.ai/api/v1` (with an optional trailing slash) keeps
+public discovery available. A custom-endpoint refresh does not fetch or infer.

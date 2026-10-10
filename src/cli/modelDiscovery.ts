@@ -44,13 +44,44 @@ export function diskModelCache(
   };
 }
 
+/** Official public evidence cannot authorize a different compatible endpoint. */
+function isOfficialOpenRouterEndpoint(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.origin === 'https://openrouter.ai' &&
+      /^\/api\/v1\/*$/.test(url.pathname) &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      !value.includes('?') &&
+      !value.includes('#')
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function modelSource(
   routeId: string,
   settings: Settings = {},
   env = process.env,
 ): ModelDiscoverySource {
   const route = getRoute(routeId, settings);
-  if (route.provider === 'openrouter') return createOpenRouterModelSource();
+  if (route.provider === 'openrouter') {
+    const baseUrl = settings.providers?.openrouter?.baseUrl;
+    if (baseUrl !== undefined && !isOfficialOpenRouterEndpoint(baseUrl)) {
+      return {
+        routeId,
+        cacheKey: `endpoint-${createHash('sha256').update(baseUrl).digest('hex')}`,
+        async discover() {
+          throw new Error('Custom endpoint discovery unavailable');
+        },
+      };
+    }
+    return createOpenRouterModelSource();
+  }
   if (route.auth === 'subscription')
     return createSubscriptionModelSource(routeId as 'chatgpt-subscription' | 'grok-subscription');
   const provider = route.provider as 'anthropic' | 'openai' | 'xai';
