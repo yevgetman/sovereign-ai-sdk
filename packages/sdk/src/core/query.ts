@@ -37,6 +37,8 @@ import {
   resolveModelLimits,
 } from '../providers/modelLimits.js';
 import { validateModelRequest } from '../providers/models/validateRequest.js';
+import { listRoutes } from '../providers/routes/catalog.js';
+import { validateRouteSelection } from '../providers/routes/validate.js';
 import type { ProviderRequest } from '../providers/types.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
@@ -432,6 +434,16 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     for (;;) {
       let providerStarted = false;
       try {
+        // Reject an impossible metadata-backed selection before a host can pay
+        // for reduction. Custom and metadata-less providers keep their contract.
+        if (modelMetadata && effort !== undefined) {
+          const route = listRoutes().find(
+            (candidate) =>
+              candidate.id === modelMetadata.routeId && candidate.provider === provider.name,
+          );
+          if (route) validateRouteSelection(route, { model, effort, modelMetadata });
+        }
+
         maxTokens = outputCeiling;
         const request: ProviderRequest = {
           model,

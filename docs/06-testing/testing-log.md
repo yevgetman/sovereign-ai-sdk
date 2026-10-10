@@ -1,3 +1,17 @@
+## 2026-10-10 — PR43 fifth review and SDK reasoning preflight integration
+
+Fresh independent review found no additional above-Low defect in this PR's own changes. Integrated reviewed PR38 `56f6c2ed` through an ordinary feature-branch merge. The direct SDK now rejects impossible metadata-backed effort selections before a host can pay for context reduction. Existing downstream request accounting, modalities and host evidence contracts remain intact. Independent new preflight regression: **1 passed / zero failed**, 4 assertions; zero reductions and provider fetches.
+
+Owned model menus, model metadata, gateway effort preflight, child metadata, command context and CLI lifecycle checks: **41 passed / zero failed**, 174 assertions. Root independent prior-correction checks (direct discovery, compactor, gateway model metadata and model limits): **39 passed / zero failed**, 238 assertions. Catalog-agent unchanged-source focused checks: PR35 **12/0**, 96 assertions; PR36 **17/0**, 112 assertions; PR37 **25/0**, 183 assertions; PR42 **33/0**, 238 assertions.
+
+Configured lint, typecheck and strict SDK build pass. Complete gate executes every discovered test file with unique TMPDIR, a serialized compiler fixture and isolated existing footer/theme fixture: **5741 passed / 19 existing skips / zero failed**, 23801 assertions across 549 files. No paid inference, live runtime upgrade, provider credentials, release, Telekit or Mac app changes. Actual final parent ancestry is aligned separately only when all non-Markdown files are proven unchanged from this tested tree.
+
+## 2026-10-10 — PR38 fifth review: reject effort before paid reduction
+
+Confirmed Medium: direct SDK query/createAgent invoked contextManager.reduce before the provider rejected metadata-backed unsupported reasoning effort. Query now validates built-in route selections before context reduction, retaining metadata-less and custom-provider behavior. An isolated fake-provider regression fails before the fix (one reduction) and passes after it (zero reductions and zero fetches). Independent host reviewer closed the finding with the same regression: 1 passed / 0 failed / 4 assertions.
+
+Focused reasoning/preflight: 11 passed / zero failed / 140 assertions. The first gate attempt identified two regression-only TypeScript typing errors; corrected before the complete rerun. Final lint, typecheck and strict SDK build pass. Every discovered test file executed using per-branch TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture: **5657 passed / 19 existing skips / zero failed**, 23365 assertions across 537 files. No paid inference, runtime install, learning settings or host configuration changes.
+
 ## 2026-10-10 — PR43 final fourth-review dependency alignment
 
 Merged final PR34 `44e0590d`. All source and test files remain byte-identical to the complete passing 5740-test gate at `6e4abb60`; this merge adds testing evidence and final parent ancestry only. Final lint passes.
