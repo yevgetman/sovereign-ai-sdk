@@ -4,6 +4,7 @@ import {
   createModelDiscovery,
 } from '../../../packages/sdk/src/providers/models/catalog.js';
 import {
+  type DirectModelSourceOptions,
   createDirectModelSource,
   createSubscriptionModelSource,
   normalizeDirectModel,
@@ -226,4 +227,46 @@ test('Anthropic output effort and enabled thinking are independent published fac
   expect(catalog.models[0]?.anthropicThinkingModes).toEqual(['enabled']);
   expect(catalog.models[0]?.anthropicEffortSupported).toBe(false);
   expect(catalog.models[0]?.efforts).toEqual(['off']);
+});
+
+test('direct sources freeze endpoint, credentials and account identity before host mutations', async () => {
+  for (const provider of ['openai', 'anthropic'] as const) {
+    const options: DirectModelSourceOptions = {
+      provider,
+      apiKey: 'fake-original-secret',
+      accountId: 'original-account',
+    };
+    const source = createDirectModelSource(options);
+    options.provider = 'xai';
+    options.apiKey = 'fake-replacement-secret';
+    options.accountId = 'replacement-account';
+    let calls = 0;
+    const fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls++;
+      expect(String(url)).toStartWith(`https://api.${provider}.com/v1/models`);
+      expect(init?.headers).toEqual(
+        provider === 'anthropic'
+          ? { 'x-api-key': 'fake-original-secret', 'anthropic-version': '2023-06-01' }
+          : { Authorization: 'Bearer fake-original-secret' },
+      );
+      // Mutate again while fetching. Continuation pages and normalization must
+      // retain the same construction identity as the first request.
+      options.provider = provider === 'openai' ? 'anthropic' : 'openai';
+      return Response.json({
+        data: [{ id: `future-${calls}` }],
+        ...(calls === 1 ? { next: '?page=2' } : {}),
+      });
+    }) as unknown as typeof globalThis.fetch;
+    const discovery = createModelDiscovery({ fetch });
+    const catalog = await discovery.refresh(source);
+    expect(catalog.state).toBe('current');
+    expect(calls).toBe(2);
+    expect(source.routeId).toBe(`${provider}-api`);
+    expect(source.cacheKey).toBe('original-account');
+    expect(catalog.models.map((model) => model.provider)).toEqual([provider, provider]);
+    expect(catalog.models.map((model) => model.routeId)).toEqual([
+      `${provider}-api`,
+      `${provider}-api`,
+    ]);
+  }
 });
