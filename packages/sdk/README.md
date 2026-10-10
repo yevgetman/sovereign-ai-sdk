@@ -10,13 +10,13 @@ Runs on **Node ≥ 20.19** and **Bun ≥ 1.2**.
 
 ## Install
 
-SDK **0.13.0** is published as a tarball in [SOV v0.6.76](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.76), with `SDK-SHA256SUMS`. Download both assets, verify the checksum, then install the local tarball:
+SDK **0.14.0** is published as a tarball in [SOV v0.6.77](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.77), with `SDK-SHA256SUMS`. Download both assets, verify the checksum, then install the local tarball:
 
 ```sh
 shasum -a 256 -c SDK-SHA256SUMS
-npm install ./yevgetman-sov-sdk-0.13.0.tgz   # Node
+npm install ./yevgetman-sov-sdk-0.14.0.tgz   # Node
 # Or:
-bun add ./yevgetman-sov-sdk-0.13.0.tgz       # Bun
+bun add ./yevgetman-sov-sdk-0.14.0.tgz       # Bun
 ```
 
 For repeatable builds, vendor the verified file and commit the dependency lockfile.
