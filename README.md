@@ -264,3 +264,6 @@ collects work for one planned SDK version; [`releases/release-plan.yml`](release
 records its CLI companion, baseline and deployment evidence. Schemas and historical
 records live in `releases/`. Run `bun run release:validate` to check the active draft.
 See the [release planning procedure](docs/05-conventions/release-manifest.md).
+
+The [provider/model selection gap report](specs/2026-10-10-provider-model-discovery-gap-report.md)
+records the model discovery and capability work, with individual SDK/SOV and host integration issues.

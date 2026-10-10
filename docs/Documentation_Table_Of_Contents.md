@@ -8,6 +8,8 @@ The docs describe **the current state of the codebase**. Future-state work — d
 
 ---
 
+- [Provider/model selection gap report](../specs/2026-10-10-provider-model-discovery-gap-report.md) — SDK/SOV evidence, individual issues and host follow-ups.
+
 ## How to read these docs
 
 The directory structure is **progressive**: sections are numbered general → specific. Open docs on demand; don't pre-load the set.

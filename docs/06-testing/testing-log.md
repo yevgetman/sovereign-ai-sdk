@@ -1,5 +1,12 @@
 # Testing Log
 
+## 2026-10-10 — Provider/model gap report and issue register
+
+Documentation-only assessment at source f2b59e617e4c4a220428a53e194b5062e52358d5 and installed SOV 0.6.76. The formal [gap report](../../specs/2026-10-10-provider-model-discovery-gap-report.md) records source evidence, public metadata, local selection/request probes and the limits of those checks. Filed and read back all 12 open issues: SDK #24–#33, Telekit #30 and Kernel installer #176. Each has acceptance criteria and cross-repository dependencies. This does not implement the gaps or select them into the active release roster.
+
+On macOS arm64, the configured commands `bun run lint`, `bun run typecheck` and `bun run test` pass: **5625 pass / 19 existing skips / zero fail**, 23098 assertions across 532 files (90.34s). Lint includes the boundary check. Report links and `git diff --check` pass. No runtime source, default, credentials, published version, installed binary or active session changed. Existing behavior tests do not prove the newly proposed capabilities; each issue defines its own closure checks.
+
+
 
 ## 2026-10-10 — SDK planned-version manifest and source validation
 
