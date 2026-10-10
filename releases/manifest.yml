@@ -17,3 +17,19 @@ items:
     qa:
       - releases/sdk-public-docs-014-source-qa.json
       - docs/06-testing/testing-log.md
+  - id: sdk-install-docs-correction
+    product: sovereign-ai-sdk
+    title: Correct public SDK downloads, release pointers and immutable-package
+      README guidance
+    pull_request: null
+    merged_at: 2026-10-10T21:31:30.829Z
+    commits:
+      - sha: 59813dec67b6caa3ea6838229ce2aaedf9030a07
+        mainline: null
+    requires:
+      - sdk-public-docs-014
+    reason: Users need an exact current install path; include the corrected package
+      README in the next patch without replacing published bytes.
+    qa:
+      - releases/sdk-install-docs-correction-source-qa.json
+      - docs/06-testing/testing-log.md

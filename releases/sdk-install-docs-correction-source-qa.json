@@ -1,0 +1,28 @@
+{
+  "source_commit": "59813dec67b6caa3ea6838229ce2aaedf9030a07",
+  "checked_at": "2026-10-10T21:31:30.829Z",
+  "scope": "Documentation only; no runtime, version or released asset changes",
+  "lint": "pass",
+  "typecheck": "pass",
+  "strict_sdk_build": "pass",
+  "tests": {
+    "pass": 5741,
+    "skip": 19,
+    "fail": 0,
+    "assertions": 23801,
+    "files": 549,
+    "coverage": "All discovered test files; global compile fixture serialized; footer theme fixture isolated; remaining suite parallel-safe with unique TMPDIR."
+  },
+  "manual": [
+    "Edited documentation file targets resolve",
+    "Downloaded public SDK checksum verifies",
+    "Public release correction verified by read-back"
+  ],
+  "public_correction": "https://github.com/yevgetman/sov-releases/releases/tag/v0.6.77",
+  "manifest_validation": "pass",
+  "manifest_regressions": {
+    "pass": 12,
+    "fail": 0,
+    "assertions": 19
+  }
+}

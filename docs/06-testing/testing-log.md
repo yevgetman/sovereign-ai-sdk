@@ -1,3 +1,7 @@
+## 2026-10-10 — Record documentation correction in the next SDK patch
+
+Selected documentation commit `59813dec67b6caa3ea6838229ce2aaedf9030a07` as a second SDK 0.14.1 manifest item, dependent on the earlier package-doc refresh. Preserved the published baseline and CLI 0.6.78 draft target. `bun run release:validate` passes schema, source reachability and ordered dependencies. `bun test ./tests/release/manifest.test.ts`: 12 pass, zero failures, 19 assertions. Lint/boundary and typecheck pass; the complete 5,741-test gate above covers unchanged runtime/test bytes. An initial test command used the wrong file path and matched no tests; the corrected path ran all twelve fixtures. Public artifacts and consumer pins are unchanged.
+
 ## 2026-10-10 — Correct SDK release installation documentation
 
 Updated the package install guide with exact public SDK 0.14.0 download and checksum commands. Documented the previous-release example in the immutable published tarball, corrected PUBLISHING.md to SDK 0.14.0 / SOV 0.6.77 and updated the agent boot snapshot pointer. The public release page now carries the same correction. No released asset bytes, package versions, live provider calls or installed hosts changed.
