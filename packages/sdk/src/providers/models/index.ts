@@ -7,3 +7,11 @@ export {
 } from './catalog.js';
 
 export { createOpenRouterModelSource, normalizeOpenRouterModel } from './openrouter.js';
+
+export {
+  createDirectModelSource,
+  createSubscriptionModelSource,
+  normalizeDirectModel,
+  resolveModelAlias,
+} from './direct.js';
+export type { DirectModelProvider, DirectModelSourceOptions } from './direct.js';
