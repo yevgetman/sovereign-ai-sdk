@@ -1,7 +1,7 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: 2026-10-10T21:04:06.365Z
+updated_at: 2026-10-10T21:04:22.574Z
 checkout: .
 last_release:
   version: 0.13.0
@@ -84,7 +84,7 @@ release:
         preparation.
       review: releases/history/sdk-0.14.0/assembly-review.json
   build_commit: dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823
-  frozen_manifest_commit: null
+  frozen_manifest_commit: b324db639835549579773eea3a716f18d7e41454
   authorization:
     kind: owner-approval
     reference: "Authenticated Owner Telegram request2026-10-10: cut SDK and SOV with
