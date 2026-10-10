@@ -1,3 +1,9 @@
+## 2026-10-10 — PR38 fifth review: reject effort before paid reduction
+
+Confirmed Medium: direct SDK query/createAgent invoked contextManager.reduce before the provider rejected metadata-backed unsupported reasoning effort. Query now validates built-in route selections before context reduction, retaining metadata-less and custom-provider behavior. An isolated fake-provider regression fails before the fix (one reduction) and passes after it (zero reductions and zero fetches). Independent host reviewer closed the finding with the same regression: 1 passed / 0 failed / 4 assertions.
+
+Focused reasoning/preflight: 11 passed / zero failed / 140 assertions. The first gate attempt identified two regression-only TypeScript typing errors; corrected before the complete rerun. Final lint, typecheck and strict SDK build pass. Every discovered test file executed using per-branch TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture: **5657 passed / 19 existing skips / zero failed**, 23365 assertions across 537 files. No paid inference, runtime install, learning settings or host configuration changes.
+
 ## 2026-10-10 — PR38 fourth review: inherit frozen discovery identity
 
 Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endpoint, authorization and account/normalizer identity remain captured at construction. No additional source changes were required on this branch.
