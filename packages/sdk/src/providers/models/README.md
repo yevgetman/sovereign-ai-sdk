@@ -20,6 +20,12 @@ unknown enum values as supported. New capability fields must default to unknown.
 Future breaking schema changes require a new version and a migration adapter.
 Model metadata should be captured as an immutable snapshot for each turn.
 
+Cache reads and writes have bounded waits too. Failed refreshes persist stale
+evidence when possible and keep a fail-safe stale snapshot in the current service
+when persistence fails. Writes are serialized: an older cache port that ignores
+a timeout cannot overwrite a newer successful refresh. Each source or cache-port
+wait is bounded by `timeoutMs`; a refresh can include several such waits.
+
 ## OpenRouter public discovery
 
 Pass `createOpenRouterModelSource()` to `refresh`. It fetches the documented
@@ -45,7 +51,8 @@ are account-listed availability, not proof of a successful generation request.
 
 `createSubscriptionModelSource(routeId)` keeps ChatGPT and Grok subscription
 suggestions separate. Without a supported subscription discovery interface, their
-metadata and availability remain unknown. It does not fetch, borrow API records,
+metadata and availability remain unknown. Explicit refresh returns unavailable
+with stale offline suggestions, never a current discovery timestamp. It does not fetch, borrow API records,
 start login or add Claude-Max HTTP support. Custom sources can implement other
 SDK providers without changing the six built-in authentication routes.
 

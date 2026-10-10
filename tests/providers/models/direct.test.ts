@@ -41,12 +41,18 @@ test('subscription catalogs never copy API account availability or make credenti
     calls++;
     throw Error('must not fetch');
   }) as unknown as typeof globalThis.fetch;
-  const catalog = await createModelDiscovery({ fetch }).refresh(
-    createSubscriptionModelSource('grok-subscription'),
-  );
+  for (const routeId of ['grok-subscription', 'chatgpt-subscription'] as const) {
+    const catalog = await createModelDiscovery({ fetch }).refresh(
+      createSubscriptionModelSource(routeId),
+    );
+    expect(catalog.state).toBe('unavailable');
+    expect(catalog.fetchedAt).toBeUndefined();
+    expect(catalog.models.length).toBeGreaterThan(0);
+    expect(catalog.models.every((model) => model.metadata.stale)).toBe(true);
+    expect(catalog.models.every((model) => model.availability === 'unknown')).toBe(true);
+    expect(catalog.models.every((model) => model.auth === 'subscription')).toBe(true);
+  }
   expect(calls).toBe(0);
-  expect(catalog.models.every((model) => model.availability === 'unknown')).toBe(true);
-  expect(catalog.models.every((model) => model.auth === 'subscription')).toBe(true);
 });
 test('explicit aliases resolve exact IDs without changing default or routes', () => {
   expect(resolveModelAlias('chosen', { chosen: 'future-2028' })).toBe('future-2028');
