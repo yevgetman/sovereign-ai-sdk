@@ -25,3 +25,16 @@ evidence when possible and keep a fail-safe stale snapshot in the current servic
 when persistence fails. Writes are serialized: an older cache port that ignores
 a timeout cannot overwrite a newer successful refresh. Each source or cache-port
 wait is bounded by `timeoutMs`; a refresh can include several such waits.
+
+## OpenRouter public discovery
+
+Pass `createOpenRouterModelSource()` to `refresh`. It fetches the documented
+public `/api/v1/models` catalog without credentials. Candidate records preserve
+exact IDs and author prefixes. Explicit non-text output models are excluded;
+missing modality/capability metadata remains unknown. Prices are USD per million
+tokens. Inference hosts are not inferred from the author prefix.
+
+Pagination accepts same-origin continuation URLs and cursor pages with hard
+page, record and response-byte limits. Redirects are refused. Refresh failures
+retain stale cached records; they never change the selected model or route.
+Arbitrary response/cache fields are removed before records reach host output.

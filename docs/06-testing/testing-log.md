@@ -1,10 +1,23 @@
 # Testing Log
 
+## 2026-10-10 — PR36 inherits reviewed discovery cache fixes
+
+Merged PR35's reviewed C1/C3 fixes into the OpenRouter branch. Preserved the credential-whitelist regression and all four cache regressions when resolving an additive test-file conflict. Preserved both documentation sections and existing testing records.
+
+Validation: `bun run lint && bun run typecheck && bun run build && bun run test` passed: **5638 pass / 19 skip / 0 fail**, 23149 assertions across 534 files (92.58s). Tested source tree `2a3de4fa606fbed81d5dc302617a3c6e8709e417`; catalog source blob `337d84ba32a2feac246a3f1108873e1c6af22cc3`. Only this testing-log entry was added after the gate; lint was rerun before commit. No paid inference or installed upgrade.
+
 ## 2026-10-10 — PR35 review fixes: cache freshness and bounded cache ports
 
 Addressed review C1 and C3 (Medium). Failed refreshes retain stale evidence in the external cache and keep a fail-safe per-instance snapshot if persistence fails. Cache reads/writes have bounded waits; serialized writes prevent a late old cache operation from overwriting a later successful refresh. Tests cover immediate second-instance reads, failed persistence, unresponsive cache ports, deduplicated retry and delayed write completion. No paid inference or installed upgrade.
 
 Validation: `bun run lint && bun run typecheck && bun run test` passed: **5633 pass / 19 skip / 0 fail**, 23133 assertions across 533 files (93.07s). Targeted catalog regressions: 8 pass / 0 fail. SDK package build passed.
+
+## 2026-10-10 — OpenRouter model discovery (#25)
+
+Scope: public model normalization, unknown metadata, text-output candidate filtering, bounded same-origin pages and 16-MiB streamed response limit, stale cache/failure fallback and whitelisted output records.
+
+Validation: `bun run lint && bun run typecheck && bun run test` — lint/typecheck passed; full suite 5633 pass / 19 skip / 1 unrelated timing failure (`secretRedactor` PEM test elapsed 133ms against 100ms threshold under parallel load). Isolated `bun run test tests/permissions/secretRedactor.test.ts` passed 42/0 in 60ms. Catalog/surface fixtures passed 13/0. No paid inference or defaults changed.
+
 
 ## 2026-10-10 — portable model catalog contract (#24)
 

@@ -83,7 +83,75 @@ export function validateModelRecords(
           return undefined;
       }
     }
-    const model = structuredClone(row) as ModelRecord;
+    for (const key of ['author', 'inferenceHost']) {
+      if (row[key] !== undefined && !safeText(row[key])) return undefined;
+    }
+    const model: ModelRecord = {
+      id: row.id,
+      displayName: row.displayName,
+      routeId,
+      provider: row.provider,
+      auth: row.auth,
+      author: row.author,
+      inferenceHost: row.inferenceHost,
+      capabilities: {
+        textOutput: row.capabilities.textOutput,
+        tools: row.capabilities.tools,
+        images: row.capabilities.images,
+        reasoning: row.capabilities.reasoning,
+      },
+      contextWindow: row.contextWindow,
+      maxOutputTokens: row.maxOutputTokens,
+      efforts: row.efforts ? [...row.efforts] : undefined,
+      availability: row.availability,
+      metadata: {
+        source: row.metadata.source,
+        fetchedAt: row.metadata.fetchedAt,
+        stale: row.metadata.stale,
+      },
+      pricing: row.pricing
+        ? {
+            inputPerMillion: row.pricing.inputPerMillion,
+            outputPerMillion: row.pricing.outputPerMillion,
+            cacheReadPerMillion: row.pricing.cacheReadPerMillion,
+            cacheWritePerMillion: row.pricing.cacheWritePerMillion,
+            currency: 'USD',
+            source: row.pricing.source,
+            fetchedAt: row.pricing.fetchedAt,
+            state: ['paid', 'free', 'subscription', 'unknown'].includes(row.pricing.state)
+              ? row.pricing.state
+              : 'unknown',
+          }
+        : undefined,
+    };
+    // Recognized additive control fields are kept, arbitrary source fields are not.
+    if (row.toolChoices !== undefined) {
+      if (
+        !Array.isArray(row.toolChoices) ||
+        row.toolChoices.some((choice: unknown) => !['auto', 'any', 'tool'].includes(String(choice)))
+      )
+        return undefined;
+      Object.assign(model, { toolChoices: [...row.toolChoices] });
+    }
+    if (row.reasoningControl !== undefined) {
+      const control = row.reasoningControl;
+      if (
+        !control ||
+        !['openrouter', 'openai', 'xai'].includes(control.parameter) ||
+        typeof control.disableSupported !== 'boolean' ||
+        (control.binary !== undefined && typeof control.binary !== 'boolean') ||
+        (control.maxWireValue !== undefined && !safeText(control.maxWireValue))
+      )
+        return undefined;
+      Object.assign(model, {
+        reasoningControl: {
+          parameter: control.parameter,
+          disableSupported: control.disableSupported,
+          ...(control.binary === undefined ? {} : { binary: control.binary }),
+          ...(control.maxWireValue === undefined ? {} : { maxWireValue: control.maxWireValue }),
+        },
+      });
+    }
     for (const key of ['textOutput', 'tools', 'images', 'reasoning'] as const) {
       if (!supports.has(model.capabilities[key])) model.capabilities[key] = 'unknown';
     }
@@ -106,5 +174,13 @@ export function validateModelCatalog(
   )
     return undefined;
   const models = validateModelRecords(catalog.models, routeId, now);
-  return models ? { ...catalog, models } : undefined;
+  return models
+    ? {
+        version: 1,
+        routeId,
+        state: catalog.state,
+        models,
+        ...(catalog.fetchedAt ? { fetchedAt: catalog.fetchedAt } : {}),
+      }
+    : undefined;
 }
