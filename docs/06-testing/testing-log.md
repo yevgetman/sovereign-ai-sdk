@@ -1,5 +1,12 @@
 # Testing Log
 
+## 2026-10-10 — PR42 closes reviewed PR41 ancestry
+
+Merged final PR41 e3e22c1c after the combined PR42 gate. Every tracked functional
+and test file is byte-identical to tested PR42 merge 516076b0; only the testing
+log changed. Both parent testing histories remain. Lint was rerun before this
+history merge. The valid frozen full result remains 5712/19 skips/0 failures.
+
 ## 2026-10-10 — PR42 integrates second-review model evidence fixes
 
 Integrated final reviewed PR39 10918ef1 and its PR37/38 ancestry. Preserved exact
@@ -44,6 +51,10 @@ Validation: `bun run lint && bun run typecheck && bun run build && bun run test`
 Integrated final PR38 `1fc9d8ed`, including unavailable-subscription reporting, stale-cache persistence, bounded cache ports and verified reasoning restrictions. Runtime source merged without conflicts; retained both testing histories and normalized the Testing Log heading before its entries.
 
 Validation: frozen `bun run lint && bun run typecheck && bun run build && bun run test` passed: **5698 pass / 19 skip / 0 fail**, 23529 assertions across 542 files (90.44s). Tested tree `cf64f92039f64752a5dbc540ab233d5746ad78c5`; only this log entry followed the gate, with lint rerun. No paid inference or installed upgrade.
+## 2026-10-10 — PR41 third review dependency validation
+
+Independent review found no new above-Low defect in PR41 pricing and budget settlement. Integrated final PR39 `10918ef1`, preserving both immutable tariff capture and immutable model-evidence capture before asynchronous host callbacks. Configured lint, typecheck, strict SDK build and full tests passed: **5701 passed / 19 existing skips / zero failed**, 23534 assertions across 542 files (95.75s). All parent testing records were preserved. No paid inference or installed changes.
+
 ## 2026-10-10 — PR #41 review: unknown and immutable tree pricing
 
 Cross-review found two Medium tree-budget defects. An explicit model record with unknown prices could fall back to the built-in table and release its host cost reservation. Settlement also read mutable model identity and prices after the stream, allowing a cache update to reprice a completed call. The wrapper now captures provider/model identity and immutable tariff evidence before the host estimator or any provider await. Unknown prices retain the host upper bound and mark the cost incomplete. Metadata-absent callers keep the established table and implicit cache-rate behavior.
@@ -53,6 +64,10 @@ Focused checks passed **22/0**, 68 assertions: an unknown known-ID price retains
 ## 2026-10-10 — PR41 reviewed dependency integration
 
 Integrated reviewed discovery/cache and reasoning fixes. Lint, typecheck and strict SDK build pass. Full suite: 5689 passed, 19 skipped, zero failed; 23447 assertions across 541 files (111.75 seconds).
+## 2026-10-10 — PR40 third review dependency validation
+
+Independent review found no new above-Low defect in PR40. Integrated final PR39 `10918ef1`, including native Anthropic controls, image-aware input accounting and immutable per-turn model evidence. Configured lint, typecheck, strict SDK build and full tests passed: **5683 passed / 19 existing skips / zero failed**, 23462 assertions across 540 files (97.59s). All parent testing records were preserved. No paid inference or installed changes.
+
 ## 2026-10-10 — PR39 third review: image accounting and immutable model evidence
 
 Resolved three Medium findings: image transport bytes no longer masquerade as input tokens; per-turn model/provider changes do not inherit another identity's standing record; model evidence is frozen before asynchronous host callbacks. Input accounting exposes incomplete image estimates in traces, preserves the image payload, accepts verified host counters, and retains provider overflow recovery. Merged reviewed PR38 native Anthropic controls with PR39 thinking-budget caps intact.
