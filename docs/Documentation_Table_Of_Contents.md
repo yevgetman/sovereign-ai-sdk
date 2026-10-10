@@ -79,6 +79,7 @@ Patterns and standing rules contributors must follow. (These are the operating c
 The semantic-test framework and the running log.
 
 - [Semantic testing](06-testing/semantic-testing.md) — judge backends, suites, the coverage inventory, and how test categories map to bug classes.
+- [Live-session diagnostics](06-testing/live-session-diagnostics.md) — read-only monitoring, model/tool timing, failed child receipts and legacy trace interpretation.
 - [Testing log](06-testing/testing-log.md) — the append-only, newest-first record of every test run, finding, and design-error postmortem.
 
 ## 07 — History

@@ -210,6 +210,76 @@ describe('runSubprocessExecutor — parse + shape', () => {
     expect(result.terminal.error?.message ?? '').toContain('1');
   });
 
+  test('failed exit preserves observed work without replaying a nominally completed transcript', async () => {
+    const observed: ObserveInput[] = [];
+    const trace: TraceEvent[] = [];
+    const result = await runSubprocessExecutor({
+      prompt: 'p',
+      cwd: '/tmp',
+      config: baseConfig,
+      spawn: makeFakeSpawn({
+        lines: TOOL_USING_TRANSCRIPT,
+        exitCode: 1,
+        stderr: 'external process failed',
+      }),
+      learningObserver: {
+        observe: (input) => {
+          observed.push(input);
+        },
+      },
+      traceRecorder: (event) => trace.push(event),
+    });
+    expect(result.terminal.reason).toBe('error');
+    expect(result.terminal.error?.message).toContain('exited 1');
+    expect(result.messages.length).toBeGreaterThan(0);
+    expect(result.iterationsUsed).toBeGreaterThan(0);
+    expect(result.toolCallCount).toBeGreaterThan(0);
+    expect(result.finalAssistant).toBeDefined();
+    expect(observed).toHaveLength(0);
+    expect(trace).toHaveLength(0);
+  });
+
+  test('cancellation retains captured receipts while overriding a completed stdout marker', async () => {
+    const controller = new AbortController();
+    const observed: ObserveInput[] = [];
+    const result = await runSubprocessExecutor({
+      prompt: 'p',
+      cwd: '/tmp',
+      config: baseConfig,
+      signal: controller.signal,
+      learningObserver: {
+        observe: (input) => {
+          observed.push(input);
+        },
+      },
+      spawn: () => ({
+        stdout: new ReadableStream<Uint8Array>({
+          start(stream) {
+            stream.enqueue(new TextEncoder().encode(`${TOOL_USING_TRANSCRIPT.join('\n')}\n`));
+          },
+        }),
+        stderr: new ReadableStream<Uint8Array>({
+          start(stream) {
+            stream.close();
+          },
+        }),
+        stdin: { write: () => 0, end: () => {} },
+        kill: () => {},
+        exited: new Promise<number>((resolve) =>
+          setTimeout(() => {
+            controller.abort();
+            resolve(0);
+          }, 15),
+        ),
+      }),
+    });
+    expect(result.terminal.reason).toBe('error');
+    expect(result.terminal.error?.message).toContain('cancelled');
+    expect(result.toolCallCount).toBeGreaterThan(0);
+    expect(result.messages.length).toBeGreaterThan(0);
+    expect(observed).toHaveLength(0);
+  });
+
   test('no terminal result event (truncated stream) → error terminal', async () => {
     const lines = [
       JSON.stringify({ type: 'system', subtype: 'init', session_id: 's' }),
