@@ -200,6 +200,30 @@ history envelope, excluding system/tools; optional `contextWindowTokens` is a
 host model-limit hint. There is no bundled summary engine. Native child policy
 can explicitly inherit the same configuration.
 
+Supply an exact `modelMetadata: ModelRecord` snapshot to `createAgent()`, a
+per-turn override or `query()` to budget from discovery. The agent clones it at
+turn start. Fresh context/output maxima are constrained by host
+`contextLimits.contextWindowTokens` and `maxTokens`; host settings never expand a
+provider maximum. Unknown values fall back to 32,768 context tokens and 8,192
+output tokens. Stale metadata may tighten these limits but cannot expand them.
+`contextLengthFor(provider, model, metadata, hostCap)` resolves the same context
+limit for hosts doing proactive compaction. Its two-argument legacy form retains
+the historical registry behavior.
+
+The loop checks system, tools and history with an output reservation before every
+provider call, including resumed history and later tool results. It invokes only
+a supplied context reducer; otherwise an oversized request fails with intact
+history. Provider-request traces record effective limits and metadata source.
+Anthropic thinking cannot raise a metadata or host-budgeted output cap after the check.
+
+The default input estimate is conservative UTF-8 JSON bytes plus framing. It is
+not a provider tokenizer or a verified image-patch counter. Supply pure,
+model-aware `inputTokenCounter(request)` for verified accounting, including system,
+tools and multimodal framing. Provider overflow recovery remains authoritative
+when an estimate is insufficient. Custom providers with neither metadata nor a
+host token-window cap retain legacy behavior; use a snapshot to opt into the new
+conservative unknown policy. No discovery fetch or disk write occurs in the loop.
+
 The port receives a history snapshot, reason (`budget` or `overflow`), model,
 provider, output token cap and `AbortSignal`. It returns reduced `messages` and
 optional summary-engine `usage`/`estimatedCostUsd`. A replacement must shrink,

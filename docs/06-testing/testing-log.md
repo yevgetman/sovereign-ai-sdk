@@ -1,5 +1,11 @@
 # Testing Log
 
+## 2026-10-10 — Exact model context/output budgets (#28)
+
+Scope: fresh growing context windows, stale/unknown fallbacks, host caps, output reservation, resumed history downgrade, authorized reducer refusal, verified accounting port and Anthropic thinking output bounds. Offline fixtures cover Grok500K and routed Sonnet1M, plus host-only reservations and 1025/1500-token thinking minima. No paid inference or installed upgrade.
+
+Focused checks passed 34/0 for public surface/context fixtures and 11/0 after the two review fixes; existing context management checks passed 21/0. Initial full gate exposed only a missing public type witness, corrected before frozen gates. The first frozen gate passed 5653/19/0; reviewed host-only/minimum-budget fixes passed 5655/19/0. Final exact PR38 dependency-stack `bun run lint && bun run typecheck && bun run test` passed **5656 pass / 19 existing skips / 0 fail**, 23235 assertions across 538 files. The byte estimate remains a documented heuristic; tokenizer/vision certification requires the host accounting port.
+
 ## 2026-10-10 — Future OpenAI reasoning request shape (#27 review)
 
 Fresh exact-model reasoning metadata now selects completion-token limits and omits temperature for IDs outside the legacy families. The synthetic future-ID wire fixture passed. `bun run lint && bun run typecheck && bun run test` passed: 5645 pass / 19 existing skips / 0 fail, 23187 assertions across 536 files. An initial lint run caught local formatting and was corrected before the frozen full gate. No paid inference or installed upgrade.

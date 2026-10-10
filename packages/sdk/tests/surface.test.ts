@@ -101,6 +101,7 @@ import type {
   DelegateInput,
   DelegateResult,
   DelegationLifecycleEvent,
+  EffectiveModelLimits,
   EstimateRequestBudget,
   HookCommandSpec,
   HookConfig,
@@ -138,6 +139,7 @@ import type {
   Message,
   MicrocompactConfig,
   MicrocompactInfo,
+  ModelLimitEvidence,
   ObservationStatus,
   ObserveInput,
   OutputFinalVerdict,
@@ -386,6 +388,8 @@ type TypeSurfaceWitness = {
   requestBudgetEstimate?: RequestBudgetEstimate;
   estimateRequestBudget?: EstimateRequestBudget;
   contextLimits?: ContextLimits;
+  effectiveModelLimits?: EffectiveModelLimits;
+  modelLimitEvidence?: ModelLimitEvidence;
   contextManagementInfo?: ContextManagementInfo;
   contextManagementPort?: ContextManagementPort;
   contextManagementRequest?: ContextManagementRequest;

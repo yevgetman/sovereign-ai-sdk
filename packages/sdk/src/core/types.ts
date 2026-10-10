@@ -134,6 +134,8 @@ export type QueryParams = {
   /** Reasoning-depth level for extended thinking. Default 'off' (no thinking). */
   effort?: import('../providers/effort.js').ReasoningEffort;
   modelMetadata?: import('../providers/models/types.js').ModelRecord;
+  /** Host-verified accounting including framing, images and tools. Pure and model-aware. */
+  inputTokenCounter?: (request: import('../providers/types.js').ProviderRequest) => number;
   /** Maximum turns for tool-use continuation. Default 10. */
   maxTurns?: number;
   /** When set, the turn loop pauses after this many cumulative tool calls
