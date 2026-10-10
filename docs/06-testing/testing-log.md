@@ -1,5 +1,22 @@
 ## 2026-10-10 — PR37 ancestor cache fixes integration
 
+## 2026-10-10 — PR38 native Anthropic thinking/effort final validation
+
+- Scope: final second-review adapter fix plus official PR37 Anthropic capabilities. Separates output_config.effort support from enabled token-budget thinking. Unsupported native effort parameter retains verified enabled budgets, or adaptive off/high toggle without invented depth.
+- Environment: isolated source, Bun1.3.13, fixture credentials; no paid requests or runtime install.
+- Commands: focused `bun test tests/providers/modelReasoning.test.ts tests/providers/anthropic.test.ts tests/providers/models/direct.test.ts`; `bun run lint && bun run typecheck && bun run build:sdk && bun run test`.
+- Result: focused34pass/0fail/226assertions. Full5655pass/19existing skips/0fail,23341assertions536files93.02seconds. Lint, typecheck and strictSDKbuild passed. Independent catalog reviewer found no additional above-Low issue in adapter/helper changes.
+
+
+## 2026-10-10 — PR38 second-review Anthropic request controls
+
+- Scope: metadata-aware native Anthropic menu/request agreement; published modes and levels for future IDs, unsupported/no-depth/mode-none rejection before fetch, partial legacy compatibility, adaptive exact output cap. Includes PR37 official-field source patch.
+- Environment: isolated source worktree, Bun1.3.13, fixture credentials; no paid inference, live configuration or installed runtime changes.
+- Commands: `bun test tests/providers/modelReasoning.test.ts tests/providers/anthropic.test.ts tests/providers/models/direct.test.ts` then `bun run lint && bun run typecheck && bun run build:sdk && bun run test`.
+- Result: focused33pass/0fail/214assertions. Full5654pass/19existing skip/0fail,23329assertions536files98.58seconds. Lint/typecheck/strictSDKbuild passed.
+- Follow-up: review distinguished Anthropic output_config.effort support from enabled thinking token-budget support; a separate semantic follow-up validation will cover that distinction before push.
+
+
 Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typecheck and strict SDK build pass. Full suite: 5643 passed, 19 skipped, zero failed; 23183 assertions across 535 files (91.44 seconds).
 
 # Testing Log

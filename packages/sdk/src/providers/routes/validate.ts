@@ -5,6 +5,7 @@
 
 import { REASONING_EFFORTS, type ReasoningEffort } from '../effort.js';
 import {
+  anthropicReasoningControlFor,
   hasReasoningMetadata,
   preservesEstablishedReasoning,
   reasoningControlFor,
@@ -47,6 +48,8 @@ export function effortsForModel(
 ): ReasoningEffort[] {
   if (metadata && metadata.routeId !== route.id)
     throw new RouteError('effort_unsupported', 'model metadata belongs to another route');
+  if (route.provider === 'anthropic')
+    return [...anthropicReasoningControlFor(model, metadata).efforts];
   const control = reasoningControlFor(route.provider, model, metadata);
   if (control) return [...control.efforts];
   const established = routeDefinition(route.id).effortsFor(model);
