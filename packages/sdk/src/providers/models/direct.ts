@@ -109,21 +109,25 @@ export function normalizeDirectModel(
   };
 }
 export function createDirectModelSource(options: DirectModelSourceOptions): ModelDiscoverySource {
-  if (!options.apiKey.trim() || !options.accountId.trim())
+  // Keep one source's endpoint, authorization and account identity coupled even
+  // when a host reuses or mutates its configuration object between refreshes.
+  const { provider, apiKey, accountId } = options;
+  const endpoint = ENDPOINTS[provider];
+  if (!apiKey.trim() || !accountId.trim())
     throw new Error('Explicit API key and non-secret account scope required');
-  const routeId = options.provider === 'xai' ? 'grok-api' : `${options.provider}-api`;
+  const routeId = provider === 'xai' ? 'grok-api' : `${provider}-api`;
   const headers =
-    options.provider === 'anthropic'
-      ? { 'x-api-key': options.apiKey, 'anthropic-version': '2023-06-01' }
-      : { Authorization: `Bearer ${options.apiKey}` };
+    provider === 'anthropic'
+      ? { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }
+      : { Authorization: `Bearer ${apiKey}` };
   return {
     routeId,
-    cacheKey: options.accountId,
+    cacheKey: accountId,
     async discover(context) {
-      const rows = await fetchModelPages(ENDPOINTS[options.provider], { ...context, headers });
+      const rows = await fetchModelPages(endpoint, { ...context, headers });
       const models = new Map<string, ModelRecord>();
       for (const row of rows) {
-        const model = normalizeDirectModel(row, options.provider);
+        const model = normalizeDirectModel(row, provider);
         if (model) models.set(model.id, model);
       }
       return [...models.values()];
