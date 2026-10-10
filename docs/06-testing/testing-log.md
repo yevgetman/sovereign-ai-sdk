@@ -1,5 +1,12 @@
 # Testing Log
 
+## 2026-10-10 — direct API and separate subscription model discovery (#26)
+
+Scope: explicit caller credentials and account-scoped caches for Anthropic/OpenAI/xAI, documented pagination and richer capability/window metadata, alias cycle checks, generation-only filtering and unknown subscription availability with zero login/network side effects.
+
+Validation: `bun run lint && bun run typecheck && bun run test` passed — 5639 pass / 19 skip / 0 fail across 535 files (also reruns #25 unchanged after its parallel-load timing flake). `bun run build:sdk` passed including SDK exact-optional-property checks. Catalog/surface targeted fixtures passed 17/0 before the final additional xAI growth fixture. PR #25's six clean-worker CI gates also passed. No paid inference, publication or installed upgrade.
+
+
 ## 2026-10-10 — OpenRouter model discovery (#25)
 
 Scope: public model normalization, unknown metadata, text-output candidate filtering, bounded same-origin pages and 16-MiB streamed response limit, stale cache/failure fallback and whitelisted output records.
