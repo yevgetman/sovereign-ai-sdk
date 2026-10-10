@@ -1,9 +1,18 @@
+# Testing Log
+
 ## 2026-10-10 — PR37 ancestor cache fixes integration
 
 Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typecheck and strict SDK build pass. Full suite: 5643 passed, 19 skipped, zero failed; 23183 assertions across 535 files (91.44 seconds).
 
-# Testing Log
+## 2026-10-10 — PR39 reviewed parent integration
 
+Integrated the reviewed discovery and reasoning corrections from PR38 into the context-limits branch. Preserved model-limit fixtures and additive review records. Frozen `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5663 pass / 19 existing skips / 0 fail, 23342 assertions across 538 files (112.18 seconds). No paid inference, installed upgrade or release.
+
+## 2026-10-10 — Exact model context/output budgets (#28)
+
+Scope: fresh growing context windows, stale/unknown fallbacks, host caps, output reservation, resumed history downgrade, authorized reducer refusal, verified accounting port and Anthropic thinking output bounds. Offline fixtures cover Grok500K and routed Sonnet1M, plus host-only reservations and 1025/1500-token thinking minima. No paid inference or installed upgrade.
+
+Focused checks passed 34/0 for public surface/context fixtures and 11/0 after the two review fixes; existing context management checks passed 21/0. Initial full gate exposed only a missing public type witness, corrected before frozen gates. The first frozen gate passed 5653/19/0; reviewed host-only/minimum-budget fixes passed 5655/19/0. Final exact PR38 dependency-stack `bun run lint && bun run typecheck && bun run test` passed **5656 pass / 19 existing skips / 0 fail**, 23235 assertions across 538 files. The byte estimate remains a documented heuristic; tokenizer/vision certification requires the host accounting port.
 ## 2026-10-10 — PR38 independent rereview R2: fresh verified-model constraints
 
 Closed Medium R2: built-in verified Grok controls no longer override fresh exact-model effort restrictions or wire values. Current effort lists intersect established model constraints; metadata wire mappings take effect. Partial/stale evidence retains established fallback, and known Kimi controls remain binary despite generic publisher depth flags. Route/menu/wire fixtures cover native Grok, routed Grok and Kimi, including unsupported low/max refusal before fetch. Independent host rereview closed the finding with no new Medium issues.
@@ -59,12 +68,6 @@ Validation: `bun run lint && bun run typecheck && bun run test` passed: **5633 p
 Scope: public model normalization, unknown metadata, text-output candidate filtering, bounded same-origin pages and 16-MiB streamed response limit, stale cache/failure fallback and whitelisted output records.
 
 Validation: `bun run lint && bun run typecheck && bun run test` — lint/typecheck passed; full suite 5633 pass / 19 skip / 1 unrelated timing failure (`secretRedactor` PEM test elapsed 133ms against 100ms threshold under parallel load). Isolated `bun run test tests/permissions/secretRedactor.test.ts` passed 42/0 in 60ms. Catalog/surface fixtures passed 13/0. No paid inference or defaults changed.
-
-## 2026-10-10 — PR35 review fixes: cache freshness and bounded cache ports
-
-Addressed review C1 and C3 (Medium). Failed refreshes retain stale evidence in the external cache and keep a fail-safe per-instance snapshot if persistence fails. Cache reads/writes have bounded waits; serialized writes prevent a late old cache operation from overwriting a later successful refresh. Tests cover immediate second-instance reads, failed persistence, unresponsive cache ports, deduplicated retry and delayed write completion. No paid inference or installed upgrade.
-
-Validation: `bun run lint && bun run typecheck && bun run test` passed: **5633 pass / 19 skip / 0 fail**, 23133 assertions across 533 files (93.07s). Targeted catalog regressions: 8 pass / 0 fail. SDK package build passed.
 
 ## 2026-10-10 — portable model catalog contract (#24)
 

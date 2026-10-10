@@ -65,6 +65,7 @@ import type {
   Terminal,
   TokenUsage,
 } from '../core/types.js';
+import type { QueryParams } from '../core/types.js';
 import {
   accumulateUsage,
   createUsageAccumulator,
@@ -177,6 +178,7 @@ export type AgentConfig = {
   effort?: ReasoningEffort;
   /** Exact model metadata; cloned at turn start. Refresh discovery outside active turns. */
   modelMetadata?: ModelRecord;
+  inputTokenCounter?: QueryParams['inputTokenCounter'];
   /** Sampling temperature forwarded to the provider. Omit → query()/provider
    *  default (no temperature key sent). */
   temperature?: number;
@@ -221,6 +223,7 @@ export type PerTurn = Partial<{
   systemPrompt: SystemSegment[];
   effort: ReasoningEffort;
   modelMetadata: ModelRecord;
+  inputTokenCounter: NonNullable<QueryParams['inputTokenCounter']>;
   temperature: number;
   cacheEnabled: boolean;
   maxToolCallsBeforeCheckin: number;
@@ -454,6 +457,7 @@ export function createAgent(config: AgentConfig): Agent {
 
     // 7. Merge the remaining ports for QueryParams (per-turn wins where allowed).
     const effort = perTurn.effort ?? config.effort;
+    const inputTokenCounter = perTurn.inputTokenCounter ?? config.inputTokenCounter;
     const suppliedMetadata = perTurn.modelMetadata ?? config.modelMetadata;
     const modelMetadata = suppliedMetadata ? structuredClone(suppliedMetadata) : undefined;
     const memoryManager = perTurn.memoryManager ?? config.memoryManager;
@@ -578,6 +582,7 @@ export function createAgent(config: AgentConfig): Agent {
           : {}),
         ...(effort !== undefined ? { effort } : {}),
         ...(modelMetadata !== undefined ? { modelMetadata } : {}),
+        ...(inputTokenCounter ? { inputTokenCounter } : {}),
         ...(temperature !== undefined ? { temperature } : {}),
         ...(cacheEnabled !== undefined ? { cacheEnabled } : {}),
         ...(maxToolCallsBeforeCheckin !== undefined ? { maxToolCallsBeforeCheckin } : {}),

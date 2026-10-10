@@ -29,6 +29,8 @@ export type TraceEvent =
       purpose: 'main' | 'compact';
       messageCount: number;
       systemBytes: number;
+      /** Effective request limits and provenance, distinct from publisher maxima. */
+      modelLimits?: import('../providers/modelLimits.js').EffectiveModelLimits;
       iso: string;
     }
   | {
