@@ -34,13 +34,14 @@ The tag-push triggers `.github/workflows/release.yml` in the private repo, which
 
 - preflight (ubuntu): re-runs `bun run lint && bun run typecheck && bun run test`, asserts `package.json` version matches the tag
 - build-darwin (macos-14): cross-compiles `darwin-arm64` + `darwin-x64` tarballs in parallel with the linux job; native-smokes the arm64 binary's `--version`
-- build-linux (ubuntu): builds the `linux-x64` tarball; native-smokes its `--version`
-- build-windows (windows-latest): builds `sov-windows-x64.zip` (`sov.exe` + `sov-tui.exe`, a deterministic zip — `scripts/release-zip.ts`); native-smokes `sov.exe --version` and the archive layout
+- build-linux (ubuntu): builds `linux-x64` and cross-compiles `linux-arm64`; native-smokes x64 `--version`
+- build-windows (ubuntu): cross-compiles and scans `sov-windows-x64.zip` (`sov.exe` + `sov-tui.exe`, deterministic ZIP). A separate smoke-windows job on Windows checks the archive and runs `sov.exe --version`.
+- preflight/upload use Bun 1.3.13; binary builds use verified Bun 1.4.2. Frozen installs use the hoisted linker. SDK engine-floor tests are separate.
 - release (ubuntu): downloads artifacts, computes `SHA256SUMS`, runs `gh release create` against `yevgetman/sov-releases` using the `SOV_RELEASES_TOKEN` fine-grained PAT
 
 Wall time ~4-12 minutes (v0.6.0 first cut was ~4 min). Watch via `gh run watch -R yevgetman/sovereign-ai-sdk`.
 
-If the upload step finds the release already exists, it exits 0 with a notice (idempotency). To re-publish a tag with new artifacts, `gh release delete vX.Y.Z --repo yevgetman/sov-releases` first, then re-dispatch the workflow.
+The uploader scans local artifacts, but an existing public release makes it skip upload. A successful retry therefore does not prove public asset completeness or identity: independently verify public downloads and checksums. Keep published tags and artifacts immutable. If bytes must change, cut a new version; do not delete a public release to reuse its version. SDK tarballs and `SDK-SHA256SUMS` are distinct from binary assets and `SHA256SUMS`.
 
 ## Procedure (local fallback, when CI is broken)
 

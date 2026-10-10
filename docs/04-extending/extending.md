@@ -2,7 +2,7 @@
 
 This guide covers common code changes. Keep changes narrow, preserve the async-generator turn loop, and prefer existing contracts over one-off paths.
 
-> **Respect the open/proprietary boundary.** The harness is a thin composition over an importable open-core SDK (`createAgent`, `src/sdk.ts`; see `docs/02-architecture/runtime-architecture.md` § "The SDK substrate"). Files classified open-core in `scripts/boundary-manifest.json` — the SDK barrel, `src/core/`, `src/providers/`, `src/protocol/`, `src/persistence/`, most of `src/tool/`, and more — **may not import proprietary code**. A file-level lint (`bun run boundary`, part of `bun run lint`) fails the build if they do. When you add to an open-core module, depend only on open primitives or an injected port; when you must reach proprietary state, do it from the wrapper (e.g. `src/server/`, `src/main.ts`) or behind a port, not from the open core.
+> **Respect the open/proprietary boundary.** The harness is a thin composition over an importable open-core SDK (`createAgent`, `packages/sdk/src/index.ts`; see `docs/02-architecture/runtime-architecture.md` § "The SDK substrate"). Files classified open-core in `scripts/boundary-manifest.json` — the SDK barrel, `packages/sdk/src/core/`, `packages/sdk/src/providers/`, `packages/protocol/`, `packages/sdk/src/persistence/`, most of `src/tool/`, and more — **may not import proprietary code**. A file-level lint (`bun run boundary`, part of `bun run lint`) fails the build if they do. When you add to an open-core module, depend only on open primitives or an injected port; when you must reach proprietary state, do it from the wrapper (e.g. `src/server/`, `src/main.ts`) or behind a port, not from the open core.
 
 ## Add A Native Tool
 
@@ -56,16 +56,16 @@ Do not register ad hoc tool objects. Every tool goes through `buildTool()` so de
 
 ## Add A Provider
 
-1. Add the provider metadata to `src/providers/models.ts`.
+1. Add the provider metadata to `packages/sdk/src/providers/models.ts`.
 2. Implement a provider adapter in `src/providers/<name>.ts`.
 3. Implement `LLMProvider.stream(req)` and translate provider events into internal `StreamEvent`s.
-4. Keep SDK calls inside `src/providers/`.
+4. Keep SDK calls inside `packages/sdk/src/providers/`.
 5. Normalize all assistant output into internal content blocks.
-6. Add resolver support in `src/providers/resolver.ts`.
-7. Add pricing data in `src/providers/pricing.ts` if `/cost` should estimate usage.
+6. Add resolver support in `packages/sdk/src/providers/resolver.ts`.
+7. Add pricing data in `packages/sdk/src/providers/pricing.ts` if `/cost` should estimate usage.
 8. Add tests under `tests/providers/` using fixture chunks where practical.
 
-The core runtime should not know provider-specific message shapes. If a change requires editing `src/core/query.ts` for a provider quirk, isolate the quirk in the provider adapter instead.
+The core runtime should not know provider-specific message shapes. If a change requires editing `packages/sdk/src/core/query.ts` for a provider quirk, isolate the quirk in the provider adapter instead.
 
 ## Subscription logins
 
@@ -78,7 +78,7 @@ The core runtime should not know provider-specific message shapes. If a change r
 
 Do not add these names to the gateway provider list.
 
-If the provider supports extended thinking, fork the provider-neutral `req.effort` (`ReasoningEffort`) in `buildKwargs` using the helpers in `src/providers/effort.ts` (`modelSupportsReasoning` to gate it, then the level → your wire shape) — see how `anthropic.ts` / `openai.ts` do it. Keep `effort: 'off'`/undefined byte-identical to a no-thinking request. The `enable_thinking` chat-template flag is wired for the `sov` engine only; ollama reasoning is gated off in v1 (`modelSupportsReasoning('…', 'ollama') === false`) because its native `think: true` switch differs and needs per-model capability data not yet wired, so `/effort` is a no-op on ollama (planned fast-follow).
+If the provider supports extended thinking, fork the provider-neutral `req.effort` (`ReasoningEffort`) in `buildKwargs` using the helpers in `packages/sdk/src/providers/effort.ts` (`modelSupportsReasoning` to gate it, then the level → your wire shape) — see how `anthropic.ts` / `openai.ts` do it. Keep `effort: 'off'`/undefined byte-identical to a no-thinking request. The `enable_thinking` chat-template flag is wired for the `sov` engine only; ollama reasoning is gated off in v1 (`modelSupportsReasoning('…', 'ollama') === false`) because its native `think: true` switch differs and needs per-model capability data not yet wired, so `/effort` is a no-op on ollama (planned fast-follow).
 
 ## Add A Slash Command
 
@@ -101,7 +101,7 @@ Slash command output that uses color should consume `theme.tokens.<role>(...)` f
 
 ## Add Or Change Permission Rules
 
-Permission parsing and wildcard matching live in `src/config/rules.ts`; orchestration-level permission decisions live in `src/permissions/canUseTool.ts`.
+Permission parsing and wildcard matching live in `packages/sdk/src/config/rules.ts`; orchestration-level permission decisions live in `packages/sdk/src/permissions/canUseTool.ts`.
 
 When a rule needs tool-specific semantics, add or update the tool's `preparePermissionMatcher()` instead of teaching the global rule engine about that tool's input shape.
 
@@ -109,7 +109,7 @@ When a rule needs tool-specific semantics, add or update the tool's `preparePerm
 
 Tools can implement `virtualToolName(input)` to map their input to a different tool name for permission resolution. The permission evaluator checks rules for both the actual tool name and the virtual name. This lets `Bash("cat src/main.ts")` resolve against `Read` rules.
 
-To add a new command to the shell analyzer, add it to the appropriate set in `src/permissions/shellSemantics.ts`: `READ_COMMANDS`, `WRITE_COMMANDS`, `EDIT_COMMANDS`, or `WEB_COMMANDS`. For commands with flag-dependent behavior (like `sed -i`), add a handler in `analyzeSegment()`.
+To add a new command to the shell analyzer, add it to the appropriate set in `packages/sdk/src/permissions/shellSemantics.ts`: `READ_COMMANDS`, `WRITE_COMMANDS`, `EDIT_COMMANDS`, or `WEB_COMMANDS`. For commands with flag-dependent behavior (like `sed -i`), add a handler in `analyzeSegment()`.
 
 ### Permission Invariants
 
@@ -124,15 +124,15 @@ Preserve these invariants:
 
 ## Add A Skill Capability
 
-Skills are markdown files loaded by `src/skills/loader.ts`. Runtime-visible skill behavior is split across:
+Skills are markdown files loaded by `packages/sdk/src/skills/loader.ts`. Runtime-visible skill behavior is split across:
 
-- `src/skills/types.ts` for the registry shape
-- `src/skills/whenToUse.ts` for the trigger-rigor heuristic (Phase 9.6)
-- `src/skills/visibility.ts` for active-tool and active-toolset gates
-- `src/skills/guard.ts` for trust-tier scanning
-- `src/tools/SkillsListTool.ts` and `src/tools/SkillsViewTool.ts` for progressive disclosure
-- `src/tools/SkillTool.ts` and `src/skills/commands.ts` for invocation
-- `src/skills/install.ts` for the `install` (byte-faithful) and `import` (normalize-on-write) verbs
+- `packages/sdk/src/skills/types.ts` for the registry shape
+- `packages/sdk/src/skills/whenToUse.ts` for the trigger-rigor heuristic (Phase 9.6)
+- `packages/sdk/src/skills/visibility.ts` for active-tool and active-toolset gates
+- `packages/sdk/src/skills/guard.ts` for trust-tier scanning
+- `packages/sdk/src/tools/SkillsListTool.ts` and `packages/sdk/src/tools/SkillsViewTool.ts` for progressive disclosure
+- `packages/sdk/src/tools/SkillTool.ts` and `packages/sdk/src/skills/commands.ts` for invocation
+- `packages/sdk/src/skills/install.ts` for the `install` (byte-faithful) and `import` (normalize-on-write) verbs
 
 New skill features should preserve progressive disclosure: the system prompt should carry a reminder, not the full skill body.
 
@@ -144,7 +144,7 @@ The model-invoked `SkillTool` path is **advisory**: it surfaces the `allowedTool
 
 ### Importing Claude Code skills
 
-`importSkill()` (`src/skills/install.ts`) ports a Claude Code `SKILL.md` onto the harness-native canonical shape, distinct from `installSkill()` (which copies byte-faithfully). It parses with the real YAML parser, normalizes the frontmatter — aliases `allowed-tools` → `allowedTools` (splitting a comma-string into a list), synthesizes `whenToUse` from `description` when absent, drops Claude-Code-only keys (`model`/`license`/`argument-hint`) — validates the result against the exported `SkillFrontmatterSchema` (fail loud), copies the source tree, then overwrites the target `SKILL.md` with canonical content. The loader also accepts the hyphenated `allowed-tools` key directly (via a `z.preprocess` in front of the schema), so a Claude Code skill loads natively even without import. Claude Code `:`-globs (`Bash(git status:*)`) are **not** auto-translated (lossy) — the importer warns and leaves them verbatim.
+`importSkill()` (`packages/sdk/src/skills/install.ts`) ports a Claude Code `SKILL.md` onto the harness-native canonical shape, distinct from `installSkill()` (which copies byte-faithfully). It parses with the real YAML parser, normalizes the frontmatter — aliases `allowed-tools` → `allowedTools` (splitting a comma-string into a list), synthesizes `whenToUse` from `description` when absent, drops Claude-Code-only keys (`model`/`license`/`argument-hint`) — validates the result against the exported `SkillFrontmatterSchema` (fail loud), copies the source tree, then overwrites the target `SKILL.md` with canonical content. The loader also accepts the hyphenated `allowed-tools` key directly (via a `z.preprocess` in front of the schema), so a Claude Code skill loads natively even without import. Claude Code `:`-globs (`Bash(git status:*)`) are **not** auto-translated (lossy) — the importer warns and leaves them verbatim.
 
 ### Trigger-rigor convention for `whenToUse`
 
@@ -159,7 +159,7 @@ Skills that fail the heuristic still load — the warning is a nudge, not a bloc
 
 ## Add An Agent Definition
 
-Sub-agents (Phase 13) are markdown files loaded by `src/agents/loader.ts`. Same shape as skills (frontmatter + body) but consumed differently — an agent definition is loaded into `ToolContext.agents` and surfaces in `AgentTool`'s `subagent_type` enum. The model invokes `AgentTool({ subagent_type: '<name>', prompt: '...' })`; the scheduler in `src/runtime/scheduler.ts` spawns a child session with the agent's filtered toolset, runs it to terminal, and returns a bounded summary.
+Sub-agents (Phase 13) are markdown files loaded by `packages/sdk/src/agents/loader.ts`. Same shape as skills (frontmatter + body) but consumed differently — an agent definition is loaded into `ToolContext.agents` and surfaces in `AgentTool`'s `subagent_type` enum. The model invokes `AgentTool({ subagent_type: '<name>', prompt: '...' })`; the scheduler in `packages/sdk/src/runtime/scheduler.ts` spawns a child session with the agent's filtered toolset, runs it to terminal, and returns a bounded summary.
 
 Drop a markdown file into one of the three search paths (project `.harness/agents/` → user `<harness-home>/agents/` → bundle `<bundle>/agents/`):
 
@@ -186,11 +186,11 @@ Search before reading. Cite paths and line numbers. Stop early.
 End with: Finding (1-2 sentences), Evidence (3-6 bullet points each `path:line`), Gaps (optional).
 ```
 
-**Resolution.** When `model:` is set, the scheduler uses it literally (split on first `/` → provider + model). When `role:` is set, `findCapableModel(role, availableProviders)` queries `src/router/capabilities.ts` and picks the cheapest model whose `recommendedRoles` includes that role. When neither is set, the scheduler falls back to the parent's defaults.
+**Resolution.** When `model:` is set, the scheduler uses it literally (split on first `/` → provider + model). When `role:` is set, `findCapableModel(role, availableProviders)` queries `packages/sdk/src/router/capabilities.ts` and picks the cheapest model whose `recommendedRoles` includes that role. When neither is set, the scheduler falls back to the parent's defaults.
 
-**Filtering.** The scheduler intersects the parent's tool pool with the agent's `allowedTools` (name-only — `Bash(git log *)` matches the `Bash` tool with the pattern left to the parent's `canUseTool` to enforce), then subtracts `SUBAGENT_EXCLUDED_TOOLS` (`src/agents/exclusions.ts`: `AgentTool` blocks recursive spawning; `cron_*` and `task_stop` / `send_message` are parent-side control plane).
+**Filtering.** The scheduler intersects the parent's tool pool with the agent's `allowedTools` (name-only — `Bash(git log *)` matches the `Bash` tool with the pattern left to the parent's `canUseTool` to enforce), then subtracts `SUBAGENT_EXCLUDED_TOOLS` (`packages/sdk/src/agents/exclusions.ts`: `AgentTool` blocks recursive spawning; `cron_*` and `task_stop` / `send_message` are parent-side control plane).
 
-**Trust tiers.** Bundle agents → `'builtin'`. Project + user agents → `'trusted'`. v0 has no `'community'` tier and no guard scanner; if a `'community'` tier is added later, mirror the skills guard pattern (`src/skills/guard.ts`).
+**Trust tiers.** Bundle agents → `'builtin'`. Project + user agents → `'trusted'`. v0 has no `'community'` tier and no guard scanner; if a `'community'` tier is added later, mirror the skills guard pattern (`packages/sdk/src/skills/guard.ts`).
 
 **`bundle-default/agents/`** ships seven reference agents: `explore`, `verify`, and `plan` (general sub-agents — these are the authoring template), `review-memory`, `review-skill`, and `review-consolidate` (Phase 13.3 review agents — restricted toolsets, specialized system prompts), plus `instinct-synthesizer` (Phase 13.4 learning agent — restricted to learning-only tools). Copy the general agents when building a new sub-agent; copy the review or learning agents only when building a pipeline variant.
 
@@ -198,7 +198,7 @@ End with: Finding (1-2 sentences), Evidence (3-6 bullet points each `path:line`)
 
 ## Authoring A Workflow
 
-A **workflow** (multi-agent workflows, `src/workflows/`) is a declarative, deterministic orchestration plan over the sub-agents you authored above — a YAML file that fans agents out in parallel across dimensions / a list, barriers between phases, and threads outputs forward. It's data, not code (no arbitrary execution); the engine runs it by calling the same `scheduler.delegate()` path that backs the Agent tool, so workflows inherit lane routing, timeouts, traces, and the learning hook for free. See the design spec [`specs/2026-06-15-multi-agent-workflows-design.md`](specs/2026-06-15-multi-agent-workflows-design.md) and the format reference in [`docs/03-cli-reference/usage.md`](docs/03-cli-reference/usage.md#multi-agent-workflows).
+A **workflow** (multi-agent workflows, `src/workflows/`) is a declarative, deterministic orchestration plan over the sub-agents you authored above — a YAML file that fans agents out in parallel across dimensions / a list, barriers between phases, and threads outputs forward. It's data, not code (no arbitrary execution); the engine runs it by calling the same `scheduler.delegate()` path that backs the Agent tool, so workflows inherit lane routing, timeouts, traces, and the learning hook for free. See the design spec [`specs/2026-06-15-multi-agent-workflows-design.md`](../../specs/2026-06-15-multi-agent-workflows-design.md) and the format reference in [`docs/03-cli-reference/usage.md`](../03-cli-reference/usage.md#multi-agent-workflows).
 
 Drop a YAML file into one of the three search paths (project `.harness/workflows/` → user `<harness-home>/workflows/` → bundle `<bundle>/workflows/`), precedence project > user > bundle (mirroring the agent loader). It is validated against `WorkflowDefSchema` in `src/workflows/types.ts` at load — an invalid file is rejected, not silently ignored.
 
@@ -237,7 +237,7 @@ phases:                               # run in order; a BARRIER between each
 
 **Writes are an enforced boundary.** A task with no `writes:` acquires the **whole-tree write lock** (`{kind:'all'}` — it serializes with every other writer, the legacy global-lock behavior) and its writes are governed by normal permissions. Declaring `writes: [<globs>]` both scopes the path-lock (disjoint scopes parallelize, overlapping serialize) AND enforces it — a write whose target falls outside the declared globs is **denied** at the permission layer, so parallel write fan-out is safe even if an author under-declares. `['**']` = the whole tree (serializes with everything). (Read-only agents skip the lock entirely; the lock and its enforcement cover the **project tree** only — harness-state tools like `memory`/`skill_manage` write under `$HARNESS_HOME` and are governed by normal permissions.)
 
-**Reuse the bundled agents.** The example workflow [`bundle-default/workflows/review.yaml`](bundle-default/workflows/review.yaml) is built entirely on read-only bundle agents (`explore`, `verify`, `plan`) — copy it as the authoring template. Reference only agents that exist in the registry (the loader rejects an unknown `agent`); author a new sub-agent first (see [Add An Agent Definition](#add-an-agent-definition)) if you need a capability the bundle doesn't ship.
+**Reuse the bundled agents.** The example workflow [`bundle-default/workflows/review.yaml`](../../bundle-default/workflows/review.yaml) is built entirely on read-only bundle agents (`explore`, `verify`, `plan`) — copy it as the authoring template. Reference only agents that exist in the registry (the loader rejects an unknown `agent`); author a new sub-agent first (see [Add An Agent Definition](#add-an-agent-definition)) if you need a capability the bundle doesn't ship.
 
 Run it with `sov workflow run <name> --arg k=v ...`, the `/workflow <name> k=v ...` slash command, or the model-invocable `workflow_run` tool. The first two are the day-to-day surfaces; `workflow_run` is excluded from sub-agent and channel tool pools (no nesting; not reachable from untrusted inbound senders).
 
@@ -281,11 +281,11 @@ whenToUse: When the user asks to greet a person.
 Greet {{args}} warmly. Use the template at ${CLAUDE_PLUGIN_ROOT}/skills/template.txt.
 ```
 
-**Install + consent.** `/plugins install <dir>` is **terminal-only** and the only path that mints consent. It runs every safety gate first (`installPlugin`, `src/plugins/install.ts`) — manifest secret-scan, path-containment, symlink-escape rejection, guard-scan of content + bundled scripts — then shows a capability disclosure (`buildDisclosure`, `src/plugins/disclosure.ts`) and asks for `y/N`. On accept it copies the tree, hashes the **copied** tree, and writes `.consent.json` (`src/plugins/consent.ts`). At every boot the loader (`src/plugins/loader.ts`) re-verifies that record against a fresh tree-hash: no record, an identity mismatch, or a post-consent edit makes the plugin inert (`needsConsent` / `tampered`). Plugins are opt-in via the `plugins: { enabled?, disabled? }` config block and load at boot, so install/enable/disable are restart-to-apply. See [`usage.md`](docs/03-cli-reference/usage.md#plugins) for the operator-facing reference and [`architecture.md`](docs/02-architecture/runtime-architecture.md#plugins) for the composition + consent internals.
+**Install + consent.** `/plugins install <dir>` is **terminal-only** and the only path that mints consent. It runs every safety gate first (`installPlugin`, `src/plugins/install.ts`) — manifest secret-scan, path-containment, symlink-escape rejection, guard-scan of content + bundled scripts — then shows a capability disclosure (`buildDisclosure`, `src/plugins/disclosure.ts`) and asks for `y/N`. On accept it copies the tree, hashes the **copied** tree, and writes `.consent.json` (`src/plugins/consent.ts`). At every boot the loader (`src/plugins/loader.ts`) re-verifies that record against a fresh tree-hash: no record, an identity mismatch, or a post-consent edit makes the plugin inert (`needsConsent` / `tampered`). Plugins are opt-in via the `plugins: { enabled?, disabled? }` config block and load at boot, so install/enable/disable are restart-to-apply. See [`usage.md`](../03-cli-reference/usage.md#plugins) for the operator-facing reference and [`architecture.md`](../02-architecture/runtime-architecture.md#plugins) for the composition + consent internals.
 
 ## Add A Shell Hook
 
-Hooks live in any settings layer's `hooks` key (`<cwd>/.harness/settings.local.json`, `<cwd>/.harness/settings.json`, or `$HARNESS_HOME/settings.json`). They're not authored under `src/`; they're external shell commands or scripts the user owns. The harness runtime is in `src/hooks/` (`runner.ts`, `consent.ts`, `types.ts`); changes there should preserve:
+Hooks live in any settings layer's `hooks` key (`<cwd>/.harness/settings.local.json`, `<cwd>/.harness/settings.json`, or `$HARNESS_HOME/settings.json`). They're not authored under `src/`; they're external shell commands or scripts the user owns. The harness runtime is in `packages/sdk/src/hooks/` (`runner.ts`, `consent.ts`, `types.ts`); changes there should preserve:
 
 - JSON-stdio interface (event payload in, decision out)
 - Exit code 2 = block
@@ -296,13 +296,13 @@ Hooks live in any settings layer's `hooks` key (`<cwd>/.harness/settings.local.j
 
 ## Add An MCP Server Integration
 
-`src/mcp/client.ts` connects to configured stdio MCP servers via `@modelcontextprotocol/sdk` at session start, discovers tools, and wraps each one through `buildTool()`. Per Invariant #5, MCP tools flow through the same `Tool<I,O>` pipe as native tools — same orchestration, same permissions, same hooks.
+`packages/sdk/src/mcp/client.ts` connects to configured stdio MCP servers via `@modelcontextprotocol/sdk` at session start, discovers tools, and wraps each one through `buildTool()`. Per Invariant #5, MCP tools flow through the same `Tool<I,O>` pipe as native tools — same orchestration, same permissions, same hooks.
 
-Adding new transport support (HTTP/SSE/WebSocket — currently stdio-only) means extending `src/mcp/client.ts` to instantiate the SDK's transport variants. The wrapper layer (`src/mcp/toolWrapper.ts`) is transport-agnostic; nothing changes there.
+Adding new transport support (HTTP/SSE/WebSocket — currently stdio-only) means extending `packages/sdk/src/mcp/client.ts` to instantiate the SDK's transport variants. The wrapper layer (`packages/sdk/src/mcp/toolWrapper.ts`) is transport-agnostic; nothing changes there.
 
 The wrapper translates an MCP `CallToolResult` into a `ToolResult<T>` with the Phase 12.5 observation envelope: `isError` → `status: 'error'`; first text line → `summary`; URL-shaped output lines → `artifacts`; common error keywords (`not found`, `unauthorized`, `rate limit`) → `next_actions` inferences. The MCP server doesn't supply `next_actions` directly, so the inference is best-effort.
 
-Permission rules participate via two prefix shapes: `mcp__<server>` matches every tool from one server; `mcp__<server>__<tool>` matches one specific tool. The matching is in `ruleMatchesTool()` (`src/config/rules.ts`) and uses `tool.isMcp` + `tool.mcpInfo.serverName` rather than name-string parsing.
+Permission rules participate via two prefix shapes: `mcp__<server>` matches every tool from one server; `mcp__<server>__<tool>` matches one specific tool. The matching is in `ruleMatchesTool()` (`packages/sdk/src/config/rules.ts`) and uses `tool.isMcp` + `tool.mcpInfo.serverName` rather than name-string parsing.
 
 ## Add An OpenAI Route
 
@@ -363,17 +363,17 @@ Reference implementations: `src/openai/routes/health.ts` (no auth, trivial JSON)
 
 4. **Wire it in.** Inbound HTTP channels (webhook, Slack) add a route to `channelsRoute` (`src/server/routes/channels.ts`) — mounted **open** (before the `/sessions/*` bearer/principal auth, like `/health`), since the per-channel `verify` is the gate, not the gateway token. Poll-based channels with no public endpoint (Telegram) are **background workers** built in `buildChannelListeners` (`src/channels/listeners.ts`) and `start()`/`stop()`ed in the gateway lifecycle. The `/channels/*` routes carry a shared **1 MiB inbound body cap** (`bodyLimit`).
 
-5. **Add the config + env-first secrets.** Extend `gateway.channels` in `src/config/schema.ts`: `{ enabled?, principalId, <secret(s)>?, permissionMode? }`, `.strict()`, with `permissionMode` enum `['default','ask']` (so `bypass` is a **parse error**, not a refine). The `superRefine` requires, for each *enabled* channel, its secret(s) present AND a `principalId` resolving to a declared `gateway.principals` id. Keep the schema **env-free** — secrets resolve env-first in `resolveChannelsConfig` (`listeners.ts`), which injects env into the raw config *before* the parse (config wins over env). Register the env-var name in `CHANNEL_SECRET_ENV`. Secrets are **never logged** — boot prints only the enabled-channel names.
+5. **Add the config + env-first secrets.** Extend `gateway.channels` in `packages/sdk/src/config/schema.ts`: `{ enabled?, principalId, <secret(s)>?, permissionMode? }`, `.strict()`, with `permissionMode` enum `['default','ask']` (so `bypass` is a **parse error**, not a refine). The `superRefine` requires, for each *enabled* channel, its secret(s) present AND a `principalId` resolving to a declared `gateway.principals` id. Keep the schema **env-free** — secrets resolve env-first in `resolveChannelsConfig` (`listeners.ts`), which injects env into the raw config *before* the parse (config wins over env). Register the env-var name in `CHANNEL_SECRET_ENV`. Secrets are **never logged** — boot prints only the enabled-channel names.
 
 6. **Test against injected transports.** Per-area suites live in `tests/channels/` (`permission`, `pipeline`, `webhook`, `telegram`, `slack`, `listeners`, `channelIsolation`). Cover: a bad/missing/stale signature is rejected with no turn; the safe posture holds **even with a local `allow Bash(*)` seeded on disk** (prove no local-allow inheritance); `bypass` config is rejected; a source-validated bad id 400s; two channels on different principals stay isolated (sessions/memory/learning). No live credentials needed — inject the transport.
 
 ### Add A Principal
 
-A principal (a named gateway user) is **config-only** — no code. Add an entry to `gateway.principals` in `config.json`: `{ id, token, name? }`. The `id` must be a safe path segment (`^[A-Za-z0-9_-]+$` — it becomes a per-user state directory component) and the `token` non-empty + unique. `gateway.principals` is **XOR with the single `gateway.token`** (a gateway runs one auth model at a time). Channels bind to a principal by `principalId`. See [usage › Multi-user gateway](docs/03-cli-reference/usage.md#multi-user-gateway).
+A principal (a named gateway user) is **config-only** — no code. Add an entry to `gateway.principals` in `config.json`: `{ id, token, name? }`. The `id` must be a safe path segment (`^[A-Za-z0-9_-]+$` — it becomes a per-user state directory component) and the `token` non-empty + unique. `gateway.principals` is **XOR with the single `gateway.token`** (a gateway runs one auth model at a time). Channels bind to a principal by `principalId`. See [usage › Multi-user gateway](../03-cli-reference/usage.md#multi-user-gateway).
 
 ## Add A Trajectory Redaction Pattern
 
-`src/trajectory/redact.ts` ships a `PATTERNS` array — every match is replaced with `[REDACTED]` (or `[REDACTED:<name>]` when `tagged: true`) before the trajectory record is written to disk. Adding a new secret-shape:
+`packages/sdk/src/trajectory/redact.ts` ships a `PATTERNS` array — every match is replaced with `[REDACTED]` (or `[REDACTED:<name>]` when `tagged: true`) before the trajectory record is written to disk. Adding a new secret-shape:
 
 1. Append a `{name, regex}` entry to `PATTERNS`. Use a **named** regex so the `tagged` mode shows which pattern fired — useful for diagnosing false positives.
 2. Anchor the pattern with word boundaries (`\b`) where the secret has a stable prefix/suffix; otherwise the regex will match arbitrary substrings.
@@ -396,7 +396,7 @@ Use additive schema changes where possible. Existing local databases are part of
 
 ## Add A Context Surface
 
-Context that should remain stable for a session belongs in system prompt assembly under `src/context/`. Context that depends on the current user turn belongs in user-message expansion or injection.
+Context that should remain stable for a session belongs in system prompt assembly under `packages/sdk/src/context/`. Context that depends on the current user turn belongs in user-message expansion or injection.
 
 Do not mutate the frozen system prompt after session creation. On resume, the stored system prompt wins.
 
@@ -444,11 +444,11 @@ When to add a golden vs a semantic test vs a unit test:
 - **Semantic (`tests/semantic/`):** fuzzy meaning checks ("the agent didn't fabricate"). LLM-judged. Opt-in.
 - **Golden (`evals/goldens/`):** deterministic-ish file-state and transcript checks ("the agent created the file with the right contents"). Code-judged. Opt-in. Capturable.
 
-See [`evals/README.md`](evals/README.md) for the full format documentation, the assertion catalog with examples, and the seed-golden inventory.
+See [`evals/README.md`](../../evals/README.md) for the full format documentation, the assertion catalog with examples, and the seed-golden inventory.
 
 ## Add A Semantic Test
 
-Semantic tests live under `tests/semantic/suites/*.cases.ts`. Each one is a single prompt (or array of prompts for multi-turn cases) + judge criteria designed to weed out a specific bug class. See [`docs/06-testing/semantic-testing.md`](docs/06-testing/semantic-testing.md) for the full inventory of existing tests, what each guards against, and the policy for when to add a new one (new tool / slash command / permission rule path / context surface, or a bug that should never regress).
+Semantic tests live under `tests/semantic/suites/*.cases.ts`. Each one is a single prompt (or array of prompts for multi-turn cases) + judge criteria designed to weed out a specific bug class. See [`docs/06-testing/semantic-testing.md`](../06-testing/semantic-testing.md) for the full inventory of existing tests, what each guards against, and the policy for when to add a new one (new tool / slash command / permission rule path / context surface, or a bug that should never regress).
 
 1. Open or create `tests/semantic/suites/NN-topic.cases.ts`.
 2. Append an entry to its exported `tests: SemanticTest[]`:
@@ -498,7 +498,7 @@ Design rules:
 
 1. Create `tests/semantic/framework/judges/<name>.ts`. Export `create<Name>Judge(opts)` returning `Judge`. Use `buildJudgePrompt()` from `prompt.ts` for the prompt and either `parseVerdictFromText()` or `makeVerdict()` for the verdict shape.
 2. Wire it into `framework/judges/index.ts`: add to the `JudgeBackendName` union and a case to `selectJudge()`.
-3. Document the backend in the table in `tests/semantic/README.md` and add coverage notes to [`docs/06-testing/semantic-testing.md`](docs/06-testing/semantic-testing.md) if relevant.
+3. Document the backend in the table in `tests/semantic/README.md` and add coverage notes to [`docs/06-testing/semantic-testing.md`](../06-testing/semantic-testing.md) if relevant.
 
 The runner, the entry point, and every test case stay unchanged.
 
@@ -510,7 +510,7 @@ When a change introduces a non-trivial design choice, add an entry to `DECISIONS
 
 ## Read next
 
-- [`docs/02-architecture/runtime-architecture.md`](docs/02-architecture/runtime-architecture.md) — the seams these recipes hook into.
-- [`docs/03-cli-reference/usage.md`](docs/03-cli-reference/usage.md) — driving the surfaces you extend.
-- [`docs/06-testing/semantic-testing.md`](docs/06-testing/semantic-testing.md) — covering new extension points with tests.
-- [`docs/05-conventions/autonomous-feature-builds.md`](docs/05-conventions/autonomous-feature-builds.md) — the SOP-12 build procedure a new feature follows.
+- [`docs/02-architecture/runtime-architecture.md`](../02-architecture/runtime-architecture.md) — the seams these recipes hook into.
+- [`docs/03-cli-reference/usage.md`](../03-cli-reference/usage.md) — driving the surfaces you extend.
+- [`docs/06-testing/semantic-testing.md`](../06-testing/semantic-testing.md) — covering new extension points with tests.
+- [`docs/05-conventions/autonomous-feature-builds.md`](../05-conventions/autonomous-feature-builds.md) — the SOP-12 build procedure a new feature follows.

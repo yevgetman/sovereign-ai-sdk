@@ -1,7 +1,8 @@
 # Production PR gates
 
-The #15 hardening PR defines full PR checks and runnable consumer evidence.
-Opening it does not change the jobs or branch rules on master.
+PR #22 merged the #15 hardening checks into master and shipped with SDK 0.13.0.
+The CI jobs are active. **Master branch protection and rulesets were not active
+at the 2026-10-09 check.** Supplied checks do not themselves enforce merge rules.
 
 ## Checks supplied
 
@@ -21,7 +22,13 @@ name one package and GHSA ID, explain the reason, and carry a valid future
 expiry. Expired or malformed exceptions fail even if the registry is clean.
 Update dependencies rather than add an exception where a compatible fix exists.
 
-## Actual Agent Casa contract
+## Actual downstream consumer evidence
+
+Agent Casa is an existing SDK consumer, not a deployment prerequisite for other
+hosts. Its checkout `521a2ee` still pins SDK 0.9.2. Isolated typecheck and 1,193
+tests passed against packed SDK 0.13.0 on Node 24.14.0. The test did not change
+its pin or establish current product activity. Kernel runtime/kernel-sweep is
+also an SDK consumer; see the [consumer contract](consumer-contract.md).
 
 The public packed canary now tests type shapes and multi-turn rehydration,
 authorization refusal and pre-inference cancellation under Node and Bun.

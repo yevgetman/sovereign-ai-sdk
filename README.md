@@ -2,6 +2,8 @@
 
 The **Sovereign AI SDK** — an embeddable `createAgent()` agent-loop engine (open-core, MIT: [`@yevgetman/sov-sdk`](packages/sdk) + [`@yevgetman/sov-protocol`](packages/protocol)) — together with the runtime and Claude-Code-style TUI harness built on top of it (TypeScript on Bun, async-generator turn loop, `Tool<I,O>` factory with fail-closed defaults, content-block messages) with a Hermes-pattern learning layer on top (persistent memory, trajectory capture, background review).
 
+**License boundary:** the SDK, protocol and debug-console packages have their own MIT licenses. The root application/harness is proprietary (`UNLICENSED`, `private: true` in its package manifest). Public source visibility does not make the entire repository MIT.
+
 This is **runtime code**. The business data it operates against lives in a separate repo: `~/code/sovereign-ai-docs/`. This repo reads that one as a *harness bundle* and never writes to business-scope files; runtime state lives under `$HARNESS_HOME` (default `~/.harness`) unless a later phase introduces explicit bundle-state writers.
 
 ## Surfaces
@@ -18,8 +20,8 @@ The same runtime drives several run modes — pick by how you want to reach it:
 
 Current state lives in [`docs/07-history/state/`](docs/07-history/state/) — newest dated file is canonical.
 
-- **Latest snapshot:** [`docs/07-history/state/2026-06-30-sdk-open-core-extraction.md`](docs/07-history/state/2026-06-30-sdk-open-core-extraction.md) — the harness is now a thin composition over an importable **open-core SDK** (`createAgent()`), with a file-level lint enforcing the open/proprietary boundary. `docs/07-history/state/` carries the most recent close-out. This hard-coded filename can lag, so always confirm the newest with `ls docs/07-history/state/*.md | sort -r | head -1`.
-- **Phase history:** [`CHANGELOG.md`](CHANGELOG.md) covers Phases 0–13.3. Phases 13.4 onward + revert history are in [`docs/07-history/state/archive/`](docs/07-history/state/archive/).
+- **Latest snapshot:** [SDK 0.13.0 / SOV 0.6.76](docs/07-history/state/2026-10-09-sdk-release-013.md) — published components, consumers, validation and remaining deployment gates.
+- **Release history:** [`CHANGELOG.md`](CHANGELOG.md) records SDK and harness changes separately. Dated build snapshots and older phase/revert records remain in [`docs/07-history/state/`](docs/07-history/state/).
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).
 
@@ -27,12 +29,16 @@ SDK hosts can opt into [bounded session ownership and joined shutdown](docs/04-e
 
 For day-to-day operation see [`docs/03-cli-reference/usage.md`](docs/03-cli-reference/usage.md). For developing this repo see [`CLAUDE.md`](CLAUDE.md).
 
+## Install the SDK
+
+For an embedded library, use the [SDK package installation and quickstart](packages/sdk/README.md). SDK **0.13.0** is a public release tarball; CLI installation below installs the application, not a library dependency. The SDK supports Node >=20.19.0 and Bun >=1.2.0.
+
 ## Install on a new machine
 
 Three paths:
 
 - **(0) Binary install (recommended for non-developers)** — one-line `curl | bash` from the public `sov-releases` repo. No Bun, no Node, no SSH access required. Phase 21 M1.
-- **(A) Direct git+SSH install** — fastest for developers with private-repo SSH access. Source-mode global install.
+- **(A) Direct git+SSH install** — fastest for developers using git over SSH. Source-mode global install.
 - **(B) Source clone + `bun link`** — for contributing or tracking `master` between version bumps.
 
 The binary install lands at `~/.sov/bin/sov`; (A) and (B) land at `~/.bun/bin/sov`. Pick one.
@@ -56,15 +62,15 @@ For developers who want to modify the runtime, use Path A or Path B below.
 | **Bun 1.2+** | The runtime itself. Ships `bun:sqlite` with FTS5 compiled in — no native-compile step. |
 | **Go ≥ 1.24** | Building `sov-tui` (the Bubble Tea TUI client). Required — `sov` launches the Go Bubble Tea client via the local Hono server. If `sov-tui` is missing the launcher prints an install hint and exits. |
 | **Provider API key** | Anthropic/OpenAI/OpenRouter access, depending on provider. Ollama can run local without a key. |
-| **Git + SSH to GitHub** | The repo is private — your SSH key must be authorized on the `yevgetman/sovereign-ai-sdk` repo. Same for the docs bundle (`yevgetman/sovereign-ai-docs`) if you want it. |
+| **Git + SSH to GitHub** | The SDK source repo is public; HTTPS cloning requires no SSH key. SSH install requires GitHub SSH setup. Optional private bundles require their own access. |
 | **Node 18+** *(optional)* | Only for the **docs-repo** lint / cascade / sync scripts. Not needed to run the harness. |
 
 Install Bun with `curl -fsSL https://bun.sh/install | bash`, then reopen your shell (or `source` your rc) so `~/.bun/bin` ends up on PATH. Get a provider API key at `console.anthropic.com`. Confirm SSH access works with `ssh -T git@github.com`.
 
-### Path A — install directly from the private repo
+### Path A — install directly from the source repo
 
 ```bash
-# 1. Install or upgrade `sov` from the private repo over SSH.
+# 1. Install or upgrade `sov` from the source repo over SSH.
 #    Bun clones into its global cache, runs `bun install`, and links
 #    ~/.bun/bin/sov → the cached repo's src/main.ts.
 bun install -g git+ssh://git@github.com/yevgetman/sovereign-ai-sdk.git
@@ -75,7 +81,7 @@ export ANTHROPIC_API_KEY=sk-ant-...           # any login shell
 
 # 3. Run from anywhere
 sov                                           # generic-agent mode, no bundle
-sov --bundle ~/code/sovereign-ai-docs         # with the docs bundle (also private)
+sov --bundle ~/code/sovereign-ai-docs         # with the docs bundle
 ```
 
 **First-install postinstall trust.** Bun's global installer blocks postinstall scripts by default — the script that builds `bin/sov-tui` from `packages/tui/`. If `bin/sov-tui` is missing after install, run:
@@ -90,7 +96,7 @@ Then re-run the install. Subsequent upgrades pick up the trusted entry automatic
 
 The cache wipe also evicts other Bun-installed packages' manifests as a side-effect — those regenerate (small one-time slowdown on each package's next install, never broken). If you specifically want to preserve those manifests and accept the risk of a stale upgrade, `sov upgrade --keep-cache` opts out.
 
-Access control is the GitHub SSH key on the user's machine — exactly the same model the source clone uses. Nothing reaches a public registry.
+The SSH path uses the machine's GitHub SSH setup. The public source can also be cloned over HTTPS. These source installs do not publish anything to npm.
 
 ### Path B — clone + `bun link` (development / contributing)
 
@@ -195,21 +201,21 @@ See [`CLAUDE.md`](CLAUDE.md) for the session boot sequence, doc index, and stand
 
 | Directory | Purpose | Phase |
 |---|---|---|
-| `src/context/` | System/user context assembly, prompt-cache boundaries, injection defense, context references, subdirectory hints | 6, 6.7 |
-| `src/core/` | Async-generator turn loop, content-block types, partition-and-batch orchestrator | 0 scaffold, 1 functional, 4 batched |
+| `packages/sdk/src/context/` | System/user context assembly, prompt-cache boundaries, injection defense, context references, subdirectory hints | 6, 6.7 |
+| `packages/sdk/src/core/` | Async-generator turn loop, content-block types, partition-and-batch orchestrator | 0 scaffold, 1 functional, 4 batched |
 | `src/tool/` | `Tool<I,O>` factory with fail-closed defaults; `affectedPaths` + `renderResult`; `buildToolContext.ts` — the open per-turn tool-context assembler | 0, 4 extensions, SDK extraction |
 | `src/tools/` | Bash + FileRead/Write/Edit + Grep/Glob + bounded memory tool + skill tools + WebFetch/WebSearch | 2 Bash, 4 file & search, 6.5 memory, 9/9.5 skills, 10.2 web |
-| `src/providers/` | LLM provider adapters, resolver, credential pool, rate guard, auxiliary fallback | 1 Anthropic, 5/5.5 hardened |
-| `src/permissions/` | Permission middleware (layered rules, ask/default/bypass modes, project-local always rules, shell AST analysis for virtual tool mapping) | 3, 7, Qwen-B |
+| `packages/sdk/src/providers/` | LLM provider adapters, resolver, credential pool, rate guard, auxiliary fallback | 1 Anthropic, 5/5.5 hardened |
+| `packages/sdk/src/permissions/` | Permission middleware (layered rules, ask/default/bypass modes, project-local always rules, shell AST analysis for virtual tool mapping) | 3, 7, Qwen-B |
 | `src/agent/` | `createAgent.ts` — the open-core SDK assembler (the turn driver every surface runs on); plus the closed Session DB impl (`sessionDb.ts`) — SQLite + WAL + FTS5, migrations, retry wrapper, compaction lineage | 3.5, 10, SDK extraction |
 | `src/commands/` | Slash commands (local / local-jsx / prompt) | 8, 10 |
-| `src/skills/` | Markdown-plus-frontmatter skill loader, prompt expansion, visibility gates, guard scanner, slash-command adapter | 9/9.5 |
+| `packages/sdk/src/skills/` | Markdown-plus-frontmatter skill loader, prompt expansion, visibility gates, guard scanner, slash-command adapter | 9/9.5 |
 | `src/compact/` | Context-window compaction + microcompaction (per-part tool-result clearing) | 10, Qwen-A |
-| `src/hooks/` | Shell-out lifecycle hooks | 11 |
-| `src/mcp/` | MCP client | 12 |
-| `src/bundle/` | Harness-bundle loader (Sovereign AI specific) | 0 skeleton |
-| `src/memory/` | Bounded MEMORY.md / USER.md store, provider ABC, user-message memory injection | 6.5 |
-| `src/trajectory/` | JSONL trajectory writer (Hermes pattern) | 13.1 |
+| `packages/sdk/src/hooks/` | Shell-out lifecycle hooks | 11 |
+| `packages/sdk/src/mcp/` | MCP client | 12 |
+| `packages/sdk/src/bundle/` | Harness-bundle loader (Sovereign AI specific) | 0 skeleton |
+| `packages/sdk/src/memory/` | Bounded MEMORY.md / USER.md store, provider ABC, user-message memory injection | 6.5 |
+| `packages/sdk/src/trajectory/` | JSONL trajectory writer (Hermes pattern) | 13.1 |
 | `src/review/` | Background review loop — ReviewManager, runReviewFork, ProposalStore, consolidation, stall detection (Hermes pattern) | 13.3 |
 | `src/router/` | Hybrid router — local / local-with-escalation / frontier | 5, 10.6 |
 | `src/config/` | Provider config, permission-rule settings loader, and `$HARNESS_HOME` path helpers | 5, 6.5, 7 |
@@ -217,14 +223,14 @@ See [`CLAUDE.md`](CLAUDE.md) for the session boot sequence, doc index, and stand
 | `src/server/` | Hono HTTP+SSE server backing the split-process TUI and the remote gateway; routes for sessions, turns, approvals, channels; multi-subscriber event bus; idle-session supervisor; bearer/principal auth + CORS; embedded web UI; on-disk SessionDb; preflight; CLI flag forwarding | 16.1, gateway A–F |
 | `src/channels/` | Inbound channel framework for `sov gateway` — Slack / Telegram / webhook adapters (verify → parse → deliver), the shared safe-by-default channel turn pipeline, env-first secret resolution, poll-loop listeners | gateway F |
 | `src/cli/` | `sov dispatch` (headless slash surface), `sov drive` (plain-text headless transcript), `sov run` (JSONL one-shot machine contract), and the `sov-tui` launcher (Phase 16.1 spawn-and-supervise) | 16.0c, 16.1, machine contract |
-| `src/persistence/` | Injectable `SessionStore` / `TranscriptStore` ports with in-memory + no-op defaults (the SQLite `SessionDb` is the closed impl behind the port; no store → no disk) | SDK extraction |
+| `packages/sdk/src/persistence/` | Injectable `SessionStore` / `TranscriptStore` ports with in-memory + no-op defaults (the SQLite `SessionDb` is the closed impl behind the port; no store → no disk) | SDK extraction |
 | `src/protocol/` | Contract #2 — the `sov-protocol` gateway wire types (events + endpoints) + a fetch-based typed client, pure `.d.ts`; the single source of truth the gateway, the Go TUI, and external clients share | SDK extraction |
-| `src/sdk.ts` | Contract #1 — the importable open-core SDK barrel (`createAgent` + the open tool/provider/port surface); re-exports only open code, exposed via the `package.json` `exports` map (`./sdk`, alongside `./protocol`) | SDK extraction |
+| `packages/sdk/src/sdk.ts` | Contract #1 — the importable open-core SDK barrel (`createAgent` + the open tool/provider/port surface); re-exports only open code, exposed via the `package.json` `exports` map (`./sdk`, alongside `./protocol`) | SDK extraction |
 | `packages/tui/` | Go + Bubble Tea TUI client (`sov-tui`); communicates with `sov` via localhost HTTP+SSE | 16.1 |
 
 Empty directories are deliberate — they mark future phase landing zones.
 
-The **open/proprietary boundary** is machine-enforced: a file-level import check (`.dependency-cruiser.cjs` + `scripts/boundary-manifest.json`, run as `bun run boundary` inside `bun run lint`, and re-run in CI) fails the build if any open-core file imports proprietary code. `src/sdk.ts` and `src/protocol/` re-export only open code.
+The **open/proprietary boundary** is machine-enforced: a file-level import check (`.dependency-cruiser.cjs` + `scripts/boundary-manifest.json`, run as `bun run boundary` inside `bun run lint`, and re-run in CI) fails the build if any open-core file imports proprietary code. `packages/sdk/src/sdk.ts` and `src/protocol/` re-export only open code.
 
 ## License
 

@@ -13,18 +13,22 @@ and carry no external contract — consumers must never import them.
 
 | Consumer | Repo | Consumes | How |
 |---|---|---|---|
-| **Agent Casa runtime** | `real-estate-agent-runtime` (private) | `@yevgetman/sov-sdk`, `@yevgetman/decorum` | In-process library; injects its own ports. Pinned exact version. |
-| **Appleo / resume-as-code-platform** | `resume-as-code-platform` (private) | the gateway (one process per account) | Out-of-process; not this contract. |
-| **Kernel Mac app** | `kernel-installer` (private) | the gateway (node-scoped sessions) | Out-of-process; not this contract. |
+| **Agent Casa runtime** | `real-estate-agent-runtime` (private) | `@yevgetman/sov-sdk`, `@yevgetman/decorum` | In-process library with injected ports. Checkout `521a2ee` pins SDK 0.9.2; isolated candidate 0.13.0 tests pass. |
+| **Kernel runtime / kernel-sweep** | `kernel-runtime` | `TurnLogRecord`, `TurnLogSink` SDK types | Vendored SDK 0.13.0 source pin; listed in draft runtime 0.50.68. |
+| **Appleo / resume-as-code-platform** | `resume-as-code-platform` | the gateway (one process per account) | Out-of-process; not this contract. |
+| **Kernel Mac app** | `kernel-installer` | the gateway (node-scoped sessions) | Out-of-process; not this contract. |
 
-Only Agent Casa consumes the SDK as an in-process library, so it is the contract's
-binding case. Verify the surface below against its imports before assuming it's stale:
-`grep -rn "from '@yevgetman/sov-sdk'" src/` in that repo.
+Agent Casa exercises the in-process engine; Kernel-sweep binds the public turn-log
+types. Appleo and the Mac app use the gateway contract, not an SDK import. A pin
+in source or a draft release manifest is not proof of deployment. Verify actual
+imports with `rg "@yevgetman/sov-sdk" src/` in the consumer checkout. This inventory
+records verified source use, not current customer or node activity.
 
 ## The pinned surface
 
 Three runtime entry points, two injected ports, and a type surface. Verified against
-Agent Casa 2026-07-31.
+Agent Casa checkout `521a2ee` on 2026-10-09. Kernel-sweep additionally binds
+`TurnLogRecord` and `TurnLogSink` (`packages/kernel-sweep/src/sink.ts`).
 
 **Runtime entry points** (called directly):
 
@@ -52,7 +56,10 @@ changing their shape is as breaking as changing a function):
 **The SDK persists conversation history and expects the caller to hand back a history
 head that byte-for-byte matches what was previously stored.** If the supplied head
 diverges — a reordered message, a stripped row, an edited character — the SDK treats it
-as a new conversation and re-persists the entire history, permanently duplicating rows.
+as a seed to persist in full; a host that supplies already-stored content can
+therefore duplicate rows. `PerTurn.storedPrefixLength` is an explicit host assertion
+that overrides prefix comparison. Derive it from stored rows under the single-writer
+lock; an incorrect boundary can omit or duplicate content.
 
 This is a **contract, not an implementation detail.** Consumers have built real
 constraints on it: Agent Casa never scrubs blocked replies from history, serializes
@@ -63,7 +70,7 @@ is unchanged.
 
 ## Obligations when you change the surface
 
-A change to any of the five entry points/ports, the exported type shapes, or the
+A change to the listed entry points/ports, either consumer's exported type shapes, or the
 rehydration invariant:
 
 - is **semver-major**, or minor with an explicit migration note in the changelog;
@@ -77,7 +84,9 @@ byte-identical when unused, tested as such.
 
 ## The downstream canary
 
-Run Agent Casa's actual suite against the packed SDK before upgrading it. The
+Run Agent Casa's actual suite against the packed SDK before upgrading it. For
+turn-log shape changes, also typecheck and run the affected Kernel-sweep checks
+against its candidate pin. Compatibility evidence does not upgrade either consumer. The
 isolated runner and manual CI workflow are documented in
 [production gates](production-pr-gates.md). If it fails, fix the SDK or land an
 explicit migration; do not replace actual consumer evidence with an export-only

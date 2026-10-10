@@ -1,5 +1,11 @@
 # Testing Log
 
+## 2026-10-09 — SDK documentation currency and consumer inventory
+
+Documentation-only pass against SDK master `c590c60`, released SDK0.13.0/CLI0.6.76. Verified Agent Casa checkout521a2ee still pins0.9.2 and Kernel-sweep binds SDK0.13.0 turn-log types. Checked GitHub source visibility (public), SDK/protocol npm registry queries (E404), no repository rulesets and unprotected master. Current docs now separate compatibility tests from adoption, public tarball from npm, draft pins from deployed releases, and delivered contracts from remaining host deployment work. Closed stale caching/image backlog status from implementation/release evidence; retained historical design and review records.
+
+Frozen hoisted install/TUI build, lint/boundary and types pass. Full configured Bun1.3.13 source suite: **5606 pass / 19 existing skips / zero fail**,23049 assertions across531files (89.47s). Changed/new documentation link checks passed for186 local links (prior append-only testing history excluded); one stale channel anchor was repaired. Every evergreen overview/architecture/extension/convention/testing page is now indexed. Current package/version and newest-state-pointer assertions and diff whitespace pass. No runtime/provider/tool code changed, no paid model request, no install/release or branch-rule activation.
+
 ## 2026-10-09 — SDK package scan and release layout correction
 
 The first unpublished SDK0.13.0 tarball scan rejected the README spelling of the valid providers/errors deep module under the pinned namespace-boundary rule. README now describes the same subpath without weakening the scanner or changing imports. Release jobs explicitly install frozen dependencies with the documented hoisted layout before the tracked-source compile copy. This matches the successfully tested local preparation. Configured lint/types and full Bun1.3.13 source suite pass: **5606 pass / 19 existing skip / zero fail**, 23049 assertions across531files (91.06s). Root repacks/rescans the corrected artifact before tagging and publication. Original local instructions were safely stashed for fast-forward pull and reapplied without conflict; source checkout now has the release code and retains its unstaged instruction edits.

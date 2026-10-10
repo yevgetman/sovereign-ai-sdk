@@ -10,10 +10,19 @@ Runs on **Node ≥ 20.19** and **Bun ≥ 1.2**.
 
 ## Install
 
+SDK **0.13.0** is published as a tarball in [SOV v0.6.76](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.76), with `SDK-SHA256SUMS`. Download both assets, verify the checksum, then install the local tarball:
+
 ```sh
-npm install @yevgetman/sov-sdk   # Node
-bun add @yevgetman/sov-sdk       # Bun
+shasum -a 256 -c SDK-SHA256SUMS
+npm install ./yevgetman-sov-sdk-0.13.0.tgz   # Node
+# Or:
+bun add ./yevgetman-sov-sdk-0.13.0.tgz       # Bun
 ```
+
+For repeatable builds, vendor the verified file and commit the dependency lockfile.
+This release does not establish npm-registry publication. Registry publication is a
+separate owner gate in [PUBLISHING.md](../../PUBLISHING.md). Installing the SOV binary
+installs the application, not this library.
 
 Tool input/output schemas are [zod](https://www.npmjs.com/package/zod) schemas.
 `zod` is already a runtime dependency of this package, but if your own code

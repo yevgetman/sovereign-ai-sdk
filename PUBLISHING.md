@@ -18,10 +18,14 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
 > an internal release means: bump the version, run the gates, `npm pack`, vendor
 > the tarball into each consumer, and **tag**. None of that touches npm, and an
 > agent may do all of it. `npm publish` is the separate, irreversible step
-> below — and as of 2026-08-05 **no package here has ever been published**, so
+> below — and as of 2026-08-05 **no package here had been published to npm**, so
 > the first publish is a public launch decision, not a release step.
 
 ---
+
+## Current public channel — 2026-10-09
+
+SDK **0.13.0** is publicly available as a checksummed tarball in [SOV v0.6.76](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.76). The source/tag is `7076729a77df8378cfd41f0bfaa350583818842b`. SDK and binary checksums are separate. See [package install](packages/sdk/README.md#install). The registry procedure below remains a separate owner gate; the source repository is already public, while SDK/protocol registry queries returned E404 at this check. Protocol remains **0.1.0**, debug console **0.3.0**; package versions are independent.
 
 ## 0. Preconditions (all must be green before anything else)
 
@@ -42,8 +46,8 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
 
 ## 1. Versioning
 
-- Set each package's `version` in its `package.json`. **First release:
-  `0.1.0` for both** (already set). Each package has its own independent
+- Set each package's `version` in its `package.json`. Read the current manifest;
+  do not reuse the original 0.1.0 bootstrap version for a new SDK cut. Each package has its own independent
   semver line (see `STABILITY.md`); they do not need to move in lockstep.
 - **`workspace:*` — what matters and what doesn't:**
   - The `workspace:*` dependencies in the **root** `package.json`
@@ -101,7 +105,7 @@ run build`, so pack output is always a fresh build.
 
 **STABILITY.md link (resolved 2026-07-02):** both package READMEs now link
 `STABILITY.md` by ABSOLUTE GitHub URL rather than a `../../` relative path, so the
-link is not dead on npmjs.com. The URL 404s until the repo flips public —
+link is not dead on npmjs.com. The source repository is now public; re-check the link before publishing —
 acceptable; the READMEs' inline "Public surface & versioning" summaries carry the
 essentials meanwhile.
 
@@ -143,7 +147,12 @@ git push origin protocol-v0.1.0 sdk-v0.1.0 debug-console-v0.1.0
 independent semver lines. Tagging is part of the INTERNAL release and does not
 imply a publish.)
 
-## 5. The repo-public flip — a SEPARATE decision
+## 5. Historical repo-public checklist
+
+**Current status (2026-10-09):** GitHub reports this source repo as public. The
+original checklist below records the prior gate; unchecked historical boxes do
+not prove that the audit was or was not performed. This maintenance pass does
+not certify a whole-history secrets audit or change repository visibility.
 
 Publishing the two packages does **not** require making this repository
 public — the tarballs are self-contained. Flipping the repo public is its own

@@ -12,7 +12,7 @@ bun run test        # Bun's built-in test runner
 
 Why all three:
 
-- `bun run lint` is `biome check src tests && bun run boundary` — Biome catches style/format issues (but does NOT do TypeScript type-checking), and `bun run boundary` (dependency-cruiser against `.dependency-cruiser.cjs` + `scripts/boundary-manifest.json`) fails the build if any open-core file imports proprietary code. This is the local mirror of the `ci.yml` gate; keep the open/proprietary boundary clean (see `docs/02-architecture/runtime-architecture.md` § "The SDK substrate").
+- `bun run lint` is `biome check src tests packages && bun run boundary` — Biome catches style/format issues (but does NOT do TypeScript type-checking), and `bun run boundary` (dependency-cruiser against `.dependency-cruiser.cjs` + `scripts/boundary-manifest.json`) fails the build if any open-core file imports proprietary code. This is the local mirror of the `ci.yml` gate; keep the open/proprietary boundary clean (see `docs/02-architecture/runtime-architecture.md` § "The SDK substrate").
 - `bun run typecheck` runs `tsc --noEmit` and catches things like wrong-scope identifiers and `exactOptionalPropertyTypes` violations that would slip through Biome and Bun's runtime test executor — Bun runs JS-style and doesn't enforce types at test time.
 - Skipping typecheck is how the `settings is not defined` runtime bug in 2026-05-05's Phase 13 commits made it to master.
 

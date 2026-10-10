@@ -30,21 +30,13 @@ This file is a **lean router** — purpose, standing rules, and the session-boot
 
 ---
 
-## ⚠ SPECCED AND WAITING — OpenRouter cache + MCP image passthrough (2026-08-25)
+## Provider/MCP follow-ups — resolved
 
-Two production defects in **this repo's** provider/MCP layer, found from the `appleo` node,
-specced end-to-end and **awaiting a CEO green-light** (SOP-12). Read the spec before touching
-`providers/openai.ts` or `mcp/client.ts` — a change in either file likely collides with it.
-
-- **Backlog #63 — the openrouter lane never emits `cache_control`.** Anthropic models pay full
-  input price on every turn; measured **~10x** on an identical request. Contained fix.
-- **Backlog #64 — MCP image blocks are discarded** (`flattenCallResult` → `[mcp:image content
-  omitted]`), so vision through MCP tools is impossible. Already blocking shipped downstream
-  work. **Carries a founder-reserved one-way-door decision** on `tool_result.content` — do not
-  start that build before it is made.
-
-**Spec:** [`specs/2026-08-25-openrouter-cache-and-image-passthrough-design.md`](specs/2026-08-25-openrouter-cache-and-image-passthrough-design.md) ·
-**Backlog:** [`docs/08-roadmap/backlog/post-phase-13-4.md`](docs/08-roadmap/backlog/post-phase-13-4.md) (P0)
+OpenRouter Anthropic caching shipped in SOV 0.6.72. MCP image passthrough landed
+2026-08-25 (`4bee673`) through `ToolResult.newMessages`, preserving string
+`tool_result.content`. Backlog #63/#64 are closed. The original August spec is
+historical design rationale; it is not a pending build gate. Read the current
+provider/MCP implementation and tests before changing these surfaces.
 
 ---
 
@@ -52,7 +44,7 @@ specced end-to-end and **awaiting a CEO green-light** (SOP-12). Read the spec be
 
 1. **This file** (`AGENTS.md`) — canonical router and standing rules.
 2. **[`README.md`](README.md)** — repo intro, install, layout.
-3. **The latest state snapshot** — the canonical "where we are now." Find it with `ls docs/07-history/state/*.md | sort -r | head -1` (currently `docs/07-history/state/2026-06-30-sdk-open-core-extraction.md` — the harness is now a thin composition over an importable open-core SDK (`createAgent`), with a file-level lint enforcing the open/proprietary boundary). Predecessors are dated siblings; pre-Phase-16 history is in `docs/07-history/state/archive/`.
+3. **The latest state snapshot** — the canonical "where we are now." Find it with `ls docs/07-history/state/*.md | sort -r | head -1` (currently `docs/07-history/state/2026-10-09-sdk-release-013.md`). Predecessors are dated siblings; pre-Phase-16 history is in `docs/07-history/state/archive/`.
 4. **[`docs/08-roadmap/backlog/post-phase-13-4.md`](docs/08-roadmap/backlog/post-phase-13-4.md)** — open backlog items not in the canonical build plan (+ the running "last sync" log).
 5. **`~/code/sovereign-ai-docs/harness/docs/runtime/runtime-scaffold-plan.md`** — Phase-0/1 scaffold contract this repo was seeded against.
 6. **`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`** — canonical remaining phased plan.
@@ -102,7 +94,7 @@ These apply every session and override defaults:
 | [`docs/07-history/postmortems/2026-05-12-phase-16-revert.md`](docs/07-history/postmortems/2026-05-12-phase-16-revert.md) | **Before any future foreground-surface refactor.** Rules 1–4. |
 | [`docs/07-history/postmortems/loop-detector-orphaned-tool-use.md`](docs/07-history/postmortems/loop-detector-orphaned-tool-use.md) | When debugging tool_use/tool_result lifecycle bugs. |
 
-The `src/bundle/` subdirectory carries its own `src/bundle/README.md` for surface-specific context that doesn't belong in the top-level docs.
+The `packages/sdk/src/bundle/` subdirectory carries its own `packages/sdk/src/bundle/README.md` for surface-specific context that doesn't belong in the top-level docs.
 
 ## Don't
 

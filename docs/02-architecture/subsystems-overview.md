@@ -1,6 +1,8 @@
 # The Sovereign AI SDK — Subsystems Atlas
 
-**A plain-language map of everything the harness is made of, down to the individual component.** This is an atlas for human readers: it names each major region, the subsystems inside it, and the individual pieces inside those — describing *what* each does and *why* it's there, never *how* it's coded. For the technical walkthrough see [`architecture.md`](docs/02-architecture/runtime-architecture.md); for hands-on use see [`usage.md`](docs/03-cli-reference/usage.md).
+> **SDK currency (2026-10-09):** package paths and SDK boundary below reflect the physical package split. The June subsystem counts describe the original inventory, not a new full-code census. Read [SDK 0.13.0 release state](../07-history/state/2026-10-09-sdk-release-013.md) for delivered context/budget/session interfaces and validation.
+
+**A plain-language map of everything the harness is made of, down to the individual component.** This is an atlas for human readers: it names each major region, the subsystems inside it, and the individual pieces inside those — describing *what* each does and *why* it's there, never *how* it's coded. For the technical walkthrough see [`architecture.md`](runtime-architecture.md); for hands-on use see [`usage.md`](../03-cli-reference/usage.md).
 
 *Compiled 2026-06-30 from a complete sweep of the codebase. Scale: ~379 TypeScript modules across ~36 runtime subsystems, a separate Go terminal-UI program, a default "harness bundle," and ~4,343 tests. As of the SDK open-core extraction (2026-06-30) the whole runtime is a thin composition over an importable **open-core SDK** — see Region 18. This version enumerates every individual component — the leaf level. (Pure wiring and type-definition files are folded in rather than listed, since they aren't things the harness is "composed of" so much as glue between them.)*
 
@@ -335,8 +337,8 @@ A single entry point exposes the full subcommand set:
 Underneath every surface sits **one importable agent core**, and a hard, machine-checked line separates the open part from the proprietary part. This is the substrate the whole harness composes over.
 
 - **The agent assembler (`createAgent`)** — the single front door to a turn (introduced in Region 1). It *is* the substrate: the gateway, the OpenAI API, cron, channels, missions, and sub-agents all drive their turns through it, so the harness is a thin composition over one engine rather than six hand-rolled turn loops. It adds only what a host genuinely needs on top of the raw loop — merging a per-turn override onto the standing config, optional persistence through the two store ports, and an adapter that lets a tool-observation function feed the learning system.
-- **The SDK barrel (`src/sdk.ts`)** — the public, importable surface: the one module an outside program imports to assemble an agent and run a turn (`createAgent`, the turn loop, the tool and provider shapes, the ports). It re-exports **only** open pieces — and the boundary lint (below) gates it, so it physically cannot leak the closed core. Importers reach it through the package's `exports` map (`./sdk`, alongside `./protocol`).
-- **The wire-protocol package (`src/protocol/`)** — "Contract #2": the gateway's over-the-wire message shapes plus a small typed client, shipped as pure type declarations. The server, the terminal UI, and outside clients all speak from this one definition instead of three drifting hand-copies.
+- **The SDK barrel (`packages/sdk/src/index.ts`)** — the public, importable surface: the one module an outside program imports to assemble an agent and run a turn (`createAgent`, the turn loop, the tool and provider shapes, the ports). It re-exports **only** open pieces — and the boundary lint (below) gates it, so it physically cannot leak the closed core. Importers reach it through `@yevgetman/sov-sdk`'s public package entry.
+- **The wire-protocol package (`packages/protocol/`)** — "Contract #2": the gateway's over-the-wire message shapes plus a small typed client, shipped as compiled JavaScript and type declarations. The server, the terminal UI, and outside clients all speak from this one definition instead of three drifting hand-copies.
 - **The five ports** — the narrow interfaces through which the open core reaches the closed core: a **session store** (in-memory by default; the SQLite store is a closed implementation *behind* this interface), a **transcript store** (a do-nothing default), **recall**, **observe**, and **trace**. The open core names the interface; the proprietary code supplies the implementation — so an embedder can run the engine with none of them and stay entirely open and disk-free.
 - **The boundary lint** — a file-level import check (`bun run boundary`, part of `bun run lint`, and re-run in CI) that **fails the build** if any open-core file imports proprietary code, measured against an explicit exception list (`scripts/boundary-manifest.json`). This is what keeps the open/proprietary line *real* rather than aspirational.
 - **The no-disk canary (`examples/embed/`)** — a tiny example program that assembles an agent and runs a turn with no session store, standing proof that the embeddable "touches no disk" default stays true.
@@ -349,6 +351,6 @@ Underneath every surface sits **one importable agent core**, and a hard, machine
 
 ## Read next
 
-- [`docs/02-architecture/runtime-architecture.md`](docs/02-architecture/runtime-architecture.md) — the request lifecycle that wires these subsystems together.
-- [`docs/01-overview/design-principles.md`](docs/01-overview/design-principles.md) — the settled decisions and invariants the atlas upholds.
-- [`docs/Documentation_Table_Of_Contents.md`](docs/Documentation_Table_Of_Contents.md) — the full documentation map.
+- [`docs/02-architecture/runtime-architecture.md`](runtime-architecture.md) — the request lifecycle that wires these subsystems together.
+- [`docs/01-overview/design-principles.md`](../01-overview/design-principles.md) — the settled decisions and invariants the atlas upholds.
+- [`docs/Documentation_Table_Of_Contents.md`](../Documentation_Table_Of_Contents.md) — the full documentation map.

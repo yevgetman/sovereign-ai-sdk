@@ -1,6 +1,6 @@
 # OpenRouter lane: Anthropic prompt caching + MCP image passthrough — design
 
-**Status:** Gap 1 (§2) GREEN-LIT by the CEO 2026-08-25 — plan at `plans/2026-08-25-openrouter-anthropic-prompt-caching.md`. Gap 2 (§3) still DRAFT — awaiting the founder-reserved decision in §3.3.
+**Status:** Implemented. Gap 1 shipped in SOV 0.6.72; Gap 2 landed 2026-08-25 (`4bee673`) using `ToolResult.newMessages`, without widening `tool_result.content`. The body below records the original proposal and alternatives, not pending scope.
 **Date:** 2026-08-25
 **Author:** agent session (appleo node), handing off to a sovereign-ai-sdk session
 **Origin:** two production gaps found in the `appleo` node (`~/code/resume-as-code-platform`,

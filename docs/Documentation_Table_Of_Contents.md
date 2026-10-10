@@ -50,6 +50,7 @@ The command surface and day-to-day operation.
 Recipes for adding extension points.
 
 - [Extending the harness](04-extending/extending.md) — adding tools, providers, slash commands, skills, hooks, MCP servers, agents, permission rules, workflows, semantic tests, and trajectory redaction.
+- [Routing an agent](04-extending/routing-an-agent.md) — generic OpenAI-compatible router lane, headers and route callbacks.
 - [Metering an agent](04-extending/metering-an-agent.md) — the three token-usage read surfaces (per-run `RunResult`, per-span `traceRecorder`, per-turn gateway wire), the disjoint-phase cost invariant, `reasoningTokens`, and the public accumulator + pricing primitives (`PRICING_VERSION`).
 
 - [Host session lifecycle](04-extending/host-session-lifecycle.md) — optional bounded in-process session ownership, cancellation and joined shutdown; no distributed lease.
@@ -60,6 +61,7 @@ Patterns and standing rules contributors must follow. (These are the operating c
 
 - [Autonomous feature builds](05-conventions/autonomous-feature-builds.md) — **the inherited apex SOP-12 build procedure**: spec → CEO green-light → autonomous subagent build → docs + tests → ship.
 - [Lint and commit](05-conventions/lint-and-commit.md) — `lint` / `typecheck` / `test` all required before any commit; atomic commits; push autonomously.
+- [Production PR gates](05-conventions/production-pr-gates.md) — merged CI, actual consumer evidence and still-inactive branch rules.
 - [The SDK consumer contract](05-conventions/consumer-contract.md) — the downstream consumers, the pinned open-core surface (3 entry points + 2 injected ports + the exported types), the verbatim-rehydration invariant, and what changing any of it obliges you to do.
 - [Cutting releases](05-conventions/cutting-releases.md) — cut the next binary release in the same session after any `src/` / `bundle-default/` / `packages/tui/` change.
 - [`sov` upgrade](05-conventions/sov-upgrade.md) — keep the global `sov` binary current after a runtime/TUI change.
@@ -84,19 +86,20 @@ The semantic-test framework and the running log.
 Audits, postmortems, and the chronological state-snapshot series. These are records, not authoritative current-state — read the newest snapshot for "where we are."
 
 - **Audits** (`07-history/audits/`)
+  - [2026-10-09 — SDK production review](07-history/audits/2026-10-09-sdk-production-review.md) — original 0.12.0 defect evidence; release-state pointer distinguishes completed fixes from open deployment work.
   - [2026-10-09 — host lifecycle evidence](07-history/audits/2026-10-09-host-lifecycle-evidence.md) — offline queue/load faults and isolated SQLite restart evidence; TEST envelope only.
   - [2026-06-10 — full-codebase audit](07-history/audits/2026-06-10-full-codebase-audit.md) — 21-area + 3-holistic sweep; all confirmed Critical/High fixed.
   - [2026-06-14 — post-audit bug hunt](07-history/audits/2026-06-14-post-audit-bug-hunt.md) — second deep-dive on the least-reviewed code; 46 findings, all fixed.
 - **Postmortems** (`07-history/postmortems/`)
   - [Phase 16 revert](07-history/postmortems/2026-05-12-phase-16-revert.md) — the written-down lesson from the revert.
   - [Loop-detector orphaned tool_use](07-history/postmortems/loop-detector-orphaned-tool-use.md) — bug write-up + resolution.
-- **State snapshots** (`07-history/state/`) — one close-out snapshot per shipped unit, newest-first. The latest is the canonical "current state." Find it with `ls docs/07-history/state/*.md | sort -r | head -1`. Most recent: [SDK open-core extraction](07-history/state/2026-06-30-sdk-open-core-extraction.md) — the harness now runs on `createAgent`. Pre-Phase-16 history is in [`07-history/state/archive/`](07-history/state/archive/). Smoke/soak output (transcripts) sits in the dated `*-smoke/` and `*-soak/` subdirs.
+- **State snapshots** (`07-history/state/`) — one close-out snapshot per shipped unit, newest-first. The latest is the canonical "current state." Find it with `ls docs/07-history/state/*.md | sort -r | head -1`. Most recent: [SDK 0.13.0 / SOV 0.6.76](07-history/state/2026-10-09-sdk-release-013.md) — public artifacts, consumer pins, validation and remaining deployment gates. Pre-Phase-16 history is in [`07-history/state/archive/`](07-history/state/archive/). Smoke/soak output (transcripts) sits in the dated `*-smoke/` and `*-soak/` subdirs.
 
 ## 08 — Roadmap
 
 Forward-looking but **not** committed (committed future-state is in `/specs/` + `/plans/`).
 
-- [SDK extraction — deferred work](08-roadmap/sdk-extraction-deferred-work.md) — what the open-core SDK inversion intentionally left for later (the physical `packages/` monorepo split + package publish, Node compatibility, SDK-docs polish).
+- [SDK extraction — deferred work](08-roadmap/sdk-extraction-deferred-work.md) — historical extraction ledger with a reconciled current-open list; package split, Node support and public SDK tarball are delivered.
 - **Backlog** (`08-roadmap/backlog/`)
   - [Post-Phase-13.4 backlog](08-roadmap/backlog/post-phase-13-4.md) — open items not in the canonical build plan (the record of truth for follow-ups). Plus the "last sync" running log.
   - [Phase-16 rebuild prerequisites](08-roadmap/backlog/phase-16-rebuild-prereqs.md) — the 24 subsystems the foreground TUI rebuild had to re-wire (24/24 complete).

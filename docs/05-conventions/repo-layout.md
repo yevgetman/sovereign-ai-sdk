@@ -2,7 +2,7 @@
 
 ## Tech stack
 
-- **Runtime:** Bun.
+- **Application runtime:** Bun. **SDK/protocol:** Node >=20.19.0 and Bun >=1.2.0.
 - **Language:** TypeScript, strict mode.
 - **Testing:** Bun's built-in test runner.
 - **Lint / format:** Biome.
@@ -11,7 +11,7 @@
 ## Repo conventions
 
 - Every tool uses `buildTool()`. No ad-hoc `{ name, call, ... }` objects.
-- Every provider implements the `LLMProvider` interface. Don't call provider SDKs from outside `src/providers/`.
+- Every provider implements the `LLMProvider` interface. Don't call provider SDKs from outside `packages/sdk/src/providers/`.
 - Every `.ts` file has a short header comment naming its one responsibility.
 - `.js` extensions in import paths (Bun convention, matches Claude Code).
 - Empty directories under `src/` are phase landing zones. Do not delete them.
@@ -26,9 +26,11 @@ This project overrides the `superpowers:writing-plans` and `superpowers:brainsto
 
 Do NOT create or write under `docs/superpowers/` — that directory has been intentionally removed.
 
-## AGENTS.md mirrors CLAUDE.md
+## Canonical agent instructions
 
-`AGENTS.md` is a byte-identical mirror of `CLAUDE.md`. Edit both in the same commit; verify with `diff CLAUDE.md AGENTS.md` (empty output expected).
+`AGENTS.md` is canonical for every harness. `CLAUDE.md` is a thin Claude-only
+overlay that imports it. Keep shared rules in AGENTS.md; do not duplicate them.
+The apex agent-file contract linked there owns this convention.
 
 ## Phase discipline
 
