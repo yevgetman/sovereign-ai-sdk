@@ -67,3 +67,7 @@ wire modes in `anthropicThinkingModes`. An explicit empty mode list means no
 supported thinking mode; omitted metadata stays unknown. New model IDs use
 these published facts without family-name rules. The Anthropic transport owns
 how each advertised mode becomes a request.
+
+`anthropicEffortSupported` records whether `output_config.effort` is accepted.
+This is independent of `thinking.type=enabled` with `budget_tokens`. A model can
+support budget-based thinking while rejecting the separate output effort field.

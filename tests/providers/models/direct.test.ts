@@ -131,6 +131,7 @@ test('Anthropic published effort flags and thinking modes survive refresh for ne
   for (const result of [await discovery.refresh(source), await discovery.read(source)]) {
     expect(result.models[0]?.efforts).toEqual(['off', 'low', 'high']);
     expect(result.models[0]?.anthropicThinkingModes).toEqual(['adaptive']);
+    expect(result.models[0]?.anthropicEffortSupported).toBe(true);
     expect(result.models[0]?.capabilities.reasoning).toBe('supported');
   }
   const disabled = normalizeDirectModel(
@@ -155,4 +156,29 @@ test('Anthropic published effort flags and thinking modes survive refresh for ne
   );
   expect(partial?.efforts).toBeUndefined();
   expect(partial?.anthropicThinkingModes).toBeUndefined();
+});
+
+test('Anthropic output effort and enabled thinking are independent published facts', async () => {
+  const fetch = (async () =>
+    Response.json({
+      data: [
+        {
+          id: 'claude-budget-only',
+          capabilities: {
+            thinking: {
+              supported: true,
+              types: { enabled: { supported: true }, adaptive: { supported: false } },
+            },
+            effort: { supported: false },
+          },
+        },
+      ],
+    })) as unknown as typeof globalThis.fetch;
+  const catalog = await createModelDiscovery({ fetch }).refresh(
+    createDirectModelSource({ provider: 'anthropic', apiKey: 'fake', accountId: 'a' }),
+  );
+  expect(catalog.models[0]?.capabilities.reasoning).toBe('supported');
+  expect(catalog.models[0]?.anthropicThinkingModes).toEqual(['enabled']);
+  expect(catalog.models[0]?.anthropicEffortSupported).toBe(false);
+  expect(catalog.models[0]?.efforts).toEqual(['off']);
 });

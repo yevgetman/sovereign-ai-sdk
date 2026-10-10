@@ -98,6 +98,10 @@ export function normalizeDirectModel(
     maxOutputTokens: positiveNumber(row.max_tokens ?? row.max_output_tokens),
     efforts: efforts !== undefined ? ['off', ...new Set(efforts)] : undefined,
     anthropicThinkingModes,
+    anthropicEffortSupported:
+      provider === 'anthropic' && typeof effortCapability.supported === 'boolean'
+        ? effortCapability.supported
+        : undefined,
     // An authenticated model-list response proves listed availability, not that
     // a particular generation endpoint/account will execute a request.
     availability: 'account',

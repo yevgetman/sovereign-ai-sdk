@@ -124,6 +124,10 @@ export function validateModelRecords(
           }
         : undefined,
     };
+    if (row.anthropicEffortSupported !== undefined) {
+      if (typeof row.anthropicEffortSupported !== 'boolean') return undefined;
+      model.anthropicEffortSupported = row.anthropicEffortSupported;
+    }
     if (row.anthropicThinkingModes !== undefined) {
       if (
         !Array.isArray(row.anthropicThinkingModes) ||

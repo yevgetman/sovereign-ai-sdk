@@ -4,6 +4,19 @@ Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typ
 
 # Testing Log
 
+## 2026-10-10 — PR37 separate output-effort and thinking controls
+
+Follow-up contract review confirmed that Anthropic output_config.effort support
+is independent of thinking.type=enabled with budget_tokens. Discovery now keeps
+that published boolean as anthropicEffortSupported through the validated cache.
+A budget-only model can advertise thinking while rejecting output effort;
+PR38's adapter can preserve that distinction without guessing from its ID.
+
+Focused catalog/direct checks passed **16/0**, 78 assertions. Frozen configured
+lint, typecheck, strict SDK build and full tests passed **5645 / 19 skip / 0 fail**,
+23200 assertions across 535 files (94.17s). No inference, credentials, installation
+or release was used. Prior test records remain intact.
+
 ## 2026-10-10 — PR37 second review: published Anthropic controls
 
 The second review confirmed that direct discovery dropped official Anthropic

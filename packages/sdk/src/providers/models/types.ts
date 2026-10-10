@@ -23,6 +23,8 @@ export interface ModelRecord {
   efforts?: ReasoningEffort[] | undefined;
   /** Exact advertised Anthropic thinking modes; empty means neither mode is accepted. */
   anthropicThinkingModes?: ('enabled' | 'adaptive')[] | undefined;
+  /** Whether output_config.effort is accepted; distinct from budget_tokens thinking. */
+  anthropicEffortSupported?: boolean | undefined;
   pricing?:
     | {
         inputPerMillion?: number | undefined;
