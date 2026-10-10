@@ -1,4 +1,19 @@
 schema_version: 4
 product: sovereign-ai-sdk
 version: 0.14.1
-items: []
+items:
+  - id: sdk-public-docs-014
+    product: sovereign-ai-sdk
+    title: Refresh SDK install examples and state pointers after verified
+      public0.14.0 release
+    pull_request: null
+    merged_at: 2026-10-10T21:14:48.254Z
+    commits:
+      - sha: 55d6d76dbd8ffa2f0e77e014bd2ae5c1662946dd
+        mainline: null
+    requires: []
+    reason: Package README content enters future tarballs; source docs are current
+      now without changing immutable published0.14.0 bytes.
+    qa:
+      - releases/sdk-public-docs-014-source-qa.json
+      - docs/06-testing/testing-log.md
