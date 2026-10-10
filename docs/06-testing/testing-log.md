@@ -1,5 +1,12 @@
 # Testing Log
 
+## 2026-10-10 — OpenRouter model discovery (#25)
+
+Scope: public model normalization, unknown metadata, text-output candidate filtering, bounded same-origin pages and 16-MiB streamed response limit, stale cache/failure fallback and whitelisted output records.
+
+Validation: `bun run lint && bun run typecheck && bun run test` — lint/typecheck passed; full suite 5633 pass / 19 skip / 1 unrelated timing failure (`secretRedactor` PEM test elapsed 133ms against 100ms threshold under parallel load). Isolated `bun run test tests/permissions/secretRedactor.test.ts` passed 42/0 in 60ms. Catalog/surface fixtures passed 13/0. No paid inference or defaults changed.
+
+
 ## 2026-10-10 — portable model catalog contract (#24)
 
 Scope: version-1 portable records, explicit refresh/offline read, injected memory/cache/fetch ports, stale/unknown metadata and runtime boundary validation. No credentials, disk defaults or paid inference.

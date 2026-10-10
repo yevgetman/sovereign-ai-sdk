@@ -5,3 +5,5 @@ export {
   fallbackModelCatalog,
   findModel,
 } from './catalog.js';
+
+export { createOpenRouterModelSource, normalizeOpenRouterModel } from './openrouter.js';

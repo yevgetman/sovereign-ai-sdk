@@ -94,3 +94,19 @@ test('malformed/future/cross-route cache cannot certify metadata', async () => {
   };
   expect((await createModelDiscovery().refresh(wrong)).state).toBe('unavailable');
 });
+
+test('catalog boundary drops arbitrary credential-shaped source properties', async () => {
+  const model = {
+    ...findModel(fallbackModelCatalog('custom'), 'id'),
+    apiKey: 'must-not-leak',
+    metadata: { source: 'fixture', stale: false, token: 'must-not-leak' },
+  };
+  const source: ModelDiscoverySource = {
+    routeId: 'custom',
+    async discover() {
+      return [model];
+    },
+  };
+  const catalog = await createModelDiscovery().refresh(source);
+  expect(JSON.stringify(catalog)).not.toContain('must-not-leak');
+});

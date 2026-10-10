@@ -19,3 +19,16 @@ unsupported catalog version and use explicit unknown fallback; do not reinterpre
 unknown enum values as supported. New capability fields must default to unknown.
 Future breaking schema changes require a new version and a migration adapter.
 Model metadata should be captured as an immutable snapshot for each turn.
+
+## OpenRouter public discovery
+
+Pass `createOpenRouterModelSource()` to `refresh`. It fetches the documented
+public `/api/v1/models` catalog without credentials. Candidate records preserve
+exact IDs and author prefixes. Explicit non-text output models are excluded;
+missing modality/capability metadata remains unknown. Prices are USD per million
+tokens. Inference hosts are not inferred from the author prefix.
+
+Pagination accepts same-origin continuation URLs and cursor pages with hard
+page, record and response-byte limits. Redirects are refused. Refresh failures
+retain stale cached records; they never change the selected model or route.
+Arbitrary response/cache fields are removed before records reach host output.
