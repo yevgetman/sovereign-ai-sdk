@@ -1,0 +1,20 @@
+{
+  "checked_at": "2026-10-10T12:09:04.747529+00:00",
+  "baseline_source": "7076729a77df8378cfd41f0bfaa350583818842b",
+  "through_master": "1b91237a4f51642ed76d2737d893412338f69c7d",
+  "first_parent_changes": [
+    "1b91237a4f51642ed76d2737d893412338f69c7d Merge pull request #23 from yevgetman/fix/delegation-failure-diagnostics",
+    "a989e0f85aaf9c0f991c918bb596220ef4b0cf1e docs: reconcile SDK release state and consumer contracts",
+    "c590c601f6f6fd083363df0f860971bc83ad8726 Scan Windows release archives on Linux before native verification",
+    "806b351a58e69c39466f22fdfa31cd686dad13a3 Preserve pinned scanner bytes in Windows release checkouts"
+  ],
+  "selected_application_units": [
+    "1b91237a4f51642ed76d2737d893412338f69c7d"
+  ],
+  "notes": [
+    "Intervening compiler/scanner and documentation corrections are not automatically selected.",
+    "Apply PR23 with git cherry-pick -m 1 to the verified baseline.",
+    "Unlisted commits disqualify a build from arbitrary master; assemble listed source units.",
+    "Review and list version stamps, lockfile updates and notes before freeze."
+  ]
+}

@@ -1,0 +1,22 @@
+schema_version: 4
+product: sovereign-ai-sdk
+version: 0.13.1
+items:
+  - id: sdk-pr-23
+    product: sovereign-ai-sdk
+    title: Preserve partial delegated work, expose redacted failure causes and
+      correct trace outcomes
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/23
+    merged_at: 2026-10-10T12:06:30Z
+    commits:
+      - sha: 1b91237a4f51642ed76d2737d893412338f69c7d
+        mainline: 1
+    requires: []
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38021574896
+      - docs/06-testing/testing-log.md
+      - "Seven new regression tests; configured suite: 5613 pass, 19 existing
+        skips, zero fail; all six PR CI checks pass at
+        ece3d67356a406aac841c7732b88af1c1049732f. Source evidence, not
+        validation of an assembled release."

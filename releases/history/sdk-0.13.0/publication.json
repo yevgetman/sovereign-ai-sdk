@@ -1,0 +1,32 @@
+{
+  "record_kind": "verified-pre-manifest-baseline",
+  "checked_at": "2026-10-10T12:09:04.747529+00:00",
+  "version": "0.13.0",
+  "cli_version": "0.6.76",
+  "source_commit": "7076729a77df8378cfd41f0bfaa350583818842b",
+  "source_tag": "v0.6.76",
+  "publication_url": "https://github.com/yevgetman/sov-releases/releases/tag/v0.6.76",
+  "assets_verified": [
+    {
+      "name": "yevgetman-sov-sdk-0.13.0.tgz",
+      "sha256": "813aa74ef79b3f31db30d2b5b2382594f5fa7984ef2df40ca8d6af0eece7748c",
+      "checksum_file": "SDK-SHA256SUMS",
+      "url": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.76/yevgetman-sov-sdk-0.13.0.tgz"
+    },
+    {
+      "name": "sov-darwin-arm64.tar.gz",
+      "sha256": "d7ecb2c5298b7ee2c21bd1f15983150dcd43bb3f099f7f5f3b1923cba90c5d60",
+      "checksum_file": "SHA256SUMS",
+      "url": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.76/sov-darwin-arm64.tar.gz"
+    }
+  ],
+  "verification": [
+    "Downloaded SDK tarball: package version and publisher checksum match.",
+    "Downloaded darwin-arm64 CLI: checksum and build-inputs source revision match.",
+    "Source tag resolves to the full source SHA; SDK/root source manifests agree.",
+    "Prior full-platform evidence: docs/07-history/state/2026-10-09-sdk-release-013.md."
+  ],
+  "limitations": [
+    "This release predates manifests. No frozen manifest, item mapping or authorization is reconstructed. This establishes a baseline, not a retroactive v4 released plan."
+  ]
+}

@@ -256,3 +256,11 @@ self-contained under MIT.
 ## Production PR checks
 
 [Production PR gates](docs/05-conventions/production-pr-gates.md) describes the full source/Go matrix, packed consumer type and behavior checks, advisory policy, and actual isolated Agent Casa runner. Branch-protection activation and private CI access remain explicit post-merge steps. Runtime releases are separate from PR merge permission.
+
+## Release planning
+
+The repository uses **master**. [`releases/manifest.yml`](releases/manifest.yml)
+collects work for one planned SDK version; [`releases/release-plan.yml`](releases/release-plan.yml)
+records its CLI companion, baseline and deployment evidence. Schemas and historical
+records live in `releases/`. Run `bun run release:validate` to check the active draft.
+See the [release planning procedure](docs/05-conventions/release-manifest.md).

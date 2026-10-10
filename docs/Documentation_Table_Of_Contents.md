@@ -64,6 +64,7 @@ Patterns and standing rules contributors must follow. (These are the operating c
 - [Production PR gates](05-conventions/production-pr-gates.md) — merged CI, actual consumer evidence and still-inactive branch rules.
 - [The SDK consumer contract](05-conventions/consumer-contract.md) — the downstream consumers, the pinned open-core surface (3 entry points + 2 injected ports + the exported types), the verbatim-rehydration invariant, and what changing any of it obliges you to do.
 - [Cutting releases](05-conventions/cutting-releases.md) — cut the next binary release in the same session after any `src/` / `bundle-default/` / `packages/tui/` change.
+- [SDK release planning](05-conventions/release-manifest.md) — planned versions, selected commits, baseline and publication evidence.
 - [`sov` upgrade](05-conventions/sov-upgrade.md) — keep the global `sov` binary current after a runtime/TUI change.
 - [Estimation](05-conventions/estimation.md) — quote effort in sessions / dispatches / wall-minutes, never weeks.
 - [Repo layout](05-conventions/repo-layout.md) — where files go in `src/`, how to name a plan/spec, how to move things.

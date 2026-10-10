@@ -1,5 +1,15 @@
 # Testing Log
 
+
+## 2026-10-10 — SDK planned-version manifest and source validation
+
+Owner requested PR23 merge and the runtime/installer release planning process for the SDK. Exact head ece3d67356a406aac841c7732b88af1c1049732f passed all six PR CI checks and merged as1b91237a4f51642ed76d2737d893412338f69c7d into master. New v4 draft selects that merge once for SDK0.13.1 / CLI0.6.77. Published SDK0.13.0 / CLI0.6.76 baseline was verified using downloaded checksums, SDK package manifest and arm64 CLI build-source metadata. No release or installed upgrade is claimed.
+
+Planning schemas derive from Kernel runtime's v4 contract, with an independent CLI companion version and package/platform artifact identifiers. CI's source gate now validates schemas with URI/date formats and checks version/baseline relationships, dependencies, duplicate items/units, source reachability, already-shipped units, merge mainline and mapping references. Cut assembly/freeze/publication remain the shared release-manifest lifecycle's separate operator gates. The documentation links product records and existing SDK/CLI QA procedures without authorizing npm or bypassing publication evidence.
+
+Twelve isolated regression cases cover valid/dormant drafts, bad versions/dates, dependency cycles, duplicate IDs/SHAs, baseline drift, missing QA, invalid preparation/mappings, YAML key order and source/merge provenance failures. Fixtures are independent of the active roster so a later rollover does not break these tests. First typecheck exposed a misplaced suppression directive on a multiline JavaScript import; added an explicit declaration file and removed the directive. Final configured gate passes lint/boundary, types and **5625 tests /19 existing skips /zero fail**,23098 assertions across532files (90.91s). Active release validation passes; frozen install is unchanged; advisory audit reports zero. New guide links and whitespace checks pass. Existing README sibling-repo links require a checkout beside sovereign-ai-docs and are absent only in this temporary worktree layout.
+
+
 ## 2026-10-09 — Live-turn evidence and failed delegation diagnostics
 
 Read-only observation of an attended installed SOV0.6.75 turn and three recent parent sessions. Resolve invocations by session_start/session_end, rather than treating persisted session age as one latency. During a4.5-minute fixed observation window, message rows advanced77→91, CPU mostly0–1.5% and sampled RSS71–99MiB; the process continued to make progress. Model first-token time was about1.45s median, cached input share about89%, and generation/tool work dominated wall time. Samples are not a memory/capacity certificate or task-quality benchmark. No active turn was stopped, steered, restarted, upgraded or configured.

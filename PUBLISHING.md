@@ -27,6 +27,14 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
 
 SDK **0.13.0** is publicly available as a checksummed tarball in [SOV v0.6.76](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.76). The source/tag is `7076729a77df8378cfd41f0bfaa350583818842b`. SDK and binary checksums are separate. See [package install](packages/sdk/README.md#install). The registry procedure below remains a separate owner gate; the source repository is already public, while SDK/protocol registry queries returned E404 at this check. Protocol remains **0.1.0**, debug console **0.3.0**; package versions are independent.
 
+## Release planning
+
+The [SDK release manifest procedure](docs/05-conventions/release-manifest.md) owns
+the planned SDK version and selected source work in `releases/manifest.yml`.
+`releases/release-plan.yml` records the separate CLI companion version, baseline,
+exact assembled build, freeze and publication evidence. Use the release-manifest
+skill for that lifecycle; keep the npm authority boundary below.
+
 ## 0. Preconditions (all must be green before anything else)
 
 - [ ] **CI green** on the branch being released (and on `master` if releasing

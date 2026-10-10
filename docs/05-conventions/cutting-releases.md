@@ -2,6 +2,15 @@
 
 The user runs the public binary install at `~/.sov/bin/sov` (curl-piped from `github.com/yevgetman/sov-releases`). The source-mode install at `~/.bun/bin/sov` exists too but is for developers — it's NOT what the user sees on a day-to-day basis.
 
+## Planned cuts
+
+[Release planning](release-manifest.md) defines the SDK/CLI manifest and plan.
+Collect intended work there before cutting. Apply the Kernel release-manifest
+lifecycle at a pinned assembled build; merging source alone does not select a
+release. Version preparation, QA, freeze and publication evidence are required.
+The standing rule below calls for a release after runtime work when authorized;
+it does not permit bypassing a planned cut or publishing during a planning-only task.
+
 ## The rule
 
 **Any session that changes runtime code — `src/`, `bundle-default/`, or `packages/tui/` — must cut the next patch release in the same session.** Don't wait for the user to ask. Without the release, the user's `~/.sov/bin/sov` keeps running the stale binary and the fix isn't real to them.

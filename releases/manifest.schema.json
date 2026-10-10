@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sovereign-ai:sovereign-ai-sdk:release-manifest:v4",
+  "title": "Sovereign AI SDK release manifest v4",
+  "type": "object",
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "product",
+        "title",
+        "pull_request",
+        "merged_at",
+        "commits",
+        "requires",
+        "reason",
+        "qa"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "product": {
+          "const": "sovereign-ai-sdk"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pull_request": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uri"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "merged_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "commits": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sha",
+              "mainline"
+            ],
+            "properties": {
+              "sha": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "mainline": {
+                "enum": [
+                  null,
+                  1
+                ]
+              }
+            }
+          }
+        },
+        "requires": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "qa": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "pull_request": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "description": "Always names the planned version. Every item ships in that version; an empty list is dormant.",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "product",
+    "version",
+    "items"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 4
+    },
+    "product": {
+      "const": "sovereign-ai-sdk"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    }
+  }
+}

@@ -46,7 +46,8 @@
     "tui:build": "bun run scripts/build-tui.ts",
     "visual": "bun run scripts/visual.ts",
     "postinstall": "bun run scripts/build-tui.ts",
-    "audit:dependencies": "node scripts/dependency-audit.mjs"
+    "audit:dependencies": "node scripts/dependency-audit.mjs",
+    "release:validate": "bun scripts/validate-release-manifest.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
@@ -69,6 +70,8 @@
     "@types/bun": "^1.1.0",
     "@types/picomatch": "^4.0.3",
     "@types/react": "^18.3.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "bun-types": "1.3.14",
     "dependency-cruiser": "^18.0.0",
     "ink-testing-library": "^4.0.0",
