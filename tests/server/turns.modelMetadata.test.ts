@@ -82,7 +82,11 @@ for (const rejectImage of [false, true])
       expect(compactCalls).toBe(0);
       expect(events).toContain(rejectImage ? 'turn_error' : 'turn_complete');
       if (rejectImage) expect(events).toContain('image');
-      expect(runtime.getSessionContext(sessionId).modelBudget?.contextTokens).toBe(8_000_000);
+      expect(runtime.getSessionContext(sessionId).modelBudget).toMatchObject({
+        provider: 'openrouter',
+        model: 'vendor/future',
+        contextTokens: 8_000_000,
+      });
       expect(runtime.resolvedProvider.contextLength).toBe(128_000);
       expect(
         buildServerCommandContext(

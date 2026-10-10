@@ -172,3 +172,5 @@ reports that actual reservation in the trace. An irreducible input overflow
 produces a clear context-budget error before inference.
 
 Model menus and the first-turn context budget use the active runtime node’s catalog and account settings. Config model changes and discard actions use that same node’s config path. An explicit config-path environment override still takes precedence.
+
+Context-budget reports keep a frozen turn snapshot while its provider and model match the current selection. After a model or provider change, they read the active node’s current model evidence, including changes made from another session.

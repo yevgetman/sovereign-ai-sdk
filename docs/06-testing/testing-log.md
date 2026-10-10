@@ -1,5 +1,11 @@
 # Testing Log
 
+## 2026-10-10 — PR #43 review: current model context budget
+
+A second independent review found that `/context-budget` kept a previous model's frozen capacity after `/model` changed the shared model. Budget snapshots now include provider and model identity. Reports reuse a matching snapshot; otherwise they resolve the current selection from the active node and injected settings. Tests preserve unchanged-model snapshots and cover large-to-small model selection, another session's shared model change, rebuilding the command context, and a same-ID provider switch.
+
+Focused command/turn checks pass **13/0**, 43 assertions. Independent catalog-agent rereview closed the Medium finding. Configured `bun run lint && bun run typecheck && bun run test` passed **5714 passed / 19 skipped / zero failed**, 23504 assertions across 547 files (111.55s). Strict build passed. All fixtures use isolated nodes and uncalled provider transports. No paid inference, installation or release.
+
 ## 2026-10-10 — PR #43 review: active-node model menus and budget
 
 Independent review found a Medium defect: model menus and the first-turn context budget read the ambient node cache while execution used the runtime's explicit home. Menus now receive the active home and host-owned account settings. Config read/write/path/discard use that same home; explicit config environment overrides retain precedence. Negative fixtures use disjoint ambient/node caches, a separate injected direct account, and active-node set/discard while proving ambient config remains unchanged. The first-turn budget reads the node's 8M window rather than the ambient 99,999 window.

@@ -507,13 +507,14 @@ export function buildServerCommandContext(
     getBudgetReport: () =>
       auditContextBudget({
         contextWindow:
-          sessionCtx.modelBudget?.contextTokens ??
-          selectedTurnModel(runtime.resolvedProvider.transport.name, runtime.model, {
-            maxTokens: runtime.maxTokens,
-            harnessHome: runtime.harnessHome,
-            settings: runtime.injectedSettings,
-          })?.limits.contextTokens ??
-          runtime.resolvedProvider.contextLength,
+          sessionCtx.modelBudget?.provider === runtime.resolvedProvider.transport.name &&
+          sessionCtx.modelBudget.model === runtime.model
+            ? sessionCtx.modelBudget.contextTokens
+            : (selectedTurnModel(runtime.resolvedProvider.transport.name, runtime.model, {
+                maxTokens: runtime.maxTokens,
+                harnessHome: runtime.harnessHome,
+                settings: runtime.injectedSettings,
+              })?.limits.contextTokens ?? runtime.resolvedProvider.contextLength),
         systemSegments: systemSegmentsRef,
         tools: runtime.toolPool,
         skills: filteredSkills.skills,

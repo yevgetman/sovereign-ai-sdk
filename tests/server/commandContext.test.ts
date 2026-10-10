@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { PickerOpenConfig } from '@yevgetman/sov-sdk/commands/types';
 import { fallbackModelCatalog, findModel } from '@yevgetman/sov-sdk/providers/models/index';
+import { OpenAIProvider } from '@yevgetman/sov-sdk/providers/openai';
 import { diskModelCache } from '../../src/cli/modelDiscovery.js';
 import { __test_resetProjectIdCache } from '../../src/learning/project.js';
 import { buildServerCommandContext } from '../../src/server/commandContext.js';
@@ -292,7 +293,7 @@ describe('buildServerCommandContext — per-principal scoping (Phase E)', () => 
   });
 });
 
-test('first-turn model budget uses the runtime node instead of an ambient catalog', async () => {
+test('model budgets use the active node and retain snapshots only for the current model/provider', async () => {
   const node = mkdtempSync(join(tmpdir(), 'budget-active-node-'));
   const ambient = mkdtempSync(join(tmpdir(), 'budget-ambient-node-'));
   const oldHome = process.env.HARNESS_HOME;
@@ -316,6 +317,11 @@ test('first-turn model budget uses the runtime node instead of an ambient catalo
             contextWindow: window,
             metadata: { source: 'fixture', stale: false },
           },
+          {
+            ...findModel(catalog, 'vendor/small'),
+            contextWindow: home === node ? 65_536 : 500_000,
+            metadata: { source: 'fixture', stale: false },
+          },
         ],
       });
     }
@@ -337,6 +343,38 @@ test('first-turn model budget uses the runtime node instead of an ambient catalo
     const { ctx } = buildServerCommandContext(runtime, sessionCtx, sessionId);
     expect(ctx.getBudgetReport().totals.window).toBe(8_000_000);
     expect(ctx.harnessHome).toBe(node);
+    sessionCtx.modelBudget = {
+      provider: 'openrouter',
+      model: 'vendor/model',
+      contextTokens: 7_000_000,
+    };
+    expect(ctx.getBudgetReport().totals.window).toBe(7_000_000);
+    const otherId = runtime.sessionDb.createSession({
+      provider: 'openrouter',
+      model: 'vendor/model',
+    });
+    const otherSessionCtx = runtime.getSessionContext(otherId);
+    otherSessionCtx.modelBudget = {
+      provider: 'openrouter',
+      model: 'vendor/model',
+      contextTokens: 7_000_000,
+    };
+    const other = buildServerCommandContext(runtime, otherSessionCtx, otherId).ctx;
+    ctx.setModel('vendor/small');
+    expect(ctx.getBudgetReport().totals.window).toBe(65_536);
+    expect(other.getBudgetReport().totals.window).toBe(65_536);
+    const fresh = buildServerCommandContext(runtime, sessionCtx, sessionId).ctx;
+    expect(fresh.getBudgetReport().totals.window).toBe(65_536);
+    sessionCtx.modelBudget = {
+      provider: 'openrouter',
+      model: 'vendor/small',
+      contextTokens: 65_536,
+    };
+    runtime.resolvedProvider.transport = new OpenAIProvider({
+      name: 'xai',
+      apiKey: 'fixture-offline',
+    });
+    expect(fresh.getBudgetReport().totals.window).toBe(32_768);
   } finally {
     await runtime?.dispose();
     if (oldHome === undefined) Reflect.deleteProperty(process.env, 'HARNESS_HOME');

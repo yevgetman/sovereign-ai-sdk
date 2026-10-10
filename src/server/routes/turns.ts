@@ -567,6 +567,7 @@ async function runTurnInBackground(
     );
     if (modelSnapshot)
       sessionCtx.modelBudget = {
+        provider: modelSnapshot.metadata.provider,
         model: modelSnapshot.metadata.id,
         contextTokens: modelSnapshot.limits.contextTokens,
       };
@@ -654,6 +655,7 @@ async function runTurnInBackground(
         sessionCtx = runtime.getSessionContext(sessionId);
         if (modelSnapshot)
           sessionCtx.modelBudget = {
+            provider: modelSnapshot.metadata.provider,
             model: modelSnapshot.metadata.id,
             contextTokens: modelSnapshot.limits.contextTokens,
           };
@@ -855,6 +857,7 @@ async function runTurnInBackground(
       sessionCtx = runtime.getSessionContext(sessionId);
       if (modelSnapshot)
         sessionCtx.modelBudget = {
+          provider: modelSnapshot.metadata.provider,
           model: modelSnapshot.metadata.id,
           contextTokens: modelSnapshot.limits.contextTokens,
         };
