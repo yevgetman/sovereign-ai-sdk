@@ -53,3 +53,8 @@ SDK providers without changing the six built-in authentication routes.
 Provider references: [Anthropic models](https://platform.claude.com/docs/en/api/models/list),
 [OpenAI models](https://developers.openai.com/api/reference/resources/models/methods/list),
 [xAI models](https://docs.x.ai/developers/rest-api-reference/inference/models).
+Cache reads and writes have bounded waits too. Failed refreshes persist stale
+evidence when possible and keep a fail-safe stale snapshot in the current service
+when persistence fails. Writes are serialized: an older cache port that ignores
+a timeout cannot overwrite a newer successful refresh. Each source or cache-port
+wait is bounded by `timeoutMs`; a refresh can include several such waits.
