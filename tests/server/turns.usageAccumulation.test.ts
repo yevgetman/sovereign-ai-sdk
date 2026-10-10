@@ -255,10 +255,45 @@ describe('turns route — full-turn usage accumulation (T5 / F1 + F3)', () => {
       expect(status?.cost).toBeUndefined();
       expect(status?.cacheHitRate).toBeUndefined();
 
-      // sessionDb never recorded a usage row.
+      // No token counts were fabricated; the receipt marks cost unknown.
       const cost = runtime.sessionDb.getSessionCost(sessionId);
       expect(cost.outputTokens).toBe(0);
       expect(cost.inputTokens).toBe(0);
+      expect(cost.costComplete).toBe(false);
+      expect(runtime.sessionDb.getUsageEstimates(sessionId)[0]?.complete).toBe(false);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('per-turn model receipts do not bill the runtime default model', async () => {
+    const runtime = await buildRuntime({
+      cwd: home,
+      harnessHome: home,
+      provider: 'mock',
+      model: 'claude-sonnet-4-6',
+      preflight: false,
+    });
+    const priced = new CacheReportingProvider();
+    Object.defineProperty(priced, 'name', { value: 'anthropic' });
+    runtime.resolvedProvider.transport = priced;
+    try {
+      const app = buildAppWithRuntime(runtime);
+      const response = await app.request('/sessions', { method: 'POST' });
+      const { sessionId } = (await response.json()) as { sessionId: string };
+      await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'hi', model: 'claude-haiku-4-5-20251001' }),
+      });
+      const events = parseSseEvents(
+        await (await app.request(`/sessions/${sessionId}/events`)).text(),
+      );
+      const receipt = runtime.sessionDb.getUsageEstimates(sessionId)[0];
+      expect(receipt?.model).toBe('claude-haiku-4-5-20251001');
+      expect(receipt?.complete).toBe(true);
+      expect(receipt?.amountUsd).toBeCloseTo(0.0002925, 9);
+      expect(finalStatusUpdate(events)?.cost).toBe(receipt?.amountUsd);
     } finally {
       await runtime.dispose();
     }

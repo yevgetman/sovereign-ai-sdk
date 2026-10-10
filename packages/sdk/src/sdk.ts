@@ -49,6 +49,7 @@ export type {
   ContextLimits,
 } from './compact/contextManagement.js';
 export { ContextManagementError } from './compact/contextManagement.js';
+export type { EffectiveModelLimits, ModelLimitEvidence } from './providers/modelLimits.js';
 export type { MicrocompactConfig } from './compact/microcompact.js';
 // Cross-call usage accumulation (W1) — the exact per-call/summed token semantics
 // the tool loop uses. Public so the gateway and external meters reuse them
@@ -225,7 +226,13 @@ export type { ResolvedRoute, RouterProviderConfig } from './providers/router.js'
 // lets consumers (e.g. assay's `pricing_ref`) pin the exact table they priced
 // against — it is bumped on ANY table change. `formatUsd` renders a dollar
 // figure; `TokenPricesPerMillion` is a `PRICE_TABLE` entry's shape.
-export { PRICE_TABLE, PRICING_VERSION, estimateCostUsd, formatUsd } from './providers/pricing.js';
+export {
+  PRICE_TABLE,
+  PRICING_VERSION,
+  estimateCostUsd,
+  estimateUsageCost,
+  formatUsd,
+} from './providers/pricing.js';
 export type { TokenPricesPerMillion } from './providers/pricing.js';
 
 // ── MCP (mcp/) — client entrypoint, pool-factory port + public types ────────
@@ -373,5 +380,12 @@ export type {
   EstimateRequestBudget,
 } from './runtime/treeBudget.js';
 
+// Portable provider/model discovery (explicit refresh, no disk default).
+export * from './providers/models/index.js';
+export {
+  serializerSupportsImages,
+  validateModelRequest,
+} from './providers/models/validateRequest.js';
+export type { CostEstimate, PricingSnapshot } from './providers/pricing.js';
 export type { OpenRouterPolicy } from './providers/openrouterPolicy.js';
 export { validateOpenRouterPolicy } from './providers/openrouterPolicy.js';

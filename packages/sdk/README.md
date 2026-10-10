@@ -200,6 +200,30 @@ history envelope, excluding system/tools; optional `contextWindowTokens` is a
 host model-limit hint. There is no bundled summary engine. Native child policy
 can explicitly inherit the same configuration.
 
+Supply an exact `modelMetadata: ModelRecord` snapshot to `createAgent()`, a
+per-turn override or `query()` to budget from discovery. The agent clones it at
+turn start. Fresh context/output maxima are constrained by host
+`contextLimits.contextWindowTokens` and `maxTokens`; host settings never expand a
+provider maximum. Unknown values fall back to 32,768 context tokens and 8,192
+output tokens. Stale metadata may tighten these limits but cannot expand them.
+`contextLengthFor(provider, model, metadata, hostCap)` resolves the same context
+limit for hosts doing proactive compaction. Its two-argument legacy form retains
+the historical registry behavior.
+
+The loop checks system, tools and history with an output reservation before every
+provider call, including resumed history and later tool results. It invokes only
+a supplied context reducer; otherwise an oversized request fails with intact
+history. Provider-request traces record effective limits and metadata source.
+Anthropic thinking cannot raise a metadata or host-budgeted output cap after the check.
+
+The default input estimate is conservative UTF-8 JSON bytes plus framing. It is
+not a provider tokenizer or a verified image-patch counter. Supply pure,
+model-aware `inputTokenCounter(request)` for verified accounting, including system,
+tools and multimodal framing. Provider overflow recovery remains authoritative
+when an estimate is insufficient. Custom providers with neither metadata nor a
+host token-window cap retain legacy behavior; use a snapshot to opt into the new
+conservative unknown policy. No discovery fetch or disk write occurs in the loop.
+
 The port receives a history snapshot, reason (`budget` or `overflow`), model,
 provider, output token cap and `AbortSignal`. It returns reduced `messages` and
 optional summary-engine `usage`/`estimatedCostUsd`. A replacement must shrink,
@@ -357,6 +381,72 @@ signal. Distributed leases, durable meters and OS sandboxing remain host duties.
 Read next: [Production review](https://github.com/yevgetman/sovereign-ai-sdk/issues/15),
 [Consumer contract](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/05-conventions/consumer-contract.md).
 
+### Portable model discovery
+
+`createModelDiscovery()` provides offline `read(source)` and explicit
+`refresh(source)` operations. The default cache is memory only. Inject fetch,
+clock and cache ports to suit the host. Version-1 model records keep exact IDs,
+authentication routes, authors, hosts, unknown capabilities and stale metadata
+separate. Public catalogs do not prove account entitlement. See
+[src/providers/models/README.md](src/providers/models/README.md) for the contract
+and migration rules. Existing `listRoutes()` remains offline.
+### Model capabilities and modalities
+
+Selected `ModelRecord` metadata distinguishes `supported`, `unsupported` and
+`unknown` capability. `validateModelRequest(request, providerName, record)` checks
+actual inputs and replayed history, including images, tool calls and tool
+results. Known-incompatible required images or tools fail with safe `unsupported_input`
+errors. Unknown OpenRouter capabilities are refused; direct/local compatibility
+rules are described below. Bundled suggestions
+preserve existing tool/image behavior without certifying unknown capability.
+Explicit unsupported capability is always refused. Text-only, no-tool
+requests do not require those capabilities. A known restricted `toolChoices`
+list also fences tool-choice formats. Metadata must match both the selected
+provider and exact model ID.
+
+Serializer support is separate from model support. Direct xAI's
+OpenAI-compatible image and function-call body is fixture-tested against the
+[published chat contract](https://docs.x.ai/developers/rest-api-reference/inference/chat-completions).
+Subscription image paths remain fenced. Route image flags describe serialization,
+not universal model vision. Local Ollama/SOV/Manifest image paths retain their serializer behavior.
+Injected providers own their serializer contract. Without supplied model
+metadata, existing custom provider behavior is retained; hosts must use discovered metadata to certify
+capability. No fixture certifies an account entitlement or a paid live request.
+
+Direct Anthropic/OpenAI/xAI API model lists often contain IDs without tool
+metadata. Unknown tools preserve the existing function-serializer attempt for
+both established and new IDs. Provider refusal is retained; this is not model
+support or account entitlement certification. Unknown images retain only exact
+established native choices, while explicit unsupported capabilities always fail.
+OpenRouter discovered unknown required capabilities are refused because model
+and inference-host support differ. Text-only/no-tool requests remain valid.
+A host can inject a `ModelRecord` through `createAgent({ modelMetadata: record })`
+to supply verified capability facts for a new model. Set its exact provider,
+route, model ID and a truthful `metadata.source`; for example a verified vision
+contract can explicitly set `record.capabilities.images = 'supported'`. This
+changes request validation only, and does not grant authentication or trigger
+fallbacks. Custom/local providers own their serializer contracts.
+### Model pricing snapshots
+
+`estimateUsageCost(provider, model, usage, snapshot?)` returns an estimate with
+`complete`, a paid/free/subscription/unknown state, source, rates and pricing time.
+Unknown pricing omits `amountUsd`; token usage is retained. Inject a normalized
+`PricingSnapshot` through `createAgent` or a per-turn override. Reasoning tokens
+are already part of output tokens. Rates are per million tokens in USD.
+
+The deprecated numeric `estimateCostUsd` now returns `number | undefined`. Check
+for an unknown value; never coerce it to zero in billing or displays. This is a
+source migration for numeric-only callers and must be included in an SDK minor
+release. Stores can implement additive `recordUsageEstimate` to retain immutable
+receipts, including unknown usage. Legacy stores receive only known numeric
+estimates; unknown usage remains available in `RunResult`. SOV's SQLite store
+records receipts and marks mixed/unknown session estimates incomplete. Its
+numeric counters are known subtotals, never a complete bill when that flag is false.
+
+Agent usage covers its own provider calls plus reported context components. It does
+not include a complete delegated-child bill. Aggregate receipts identify host context
+estimates separately. SOV stores auxiliary-compaction receipts separately from main
+token counters. Historical rows without reliable pricing evidence are marked incomplete.
 ### OpenRouter execution policy
 
 Use `settings.providers.openrouter.routing` with `createAgent`, or pass

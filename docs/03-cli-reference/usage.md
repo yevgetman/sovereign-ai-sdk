@@ -1738,12 +1738,28 @@ it for ONE turn by adding `effort` to the turn body: `POST /sessions/:id/turns
 { "text": "...", "effort": "off" }`. The per-turn value wins for that turn and never
 changes the session. An invalid value is rejected with **400** — it is not coerced.
 
-**`off` is a real disable.** On the OpenRouter lane, models that reason by default
+**`off` depends on the selected transport.** On supported OpenRouter toggle models, models that reason by default
 (z-ai/glm-5.x, DeepSeek R1, Qwen thinking) now receive `reasoning: { enabled: false }`;
 `low` on those families is advisory (measured: glm-5.2 still reasons at `low`). Anthropic
 models do not think unless asked, so `off` there simply omits thinking. OpenAI
 o-series / gpt-5 cannot disable reasoning. `HARNESS`-level detail and the measurements:
 `specs/2026-08-25-real-reasoning-control-design.md`.
+
+Exact route/model metadata can be supplied as `modelMetadata` to SDK agents and
+queries. New model IDs do not need a name-pattern update when the metadata includes
+verified `efforts` and `reasoningControl` mappings. Unknown or stale unverified controls refuse
+an explicit depth instead of discarding it. Unknown publisher metadata preserves
+established adapter facts; an explicit unsupported claim takes priority. Refresh outside a running turn; the agent
+clones the record at turn start.
+
+Direct xAI `grok-4.6` accepts low/medium/high and maps max to `xhigh`. Off omits the
+control; it **does not disable** the model's default reasoning. OpenRouter Grok4.6
+also cannot disable reasoning. OpenRouter KimiK2.5 supports a binary switch: off sends
+`reasoning.enabled=false`, high sends true. Other depth levels are refused because
+they would falsely imply a verified depth control. Grok subscription remains off-only.
+These mappings follow [xAI's reasoning contract](https://docs.x.ai/developers/model-capabilities/text/reasoning)
+and [OpenRouter's normalized reasoning contract](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens);
+offline request-body tests do not certify account availability or live latency.
 
 ### The `loop` block — progress-aware loop guard
 

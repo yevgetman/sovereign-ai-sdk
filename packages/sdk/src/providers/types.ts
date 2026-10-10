@@ -33,6 +33,10 @@ export type ProviderRequest = {
    * reasoning capability). Absent or `off` ⇒ a byte-identical request.
    */
   effort?: ReasoningEffort;
+  /** Exact route/model metadata snapshot for this request. */
+  modelMetadata?: import('./models/types.js').ModelRecord;
+  /** Output cap was reserved by the host context budget; adapters must not raise it. */
+  outputBudgetEnforced?: boolean;
   signal?: AbortSignal;
   cacheEnabled?: boolean;
 };

@@ -30,6 +30,13 @@ import { LoopDetectorState } from '../loop/detector.js';
 import { toToolSchemas } from '../mcp/schemaSerialization.js';
 import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
 import { PersistBeforeRunError, isContextOverflowError } from '../providers/errors.js';
+import {
+  assertRequestFits,
+  requestInputTokenBound,
+  resolveModelLimits,
+} from '../providers/modelLimits.js';
+import { validateModelRequest } from '../providers/models/validateRequest.js';
+import type { ProviderRequest } from '../providers/types.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { type TurnSummary, detectStall } from '../util/stall.js';
@@ -115,13 +122,41 @@ function flattenContentBlock(block: unknown): string {
 
 /** Run one user turn, including provider streaming and tool-use continuation turns. */
 export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | Message, Terminal> {
+  const modelMetadata = params.modelMetadata ? structuredClone(params.modelMetadata) : undefined;
+  // Publisher limits are snapshotted once. Host caps never expand them.
+  const useModelLimits = Boolean(modelMetadata || params.contextLimits?.contextWindowTokens);
+  const effectiveModelLimits = useModelLimits
+    ? resolveModelLimits(
+        modelMetadata
+          ? {
+              contextTokens: modelMetadata.contextWindow,
+              outputTokens: modelMetadata.maxOutputTokens,
+              stale: modelMetadata.metadata.stale,
+              source: modelMetadata.metadata.source,
+            }
+          : undefined,
+        {
+          contextTokens: params.contextLimits?.contextWindowTokens,
+          outputTokens: params.maxTokens,
+        },
+      )
+    : undefined;
+  const maxTokens = effectiveModelLimits
+    ? Math.min(params.maxTokens, effectiveModelLimits.outputTokens)
+    : params.maxTokens;
+  const contextLimits =
+    params.contextLimits && effectiveModelLimits
+      ? {
+          ...params.contextLimits,
+          contextWindowTokens: effectiveModelLimits.contextTokens,
+        }
+      : params.contextLimits;
   const {
     provider,
     model,
     messages,
     systemPrompt,
     tools,
-    maxTokens,
     temperature,
     effort,
     maxTurns = DEFAULT_MAX_TURNS,
@@ -345,7 +380,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   let toolsDispatched = false;
   const contextSignal = signal ?? new AbortController().signal;
   const manageContext = async (reason: 'budget' | 'overflow'): Promise<StreamEvent> => {
-    if (!params.contextManager || !params.contextLimits) {
+    if (!params.contextManager || !contextLimits) {
       throw new ContextManagementError('contextManager requires contextLimits');
     }
     try {
@@ -355,7 +390,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         model,
         provider: provider.name,
         maxTokens,
-        limits: params.contextLimits,
+        limits: contextLimits,
         signal: contextSignal,
         ...(sessionId !== undefined ? { sessionId } : {}),
       });
@@ -375,7 +410,11 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal?.aborted) {
-      recordTrace({ type: 'interrupt', stage: `turn-${turn}-pre-stream`, iso: nowIso() });
+      recordTrace({
+        type: 'interrupt',
+        stage: `turn-${turn}-pre-stream`,
+        iso: nowIso(),
+      });
       await maybeFireStop('interrupted');
       return { reason: 'interrupted' };
     }
@@ -391,27 +430,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     for (;;) {
       let providerStarted = false;
       try {
-        if (params.contextManager || params.contextLimits) {
-          if (!params.contextManager || !params.contextLimits) {
-            throw new ContextManagementError('contextManager requires contextLimits');
-          }
-          validateContextLimits(params.contextLimits);
-          if (historyBytes(history) > params.contextLimits.maxHistoryBytes) {
-            yield await manageContext('budget');
-          }
-        }
-        requestStart = Date.now();
-        recordTrace({
-          type: 'provider_request',
-          provider: provider.name,
-          model,
-          purpose: 'main',
-          messageCount: history.length,
-          systemBytes: systemPrompt.reduce((n, s) => n + Buffer.byteLength(s.text, 'utf8'), 0),
-          iso: nowIso(),
-        });
-        providerStarted = true;
-        for await (const event of provider.stream({
+        const request: ProviderRequest = {
           model,
           system: systemPrompt,
           messages: history,
@@ -419,9 +438,65 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           maxTokens,
           ...(temperature !== undefined ? { temperature } : {}),
           ...(effort !== undefined ? { effort } : {}),
+          ...(modelMetadata !== undefined ? { modelMetadata } : {}),
+          ...(effectiveModelLimits ? { outputBudgetEnforced: true } : {}),
           ...(signal ? { signal } : {}),
           cacheEnabled,
-        })) {
+        };
+        // Check the complete history before a host can pay for context reduction.
+        validateModelRequest(request, provider.name, modelMetadata);
+        if (params.contextManager || contextLimits) {
+          if (!params.contextManager || !contextLimits) {
+            throw new ContextManagementError('contextManager requires contextLimits');
+          }
+          validateContextLimits(contextLimits);
+          if (historyBytes(history) > contextLimits.maxHistoryBytes) {
+            yield await manageContext('budget');
+          }
+        }
+        if (
+          modelMetadata &&
+          (modelMetadata.id !== model || modelMetadata.provider !== provider.name)
+        )
+          throw new ContextManagementError('model metadata does not match selected model/provider');
+        if (effectiveModelLimits) {
+          const inputBound = () =>
+            params.inputTokenCounter
+              ? params.inputTokenCounter({
+                  model,
+                  messages: history,
+                  system: systemPrompt,
+                  tools: toToolSchemas(toolPool),
+                  maxTokens,
+                  ...(modelMetadata ? { modelMetadata } : {}),
+                })
+              : requestInputTokenBound(history, systemPrompt, toToolSchemas(toolPool));
+          let inputTokens = inputBound();
+          if (
+            inputTokens + maxTokens > effectiveModelLimits.contextTokens &&
+            params.contextManager &&
+            contextLimits
+          ) {
+            yield await manageContext('budget');
+            inputTokens = inputBound();
+          }
+          assertRequestFits(inputTokens, maxTokens, effectiveModelLimits);
+        }
+        request.messages = history;
+        validateModelRequest(request, provider.name, modelMetadata);
+        requestStart = Date.now();
+        recordTrace({
+          type: 'provider_request',
+          provider: provider.name,
+          model,
+          purpose: 'main',
+          ...(effectiveModelLimits ? { modelLimits: effectiveModelLimits } : {}),
+          messageCount: history.length,
+          systemBytes: systemPrompt.reduce((n, s) => n + Buffer.byteLength(s.text, 'utf8'), 0),
+          iso: nowIso(),
+        });
+        providerStarted = true;
+        for await (const event of provider.stream(request)) {
           if (firstEventAt === undefined) firstEventAt = Date.now();
           if (event.type === 'assistant_message') {
             assistant = event.message;
@@ -439,18 +514,22 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         if (err instanceof ContextManagementError && err.info)
           yield { type: 'context_management', info: err.info };
         if (signal?.aborted) {
-          recordTrace({ type: 'interrupt', stage: `turn-${turn}-stream`, iso: nowIso() });
+          recordTrace({
+            type: 'interrupt',
+            stage: `turn-${turn}-stream`,
+            iso: nowIso(),
+          });
           await maybeFireStop('interrupted');
           return { reason: 'interrupted' };
         }
         if (
           providerStarted &&
           params.contextManager &&
-          params.contextLimits &&
+          contextLimits &&
           !toolsDispatched &&
           firstEventAt === undefined &&
           isContextOverflowError(err) &&
-          overflowRecoveries < (params.contextLimits.maxOverflowRetries ?? 1)
+          overflowRecoveries < (contextLimits.maxOverflowRetries ?? 1)
         ) {
           overflowRecoveries += 1;
           try {
@@ -513,7 +592,10 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     const detection = guarded(
       () =>
         loopDetector.addAndCheck({
-          toolCalls: toolUseBlocks.map((b) => ({ name: b.name, input: b.input })),
+          toolCalls: toolUseBlocks.map((b) => ({
+            name: b.name,
+            input: b.input,
+          })),
           assistantText: assistantText(assistant),
         }),
       null,
@@ -736,7 +818,10 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         if (params.pollSteering && out.role === 'user' && turn + 1 < maxTurns) {
           const steerText = await params.pollSteering();
           if (steerText !== null && steerText.length > 0) {
-            out = { role: 'user', content: [...out.content, { type: 'text', text: steerText }] };
+            out = {
+              role: 'user',
+              content: [...out.content, { type: 'text', text: steerText }],
+            };
           }
         }
         history.push(out);
@@ -814,7 +899,12 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         if (recentTurnSummaries.length > 6) recentTurnSummaries.shift();
         const stall = detectStall(recentTurnSummaries);
         if (stall.stalled) {
-          recordTrace({ type: 'stall_detected', reason: stall.reason, turn, iso: nowIso() });
+          recordTrace({
+            type: 'stall_detected',
+            reason: stall.reason,
+            turn,
+            iso: nowIso(),
+          });
         }
       }
       // Microcompaction: clear stale tool results before the next provider
@@ -883,7 +973,11 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         yield msg;
       }
       if (signal?.aborted) {
-        recordTrace({ type: 'interrupt', stage: `turn-${turn}-tool-dispatch`, iso: nowIso() });
+        recordTrace({
+          type: 'interrupt',
+          stage: `turn-${turn}-tool-dispatch`,
+          iso: nowIso(),
+        });
         await maybeFireStop('interrupted');
         return { reason: 'interrupted' };
       }

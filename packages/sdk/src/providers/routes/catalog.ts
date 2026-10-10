@@ -21,6 +21,7 @@ import {
   modelSupportsReasoning,
   openrouterModelSupportsReasoning,
 } from '../effort.js';
+import { reasoningControlFor } from '../modelReasoning.js';
 import { PROVIDER_REGISTRY } from '../models.js';
 import { SUBSCRIPTION_DEFAULT_MODEL } from '../subscription/names.js';
 import { RouteError } from './errors.js';
@@ -49,15 +50,16 @@ export const SUBSCRIPTION_ROUTE_EFFORTS: Readonly<
 /**
  * Routes whose transport sends verified native image content. Anthropic sends
  * native `image` blocks; the OpenAI-compatible transport sends `image_url` data
- * URIs for openai and openrouter. Direct xAI and both subscriptions stay false
- * until verified (spec §5.2: advertise only verified paths). Per-model vision
- * support on OpenRouter is not checked here.
+ * URIs for openai and openrouter. Direct xAI uses the same fixture-verified image_url shape; subscriptions
+ * remain fenced (spec §5.2: advertise only verified paths). This is serializer support only,
+ * never a claim that every model has vision. validateModelRequest enforces
+ * separately supplied model capabilities before inference.
  */
 export const ROUTE_IMAGE_SUPPORT: Readonly<Record<RouteId, boolean>> = {
   'openrouter-api': true,
   'anthropic-api': true,
   'openai-api': true,
-  'grok-api': false,
+  'grok-api': true,
   'chatgpt-subscription': false,
   'grok-subscription': false,
 };
@@ -116,7 +118,9 @@ const DEFINITIONS: Readonly<Record<RouteId, RouteDefinition>> = {
       'z-ai/glm-5.2',
       'moonshotai/kimi-k2.5',
     ],
-    effortsFor: (model) => allOrOff(openrouterModelSupportsReasoning(model)),
+    effortsFor: (model) =>
+      reasoningControlFor('openrouter', model)?.efforts ??
+      allOrOff(openrouterModelSupportsReasoning(model)),
     // OpenRouter ids are always `vendor/model`; a bare id is a direct-API id.
     isKnownIncompatible: (model) => !model.includes('/'),
   },
@@ -147,8 +151,7 @@ const DEFINITIONS: Readonly<Record<RouteId, RouteDefinition>> = {
     displayName: 'xAI Grok (API key)',
     builtinDefaultModel: requiredDefault('xai'),
     knownModels: ['grok-4.6'],
-    // Same predicate the OpenAI-compatible transport applies to the xai lane.
-    effortsFor: (model) => allOrOff(modelSupportsReasoning(model, 'openai')),
+    effortsFor: (model) => reasoningControlFor('xai', model)?.efforts ?? NO_EFFORT,
     isKnownIncompatible: directFamilyRule('xai'),
   },
   'chatgpt-subscription': {

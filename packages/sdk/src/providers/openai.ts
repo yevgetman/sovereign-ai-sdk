@@ -20,6 +20,11 @@ import {
 } from './effort.js';
 import { ProviderHttpError, ProviderStreamError } from './errors.js';
 import {
+  hasReasoningMetadata,
+  modelReasoningParams,
+  reasoningControlFor,
+} from './modelReasoning.js';
+import {
   findLastCacheableSegment,
   lastIndexWhere,
   recentMessageCacheBudget,
@@ -96,7 +101,7 @@ type OpenAIChatBody = {
   reasoning_effort?: string;
   /** OpenRouter's unified reasoning param (openrouter lane ONLY). Either the
    *  effort dial or the explicit `{ enabled: false }` disable that `off` sends. */
-  reasoning?: { effort: 'low' | 'medium' | 'high' | 'max' } | { enabled: false };
+  reasoning?: { effort: string } | { enabled: boolean };
   /** sov/vLLM chat-template flag that toggles the thinking channel. */
   chat_template_kwargs?: Record<string, unknown>;
 };
@@ -205,7 +210,9 @@ export class OpenAIProvider
    *  header is only attached when a key is present, so a keyless subclass
    *  transparently omits it. */
   protected requestHeaders(): Record<string, string> {
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+    };
     if (this.config.apiKey) headers.authorization = `Bearer ${this.config.apiKey}`;
     return headers;
   }
@@ -290,6 +297,19 @@ export class OpenAIProvider
    *  reason — documented limit). */
   protected reasoningParams(req: ProviderRequest): Partial<OpenAIChatBody> {
     if (req.effort === undefined) return {};
+    const control = reasoningControlFor(this.name, req.model, req.modelMetadata);
+    const establishedControl =
+      this.name === 'openrouter'
+        ? openrouterModelSupportsReasoning(req.model)
+        : modelSupportsReasoning(req.model, this.apiMode);
+    const unknownPreservesEstablished =
+      req.modelMetadata?.capabilities.reasoning === 'unknown' && establishedControl;
+    if (
+      control ||
+      (hasReasoningMetadata(req.modelMetadata) && !unknownPreservesEstablished) ||
+      this.name === 'xai'
+    )
+      return modelReasoningParams(control, req.effort);
     if (this.name === 'openrouter') {
       return openrouterModelSupportsReasoning(req.model) ? openrouterReasoningFor(req.effort) : {};
     }
@@ -315,7 +335,9 @@ export class OpenAIProvider
     // local engine (vLLM/MLX) is reasoning-capable but speaks standard
     // `max_tokens` + `enable_thinking`, so it keeps the normal body.
     const openAiReasoningModel =
-      this.apiMode === 'openai' && modelSupportsReasoning(req.model, this.apiMode);
+      this.apiMode === 'openai' &&
+      (modelSupportsReasoning(req.model, this.apiMode) ||
+        reasoningControlFor(this.name, req.model, req.modelMetadata)?.parameter === 'openai');
     return {
       model: req.model,
       messages: this.toProviderMessages(req.messages, req.system, {
@@ -498,7 +520,11 @@ export async function* translateOpenAIStream(
       if (call.function?.name) current.name = call.function.name;
       if (call.function?.arguments) {
         current.args += call.function.arguments;
-        yield { type: 'tool_use_delta', id: current.id, partial: call.function.arguments };
+        yield {
+          type: 'tool_use_delta',
+          id: current.id,
+          partial: call.function.arguments,
+        };
       }
       toolCalls.set(call.index, current);
     }
@@ -637,10 +663,16 @@ function userToOpenAI(message: Message): OpenAIMessage[] {
     else if (block.type === 'image') {
       images.push({
         type: 'image_url',
-        image_url: { url: `data:${block.source.media_type};base64,${block.source.data}` },
+        image_url: {
+          url: `data:${block.source.media_type};base64,${block.source.data}`,
+        },
       });
     } else if (block.type === 'tool_result') {
-      out.push({ role: 'tool', tool_call_id: block.tool_use_id, content: block.content });
+      out.push({
+        role: 'tool',
+        tool_call_id: block.tool_use_id,
+        content: block.content,
+      });
     }
   }
   if (images.length > 0) {
@@ -800,7 +832,9 @@ export async function* parseSse(
   options: { rejectMalformedData?: boolean } = {},
 ): AsyncGenerator<OpenAIChatChunk> {
   const reader = body.getReader();
-  const decoder = new TextDecoder('utf-8', { fatal: options.rejectMalformedData === true });
+  const decoder = new TextDecoder('utf-8', {
+    fatal: options.rejectMalformedData === true,
+  });
   let buffer = '';
 
   let reachedEof = false;

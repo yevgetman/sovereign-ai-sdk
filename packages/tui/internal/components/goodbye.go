@@ -57,8 +57,12 @@ func RenderGoodbye(summary transport.SessionSummary, t theme.Theme, width, heigh
 			lines = append(lines, fmt.Sprintf("%s  %s",
 				labelStyle.Render(padRight("cache wrt", style.S.Goodbye.LabelPad)), valStyle.Render(fmt.Sprintf("%d", *summary.Tokens.CacheWrite))))
 		}
+		cost := fmt.Sprintf("$%.4f", summary.Tokens.EstimatedCostUsd)
+		if summary.Tokens.CostComplete != nil && !*summary.Tokens.CostComplete {
+			cost = "unknown (incomplete pricing)"
+		}
 		lines = append(lines, fmt.Sprintf("%s  %s",
-			labelStyle.Render(padRight("est cost", style.S.Goodbye.LabelPad)), valStyle.Render(fmt.Sprintf("$%.4f", summary.Tokens.EstimatedCostUsd))))
+			labelStyle.Render(padRight("est cost", style.S.Goodbye.LabelPad)), valStyle.Render(cost)))
 		lines = append(lines, "")
 	}
 

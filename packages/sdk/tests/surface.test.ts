@@ -96,11 +96,13 @@ import type {
   ContextManagementPort,
   ContextManagementRequest,
   ContextManagementResult,
+  CostEstimate,
   CreateSessionInput,
   CreateTaskInput,
   DelegateInput,
   DelegateResult,
   DelegationLifecycleEvent,
+  EffectiveModelLimits,
   EstimateRequestBudget,
   HookCommandSpec,
   HookConfig,
@@ -138,6 +140,7 @@ import type {
   Message,
   MicrocompactConfig,
   MicrocompactInfo,
+  ModelLimitEvidence,
   ObservationStatus,
   ObserveInput,
   OpenRouterPolicy,
@@ -150,6 +153,7 @@ import type {
   PermissionDecision,
   PermissionResult,
   PreGateVerdict,
+  PricingSnapshot,
   ProjectScope,
   PromptCommand,
   ProviderPurpose,
@@ -255,6 +259,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'ContextOverflowError',
   'DEFAULT_CONDUCT_REFUSAL',
   'LaneSemaphores',
+  'MODEL_CATALOG_VERSION',
   'PRICE_TABLE',
   'PRICING_VERSION',
   'PathLockManager',
@@ -281,18 +286,26 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'buildToolScope',
   'createAgent',
   'createAssayUsageRecorder',
+  'createDirectModelSource',
   'createInMemorySessionStore',
+  'createMemoryModelCatalogCache',
+  'createModelDiscovery',
   'createNoopTranscriptStore',
+  'createOpenRouterModelSource',
+  'createSubscriptionModelSource',
   'createTurnLogRecorder',
   'createUsageAccumulator',
   'defaultMaxTurns',
   'dropsFor',
   'estimateCostUsd',
+  'estimateUsageCost',
   'expandSkillPrompt',
   'expandSkillText',
+  'fallbackModelCatalog',
   'filterToolsForToolset',
   'finalizeUsage',
   'findCapableModel',
+  'findModel',
   'formatUsd',
   'intersectCanUseTool',
   'intersectToolNames',
@@ -300,9 +313,14 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'isToolsetName',
   'loadSkills',
   'loadSubscriptionProvider',
+  'normalizeDirectModel',
+  'normalizeOpenRouterModel',
   'query',
   'renamesFor',
+  'resolveModelAlias',
   'resolveProvider',
+  'serializerSupportsImages',
+  'validateModelRequest',
   'validateOpenRouterPolicy',
   'wrapConductAuditSink',
 ];
@@ -370,6 +388,8 @@ describe('sdk barrel — the 0.1.0 semver-contract surface snapshot', () => {
  *  compilation here — the type-surface half of the 0.1.0 contract (values are
  *  erased at runtime; types are not, so they need a compile-time pin). */
 type TypeSurfaceWitness = {
+  costEstimate?: CostEstimate;
+  pricingSnapshot?: PricingSnapshot;
   childPolicy?: ChildPolicy;
   toolCapabilityProfile?: ToolCapabilityProfile;
   treeBudgetLimits?: TreeBudgetLimits;
@@ -377,6 +397,8 @@ type TypeSurfaceWitness = {
   requestBudgetEstimate?: RequestBudgetEstimate;
   estimateRequestBudget?: EstimateRequestBudget;
   contextLimits?: ContextLimits;
+  effectiveModelLimits?: EffectiveModelLimits;
+  modelLimitEvidence?: ModelLimitEvidence;
   contextManagementInfo?: ContextManagementInfo;
   contextManagementPort?: ContextManagementPort;
   contextManagementRequest?: ContextManagementRequest;

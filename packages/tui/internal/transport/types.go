@@ -254,6 +254,7 @@ type SessionTokens struct {
 	CacheRead        *int    `json:"cacheRead,omitempty"`
 	CacheWrite       *int    `json:"cacheWrite,omitempty"`
 	EstimatedCostUsd float64 `json:"estimatedCostUsd"`
+	CostComplete     *bool   `json:"costComplete,omitempty"`
 }
 
 // DecodeSessionSummary unmarshals the raw SSE payload into the typed shape.
