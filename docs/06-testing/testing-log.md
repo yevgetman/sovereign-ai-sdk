@@ -1,5 +1,11 @@
 # Testing Log
 
+## 2026-10-10 — PR38 independent rereview R2: fresh verified-model constraints
+
+Closed Medium R2: built-in verified Grok controls no longer override fresh exact-model effort restrictions or wire values. Current effort lists intersect established model constraints; metadata wire mappings take effect. Partial/stale evidence retains established fallback, and known Kimi controls remain binary despite generic publisher depth flags. Route/menu/wire fixtures cover native Grok, routed Grok and Kimi, including unsupported low/max refusal before fetch. Independent host rereview closed the finding with no new Medium issues.
+
+Focused reasoning fixtures: 9 pass / 0 fail, 106 assertions. An initial typecheck caught the fake-fetch fixture's Bun-specific function cast; corrected before the frozen gate. `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5652 pass / 19 existing skips / 0 fail, 23294 assertions across 536 files (91.06 seconds). No paid inference, installed upgrade or release.
+
 ## 2026-10-10 — PR38 reviewed dependency integration
 
 Integrated PR35 cache-freshness/bounded-port corrections and PR37 unavailable-subscription correction with PR38's reasoning compatibility fix. Retained both append-only test histories and the source-property whitelist fixture. Offline catalog/direct/reasoning checks passed 22 / 0 with 138 assertions. Frozen `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5651 pass / 19 existing skips / 0 fail, 23265 assertions across 536 files (90.61 seconds). No paid inference, installed upgrade or release.

@@ -70,14 +70,17 @@ export function reasoningControlFor(
   if (hasReasoningMetadata(metadata) && metadata) {
     if (metadata.capabilities.reasoning === 'unsupported') return undefined;
     const established = VERIFIED[`${provider}:${model}`];
-    if (established) return established;
+    if (
+      established &&
+      (metadata.metadata.stale || (!metadata.efforts?.length && !metadata.reasoningControl))
+    )
+      return established;
     if (metadata.metadata.stale || metadata.capabilities.reasoning !== 'supported')
       return undefined;
     // Model-specific verified adapter facts remain stricter than generic
     // publisher capability claims (Kimi has a toggle, not four depth levels).
-    const verified = VERIFIED[`${provider}:${model}`];
-    if (verified) return verified;
-    if (!metadata.efforts?.length) return undefined;
+    const advertisedEfforts = metadata.efforts?.length ? metadata.efforts : established?.efforts;
+    if (!advertisedEfforts?.length) return undefined;
     const adapterParameter =
       provider === 'openrouter'
         ? 'openrouter'
@@ -87,11 +90,14 @@ export function reasoningControlFor(
             ? 'openai'
             : undefined;
     if (!adapterParameter) return undefined;
-    const control = metadata.reasoningControl ?? {
-      parameter: adapterParameter,
-      disableSupported: false,
-      ...(provider === 'xai' && metadata.efforts.includes('max') ? { maxWireValue: 'xhigh' } : {}),
-    };
+    const control = metadata.reasoningControl ??
+      established ?? {
+        parameter: adapterParameter,
+        disableSupported: false,
+        ...(provider === 'xai' && advertisedEfforts.includes('max')
+          ? { maxWireValue: 'xhigh' }
+          : {}),
+      };
     if (
       (provider === 'xai' && control.parameter !== 'xai') ||
       (provider === 'openrouter' && control.parameter !== 'openrouter') ||
@@ -99,7 +105,14 @@ export function reasoningControlFor(
       !['xai', 'openrouter', 'openai'].includes(provider)
     )
       return undefined;
-    return { ...control, efforts: ['off', ...metadata.efforts.filter((level) => level !== 'off')] };
+    const efforts = advertisedEfforts.filter(
+      (level) => level !== 'off' && (!established || established.efforts.includes(level)),
+    );
+    return {
+      ...control,
+      ...(established?.binary ? { binary: true } : {}),
+      efforts: ['off', ...efforts],
+    };
   }
   return VERIFIED[`${provider}:${model}`];
 }
