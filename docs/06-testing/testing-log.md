@@ -1,6 +1,6 @@
 ## 2026-10-10 — PR42 fourth review: inherit final reviewed SDK and compaction fixes
 
-Merged final PR41 `bcd12a5a`, including actual PR40/39/38/37 ancestry. Kept PR42 account-pool ambiguity, custom endpoint isolation and its exact native effort controls intact. Inherited the confirmed High direct-source identity correction and Medium compaction instruction-freeze correction; no additional independent issue above Low was found in PR42.
+Merged final PR41 `bcd12a5a`, including actual PR40/39/38/37 ancestry. Kept PR42 account-pool ambiguity, custom endpoint isolation and its exact native effort controls intact. Inherited the confirmed High direct-source identity correction and Medium split-usage compaction pricing correction; no additional independent issue above Low was found in PR42.
 
 `bun run lint`, `bun run typecheck` and `bun run --cwd packages/sdk build` pass. Complete gate via `python3 /private/tmp/sdk-fourth-gate.py /private/tmp/sdk-sov-models 42`: **5714 passed / 19 existing skips / zero failed**, 23674 assertions across 543 files. Every discovered test file ran; the global compiler fixture is serialized, the existing shared-theme footer fixture is isolated, and remaining tests use a distinct TMPDIR. No paid inference, live configuration, installed runtime or learning-loop setting changes.
 
