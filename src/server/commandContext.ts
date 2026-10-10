@@ -502,12 +502,16 @@ export function buildServerCommandContext(
     taskManager: runtime.taskManager,
     ...(sessionCtx.reviewManager !== undefined ? { reviewManager: sessionCtx.reviewManager } : {}),
     harnessHome: runtime.harnessHome,
+    getModelCatalogSettings: () =>
+      runtime.injectedSettings ?? readConfig({ harnessHome: runtime.harnessHome }),
     getBudgetReport: () =>
       auditContextBudget({
         contextWindow:
           sessionCtx.modelBudget?.contextTokens ??
           selectedTurnModel(runtime.resolvedProvider.transport.name, runtime.model, {
             maxTokens: runtime.maxTokens,
+            harnessHome: runtime.harnessHome,
+            settings: runtime.injectedSettings,
           })?.limits.contextTokens ??
           runtime.resolvedProvider.contextLength,
         systemSegments: systemSegmentsRef,

@@ -1,5 +1,11 @@
 # Testing Log
 
+## 2026-10-10 — PR #43 review: active-node model menus and budget
+
+Independent review found a Medium defect: model menus and the first-turn context budget read the ambient node cache while execution used the runtime's explicit home. Menus now receive the active home and host-owned account settings. Config read/write/path/discard use that same home; explicit config environment overrides retain precedence. Negative fixtures use disjoint ambient/node caches, a separate injected direct account, and active-node set/discard while proving ambient config remains unchanged. The first-turn budget reads the node's 8M window rather than the ambient 99,999 window.
+
+Focused menu/config/command tests passed 122/0; the first-turn runtime-budget suite passed 11/0. Configured `bun run lint && bun run typecheck && bun run test` passed **5714 passed / 19 skipped / zero failed**, 23499 assertions across 547 files (92.10s). Strict build passed. The initial gate found a readonly assignment in the new fixture; the fixture now constructs the real uncalled OpenRouter transport rather than changing its readonly name. No paid inference, live config edits, installation or release.
+
 ## 2026-10-10 — Shared model menus and frozen SOV turn evidence (#33)
 
 Focused menus/config fixtures passed 152 cases / 1010 assertions. Host/scheduler fixtures passed 8 cases, then adaptive output/projection/proactive-boundary checks passed 15 cases / 55 assertions. The original 13 native SDK fixtures pass after fixing resolved-model snapshot binding and removing duplicate unused tool descriptions; a new oversized-directives fixture checks a typed context-budget refusal before inference. A broader host run exposed four native binding/unknown-budget failures (438 pass); follow-up isolated diagnostics found context allocation failures, now fixed without weakening the 32K unknown floor or truncating directives. One preliminary full gate was stopped to fix the reviewed proactive-compaction history-space guard. Independent modality review cleared the host and child pricing fixes.

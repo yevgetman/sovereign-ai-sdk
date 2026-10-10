@@ -17,7 +17,12 @@
 import type { CommandContext, LocalCommand } from '@yevgetman/sov-sdk/commands/types';
 import { readConfig, resolveConfigPath, setAt, writeConfig } from '@yevgetman/sov-sdk/config/store';
 import { findModel } from '@yevgetman/sov-sdk/providers/models/index';
-import { modelAuthor, modelDetails, providerModelCatalog } from '../config/modelSuggestions.js';
+import {
+  commandModelSettings,
+  modelAuthor,
+  modelDetails,
+  providerModelCatalog,
+} from '../config/modelSuggestions.js';
 import { type PickerItem, pick } from '../ui/picker.js';
 import { type Theme, isThemeName, listThemes, setTheme, theme } from '../ui/theme.js';
 
@@ -183,7 +188,11 @@ async function runModelPicker(args: string, ctx: CommandContext): Promise<string
     ctx.setModel(explicit);
     return `model set to ${explicit} (persisted to session ${ctx.sessionId.slice(0, 8)}).`;
   }
-  const catalog = providerModelCatalog(ctx.providerName, readConfig());
+  const catalog = providerModelCatalog(
+    ctx.providerName,
+    commandModelSettings(ctx),
+    ctx.harnessHome,
+  );
   const state = catalog.state === 'current' ? 'cached metadata' : 'offline/stale suggestions';
   const records = [...catalog.models];
   if (!records.some((model) => model.id === ctx.model))

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { PickerOpenConfig } from '@yevgetman/sov-sdk/commands/types';
-import { writeConfig } from '@yevgetman/sov-sdk/config/store';
+import { readConfig, writeConfig } from '@yevgetman/sov-sdk/config/store';
 import { fallbackModelCatalog, findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import { diskModelCache } from '../../src/cli/modelDiscovery.js';
 import { dispatchConfigCommand } from '../../src/commands/configOps.js';
@@ -96,4 +96,96 @@ test('search and explicit custom selection preserve route and unknown current me
   expect(ctx.providerName).toBe('openrouter');
   await dispatchSlashCommand('/model --author %', ctx);
   expect(selected).toEqual(['exact/custom-2040']);
+});
+
+test('node model menus and config writes use the active home without changing the ambient home', async () => {
+  const node = mkdtempSync(join(tmpdir(), 'model-node-isolation-'));
+  const nodeCatalog = fallbackModelCatalog('openrouter-api');
+  try {
+    await diskModelCache(join(node, 'model-catalog')).set('openrouter-api:public', {
+      ...nodeCatalog,
+      state: 'current',
+      fetchedAt: new Date().toISOString(),
+      models: [
+        {
+          ...findModel(nodeCatalog, 'node-author/node-model'),
+          author: 'node-author',
+          metadata: { source: 'fixture', stale: false },
+        },
+      ],
+    });
+    writeConfig(
+      { defaultProvider: 'openrouter', defaultModel: 'node-author/node-model' },
+      join(node, 'config.json'),
+    );
+    const ambientBefore = readConfig();
+    let picker: PickerOpenConfig | undefined;
+    const ctx = makeCtx({
+      sessionId: 'model-node-isolation',
+      harnessHome: node,
+      providerName: 'openrouter',
+      model: 'node-author/node-model',
+      requestPicker: (value) => {
+        picker = value;
+      },
+    });
+    await dispatchSlashCommand('/model --search model', ctx);
+    expect(
+      picker?.items
+        .filter((item) => item.label !== 'type custom model ID…')
+        .map((item) => item.value),
+    ).toEqual(['node-author/node-model']);
+    await dispatchConfigCommand('edit defaultModel --search model', ctx);
+    expect(
+      picker?.items
+        .filter((item) => item.label !== 'type custom model ID…')
+        .map((item) => item.value),
+    ).toEqual(['node-author/node-model']);
+    await dispatchConfigCommand('set defaultModel node-author/new-model', ctx);
+    expect(readConfig({ harnessHome: node }).defaultModel).toBe('node-author/new-model');
+    expect(readConfig()).toEqual(ambientBefore);
+    await dispatchConfigCommand('discard', ctx);
+    expect(readConfig({ harnessHome: node }).defaultModel).toBe('node-author/node-model');
+    expect(readConfig()).toEqual(ambientBefore);
+  } finally {
+    rmSync(node, { recursive: true, force: true });
+  }
+});
+
+test('model menus use host-injected account settings without falling back to the ambient account', async () => {
+  const { createHash } = await import('node:crypto');
+  const catalog = fallbackModelCatalog('openai-api');
+  const hostSettings = { providers: { openai: { apiKey: 'fixture-node-account' } } };
+  const key = createHash('sha256').update('fixture-node-account').digest('hex');
+  const oldKey = process.env.OPENAI_API_KEY;
+  Reflect.deleteProperty(process.env, 'OPENAI_API_KEY');
+  try {
+    await diskModelCache(join(root, 'model-catalog')).set(`openai-api:${key}`, {
+      ...catalog,
+      state: 'current',
+      fetchedAt: new Date().toISOString(),
+      models: [
+        {
+          ...findModel(catalog, 'host-account-model'),
+          metadata: { source: 'fixture', stale: false },
+        },
+      ],
+    });
+    let picker: PickerOpenConfig | undefined;
+    const ctx = makeCtx({
+      providerName: 'openai',
+      model: 'host-account-model',
+      harnessHome: root,
+      getModelCatalogSettings: () => hostSettings,
+      requestPicker: (value) => {
+        picker = value;
+      },
+    });
+    await dispatchSlashCommand('/model --search host-account', ctx);
+    expect(picker?.items[0]?.value).toBe('host-account-model');
+    expect(picker?.subtitle).toContain('cached metadata');
+  } finally {
+    if (oldKey === undefined) Reflect.deleteProperty(process.env, 'OPENAI_API_KEY');
+    else process.env.OPENAI_API_KEY = oldKey;
+  }
 });

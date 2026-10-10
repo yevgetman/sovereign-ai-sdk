@@ -3,6 +3,7 @@
 
 import type { ScopeBadge } from '../config/applyScope.js';
 import type { PermissionRuleLayer } from '../config/rules.js';
+import type { Settings } from '../config/schema.js';
 import type { BudgetReport } from '../context/budget.js';
 import type { CompactResult } from '../core/compactPort.js';
 import type { RoutingStatsSnapshot } from '../core/routingPort.js';
@@ -86,6 +87,8 @@ export type CommandContext = {
   sessionId: string;
   cwd: string;
   providerName: string;
+  /** Host-owned model catalog account settings, without a global disk lookup. */
+  getModelCatalogSettings?: () => Settings;
   model: string;
   /** Wire dialect of the active provider's transport (anthropic / openai /
    *  ollama / sov). Paired with `model` so the `/effort` command can ask

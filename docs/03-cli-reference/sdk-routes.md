@@ -170,3 +170,5 @@ project files and per-turn instructions remain intact. Output is a ceiling: the
 SDK can reserve fewer tokens to fit the input in the conservative window. It
 reports that actual reservation in the trace. An irreducible input overflow
 produces a clear context-budget error before inference.
+
+Model menus and the first-turn context budget use the active runtime node’s catalog and account settings. Config model changes and discard actions use that same node’s config path. An explicit config-path environment override still takes precedence.

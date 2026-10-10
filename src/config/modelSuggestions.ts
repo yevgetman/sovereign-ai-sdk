@@ -1,12 +1,18 @@
+import type { CommandContext } from '@yevgetman/sov-sdk/commands/types';
 import type { Settings } from '@yevgetman/sov-sdk/config/schema';
+import { readConfig } from '@yevgetman/sov-sdk/config/store';
 import { PROVIDER_REGISTRY } from '@yevgetman/sov-sdk/providers/models';
 import { type ModelCatalog, findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import { readModelCatalogSnapshot, routeForProvider } from '../cli/modelDiscovery.js';
 
 /** Config/lane/REPL/TUI all read one current offline snapshot. */
-export function providerModelCatalog(provider: string, settings: Settings = {}): ModelCatalog {
+export function providerModelCatalog(
+  provider: string,
+  settings: Settings = {},
+  harnessHome?: string,
+): ModelCatalog {
   const route = routeForProvider(provider);
-  if (route) return readModelCatalogSnapshot(route, settings);
+  if (route) return readModelCatalogSnapshot(route, settings, harnessHome);
   const model = PROVIDER_REGISTRY[provider]?.defaultModel;
   const empty: ModelCatalog = { version: 1, routeId: provider, state: 'unavailable', models: [] };
   if (!model) return empty;
@@ -45,4 +51,12 @@ export function modelProviderForSetting(path: string, settings: Settings): strin
         ?.provider ?? 'anthropic'
     );
   return undefined;
+}
+
+/** Use the same host settings and state root as turn execution. */
+export function commandModelSettings(ctx: CommandContext): Settings {
+  return (
+    ctx.getModelCatalogSettings?.() ??
+    readConfig(ctx.harnessHome === undefined ? {} : { harnessHome: ctx.harnessHome })
+  );
 }
