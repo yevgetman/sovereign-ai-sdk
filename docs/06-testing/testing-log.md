@@ -1,3 +1,9 @@
+## 2026-10-10 — PR39 fourth review: inherit frozen discovery identity
+
+Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endpoint, authorization and account/normalizer identity remain captured at construction. No additional source changes were required on this branch.
+
+`bun run lint`, `bun run typecheck` and strict `bun run --cwd packages/sdk build` pass. The complete gate executes every discovered test file with a branch-specific TMPDIR; the global temporary-compiler fixture is serialized and the shared-theme footer fixture runs in its own process. Final result: **5673 passed / 19 existing skips / zero failed**, 23444 assertions across 539 files. The first alphabetic all-file attempt failed one existing footer-color assertion due to shared theme state; standalone footer checks and the final complete isolated gate pass. No test was skipped to avoid that issue, and no production/test source was changed for it. No paid inference, installed runtime or host configuration changes.
+
 # Testing Log
 
 ## 2026-10-10 — PR39 third review: image accounting and immutable model evidence
@@ -6,6 +12,13 @@ Resolved three Medium findings: image transport bytes no longer masquerade as in
 
 Configured lint, typecheck, strict SDK build and full tests pass: **5672 passed / 19 existing skips / zero failed**, 23424 assertions across 539 files (89.90s). Focused image/model-evidence checks passed 17 tests / 83 assertions. The initial combined gate caught a missing public type-surface witness; this gate includes its correction. The PNG fixture has valid chunk CRCs. Independent review closed the image and metadata findings. No paid inference or installed changes.
 
+## 2026-10-10 — PR37 fourth review: freeze direct discovery identity
+
+**Scope:** A confirmed High issue coupled headers captured at construction with a provider/endpoint read from mutable host options during refresh. Direct sources now capture the provider, endpoint, API key and account identity together. The regression repurposes the options before refresh and again during a two-page fetch for both OpenAI and Anthropic; endpoint, headers and normalized route remain tied to the original account.
+
+**Environment and commands:** macOS, Bun 1.3.13; injected fetch and fake credentials only. `bun test tests/providers/models/direct.test.ts`: 8 passed, 0 failed, 67 assertions. `bun run lint`, `bun run typecheck` and `bun run --cwd packages/sdk build` pass. `TMPDIR=/private/tmp/sdk-fourth-37-tmp bun run test`: 5646 passed, 19 existing skips, 0 failed; 23220 assertions across 535 files (91.67 seconds).
+
+**Manual coverage and limits:** Isolated pre-fix reproduction observed an OpenAI fake bearer credential addressed to the xAI endpoint after caller mutation. No real credentials, paid inference, host configuration, runtime installation or learning-loop settings changed. No new regression observed; the prior account-isolation, native capability and cache contracts remain intact.
 
 ## 2026-10-10 — PR37 ancestor cache fixes integration
 
