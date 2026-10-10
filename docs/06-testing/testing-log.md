@@ -1,4 +1,35 @@
+## 2026-10-10 — PR37 ancestor cache fixes integration
+
+Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typecheck and strict SDK build pass. Full suite: 5643 passed, 19 skipped, zero failed; 23183 assertions across 535 files (91.44 seconds).
+
 # Testing Log
+
+## 2026-10-10 — PR37 second review: published Anthropic controls
+
+The second review confirmed that direct discovery dropped official Anthropic
+per-level effort flags and thinking modes. The normalizer now carries published
+levels and exact enabled/adaptive mode support for new IDs. The cache boundary
+keeps the known fields and rejects malformed mode arrays. Missing metadata stays
+unknown. PR38 owns the matching transport implementation.
+
+Validation: catalog/direct focused **15 pass / 0 fail**, 72 assertions; catalog/
+OpenRouter cross-review **13 pass / 0 fail**, 44 assertions. An initial fixture
+missing its normalizer import and Bun fetch type cast was corrected before the
+gate. Configured lint, typecheck, strict SDK build and full suite all passed:
+**5644 pass / 19 skip / 0 fail**, 23194 assertions across 535 files (98.50s).
+No inference, live account data, installed update or release was used.
+
+## 2026-10-10 — PR37 review fix: unsupported subscription discovery stays unavailable
+
+Addressed review C2 (Medium). ChatGPT and Grok subscription sources now refuse unsupported discovery explicitly, so refresh returns unavailable with stale bundled suggestions instead of falsely assigning a current discovery timestamp. Availability/auth separation and no-network behavior remain covered for both subscription routes.
+
+Validation: `bun run lint && bun run typecheck && bun run test` passed: **5639 pass / 19 skip / 0 fail**, 23166 assertions across 535 files (92.73s). Targeted direct discovery checks: 5 pass / 0 fail, 30 assertions. SDK package build passed. No paid inference, credential reads or installed upgrade.
+
+## 2026-10-10 — direct API and separate subscription model discovery (#26)
+
+Scope: explicit caller credentials and account-scoped caches for Anthropic/OpenAI/xAI, documented pagination and richer capability/window metadata, alias cycle checks, generation-only filtering and unknown subscription availability with zero login/network side effects.
+
+Validation: `bun run lint && bun run typecheck && bun run test` passed — 5639 pass / 19 skip / 0 fail across 535 files (also reruns #25 unchanged after its parallel-load timing flake). `bun run build:sdk` passed including SDK exact-optional-property checks. Catalog/surface targeted fixtures passed 17/0 before the final additional xAI growth fixture. PR #25's six clean-worker CI gates also passed. No paid inference, publication or installed upgrade.
 
 ## 2026-10-10 — PR36 inherits reviewed discovery cache fixes
 
@@ -18,6 +49,11 @@ Scope: public model normalization, unknown metadata, text-output candidate filte
 
 Validation: `bun run lint && bun run typecheck && bun run test` — lint/typecheck passed; full suite 5633 pass / 19 skip / 1 unrelated timing failure (`secretRedactor` PEM test elapsed 133ms against 100ms threshold under parallel load). Isolated `bun run test tests/permissions/secretRedactor.test.ts` passed 42/0 in 60ms. Catalog/surface fixtures passed 13/0. No paid inference or defaults changed.
 
+## 2026-10-10 — PR35 review fixes: cache freshness and bounded cache ports
+
+Addressed review C1 and C3 (Medium). Failed refreshes retain stale evidence in the external cache and keep a fail-safe per-instance snapshot if persistence fails. Cache reads/writes have bounded waits; serialized writes prevent a late old cache operation from overwriting a later successful refresh. Tests cover immediate second-instance reads, failed persistence, unresponsive cache ports, deduplicated retry and delayed write completion. No paid inference or installed upgrade.
+
+Validation: `bun run lint && bun run typecheck && bun run test` passed: **5633 pass / 19 skip / 0 fail**, 23133 assertions across 533 files (93.07s). Targeted catalog regressions: 8 pass / 0 fail. SDK package build passed.
 
 ## 2026-10-10 — portable model catalog contract (#24)
 

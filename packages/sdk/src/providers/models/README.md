@@ -38,3 +38,32 @@ Pagination accepts same-origin continuation URLs and cursor pages with hard
 page, record and response-byte limits. Redirects are refused. Refresh failures
 retain stale cached records; they never change the selected model or route.
 Arbitrary response/cache fields are removed before records reach host output.
+
+## Direct API and subscription discovery
+
+`createDirectModelSource({provider, apiKey, accountId})` accepts only caller-
+authorized credentials. It never looks in the environment or host files. The
+non-secret account ID isolates caches. Anthropic and OpenAI use their documented
+models endpoints; xAI uses its language-model catalog for modality metadata.
+Missing provider fields stay unknown. Available IDs from an authenticated list
+are account-listed availability, not proof of a successful generation request.
+`resolveModelAlias(id, aliases)` follows only explicit aliases and rejects cycles.
+
+`createSubscriptionModelSource(routeId)` keeps ChatGPT and Grok subscription
+suggestions separate. Without a supported subscription discovery interface, their
+metadata and availability remain unknown. Explicit refresh returns unavailable
+with stale offline suggestions, never a current discovery timestamp. It does not fetch, borrow API records,
+start login or add Claude-Max HTTP support. Custom sources can implement other
+SDK providers without changing the six built-in authentication routes.
+
+Provider references: [Anthropic models](https://platform.claude.com/docs/en/api/models/list),
+[OpenAI models](https://developers.openai.com/api/reference/resources/models/methods/list),
+[xAI models](https://docs.x.ai/developers/rest-api-reference/inference/models).
+
+
+Anthropic's `capabilities.effort` flags supply exact supported depth levels.
+Its independent `thinking.types.enabled/adaptive` flags supply the available
+wire modes in `anthropicThinkingModes`. An explicit empty mode list means no
+supported thinking mode; omitted metadata stays unknown. New model IDs use
+these published facts without family-name rules. The Anthropic transport owns
+how each advertised mode becomes a request.
