@@ -1,5 +1,11 @@
 # Testing Log
 
+## 2026-10-10 — PR37 review fix: unsupported subscription discovery stays unavailable
+
+Addressed review C2 (Medium). ChatGPT and Grok subscription sources now refuse unsupported discovery explicitly, so refresh returns unavailable with stale bundled suggestions instead of falsely assigning a current discovery timestamp. Availability/auth separation and no-network behavior remain covered for both subscription routes.
+
+Validation: `bun run lint && bun run typecheck && bun run test` passed: **5639 pass / 19 skip / 0 fail**, 23166 assertions across 535 files (92.73s). Targeted direct discovery checks: 5 pass / 0 fail, 30 assertions. SDK package build passed. No paid inference, credential reads or installed upgrade.
+
 ## 2026-10-10 — direct API and separate subscription model discovery (#26)
 
 Scope: explicit caller credentials and account-scoped caches for Anthropic/OpenAI/xAI, documented pagination and richer capability/window metadata, alias cycle checks, generation-only filtering and unknown subscription availability with zero login/network side effects.

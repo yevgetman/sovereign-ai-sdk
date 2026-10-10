@@ -45,7 +45,8 @@ are account-listed availability, not proof of a successful generation request.
 
 `createSubscriptionModelSource(routeId)` keeps ChatGPT and Grok subscription
 suggestions separate. Without a supported subscription discovery interface, their
-metadata and availability remain unknown. It does not fetch, borrow API records,
+metadata and availability remain unknown. Explicit refresh returns unavailable
+with stale offline suggestions, never a current discovery timestamp. It does not fetch, borrow API records,
 start login or add Claude-Max HTTP support. Custom sources can implement other
 SDK providers without changing the six built-in authentication routes.
 

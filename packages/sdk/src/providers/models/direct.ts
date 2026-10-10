@@ -1,5 +1,4 @@
 import { REASONING_EFFORTS } from '../effort.js';
-import { listRoutes } from '../routes/catalog.js';
 import { fetchModelPages, object, positiveNumber } from './http.js';
 import type { ModelDiscoverySource, ModelRecord } from './types.js';
 
@@ -119,27 +118,12 @@ export function resolveModelAlias(model: string, aliases: Record<string, string>
 export function createSubscriptionModelSource(
   routeId: 'chatgpt-subscription' | 'grok-subscription',
 ): ModelDiscoverySource {
-  const route = listRoutes().find((candidate) => candidate.id === routeId);
   return {
     routeId,
     async discover() {
-      return (
-        route?.models.map((id) => ({
-          id,
-          displayName: id,
-          routeId,
-          provider: route.provider,
-          auth: 'subscription',
-          capabilities: {
-            textOutput: 'unknown',
-            tools: 'unknown',
-            images: 'unknown',
-            reasoning: 'unknown',
-          },
-          availability: 'unknown',
-          metadata: { source: 'subscription-discovery-unavailable', stale: true },
-        })) ?? []
-      );
+      // Bundled suggestions are returned by the offline fallback, never reported
+      // as newly discovered subscription metadata by a successful refresh.
+      throw new Error('Subscription model discovery unavailable');
     },
   };
 }
