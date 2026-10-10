@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import type { ContentBlock, Message, SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import { SessionDb } from '../../src/agent/sessionDb.js';
 import {
@@ -464,3 +466,172 @@ describe('compaction helpers', () => {
 function blockText(block: ContentBlock | undefined): string {
   return block?.type === 'text' ? block.text : '';
 }
+
+test('paid auxiliary summary without usage keeps child cost incomplete', async () => {
+  const db = openDb();
+  const parent = createParent(db);
+  const history: Message[] = [
+    { role: 'user', content: [text('old task')] },
+    { role: 'assistant', content: [text('old answer')] },
+    { role: 'user', content: [text('continue')] },
+  ];
+  const result = await compactSession({
+    db,
+    sessionId: parent,
+    model: 'claude-sonnet-4-6',
+    providerName: 'anthropic',
+    systemPrompt: [],
+    history,
+    tailTokenBudget: 1,
+    minTailMessages: 1,
+    summarize: async () => ({
+      summary: 'Continue task',
+      usedAuxiliary: true,
+      providerName: 'anthropic',
+      model: 'claude-haiku-4-5-20251001',
+    }),
+  });
+  expect(result.newSessionId).not.toBe(parent);
+  const cost = db.getSessionCost(result.newSessionId);
+  expect(cost.costComplete).toBe(false);
+  expect(cost.estimatedCompactionCostUsd).toBe(0);
+  expect(cost.inputTokens).toBe(0);
+  expect(cost.outputTokens).toBe(0);
+  expect(db.getUsageEstimates(result.newSessionId)).toHaveLength(1);
+  expect(db.getUsageEstimates(result.newSessionId)[0]?.complete).toBe(false);
+  db.close();
+});
+
+test('compaction stores immutable injected price receipt without adding main tokens', async () => {
+  const db = openDb();
+  const parent = createParent(db);
+  const history: Message[] = [
+    { role: 'user', content: [text('old task')] },
+    { role: 'assistant', content: [text('old answer')] },
+    { role: 'user', content: [text('continue')] },
+  ];
+  const receipt = {
+    provider: 'openrouter',
+    model: 'future/model',
+    state: 'paid' as const,
+    complete: true,
+    amountUsd: 0.02,
+    source: 'publisher-fixture',
+    version: 42,
+    pricedAt: '2026-10-10T01:02:03.000Z',
+    rates: { input: 1, output: 2 },
+  };
+  const result = await compactSession({
+    db,
+    sessionId: parent,
+    model: 'claude-sonnet-4-6',
+    providerName: 'anthropic',
+    systemPrompt: [],
+    history,
+    tailTokenBudget: 1,
+    minTailMessages: 1,
+    summarize: async () => ({
+      summary: 'Continue task',
+      usedAuxiliary: true,
+      usage: { inputTokens: 200, outputTokens: 50 },
+      costEstimate: receipt,
+    }),
+  });
+  receipt.rates.input = 99;
+  const cost = db.getSessionCost(result.newSessionId);
+  expect(cost.costComplete).not.toBe(false);
+  expect(cost.estimatedCompactionCostUsd).toBe(0.02);
+  expect(cost.compactionInputTokens).toBe(200);
+  expect(cost.compactionOutputTokens).toBe(50);
+  expect(cost.inputTokens).toBe(0);
+  expect(cost.outputTokens).toBe(0);
+  const saved = db.getUsageEstimates(result.newSessionId)[0];
+  expect(saved?.source).toBe('publisher-fixture');
+  expect(saved?.version).toBe(42);
+  expect(saved?.pricedAt).toBe('2026-10-10T01:02:03.000Z');
+  expect(saved?.rates?.input).toBe(1);
+  db.close();
+});
+
+test('non-finite compaction receipts cannot certify a complete bill', () => {
+  const db = openDb();
+  const session = createParent(db);
+  db.recordCompactionUsage(session, { inputTokens: 10, outputTokens: 5 }, 100, {
+    provider: 'anthropic',
+    model: 'future',
+    state: 'paid',
+    complete: true,
+    amountUsd: Number.NaN,
+    source: 'fixture',
+    version: 2,
+    pricedAt: '2026-10-10T00:00:00.000Z',
+  });
+  expect(db.getSessionCost(session).costComplete).toBe(false);
+  expect(db.getSessionCost(session).estimatedCompactionCostUsd).toBe(0);
+  expect(db.getUsageEstimates(session)[0]?.complete).toBe(false);
+  expect(db.getUsageEstimates(session)[0]?.amountUsd).toBeUndefined();
+  db.close();
+});
+
+test('native auxiliary split usage keeps input, cache, and cumulative output in one receipt', () => {
+  // Keep the module mock in its own process so other compaction tests retain
+  // the real auxiliary resolver, including when the full suite runs together.
+  const script = `
+    import { mock } from 'bun:test';
+    mock.module('@yevgetman/sov-sdk/providers/auxiliary', () => ({
+      auxiliaryClient: () => ({
+        model: 'claude-haiku-4-5-20251001', metadata: { provider: 'anthropic' },
+        transport: { async *stream() {
+          yield { type: 'message_start' };
+          yield { type: 'usage_delta', usage: {
+            inputTokens: 100, cacheReadInputTokens: 50, cacheCreationInputTokens: 20,
+          } };
+          yield { type: 'text_delta', text: 'valid summary' };
+          yield { type: 'usage_delta', usage: { outputTokens: 3 } };
+          yield { type: 'usage_delta', usage: { outputTokens: 10 } };
+          yield { type: 'message_stop', stop_reason: 'end_turn' };
+          return { role: 'assistant', content: [{ type: 'text', text: 'valid summary' }] };
+        } },
+      }),
+    }));
+    const { compactSession } = await import('./src/compact/compactor.ts');
+    const { SessionDb } = await import('./src/agent/sessionDb.ts');
+    const db = SessionDb.open({ path: ':memory:' });
+    const parent = db.createSession({ provider: 'anthropic', model: 'claude-haiku-4-5-20251001' });
+    const result = await compactSession({
+      db, sessionId: parent, model: 'claude-haiku-4-5-20251001', providerName: 'anthropic',
+      systemPrompt: [], tailTokenBudget: 1, minTailMessages: 1,
+      history: [
+        { role: 'user', content: [{ type: 'text', text: 'old '.repeat(100) }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'answer' }] },
+        { role: 'user', content: [{ type: 'text', text: 'continue' }] },
+      ],
+    });
+    const usage = db.handle.query('SELECT usage FROM usage_estimates WHERE session_id = ?')
+      .get(result.newSessionId);
+    console.log(JSON.stringify({
+      cost: db.getSessionCost(result.newSessionId),
+      receipt: db.getUsageEstimates(result.newSessionId)[0],
+      usage: JSON.parse(usage.usage),
+    }));
+    db.close();
+  `;
+  const child = spawnSync(process.execPath, ['-e', script], {
+    cwd: resolve(import.meta.dir, '../..'),
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+  expect(child.status).toBe(0);
+  const result = JSON.parse(child.stdout.trim());
+  expect(result.cost.compactionInputTokens).toBe(100);
+  expect(result.cost.compactionOutputTokens).toBe(10);
+  expect(result.cost.costComplete).not.toBe(false);
+  expect(result.usage).toEqual({
+    inputTokens: 100,
+    outputTokens: 10,
+    cacheReadInputTokens: 50,
+    cacheCreationInputTokens: 20,
+  });
+  expect(result.receipt.complete).toBe(true);
+  expect(result.receipt.amountUsd).toBeCloseTo(0.00018, 10);
+});

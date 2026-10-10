@@ -1,3 +1,7 @@
+## 2026-10-10 — PR41 fifth-review final parent alignment
+
+Merged actual final PR40 `9b26d4f8`. All tracked non-Markdown files are byte-identical to passing complete-gate commit `5805f482`; only preserved parent test records and ancestry changed. Final lint passes.
+
 ## 2026-10-10 — PR40 fifth review: final parent history alignment
 
 Aligned the actual latest parent `b5c9a293` after complete gating at `799b8f9d`. All tracked non-Markdown files are byte-identical to the gated source and tests. This ordinary feature-branch merge adds only review documentation and ancestry. Final lint passes; the complete gated test result remains applicable. No release, installed runtime or host change.
@@ -14,6 +18,14 @@ Fresh code-review of the PR's own change and callers found no new above-Low defe
 
 Configured lint, typecheck and strict SDK build pass. Complete test coverage with branch TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture: **5685 passed / 19 existing skips / 0 failed**, 23486 assertions across 541 files. No paid inference, installed runtime change, release or host configuration edits. Telekit and Mac app excluded.
 
+## 2026-10-10 — PR41 fifth review and SDK reasoning preflight integration
+
+Fresh independent review found no additional above-Low defect in this PR's own changes. Integrated reviewed PR38 `56f6c2ed` through an ordinary feature-branch merge. The direct SDK now rejects impossible metadata-backed effort selections before a host can pay for context reduction. Existing downstream request accounting, modalities and host evidence contracts remain intact. Independent new preflight regression: **1 passed / zero failed**, 4 assertions; zero reductions and provider fetches.
+
+Owned pricing, auxiliary compaction, session summary, tree budget and gateway receipt checks: **53 passed / zero failed**, 218 assertions.
+
+Configured lint, typecheck and strict SDK build pass. Complete gate executes every discovered test file with unique TMPDIR, a serialized compiler fixture and isolated existing footer/theme fixture: **5704 passed / 19 existing skips / zero failed**, 23565 assertions across 543 files. No paid inference, live runtime upgrade, provider credentials, release, Telekit or Mac app changes. Actual final parent ancestry is aligned separately only when all non-Markdown files are proven unchanged from this tested tree.
+
 ## 2026-10-10 — PR38 fifth review: reject effort before paid reduction
 
 Confirmed Medium: direct SDK query/createAgent invoked contextManager.reduce before the provider rejected metadata-backed unsupported reasoning effort. Query now validates built-in route selections before context reduction, retaining metadata-less and custom-provider behavior. An isolated fake-provider regression fails before the fix (one reduction) and passes after it (zero reductions and zero fetches). Independent host reviewer closed the finding with the same regression: 1 passed / 0 failed / 4 assertions.
@@ -28,6 +40,19 @@ Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endp
 
 # Testing Log
 
+## 2026-10-10 — PR41 third review dependency validation
+
+Independent review found no new above-Low defect in PR41 pricing and budget settlement. Integrated final PR39 `10918ef1`, preserving both immutable tariff capture and immutable model-evidence capture before asynchronous host callbacks. Configured lint, typecheck, strict SDK build and full tests passed: **5701 passed / 19 existing skips / zero failed**, 23534 assertions across 542 files (95.75s). All parent testing records were preserved. No paid inference or installed changes.
+
+## 2026-10-10 — PR #41 review: unknown and immutable tree pricing
+
+Cross-review found two Medium tree-budget defects. An explicit model record with unknown prices could fall back to the built-in table and release its host cost reservation. Settlement also read mutable model identity and prices after the stream, allowing a cache update to reprice a completed call. The wrapper now captures provider/model identity and immutable tariff evidence before the host estimator or any provider await. Unknown prices retain the host upper bound and mark the cost incomplete. Metadata-absent callers keep the established table and implicit cache-rate behavior.
+
+Focused checks passed **22/0**, 68 assertions: an unknown known-ID price retains a $0.5 reservation and fences the next $0.6 request; legacy calls retain known prices; callback/stream mutations leave the original $8 estimate intact. Independent request-agent review closed both findings. On final PR40 parent `a4c9e2ce`, configured lint, typecheck, strict build and full tests passed **5692 passed / 19 skipped / zero failed**, 23452 assertions across 541 files (97.90s). Parent testing records were preserved. No paid inference, installation or release.
+
+## 2026-10-10 — PR41 reviewed dependency integration
+
+Integrated reviewed discovery/cache and reasoning fixes. Lint, typecheck and strict SDK build pass. Full suite: 5689 passed, 19 skipped, zero failed; 23447 assertions across 541 files (111.75 seconds).
 ## 2026-10-10 — PR40 third review dependency validation
 
 Independent review found no new above-Low defect in PR40. Integrated final PR39 `10918ef1`, including native Anthropic controls, image-aware input accounting and immutable per-turn model evidence. Configured lint, typecheck, strict SDK build and full tests passed: **5683 passed / 19 existing skips / zero failed**, 23462 assertions across 540 files (97.59s). All parent testing records were preserved. No paid inference or installed changes.
@@ -76,6 +101,13 @@ Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typ
 
 Integrated the reviewed discovery and reasoning corrections from PR38 into the modality-validation branch. Preserved image/tool fixtures and additive review records. Frozen `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5674 pass / 19 existing skips / 0 fail, 23380 assertions across 539 files (112.59 seconds). No paid inference, installed upgrade or release.
 
+## 2026-10-10 — pricing completeness and immutable receipts (#30)
+
+Final exact stack on PR40 (`0cd4edf`): `bun run lint`, `bun run typecheck`, `bun run build` and `bun run test` pass: **5682 pass / 19 skip / 0 fail**, 23340 assertions across 541 files (103.96s). Independent reviews include gateway hop receipts and exact per-turn override billing. Missing auxiliary usage now persists an incomplete compaction receipt; immutable rates/source/time/version are retained separately from main tokens. Focused compaction/store checks pass 53/0. The final public packed canary passed on Node and Bun.
+
+Portable paid/free/subscription/unknown estimates, immutable identity-bound tariffs, missing cache prices, no-usage and interrupted streams, historical SQLite migration, aggregate context provenance and terminal/protocol rendering were reviewed independently. All above-Low findings were fixed. Unknown bills omit amounts and preserve observed usage; numeric counters remain known subtotals.
+
+On the contract baseline: `bun run lint`, `bun run typecheck`, `bun run build` and `bun run test` pass: **5640 pass / 19 skip / 0 fail**, 23155 assertions across 535 files (97.06s). Focused pricing/context/agent checks passed after updating the no-usage receipt contract. Go `go test ./internal/transport ./internal/components` passed; Bun schema regression passed 1/0. Earlier attempts exposed a strict package optional-field type error (fixed) and an unrelated Bash timeout under parallel load; final unchanged timeout test passes in the full gate. Packed external-consumer pricing assertions run on Node and Bun through `bun run canary`. No paid inference or installed changes.
 ## 2026-10-10 — Exact model image/tool validation (#29)
 
 Scope: complete replay history, model/provider identity, explicit unsupported capabilities and tool-choice formats, subscription image fences, assistant-role image loss prevention, and native xAI image/function wire bodies. Unknown direct API tools retain the existing transport attempt for future IDs; this does not certify model support or account entitlement. Exact established direct image choices and local/custom serializer contracts retain compatibility. Discovered OpenRouter required unknown capabilities fail safely. No paid inference or installed upgrade.
@@ -7990,6 +8022,11 @@ Merged PR #8 (Decorum retired, conduct port stays empty) and PR #7 (headless sub
 
 On the rebased subscription branch, before the version bump: `bun run typecheck` pass, `bun run lint` pass (biome + boundary, 203 modules), `bun test` 5404 pass / 31 skip / 0 fail (5435 tests, 515 files, 93.40s). PR #7 CI run 37501465646: lint + boundary + typecheck pass, open packages pass. Master CI for the PR #8 merge, run 37500573636, both jobs pass.
 
+## 2026-10-10 — Fourth review pass, PR #41
+
+Fixed Medium auxiliary compaction usage loss. Shared accumulation preserves split input/cache usage and the final cumulative output count. Isolated native-stream regression verifies a complete immutable receipt.
+
+Lint, type checking, strict SDK build and all discovered tests passed: 5703 passed, 19 existing skips, zero failures, 23561 assertions across 542 files. The global compile fixture ran under a lock; the existing footer theme fixture ran in an isolated process after the sorted full run exposed shared theme state. All test files remained covered. No live inference or learning soak performed.
 
 ## 2026-10-10 — Fourth review pass, PR #40
 

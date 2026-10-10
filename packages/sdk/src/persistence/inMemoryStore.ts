@@ -1,3 +1,4 @@
+import type { CostEstimate } from '../providers/pricing.js';
 // src/persistence/inMemoryStore.ts — the in-memory `SessionStore` default
 // (Phase 2 / Task 2.1).
 //
@@ -167,7 +168,30 @@ export function createInMemorySessionStore(): InMemorySessionStore {
     });
   }
 
+  function recordUsageEstimate(sessionId: string, usage: TokenUsage, estimate: CostEstimate): void {
+    const known =
+      estimate.complete &&
+      estimate.amountUsd !== undefined &&
+      Number.isFinite(estimate.amountUsd) &&
+      estimate.amountUsd >= 0;
+    recordTokenUsage(sessionId, usage, known ? (estimate.amountUsd ?? 0) : 0);
+    const session = sessions.get(sessionId);
+    if (!session) return;
+    const receipts = Array.isArray(session.metadata.usageEstimates)
+      ? session.metadata.usageEstimates
+      : [];
+    sessions.set(sessionId, {
+      ...session,
+      metadata: {
+        ...session.metadata,
+        usageEstimates: [...receipts, deepCopy(estimate)],
+        costComplete: session.metadata.costComplete !== false && known,
+      },
+    });
+  }
+
   return {
+    recordUsageEstimate,
     createSession,
     upsertSession,
     getSession,

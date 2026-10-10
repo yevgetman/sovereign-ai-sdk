@@ -137,6 +137,7 @@ export const SessionSummaryEvent = BaseEvent.extend({
       cacheRead: z.number().int().nonnegative().optional(),
       cacheWrite: z.number().int().nonnegative().optional(),
       estimatedCostUsd: z.number().nonnegative(),
+      costComplete: z.boolean().optional(),
     })
     .optional(),
   startedAtMs: z.number().nonnegative().optional(),

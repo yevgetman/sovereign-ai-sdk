@@ -1,3 +1,4 @@
+import type { CostEstimate } from '../providers/pricing.js';
 // src/persistence/sessionStore.ts — the open `SessionStore` port (Phase 2 /
 // Task 2.1).
 //
@@ -63,5 +64,7 @@ export interface SessionStore {
 
   /** Accumulate token usage + estimated cost onto the session's running totals
    *  (additive — each call adds to the existing counters). */
+  recordUsageEstimate?(sessionId: string, usage: TokenUsage, estimate: CostEstimate): void;
+
   recordTokenUsage(sessionId: string, usage: TokenUsage, estimatedCostUsd: number): void;
 }

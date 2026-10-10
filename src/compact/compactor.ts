@@ -15,13 +15,18 @@ import type {
   SystemSegment,
   TokenUsage,
 } from '@yevgetman/sov-sdk/core/types';
+import {
+  accumulateUsage,
+  createUsageAccumulator,
+  finalizeUsage,
+} from '@yevgetman/sov-sdk/core/usageAccumulator';
 import { auxiliaryClient } from '@yevgetman/sov-sdk/providers/auxiliary';
 import {
   NoAuxiliaryAvailableError,
   isContextOverflowError,
   isModelUnavailable,
 } from '@yevgetman/sov-sdk/providers/errors';
-import { estimateCostUsd } from '@yevgetman/sov-sdk/providers/pricing';
+import { type CostEstimate, estimateUsageCost } from '@yevgetman/sov-sdk/providers/pricing';
 import type { FileTranscriptStore } from '@yevgetman/sov-sdk/transcript/store';
 import { persistMessage } from '../agent/persistMessage.js';
 import type { SessionDb } from '../agent/sessionDb.js';
@@ -51,6 +56,7 @@ export type CompactSummarizerOutput = {
   providerName?: string;
   model?: string;
   estimatedCostUsd?: number;
+  costEstimate?: CostEstimate;
   usedAuxiliary: boolean;
 };
 
@@ -188,11 +194,12 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
     });
   }
   options.db.recordCompactionLineage(options.sessionId, newSessionId);
-  if (summaryResult.usage) {
+  if (summaryResult.usage || summaryResult.usedAuxiliary || summaryResult.costEstimate) {
     options.db.recordCompactionUsage(
       newSessionId,
-      summaryResult.usage,
-      summaryResult.estimatedCostUsd ?? 0,
+      summaryResult.usage ?? {},
+      summaryResult.estimatedCostUsd,
+      summaryResult.costEstimate,
     );
   }
 
@@ -343,9 +350,10 @@ async function summarizeWithAuxiliary(
   input: CompactSummarizerInput,
 ): Promise<CompactSummarizerOutput> {
   const resolved = auxiliaryClient('compression');
+  const capturedPrice = estimateUsageCost(String(resolved.metadata.provider), resolved.model, {});
   let text = '';
   let lastAssistant: AssistantMessage | undefined;
-  let usage: TokenUsage | undefined;
+  let usageAccumulator = createUsageAccumulator();
   const prompt = buildSummarizerPrompt(input);
   const stream = resolved.transport.stream({
     model: resolved.model,
@@ -358,22 +366,38 @@ async function summarizeWithAuxiliary(
   for await (const event of stream) {
     if (event.type === 'text_delta') text += event.text;
     if (event.type === 'assistant_message') lastAssistant = event.message;
-    if (event.type === 'usage_delta') usage = event.usage;
+    usageAccumulator = accumulateUsage(usageAccumulator, event);
   }
+  const usage = finalizeUsage(usageAccumulator);
   if (text.trim() === '' && lastAssistant) text = assistantTextBlocks(lastAssistant);
   if (text.trim() === '') throw new Error('compaction auxiliary returned an empty summary');
+  const estimated = estimateUsageCost(
+    String(resolved.metadata.provider),
+    resolved.model,
+    usage ?? {},
+    {
+      state: capturedPrice.state,
+      source: capturedPrice.source,
+      version: capturedPrice.version,
+      fetchedAt: capturedPrice.pricedAt,
+      ...(capturedPrice.rates ? { rates: capturedPrice.rates } : {}),
+    },
+  );
+  const measured = usage?.inputTokens !== undefined && usage.outputTokens !== undefined;
+  const { amountUsd, ...provenance } = estimated;
+  const costEstimate: CostEstimate = measured
+    ? estimated
+    : {
+        ...provenance,
+        state: 'unknown',
+        complete: false,
+        ...(capturedPrice.rates ? { rates: capturedPrice.rates } : {}),
+      };
   return {
     summary: text,
-    ...(usage
-      ? {
-          usage,
-          estimatedCostUsd: estimateCostUsd(
-            String(resolved.metadata.provider),
-            resolved.model,
-            usage,
-          ),
-        }
-      : {}),
+    ...(usage ? { usage } : {}),
+    ...(costEstimate.complete && amountUsd !== undefined ? { estimatedCostUsd: amountUsd } : {}),
+    costEstimate,
     providerName: String(resolved.metadata.provider),
     model: resolved.model,
     usedAuxiliary: true,
