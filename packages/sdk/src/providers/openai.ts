@@ -19,6 +19,11 @@ import {
 } from './effort.js';
 import { ProviderHttpError, ProviderStreamError } from './errors.js';
 import {
+  hasReasoningMetadata,
+  modelReasoningParams,
+  reasoningControlFor,
+} from './modelReasoning.js';
+import {
   findLastCacheableSegment,
   lastIndexWhere,
   recentMessageCacheBudget,
@@ -94,7 +99,7 @@ type OpenAIChatBody = {
   reasoning_effort?: string;
   /** OpenRouter's unified reasoning param (openrouter lane ONLY). Either the
    *  effort dial or the explicit `{ enabled: false }` disable that `off` sends. */
-  reasoning?: { effort: 'low' | 'medium' | 'high' | 'max' } | { enabled: false };
+  reasoning?: { effort: string } | { enabled: boolean };
   /** sov/vLLM chat-template flag that toggles the thinking channel. */
   chat_template_kwargs?: Record<string, unknown>;
 };
@@ -279,6 +284,19 @@ export class OpenAIProvider
    *  reason — documented limit). */
   protected reasoningParams(req: ProviderRequest): Partial<OpenAIChatBody> {
     if (req.effort === undefined) return {};
+    const control = reasoningControlFor(this.name, req.model, req.modelMetadata);
+    const establishedControl =
+      this.name === 'openrouter'
+        ? openrouterModelSupportsReasoning(req.model)
+        : modelSupportsReasoning(req.model, this.apiMode);
+    const unknownPreservesEstablished =
+      req.modelMetadata?.capabilities.reasoning === 'unknown' && establishedControl;
+    if (
+      control ||
+      (hasReasoningMetadata(req.modelMetadata) && !unknownPreservesEstablished) ||
+      this.name === 'xai'
+    )
+      return modelReasoningParams(control, req.effort);
     if (this.name === 'openrouter') {
       return openrouterModelSupportsReasoning(req.model) ? openrouterReasoningFor(req.effort) : {};
     }

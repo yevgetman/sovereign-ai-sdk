@@ -83,6 +83,7 @@ import {
   SessionPersistenceError,
   UnknownToolsetError,
 } from '../providers/errors.js';
+import type { ModelRecord } from '../providers/models/types.js';
 import { PRICE_TABLE, estimateCostUsd } from '../providers/pricing.js';
 import { resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
@@ -174,6 +175,8 @@ export type AgentConfig = {
    *  floors — toolPolicy + outputGuard; persona/preGate/triage are skipped. */
   conductSurface?: ConductSurface;
   effort?: ReasoningEffort;
+  /** Exact model metadata; cloned at turn start. Refresh discovery outside active turns. */
+  modelMetadata?: ModelRecord;
   /** Sampling temperature forwarded to the provider. Omit → query()/provider
    *  default (no temperature key sent). */
   temperature?: number;
@@ -217,6 +220,7 @@ export type PerTurn = Partial<{
   toolset: string;
   systemPrompt: SystemSegment[];
   effort: ReasoningEffort;
+  modelMetadata: ModelRecord;
   temperature: number;
   cacheEnabled: boolean;
   maxToolCallsBeforeCheckin: number;
@@ -450,6 +454,8 @@ export function createAgent(config: AgentConfig): Agent {
 
     // 7. Merge the remaining ports for QueryParams (per-turn wins where allowed).
     const effort = perTurn.effort ?? config.effort;
+    const suppliedMetadata = perTurn.modelMetadata ?? config.modelMetadata;
+    const modelMetadata = suppliedMetadata ? structuredClone(suppliedMetadata) : undefined;
     const memoryManager = perTurn.memoryManager ?? config.memoryManager;
     const recall = perTurn.recall ?? config.recall;
     const pollSteering = perTurn.pollSteering ?? config.pollSteering;
@@ -571,6 +577,7 @@ export function createAgent(config: AgentConfig): Agent {
             }
           : {}),
         ...(effort !== undefined ? { effort } : {}),
+        ...(modelMetadata !== undefined ? { modelMetadata } : {}),
         ...(temperature !== undefined ? { temperature } : {}),
         ...(cacheEnabled !== undefined ? { cacheEnabled } : {}),
         ...(maxToolCallsBeforeCheckin !== undefined ? { maxToolCallsBeforeCheckin } : {}),

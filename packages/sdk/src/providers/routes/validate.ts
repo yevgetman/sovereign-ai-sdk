@@ -4,6 +4,8 @@
 // `auto` (or an absent value) selects the route default.
 
 import { REASONING_EFFORTS, type ReasoningEffort } from '../effort.js';
+import { hasReasoningMetadata, reasoningControlFor } from '../modelReasoning.js';
+import type { ModelRecord } from '../models/types.js';
 import { routeDefinition } from './catalog.js';
 import { RouteError } from './errors.js';
 import { AUTO_SELECTION, type RouteRecord, type RouteSelection } from './types.js';
@@ -14,6 +16,7 @@ const MODEL_ID = /^[\x21-\x7e]{1,200}$/;
 export type RouteSelectionInput = {
   model?: string;
   effort?: string;
+  modelMetadata?: ModelRecord;
 };
 
 /**
@@ -27,13 +30,25 @@ export function validateRouteSelection(
   input: RouteSelectionInput = {},
 ): RouteSelection {
   const model = resolveModel(route, input.model);
-  const supported = effortsForModel(route, model);
+  const supported = effortsForModel(route, model, input.modelMetadata);
   const effort = resolveEffort(route, model, supported, input.effort);
   return { model, effort };
 }
 
 /** Supported effort levels for any model id on `route` (known or not). */
-export function effortsForModel(route: RouteRecord, model: string): ReasoningEffort[] {
+export function effortsForModel(
+  route: RouteRecord,
+  model: string,
+  metadata?: ModelRecord,
+): ReasoningEffort[] {
+  if (metadata && metadata.routeId !== route.id)
+    throw new RouteError('effort_unsupported', 'model metadata belongs to another route');
+  const control = reasoningControlFor(route.provider, model, metadata);
+  if (control) return [...control.efforts];
+  const established = routeDefinition(route.id).effortsFor(model);
+  const unknownPreservesEstablished =
+    metadata?.capabilities.reasoning === 'unknown' && established.some((level) => level !== 'off');
+  if (hasReasoningMetadata(metadata) && !unknownPreservesEstablished) return ['off'];
   const known = route.modelEfforts[model];
   if (known) return [...known];
   const levels = new Set(routeDefinition(route.id).effortsFor(model));

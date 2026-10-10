@@ -1,5 +1,11 @@
 # Testing Log
 
+## 2026-10-10 — Model-aware reasoning controls (#27)
+
+Scope: exact direct/routed Grok depth, Kimi binary switch, metadata-driven future IDs, route validation, immutable per-turn metadata, unknown/stale refusal and refreshed-unknown compatibility. No paid provider requests or installed upgrade. Focused provider/route tests passed (101 cases); five new reasoning fixtures cover actual wire bodies and omitted-off choices. The former Kimi non-reasoning fixture now uses GPT4o.
+
+Final exact #26 dependency-stack gate: `bun run lint && bun run typecheck && bun run test` passed **5644 / 19 existing skips / zero failures**, 23183 assertions across 536 files. Earlier runs exposed an obsolete Kimi expectation, a local moved-file test-runner ENOENT and one unrelated plugin shell timeout; each was corrected or rechecked. The isolated shell fixture passed 5/5, then the unchanged frozen full gate passed. Snapshot/unknown metadata fixtures are offline evidence, not live-account certification.
+
 ## 2026-10-10 — direct API and separate subscription model discovery (#26)
 
 Scope: explicit caller credentials and account-scoped caches for Anthropic/OpenAI/xAI, documented pagination and richer capability/window metadata, alias cycle checks, generation-only filtering and unknown subscription availability with zero login/network side effects.

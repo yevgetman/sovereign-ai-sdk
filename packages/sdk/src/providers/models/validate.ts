@@ -62,6 +62,18 @@ export function validateModelRecords(
         ))
     )
       return undefined;
+    if (row.reasoningControl !== undefined) {
+      const control = row.reasoningControl;
+      if (
+        !control ||
+        !['openrouter', 'openai', 'xai'].includes(control.parameter) ||
+        typeof control.disableSupported !== 'boolean' ||
+        (control.binary !== undefined && typeof control.binary !== 'boolean') ||
+        (control.maxWireValue !== undefined &&
+          !['low', 'medium', 'high', 'xhigh', 'max'].includes(control.maxWireValue))
+      )
+        return undefined;
+    }
     if (row.pricing) {
       if (
         row.pricing.currency !== 'USD' ||

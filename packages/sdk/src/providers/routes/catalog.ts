@@ -21,6 +21,7 @@ import {
   modelSupportsReasoning,
   openrouterModelSupportsReasoning,
 } from '../effort.js';
+import { reasoningControlFor } from '../modelReasoning.js';
 import { PROVIDER_REGISTRY } from '../models.js';
 import { SUBSCRIPTION_DEFAULT_MODEL } from '../subscription/names.js';
 import { RouteError } from './errors.js';
@@ -116,7 +117,9 @@ const DEFINITIONS: Readonly<Record<RouteId, RouteDefinition>> = {
       'z-ai/glm-5.2',
       'moonshotai/kimi-k2.5',
     ],
-    effortsFor: (model) => allOrOff(openrouterModelSupportsReasoning(model)),
+    effortsFor: (model) =>
+      reasoningControlFor('openrouter', model)?.efforts ??
+      allOrOff(openrouterModelSupportsReasoning(model)),
     // OpenRouter ids are always `vendor/model`; a bare id is a direct-API id.
     isKnownIncompatible: (model) => !model.includes('/'),
   },
@@ -147,8 +150,7 @@ const DEFINITIONS: Readonly<Record<RouteId, RouteDefinition>> = {
     displayName: 'xAI Grok (API key)',
     builtinDefaultModel: requiredDefault('xai'),
     knownModels: ['grok-4.6'],
-    // Same predicate the OpenAI-compatible transport applies to the xai lane.
-    effortsFor: (model) => allOrOff(modelSupportsReasoning(model, 'openai')),
+    effortsFor: (model) => reasoningControlFor('xai', model)?.efforts ?? NO_EFFORT,
     isKnownIncompatible: directFamilyRule('xai'),
   },
   'chatgpt-subscription': {
