@@ -1,3 +1,9 @@
+## 2026-10-10 — Correct SDK release installation documentation
+
+Updated the package install guide with exact public SDK 0.14.0 download and checksum commands. Documented the previous-release example in the immutable published tarball, corrected PUBLISHING.md to SDK 0.14.0 / SOV 0.6.77 and updated the agent boot snapshot pointer. The public release page now carries the same correction. No released asset bytes, package versions, live provider calls or installed hosts changed.
+
+Ran `python3 /private/tmp/sdk-fifth-gate.py /private/tmp/sdk-manifest-20261010 documentation-gap-fix`: configured lint/boundary, typecheck, strict SDK build and every discovered test file pass. Full totals: **5,741 pass / 19 existing skips / zero failures**, 23,801 assertions across 549 files. The compiler fixture was serialized, the existing shared-theme footer fixture isolated and the rest used a unique temporary root. Edited documentation file links resolve. `shasum -a 256 -c SDK-SHA256SUMS` verifies the downloaded public SDK tarball. Read-back confirms the public release correction and all eight original assets remain present. Corrected package documentation belongs to the next planned SDK 0.14.1 patch.
+
 ## 2026-10-10 — Merge SDK model workset and record the minor-release plan
 
 Merged reviewed PRs35→36→37→38→39→40→41→42→34→43 into master with unchanged reviewed heads. Verified each exact master merge SHA, main parent, UTC timestamp and reviewed-head CI evidence. The merged non-Markdown source/test tree matches final review head `b9a8759adf9d475b1440b02d5a144acba4969891`. Added each merge once (`mainline: 1`) to the SDK manifest with ordered dependency IDs; retained the existing PR23 diagnostics item and published baseline. Planned SDK0.14.0 because numeric-only pricing callers must handle unknown cost. CLI0.6.77 target remains unchanged. This is a draft, not an assembled or published release.

@@ -23,9 +23,23 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
 
 ---
 
-## Current public channel — 2026-10-09
+## Current public channel — 2026-10-10
 
-SDK **0.13.0** is publicly available as a checksummed tarball in [SOV v0.6.76](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.76). The source/tag is `7076729a77df8378cfd41f0bfaa350583818842b`. SDK and binary checksums are separate. See [package install](packages/sdk/README.md#install). The registry procedure below remains a separate owner gate; the source repository is already public, while SDK/protocol registry queries returned E404 at this check. Protocol remains **0.1.0**, debug console **0.3.0**; package versions are independent.
+SDK **0.14.0** is publicly available as a checksummed tarball in
+[SOV v0.6.77](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.77).
+Exact released source: `dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823`;
+source tags: `sdk-v0.14.0` and `v0.6.77`.
+SDK and binary checksums are separate. See [package install](packages/sdk/README.md#install).
+
+The README inside the immutable SDK 0.14.0 tarball has an older install example.
+Use the corrected source guide above: install `yevgetman-sov-sdk-0.14.0.tgz`
+after checking `SDK-SHA256SUMS`. The package version and code are 0.14.0.
+Do not replace released bytes to change documentation. The corrected package
+README is selected for the next SDK 0.14.1 patch; CLI 0.6.78 remains planned.
+
+The registry procedure below remains a separate owner gate. This GitHub release
+does not establish npm publication. Protocol remains **0.1.0**, debug console
+**0.3.0**; package versions are independent.
 
 ## Release planning
 

@@ -13,11 +13,18 @@ Runs on **Node ≥ 20.19** and **Bun ≥ 1.2**.
 SDK **0.14.0** is published as a tarball in [SOV v0.6.77](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.77), with `SDK-SHA256SUMS`. Download both assets, verify the checksum, then install the local tarball:
 
 ```sh
+curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/yevgetman-sov-sdk-0.14.0.tgz
+curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/SDK-SHA256SUMS
 shasum -a 256 -c SDK-SHA256SUMS
 npm install ./yevgetman-sov-sdk-0.14.0.tgz   # Node
 # Or:
 bun add ./yevgetman-sov-sdk-0.14.0.tgz       # Bun
 ```
+
+**SDK 0.14.0 documentation correction:** the README inside the published
+0.14.0 tarball still shows the previous release's install example. Use the
+commands above. The package version and code are 0.14.0. Released bytes remain
+unchanged; the corrected README is queued for SDK 0.14.1.
 
 For repeatable builds, vendor the verified file and commit the dependency lockfile.
 This release does not establish npm-registry publication. Registry publication is a
