@@ -102,6 +102,10 @@ Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endp
 
 # Testing Log
 
+## 2026-10-10 — Verified public SDK0.14.0 / SOV0.6.77 cut
+
+All eleven planned changes plus three explicit preparation units ship from dacbebc5. Exact-cut gate:5729pass/19existing skips/0fail,23782assertions,548files;12manifest-tooling tests stay on source master, outside binary assembly. Independent review, SDK packed Node/Bun/type/layout/leak checks and six Go packages pass. PublicCI38086207061 passes all6jobs and five platform builds/scans with native Windows/Mac/Linux smokes. All6public assets downloaded and verified against publisher checksums and exactversion/source; local nativeMacversion/signatures pass. Immutable package SHA256d68c69d4b5d84c50ba686afda634a92d91f7472988fd3a2d52f79d771d5caebb. Frozen and published archive records are retained; next SDK0.14.1/CLI0.6.78 draft opened. Public source install examples refreshed afterpublication; existingpublictarball is never overwritten. Post-publication documentation/source gate also passes all5741tests/19existing skips/0fail plus lint/boundary/types/strictSDKbuild. Consumer sourcepins are separate from live host releases; no active session interrupted.
+
 ## 2026-10-10 — SDK0.14.0 / SOV0.6.77 release preparation
 
 Version stamps and workspace lock agree. Cut assembly uses the last verified published source and all eleven selected merges. Windows scanner byte/layout fixes are explicit preparation application units. Only append-only log and README pointer conflicts needed resolution; no runtime-code conflict. Preparation source gate passed lint, boundary, types, strict SDK build and all 5741 tests (19 existing skips, zero failures, 23801 assertions, 549 files). Full pinned cut QA and package/public artifact evidence are recorded separately in the release plan before publication. No live consumer restart is included.
