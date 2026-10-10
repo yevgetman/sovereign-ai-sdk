@@ -387,3 +387,5 @@ export {
   validateModelRequest,
 } from './providers/models/validateRequest.js';
 export type { CostEstimate, PricingSnapshot } from './providers/pricing.js';
+export type { OpenRouterPolicy } from './providers/openrouterPolicy.js';
+export { validateOpenRouterPolicy } from './providers/openrouterPolicy.js';

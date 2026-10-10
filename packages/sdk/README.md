@@ -449,3 +449,21 @@ estimates separately. SOV stores auxiliary-compaction receipts separately from m
 token counters. Historical rows without reliable pricing evidence are marked incomplete.
 
 Tree-budget settlement captures model identity and prices before host callbacks or provider awaits. Explicit model metadata without verified prices keeps the host’s reserved cost upper bound and marks the cost incomplete. Metadata-absent calls retain established built-in pricing.
+
+### OpenRouter execution policy
+
+Use `settings.providers.openrouter.routing` with `createAgent`, or pass
+`openrouterPolicy` when constructing `OpenAIProvider` directly. The optional
+policy supports `order`, `only`, `ignore`, `allow_fallbacks`,
+`require_parameters`, `data_collection`, `zdr`, `enforce_distillable_text`, and
+`sort` (`price`, `throughput`, `latency`). Fields use OpenRouter's wire names.
+For a strict host pin, set `only: ['host/endpoint']` and
+`allow_fallbacks: false`. `order` alone expresses a preference. Endpoint names
+are not a frozen SDK allowlist. Invalid and contradictory policies fail before
+inference. Only the OpenRouter transport accepts these fields; omitted policy
+keeps existing router defaults. If no allowed endpoint is available, the call
+fails without broadening the policy. Model-author prefixes identify the model,
+not the selected inference host. This adapter does not infer or certify the
+actual host; absent response evidence it remains unknown.
+
+Policy field definitions follow the [OpenRouter provider routing contract](https://openrouter.ai/docs/guides/routing/provider-selection).
