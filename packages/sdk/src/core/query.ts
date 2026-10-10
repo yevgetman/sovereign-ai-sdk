@@ -35,6 +35,8 @@ import {
   requestInputTokenBound,
   resolveModelLimits,
 } from '../providers/modelLimits.js';
+import { validateModelRequest } from '../providers/models/validateRequest.js';
+import type { ProviderRequest } from '../providers/types.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { type TurnSummary, detectStall } from '../util/stall.js';
@@ -428,6 +430,21 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     for (;;) {
       let providerStarted = false;
       try {
+        const request: ProviderRequest = {
+          model,
+          system: systemPrompt,
+          messages: history,
+          ...(toolPool.length > 0 ? { tools: toToolSchemas(toolPool) } : {}),
+          maxTokens,
+          ...(temperature !== undefined ? { temperature } : {}),
+          ...(effort !== undefined ? { effort } : {}),
+          ...(modelMetadata !== undefined ? { modelMetadata } : {}),
+          ...(effectiveModelLimits ? { outputBudgetEnforced: true } : {}),
+          ...(signal ? { signal } : {}),
+          cacheEnabled,
+        };
+        // Check the complete history before a host can pay for context reduction.
+        validateModelRequest(request, provider.name, modelMetadata);
         if (params.contextManager || contextLimits) {
           if (!params.contextManager || !contextLimits) {
             throw new ContextManagementError('contextManager requires contextLimits');
@@ -465,6 +482,8 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           }
           assertRequestFits(inputTokens, maxTokens, effectiveModelLimits);
         }
+        request.messages = history;
+        validateModelRequest(request, provider.name, modelMetadata);
         requestStart = Date.now();
         recordTrace({
           type: 'provider_request',
@@ -477,19 +496,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           iso: nowIso(),
         });
         providerStarted = true;
-        for await (const event of provider.stream({
-          model,
-          system: systemPrompt,
-          messages: history,
-          ...(toolPool.length > 0 ? { tools: toToolSchemas(toolPool) } : {}),
-          maxTokens,
-          ...(temperature !== undefined ? { temperature } : {}),
-          ...(effort !== undefined ? { effort } : {}),
-          ...(modelMetadata !== undefined ? { modelMetadata } : {}),
-          ...(effectiveModelLimits ? { outputBudgetEnforced: true } : {}),
-          ...(signal ? { signal } : {}),
-          cacheEnabled,
-        })) {
+        for await (const event of provider.stream(request)) {
           if (firstEventAt === undefined) firstEventAt = Date.now();
           if (event.type === 'assistant_message') {
             assistant = event.message;

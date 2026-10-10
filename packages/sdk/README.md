@@ -390,3 +390,39 @@ authentication routes, authors, hosts, unknown capabilities and stale metadata
 separate. Public catalogs do not prove account entitlement. See
 [src/providers/models/README.md](src/providers/models/README.md) for the contract
 and migration rules. Existing `listRoutes()` remains offline.
+### Model capabilities and modalities
+
+Selected `ModelRecord` metadata distinguishes `supported`, `unsupported` and
+`unknown` capability. `validateModelRequest(request, providerName, record)` checks
+actual inputs and replayed history, including images, tool calls and tool
+results. Known-incompatible required images or tools fail with safe `unsupported_input`
+errors. Unknown OpenRouter capabilities are refused; direct/local compatibility
+rules are described below. Bundled suggestions
+preserve existing tool/image behavior without certifying unknown capability.
+Explicit unsupported capability is always refused. Text-only, no-tool
+requests do not require those capabilities. A known restricted `toolChoices`
+list also fences tool-choice formats. Metadata must match both the selected
+provider and exact model ID.
+
+Serializer support is separate from model support. Direct xAI's
+OpenAI-compatible image and function-call body is fixture-tested against the
+[published chat contract](https://docs.x.ai/developers/rest-api-reference/inference/chat-completions).
+Subscription image paths remain fenced. Route image flags describe serialization,
+not universal model vision. Local Ollama/SOV/Manifest image paths retain their serializer behavior.
+Injected providers own their serializer contract. Without supplied model
+metadata, existing custom provider behavior is retained; hosts must use discovered metadata to certify
+capability. No fixture certifies an account entitlement or a paid live request.
+
+Direct Anthropic/OpenAI/xAI API model lists often contain IDs without tool
+metadata. Unknown tools preserve the existing function-serializer attempt for
+both established and new IDs. Provider refusal is retained; this is not model
+support or account entitlement certification. Unknown images retain only exact
+established native choices, while explicit unsupported capabilities always fail.
+OpenRouter discovered unknown required capabilities are refused because model
+and inference-host support differ. Text-only/no-tool requests remain valid.
+A host can inject a `ModelRecord` through `createAgent({ modelMetadata: record })`
+to supply verified capability facts for a new model. Set its exact provider,
+route, model ID and a truthful `metadata.source`; for example a verified vision
+contract can explicitly set `record.capabilities.images = 'supported'`. This
+changes request validation only, and does not grant authentication or trigger
+fallbacks. Custom/local providers own their serializer contracts.

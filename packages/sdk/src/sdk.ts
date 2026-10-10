@@ -376,3 +376,7 @@ export type {
 
 // Portable provider/model discovery (explicit refresh, no disk default).
 export * from './providers/models/index.js';
+export {
+  serializerSupportsImages,
+  validateModelRequest,
+} from './providers/models/validateRequest.js';
