@@ -13,6 +13,10 @@ Focused checks passed **22/0**, 68 assertions: an unknown known-ID price retains
 ## 2026-10-10 — PR41 reviewed dependency integration
 
 Integrated reviewed discovery/cache and reasoning fixes. Lint, typecheck and strict SDK build pass. Full suite: 5689 passed, 19 skipped, zero failed; 23447 assertions across 541 files (111.75 seconds).
+## 2026-10-10 — PR40 third review dependency validation
+
+Independent review found no new above-Low defect in PR40. Integrated final PR39 `10918ef1`, including native Anthropic controls, image-aware input accounting and immutable per-turn model evidence. Configured lint, typecheck, strict SDK build and full tests passed: **5683 passed / 19 existing skips / zero failed**, 23462 assertions across 540 files (97.59s). All parent testing records were preserved. No paid inference or installed changes.
+
 ## 2026-10-10 — PR39 third review: image accounting and immutable model evidence
 
 Resolved three Medium findings: image transport bytes no longer masquerade as input tokens; per-turn model/provider changes do not inherit another identity's standing record; model evidence is frozen before asynchronous host callbacks. Input accounting exposes incomplete image estimates in traces, preserves the image payload, accepts verified host counters, and retains provider overflow recovery. Merged reviewed PR38 native Anthropic controls with PR39 thinking-budget caps intact.
