@@ -115,6 +115,7 @@ function flattenContentBlock(block: unknown): string {
 
 /** Run one user turn, including provider streaming and tool-use continuation turns. */
 export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | Message, Terminal> {
+  const modelMetadata = params.modelMetadata ? structuredClone(params.modelMetadata) : undefined;
   const {
     provider,
     model,
@@ -419,6 +420,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           maxTokens,
           ...(temperature !== undefined ? { temperature } : {}),
           ...(effort !== undefined ? { effort } : {}),
+          ...(modelMetadata !== undefined ? { modelMetadata } : {}),
           ...(signal ? { signal } : {}),
           cacheEnabled,
         })) {

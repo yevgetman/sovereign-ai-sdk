@@ -21,6 +21,15 @@ export interface ModelRecord {
   contextWindow?: number | undefined;
   maxOutputTokens?: number | undefined;
   efforts?: ReasoningEffort[] | undefined;
+  /** Verified adapter mapping. Capability=true alone does not establish depth controls. */
+  reasoningControl?:
+    | {
+        parameter: 'openrouter' | 'openai' | 'xai';
+        disableSupported: boolean;
+        binary?: boolean;
+        maxWireValue?: string;
+      }
+    | undefined;
   pricing?:
     | {
         inputPerMillion?: number | undefined;
