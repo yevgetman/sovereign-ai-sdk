@@ -1,3 +1,6 @@
+import { ContextManagementError } from '../compact/contextManagement.js';
+import { resolveModelLimits } from './modelLimits.js';
+import type { ModelRecord } from './models/types.js';
 // Small built-in model registry. Resolver uses this for defaults and context
 // lengths until config-driven/provider-discovered registries become necessary.
 
@@ -109,6 +112,25 @@ const MODEL_CONTEXT: Record<string, number> = {
   'mistral-nemo': 128_000,
 };
 
-export function contextLengthFor(provider: string, model: string): number {
+export function contextLengthFor(
+  provider: string,
+  model: string,
+  metadata?: ModelRecord,
+  hostCap?: number,
+): number {
+  if (metadata) {
+    if (metadata.id !== model || metadata.provider !== provider)
+      throw new ContextManagementError('model metadata does not match selected model/provider');
+    return resolveModelLimits(
+      {
+        contextTokens: metadata.contextWindow,
+        stale: metadata.metadata.stale,
+        source: metadata.metadata.source,
+      },
+      { contextTokens: hostCap },
+    ).contextTokens;
+  }
+  if (hostCap !== undefined)
+    return resolveModelLimits(undefined, { contextTokens: hostCap }).contextTokens;
   return MODEL_CONTEXT[model] ?? PROVIDER_REGISTRY[provider]?.contextLength ?? 32_768;
 }

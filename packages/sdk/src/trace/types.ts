@@ -29,6 +29,10 @@ export type TraceEvent =
       purpose: 'main' | 'compact';
       messageCount: number;
       systemBytes: number;
+      /** Effective request limits and provenance, distinct from publisher maxima. */
+      modelLimits?: import('../providers/modelLimits.js').EffectiveModelLimits;
+      /** Unverified image costs remain visible rather than a false total. */
+      inputAccounting?: import('../providers/modelLimits.js').RequestInputTokenEstimate;
       iso: string;
     }
   | {
