@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "build_commit": "dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823",
+  "sdk_version": "0.14.0",
+  "tarball": "/private/tmp/sdk-0140-assets/yevgetman-sov-sdk-0.14.0.tgz",
+  "sha256": "d68c69d4b5d84c50ba686afda634a92d91f7472988fd3a2d52f79d771d5caebb",
+  "bytes": 952048,
+  "allowlisted_files": 624,
+  "scanner": {
+    "receipt": "/private/tmp/sdk-0140-sdk-scan.json",
+    "result": "clean",
+    "exit_code": 0,
+    "coverage_errors": 0
+  },
+  "node_bun": {
+    "offline_discovery_imports": "pass",
+    "caller_future_model_resolution": "pass",
+    "unknown_pricing_state": "pass",
+    "public_type_shape_strict_nodenext": "pass",
+    "full_installed_sdk_consumer": "pass",
+    "node_log": "/private/tmp/sdk-0140-node-consumer.log",
+    "bun_log": "/private/tmp/sdk-0140-bun-consumer.log",
+    "node_version": "v25.9.0",
+    "bun_version": "1.3.13"
+  },
+  "go": {
+    "command": "go test ./...",
+    "exit_code": 0,
+    "packages_passed": 6,
+    "command_package_no_test_files": 1
+  },
+  "limitations": [
+    "No live model-provider paid inference or account eligibility was tested.",
+    "CLI platform builds and scans are separate coordinator workflow checks.",
+    "Tarball must not be rebuilt after this checksum proof."
+  ]
+}

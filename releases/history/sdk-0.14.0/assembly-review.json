@@ -1,0 +1,82 @@
+{
+  "build_commit": "dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823",
+  "baseline": "7076729a77df8378cfd41f0bfaa350583818842b",
+  "review": "Independent code-review agent: no confirmed Medium or higher findings. Product runtime/source matches five-pass reviewed master9415f except planned versions. All14commits match ordered manifest mappings. PR23/35 test log and PR43 README conflicts are documentation only.",
+  "mapped_commits": [
+    {
+      "item_id": "sdk-pr-23",
+      "source_commit": "1b91237a4f51642ed76d2737d893412338f69c7d",
+      "release_commit": "916148d80f3253d8af39f88a1a491681d89af65e"
+    },
+    {
+      "item_id": "sdk-pr-35",
+      "source_commit": "03634457ec48de59ff6d18e07c803758ca4491e2",
+      "release_commit": "f355bebdefe6b38ccad906bffd900f8d830af8cd"
+    },
+    {
+      "item_id": "sdk-pr-36",
+      "source_commit": "b924cad9208455fd1f8976370227ac162446f577",
+      "release_commit": "de49921c37ac59b338f82e5648624da49df13fb4"
+    },
+    {
+      "item_id": "sdk-pr-37",
+      "source_commit": "702ad400d4c0a3b244e91b25ce23f6d65b0830f0",
+      "release_commit": "a86d0f48250eb81361c288bcace0bb0d2f317257"
+    },
+    {
+      "item_id": "sdk-pr-38",
+      "source_commit": "f9e4f4c16ca42fbd0fdf36ac81c723c156d62e86",
+      "release_commit": "055e48afa7ed982836ae6946148008c7e24524d5"
+    },
+    {
+      "item_id": "sdk-pr-39",
+      "source_commit": "d8fcd7a0468ac1ff7b5e93204a329944aa4d4109",
+      "release_commit": "5389e20fc40e152a683e31a15bf264c3b07cbccf"
+    },
+    {
+      "item_id": "sdk-pr-40",
+      "source_commit": "68f83423104b834c99344a9127dd2e3727be56fb",
+      "release_commit": "687d6cec7376bc3eeb30f3b3c3f30299b54c11ed"
+    },
+    {
+      "item_id": "sdk-pr-41",
+      "source_commit": "1d307eb80172bf54a70c50dff0e3aac421dff9d5",
+      "release_commit": "d27d98eacf952eef8e63ca2ed383cd27342c6e9a"
+    },
+    {
+      "item_id": "sdk-pr-42",
+      "source_commit": "042395d4ee9b261d6d098cf4cdb207dd332cfd01",
+      "release_commit": "8b5a049fc5084a4d411be907d171e698f000d6b9"
+    },
+    {
+      "item_id": "sdk-pr-34",
+      "source_commit": "03dc46c81e3885df57b110dbc0bee0ce9d57914f",
+      "release_commit": "5df0db522ffe7f02263ee4fcbdfbc762d9801b78"
+    },
+    {
+      "item_id": "sdk-pr-43",
+      "source_commit": "9415f398c0ec5af68e8c7fb506cc3d417fdb1ebd",
+      "release_commit": "ea99fbf07da2d5511dbef7138d7ab1d69cf05350"
+    },
+    {
+      "item_id": "sdk-prep-windows-scanner",
+      "source_commit": "806b351a58e69c39466f22fdfa31cd686dad13a3",
+      "release_commit": "7fb7507a482877414a2d7e437280ffb3acd57293"
+    },
+    {
+      "item_id": "sdk-prep-windows-layout",
+      "source_commit": "c590c601f6f6fd083363df0f860971bc83ad8726",
+      "release_commit": "f0a5a962d92f2198af7fe3dcb26218f4a65e3ca2"
+    },
+    {
+      "item_id": "sdk-prep-version",
+      "source_commit": "6645daa56f9b5393ac40dba78447d0023bd8426a",
+      "release_commit": "dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823"
+    }
+  ],
+  "limitations": [
+    "Unlisted release-planning validator and12fixture tests remain source-master tooling; they are not bundled runtime changes.",
+    "Windows scanner checkout/layout preparation is explicitly included.",
+    "Source tests use offline fixtures, not paid-provider eligibility checks."
+  ]
+}

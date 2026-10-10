@@ -189,3 +189,48 @@ items:
       - Five code-review passes; six exact-head CI checks passed at
         b9a8759adf9d475b1440b02d5a144acba4969891. This is source QA, not
         certification of an assembled release.
+  - id: sdk-prep-windows-scanner
+    product: sovereign-ai-sdk
+    title: Preserve pinned scanner bytes for complete Windows validation
+    pull_request: null
+    merged_at: 2026-10-09T18:40:38-05:00
+    commits:
+      - sha: 806b351a58e69c39466f22fdfa31cd686dad13a3
+        mainline: null
+    requires: []
+    reason: Explicit release preparation needed to ship the full selected workset
+      with current package validation and version stamps.
+    qa:
+      - docs/06-testing/testing-log.md
+      - releases/history/sdk-0.14.0/source-qa.json
+  - id: sdk-prep-windows-layout
+    product: sovereign-ai-sdk
+    title: Scan Windows archives on Linux before native Windows smoke
+    pull_request: null
+    merged_at: 2026-10-09T18:46:23-05:00
+    commits:
+      - sha: c590c601f6f6fd083363df0f860971bc83ad8726
+        mainline: null
+    requires:
+      - sdk-prep-windows-scanner
+    reason: Explicit release preparation needed to ship the full selected workset
+      with current package validation and version stamps.
+    qa:
+      - docs/06-testing/testing-log.md
+      - releases/history/sdk-0.14.0/source-qa.json
+  - id: sdk-prep-version
+    product: sovereign-ai-sdk
+    title: Prepare SDK0.14.0 and SOV0.6.77 versions and compatibility notes
+    pull_request: null
+    merged_at: 2026-10-10T16:01:23-05:00
+    commits:
+      - sha: 6645daa56f9b5393ac40dba78447d0023bd8426a
+        mainline: null
+    requires:
+      - sdk-pr-43
+      - sdk-prep-windows-layout
+    reason: Explicit release preparation needed to ship the full selected workset
+      with current package validation and version stamps.
+    qa:
+      - docs/06-testing/testing-log.md
+      - releases/history/sdk-0.14.0/source-qa.json
