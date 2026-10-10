@@ -162,9 +162,10 @@ describe('injected context management', () => {
     const recorded: number[] = [];
     const sessionStore: SessionStore = {
       ...store,
-      recordTokenUsage(id, usage, cost) {
+      recordUsageEstimate(id, usage, estimate) {
+        const cost = estimate.amountUsd ?? 0;
         recorded.push(cost);
-        store.recordTokenUsage(id, usage, cost);
+        store.recordUsageEstimate?.(id, usage, estimate);
       },
     };
     const { provider: p, requests } = provider();
@@ -185,6 +186,9 @@ describe('injected context management', () => {
     ).toEqual(first.result.messages);
     expect(first.result.usage).toEqual({ inputTokens: 12, outputTokens: 6 });
     expect(first.result.estimatedCostUsd).toBeCloseTo(0.01000285, 10);
+    expect(first.result.costEstimate?.scope).toBe('aggregate');
+    expect(first.result.costEstimate?.rates).toBeUndefined();
+    expect(first.result.costEstimate?.components?.[1]?.source).toBe('host-context-estimate');
     expect(recorded).toHaveLength(1);
     expect(recorded[0]).toBeCloseTo(0.01000285, 10);
     expect(first.events.filter((e) => 'type' in e && e.type === 'message_start')).toHaveLength(1);
@@ -487,9 +491,10 @@ describe('injected context management', () => {
         model: 'fixture',
         sessionStore: {
           ...store,
-          recordTokenUsage(id, usage, cost) {
+          recordUsageEstimate(id, usage, estimate) {
+            const cost = estimate.amountUsd ?? 0;
             recorded.push({ usage, cost });
-            store.recordTokenUsage(id, usage, cost);
+            store.recordUsageEstimate?.(id, usage, estimate);
           },
         },
         contextLimits: { maxHistoryBytes: 1000 },

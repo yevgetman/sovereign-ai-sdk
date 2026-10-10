@@ -128,6 +128,7 @@ export interface SessionSummaryEvent extends ServerEventBase {
         cacheRead?: number | undefined;
         cacheWrite?: number | undefined;
         estimatedCostUsd: number;
+        costComplete?: boolean | undefined;
       }
     | undefined;
   startedAtMs?: number | undefined;

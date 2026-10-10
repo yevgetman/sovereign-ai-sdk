@@ -1,6 +1,6 @@
+import type { ModelRecord } from './models/types.js';
 // Token pricing helpers for the Phase 8 /cost command. Built-in prices are
-// intentionally small and explicit; unknown models fall back to zero cost
-// while still reporting token counts.
+// intentionally small and explicit. Unknown prices remain unknown.
 
 import type { TokenUsage } from '../core/types.js';
 
@@ -85,8 +85,129 @@ export const PRICE_TABLE: Readonly<Record<string, TokenPricesPerMillion>> = {
   'ollama:qwen2.5:3b': ZERO_PRICE,
 };
 
-export function estimateCostUsd(provider: string, model: string, usage: TokenUsage): number {
-  const prices = PRICE_TABLE[`${provider}:${model}`] ?? ZERO_PRICE;
+export type CostEstimate = {
+  scope?: 'provider' | 'aggregate';
+  components?: CostEstimate[];
+  usage?: TokenUsage;
+  state: 'paid' | 'free' | 'subscription' | 'unknown';
+  complete: boolean;
+  amountUsd?: number;
+  provider: string;
+  model: string;
+  source: string;
+  version: number;
+  pricedAt: string;
+  rates?: TokenPricesPerMillion;
+};
+
+export type PricingSnapshot = {
+  state: CostEstimate['state'];
+  source: string;
+  version?: number;
+  fetchedAt?: string;
+  rates?: TokenPricesPerMillion;
+  provider?: string;
+  model?: string;
+};
+
+/** Normalize discovery rates without guessing missing rates or subscription bills. */
+export function pricingSnapshotForModel(record: ModelRecord): PricingSnapshot {
+  const pricing = record.pricing;
+  const rates =
+    pricing?.inputPerMillion !== undefined && pricing.outputPerMillion !== undefined
+      ? {
+          input: pricing.inputPerMillion,
+          output: pricing.outputPerMillion,
+          ...(pricing.cacheReadPerMillion !== undefined
+            ? { cacheReadInput: pricing.cacheReadPerMillion }
+            : {}),
+          ...(pricing.cacheWritePerMillion !== undefined
+            ? { cacheCreationInput: pricing.cacheWritePerMillion }
+            : {}),
+        }
+      : undefined;
+  const fetchedAt = pricing?.fetchedAt ?? record.metadata.fetchedAt;
+  return {
+    state:
+      record.auth === 'subscription'
+        ? 'subscription'
+        : (pricing?.state ?? (rates ? 'paid' : 'unknown')),
+    source: pricing?.source ?? record.metadata.source,
+    provider: record.provider,
+    model: record.id,
+    ...(fetchedAt ? { fetchedAt } : {}),
+    ...(rates ? { rates } : {}),
+  };
+}
+
+/** Snapshot, not a bill. Never reprice historical estimates after refresh. */
+export function estimateUsageCost(
+  provider: string,
+  model: string,
+  usage: TokenUsage,
+  suppliedSnapshot?: PricingSnapshot,
+): CostEstimate {
+  const snapshot =
+    suppliedSnapshot &&
+    ((suppliedSnapshot.provider && suppliedSnapshot.provider !== provider) ||
+      (suppliedSnapshot.model && suppliedSnapshot.model !== model))
+      ? { state: 'unknown' as const, source: 'identity-mismatch' }
+      : suppliedSnapshot;
+  const prices = snapshot ? snapshot.rates : PRICE_TABLE[`${provider}:${model}`];
+  const valid =
+    prices !== undefined &&
+    typeof prices.input === 'number' &&
+    typeof prices.output === 'number' &&
+    Object.values(prices).every(
+      (rate) => typeof rate === 'number' && Number.isFinite(rate) && rate >= 0,
+    );
+  const state =
+    snapshot?.state ??
+    (valid ? (prices.input === 0 && prices.output === 0 ? 'free' : 'paid') : 'unknown');
+  const cacheRatesKnown =
+    !snapshot ||
+    ((!usage.cacheReadInputTokens || prices?.cacheReadInput !== undefined) &&
+      (!usage.cacheCreationInputTokens || prices?.cacheCreationInput !== undefined));
+  const usageValid = Object.values(usage).every(
+    (tokens) => tokens === undefined || (Number.isSafeInteger(tokens) && tokens >= 0),
+  );
+  const amount = valid && usageValid ? priceUsage(prices, usage) : undefined;
+  const complete =
+    valid &&
+    usageValid &&
+    cacheRatesKnown &&
+    Number.isFinite(amount) &&
+    state !== 'subscription' &&
+    state !== 'unknown';
+  return {
+    provider,
+    model,
+    state: complete
+      ? Object.values(prices).every((rate) => rate === 0)
+        ? 'free'
+        : 'paid'
+      : state === 'subscription'
+        ? state
+        : 'unknown',
+    complete,
+    source: snapshot?.source ?? (prices ? 'sdk-price-table' : 'unknown'),
+    version: snapshot?.version ?? PRICING_VERSION,
+    pricedAt: snapshot?.fetchedAt ?? new Date().toISOString(),
+    ...(complete && amount !== undefined ? { amountUsd: amount, rates: { ...prices } } : {}),
+  };
+}
+
+/** @deprecated Use estimateUsageCost for completeness and provenance.
+ * Unknown estimates are undefined, never a fabricated zero. */
+export function estimateCostUsd(
+  provider: string,
+  model: string,
+  usage: TokenUsage,
+): number | undefined {
+  return estimateUsageCost(provider, model, usage).amountUsd;
+}
+
+function priceUsage(prices: TokenPricesPerMillion, usage: TokenUsage): number {
   const input = usage.inputTokens ?? 0;
   const output = usage.outputTokens ?? 0;
   const cacheCreation = usage.cacheCreationInputTokens ?? 0;

@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { readdirSync } from 'node:fs';
-import { SessionWorkQueue, SessionWorkQueueError, buildTool, createAgent, createInMemorySessionStore, CapabilityProfileRegistry, TreeBudget, SubagentScheduler, LaneSemaphores, PathLockManager } from '@yevgetman/sov-sdk';
+import { estimateUsageCost, SessionWorkQueue, SessionWorkQueueError, buildTool, createAgent, createInMemorySessionStore, CapabilityProfileRegistry, TreeBudget, SubagentScheduler, LaneSemaphores, PathLockManager } from '@yevgetman/sov-sdk';
 // The one deliberate deep-subpath import in this otherwise barrel-only consumer:
 // the F17/F18/F19 regression guard (asserted at the end) needs VERSION, which
 // lives at the `./version` public subpath, not on the frozen `./sdk` barrel.
@@ -268,5 +268,21 @@ assert.equal(rendererMessages[0].content[0].is_error, true);
 assert.match(rendererMessages[0].content[0].content, /actual renderer effect receipt/);
 assert.match(rendererMessages[0].content[0].content, /packed renderer failed/);
 assert.equal(rendererMessages[0].content[1].text, 'supplementary renderer receipt');
+
+// Cost completeness remains portable in the packed SDK on Node and Bun.
+const unpriced = estimateUsageCost('openrouter', 'future-author/future-model', { inputTokens: 10 });
+assert.equal(unpriced.complete, false);
+assert.equal(unpriced.amountUsd, undefined);
+const futureRates = { input: 1, output: 4 };
+const pricedSnapshot = estimateUsageCost('openrouter', 'future-author/future-model',
+  { inputTokens: 1000000, outputTokens: 1000000, reasoningTokens: 800000 },
+  { state: 'paid', source: 'packed-fixture', rates: futureRates, fetchedAt: '2026-10-10T00:00:00Z' });
+assert.equal(pricedSnapshot.amountUsd, 5);
+futureRates.output = 99;
+assert.equal(pricedSnapshot.rates.output, 4);
+const pricingStore = createInMemorySessionStore();
+const pricingSession = pricingStore.createSession({ provider: 'openrouter', model: 'future-author/future-model' });
+pricingStore.recordUsageEstimate(pricingSession, { inputTokens: 10 }, unpriced);
+assert.equal(pricingStore.getSession(pricingSession).metadata.costComplete, false);
 
 console.log('SDK_OK');

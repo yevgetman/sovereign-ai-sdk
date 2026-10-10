@@ -126,3 +126,14 @@ func TestGoodbyeAgentsSortedDeterministically(t *testing.T) {
 		t.Errorf("agents not alphabetically sorted: alpha=%d mu=%d zeta=%d", alphaIdx, muIdx, zetaIdx)
 	}
 }
+
+func TestGoodbyeIncompletePricingDoesNotShowZeroOrSubtotalAsBill(t *testing.T) {
+	complete := false
+	for _, subtotal := range []float64{0, 1.23} {
+		summary := transport.SessionSummary{Tokens: &transport.SessionTokens{EstimatedCostUsd: subtotal, CostComplete: &complete}}
+		out := RenderGoodbye(summary, theme.Dark(), 120, 40)
+		if !strings.Contains(out, "unknown (incomplete pricing)") || strings.Contains(out, "$0.0000") || strings.Contains(out, "$1.2300") {
+			t.Errorf("incomplete bill rendered as known amount: %s", out)
+		}
+	}
+}

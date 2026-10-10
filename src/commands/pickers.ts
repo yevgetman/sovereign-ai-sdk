@@ -124,7 +124,12 @@ function buildResumeItem(s: ReturnType<CommandContext['listSessions']>[number]):
 } {
   const titleText = s.title ?? '(no title)';
   const ago = formatRelativeTime(s.lastUpdated);
-  const cost = s.totalCostUsd > 0 ? formatUsd(s.totalCostUsd) : '$0.00';
+  const cost =
+    s.costComplete === false
+      ? 'cost unknown'
+      : s.totalCostUsd > 0
+        ? formatUsd(s.totalCostUsd)
+        : '$0.00';
   const meta = `${ago} · ${s.msgCount} msg · ${s.provider}/${s.model} · ${cost}`;
   return {
     label: truncate(titleText, 70),

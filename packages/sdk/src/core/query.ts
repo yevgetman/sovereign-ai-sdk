@@ -442,6 +442,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           );
           if (route) validateRouteSelection(route, { model, effort, modelMetadata });
         }
+
         const request: ProviderRequest = {
           model,
           system: systemPrompt,

@@ -202,6 +202,7 @@ export function formatStats(ctx: CommandContext): string {
       cacheRead: cost.cacheReadInputTokens,
       cacheWrite: cost.cacheCreationInputTokens,
       estimatedCostUsd: cost.estimatedCostUsd + cost.estimatedCompactionCostUsd,
+      ...(cost.costComplete === false ? { costComplete: false } : {}),
     },
   });
 }
