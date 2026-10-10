@@ -47,16 +47,49 @@ export function resolveModelLimits(
   };
 }
 
-/** UTF-8 bytes provide a deliberately conservative text bound. This is not a
- * tokenizer claim. Image patch accounting differs across models; hosts should
- * supply inputTokenCounter for verified multimodal estimates. Provider overflow
- * recovery remains the final authority when a heuristic is insufficient. */
+export type RequestInputTokenEstimate = {
+  tokens: number;
+  /** False means image-token costs still require a host counter or provider validation. */
+  complete: boolean;
+  uncountedImages: number;
+};
+
+/** Conservative text/framing bound. Image data and remote references are
+ * transport representations, not model text tokens. No generic image-token
+ * allowance is asserted: hosts may supply a verified model-aware counter;
+ * otherwise provider validation/overflow recovery remains authoritative. */
+export function requestInputTokenEstimate(
+  messages: readonly Message[],
+  system: readonly SystemSegment[],
+  tools: readonly ToolSchema[] = [],
+): RequestInputTokenEstimate {
+  let uncountedImages = 0;
+  const textMessages = messages.map((message) => ({
+    ...message,
+    content: message.content.map((block) => {
+      if (block.type !== 'image') return block;
+      uncountedImages++;
+      // Keep framing in the bound without turning encoded bytes/URLs into text.
+      return { type: 'image' };
+    }),
+  }));
+  return {
+    tokens:
+      new TextEncoder().encode(JSON.stringify({ messages: textMessages, system, tools }))
+        .byteLength + 256,
+    complete: uncountedImages === 0,
+    uncountedImages,
+  };
+}
+
+/** Compatibility numeric helper. For image requests this bounds text/framing
+ * only; use requestInputTokenEstimate to retain the completeness signal. */
 export function requestInputTokenBound(
   messages: readonly Message[],
   system: readonly SystemSegment[],
   tools: readonly ToolSchema[] = [],
 ): number {
-  return new TextEncoder().encode(JSON.stringify({ messages, system, tools })).byteLength + 256;
+  return requestInputTokenEstimate(messages, system, tools).tokens;
 }
 export function assertRequestFits(
   inputTokens: number,

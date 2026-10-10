@@ -1,5 +1,18 @@
 # Testing Log
 
+## 2026-10-10 — PR34 integrates the second-review fixes
+
+Integrated final PR39 10918ef1 and its PR37/38 ancestry, plus PR42's read-only
+ambiguous-account discovery correction before the frozen gate. Existing routing
+policy serialization remains intact. The direct normalizer keeps both new
+Anthropic mode facts and existing exact native max-wire controls.
+
+Configured lint, typecheck and strict SDK build passed. The first parallel suite
+hit 26 old Date.now temporary-name/SQLite collisions with the PR42 gate. No source
+change followed. With a task-owned TMPDIR and serial execution, the full suite
+passed **5717 / 19 skip / 0 fail**, 23664 assertions across 544 files (93.25s).
+No installed update, paid inference or release was used.
+
 ## 2026-10-10 — PR34 final review fixes integration
 
 Included endpoint-scoped discovery and the exact frozen PR41 tree-budget fixes. Lint, typecheck and strict SDK build pass. Full suite: 5706 passed, 19 skipped, zero failed; 23551 assertions across 543 files (100.17 seconds). Source and regression tests are frozen for final parent ancestry alignment.
@@ -27,8 +40,31 @@ Focused checks passed **22/0**, 68 assertions: an unknown known-ID price retains
 ## 2026-10-10 — PR41 reviewed dependency integration
 
 Integrated reviewed discovery/cache and reasoning fixes. Lint, typecheck and strict SDK build pass. Full suite: 5689 passed, 19 skipped, zero failed; 23447 assertions across 541 files (111.75 seconds).
+## 2026-10-10 — PR39 third review: image accounting and immutable model evidence
+
+Resolved three Medium findings: image transport bytes no longer masquerade as input tokens; per-turn model/provider changes do not inherit another identity's standing record; model evidence is frozen before asynchronous host callbacks. Input accounting exposes incomplete image estimates in traces, preserves the image payload, accepts verified host counters, and retains provider overflow recovery. Merged reviewed PR38 native Anthropic controls with PR39 thinking-budget caps intact.
+
+Configured lint, typecheck, strict SDK build and full tests pass: **5672 passed / 19 existing skips / zero failed**, 23424 assertions across 539 files (89.90s). Focused image/model-evidence checks passed 17 tests / 83 assertions. The initial combined gate caught a missing public type-surface witness; this gate includes its correction. The PNG fixture has valid chunk CRCs. Independent review closed the image and metadata findings. No paid inference or installed changes.
+
 
 ## 2026-10-10 — PR37 ancestor cache fixes integration
+
+## 2026-10-10 — PR38 native Anthropic thinking/effort final validation
+
+- Scope: final second-review adapter fix plus official PR37 Anthropic capabilities. Separates output_config.effort support from enabled token-budget thinking. Unsupported native effort parameter retains verified enabled budgets, or adaptive off/high toggle without invented depth.
+- Environment: isolated source, Bun1.3.13, fixture credentials; no paid requests or runtime install.
+- Commands: focused `bun test tests/providers/modelReasoning.test.ts tests/providers/anthropic.test.ts tests/providers/models/direct.test.ts`; `bun run lint && bun run typecheck && bun run build:sdk && bun run test`.
+- Result: focused34pass/0fail/226assertions. Full5655pass/19existing skips/0fail,23341assertions536files93.02seconds. Lint, typecheck and strictSDKbuild passed. Independent catalog reviewer found no additional above-Low issue in adapter/helper changes.
+
+
+## 2026-10-10 — PR38 second-review Anthropic request controls
+
+- Scope: metadata-aware native Anthropic menu/request agreement; published modes and levels for future IDs, unsupported/no-depth/mode-none rejection before fetch, partial legacy compatibility, adaptive exact output cap. Includes PR37 official-field source patch.
+- Environment: isolated source worktree, Bun1.3.13, fixture credentials; no paid inference, live configuration or installed runtime changes.
+- Commands: `bun test tests/providers/modelReasoning.test.ts tests/providers/anthropic.test.ts tests/providers/models/direct.test.ts` then `bun run lint && bun run typecheck && bun run build:sdk && bun run test`.
+- Result: focused33pass/0fail/214assertions. Full5654pass/19existing skip/0fail,23329assertions536files98.58seconds. Lint/typecheck/strictSDKbuild passed.
+- Follow-up: review distinguished Anthropic output_config.effort support from enabled thinking token-budget support; a separate semantic follow-up validation will cover that distinction before push.
+
 
 Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typecheck and strict SDK build pass. Full suite: 5643 passed, 19 skipped, zero failed; 23183 assertions across 535 files (91.44 seconds).
 
@@ -129,6 +165,33 @@ Fresh exact-model reasoning metadata now selects completion-token limits and omi
 Scope: exact direct/routed Grok depth, Kimi binary switch, metadata-driven future IDs, route validation, immutable per-turn metadata, unknown/stale refusal and refreshed-unknown compatibility. No paid provider requests or installed upgrade. Focused provider/route tests passed (101 cases); five new reasoning fixtures cover actual wire bodies and omitted-off choices. The former Kimi non-reasoning fixture now uses GPT4o.
 
 Final exact #26 dependency-stack gate: `bun run lint && bun run typecheck && bun run test` passed **5644 / 19 existing skips / zero failures**, 23183 assertions across 536 files. Earlier runs exposed an obsolete Kimi expectation, a local moved-file test-runner ENOENT and one unrelated plugin shell timeout; each was corrected or rechecked. The isolated shell fixture passed 5/5, then the unchanged frozen full gate passed. Snapshot/unknown metadata fixtures are offline evidence, not live-account certification.
+## 2026-10-10 — PR37 separate output-effort and thinking controls
+
+Follow-up contract review confirmed that Anthropic output_config.effort support
+is independent of thinking.type=enabled with budget_tokens. Discovery now keeps
+that published boolean as anthropicEffortSupported through the validated cache.
+A budget-only model can advertise thinking while rejecting output effort;
+PR38's adapter can preserve that distinction without guessing from its ID.
+
+Focused catalog/direct checks passed **16/0**, 78 assertions. Frozen configured
+lint, typecheck, strict SDK build and full tests passed **5645 / 19 skip / 0 fail**,
+23200 assertions across 535 files (94.17s). No inference, credentials, installation
+or release was used. Prior test records remain intact.
+
+## 2026-10-10 — PR37 second review: published Anthropic controls
+
+The second review confirmed that direct discovery dropped official Anthropic
+per-level effort flags and thinking modes. The normalizer now carries published
+levels and exact enabled/adaptive mode support for new IDs. The cache boundary
+keeps the known fields and rejects malformed mode arrays. Missing metadata stays
+unknown. PR38 owns the matching transport implementation.
+
+Validation: catalog/direct focused **15 pass / 0 fail**, 72 assertions; catalog/
+OpenRouter cross-review **13 pass / 0 fail**, 44 assertions. An initial fixture
+missing its normalizer import and Bun fetch type cast was corrected before the
+gate. Configured lint, typecheck, strict SDK build and full suite all passed:
+**5644 pass / 19 skip / 0 fail**, 23194 assertions across 535 files (98.50s).
+No inference, live account data, installed update or release was used.
 
 ## 2026-10-10 — PR37 review fix: unsupported subscription discovery stays unavailable
 
