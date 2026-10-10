@@ -33,6 +33,8 @@ export type ProviderRequest = {
    * reasoning capability). Absent or `off` ⇒ a byte-identical request.
    */
   effort?: ReasoningEffort;
+  /** Exact route/model metadata snapshot for this request. */
+  modelMetadata?: import('./models/types.js').ModelRecord;
   signal?: AbortSignal;
   cacheEnabled?: boolean;
 };

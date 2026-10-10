@@ -1,3 +1,15 @@
+## 2026-10-10 — PR38 fifth review: reject effort before paid reduction
+
+Confirmed Medium: direct SDK query/createAgent invoked contextManager.reduce before the provider rejected metadata-backed unsupported reasoning effort. Query now validates built-in route selections before context reduction, retaining metadata-less and custom-provider behavior. An isolated fake-provider regression fails before the fix (one reduction) and passes after it (zero reductions and zero fetches). Independent host reviewer closed the finding with the same regression: 1 passed / 0 failed / 4 assertions.
+
+Focused reasoning/preflight: 11 passed / zero failed / 140 assertions. The first gate attempt identified two regression-only TypeScript typing errors; corrected before the complete rerun. Final lint, typecheck and strict SDK build pass. Every discovered test file executed using per-branch TMPDIR, serialized global compiler fixture and isolated existing theme/footer fixture: **5657 passed / 19 existing skips / zero failed**, 23365 assertions across 537 files. No paid inference, runtime install, learning settings or host configuration changes.
+
+## 2026-10-10 — PR38 fourth review: inherit frozen discovery identity
+
+Integrated PR37 commit `7549c910` through an ordinary feature-branch merge. Endpoint, authorization and account/normalizer identity remain captured at construction. No additional source changes were required on this branch.
+
+`bun run lint`, `bun run typecheck` and strict `bun run --cwd packages/sdk build` pass. The complete gate executes every discovered test file with a branch-specific TMPDIR; the global temporary-compiler fixture is serialized and the shared-theme footer fixture runs in its own process. Final result: **5656 passed / 19 existing skips / zero failed**, 23361 assertions across 536 files. The first alphabetic all-file attempt failed one existing footer-color assertion due to shared theme state; standalone footer checks and the final complete isolated gate pass. No test was skipped to avoid that issue, and no production/test source was changed for it. No paid inference, installed runtime or host configuration changes.
+
 ## 2026-10-10 — PR37 fourth review: freeze direct discovery identity
 
 **Scope:** A confirmed High issue coupled headers captured at construction with a provider/endpoint read from mutable host options during refresh. Direct sources now capture the provider, endpoint, API key and account identity together. The regression repurposes the options before refresh and again during a two-page fetch for both OpenAI and Anthropic; endpoint, headers and normalized route remain tied to the original account.
@@ -8,10 +20,52 @@
 
 ## 2026-10-10 — PR37 ancestor cache fixes integration
 
+## 2026-10-10 — PR38 native Anthropic thinking/effort final validation
+
+- Scope: final second-review adapter fix plus official PR37 Anthropic capabilities. Separates output_config.effort support from enabled token-budget thinking. Unsupported native effort parameter retains verified enabled budgets, or adaptive off/high toggle without invented depth.
+- Environment: isolated source, Bun1.3.13, fixture credentials; no paid requests or runtime install.
+- Commands: focused `bun test tests/providers/modelReasoning.test.ts tests/providers/anthropic.test.ts tests/providers/models/direct.test.ts`; `bun run lint && bun run typecheck && bun run build:sdk && bun run test`.
+- Result: focused34pass/0fail/226assertions. Full5655pass/19existing skips/0fail,23341assertions536files93.02seconds. Lint, typecheck and strictSDKbuild passed. Independent catalog reviewer found no additional above-Low issue in adapter/helper changes.
+
+
+## 2026-10-10 — PR38 second-review Anthropic request controls
+
+- Scope: metadata-aware native Anthropic menu/request agreement; published modes and levels for future IDs, unsupported/no-depth/mode-none rejection before fetch, partial legacy compatibility, adaptive exact output cap. Includes PR37 official-field source patch.
+- Environment: isolated source worktree, Bun1.3.13, fixture credentials; no paid inference, live configuration or installed runtime changes.
+- Commands: `bun test tests/providers/modelReasoning.test.ts tests/providers/anthropic.test.ts tests/providers/models/direct.test.ts` then `bun run lint && bun run typecheck && bun run build:sdk && bun run test`.
+- Result: focused33pass/0fail/214assertions. Full5654pass/19existing skip/0fail,23329assertions536files98.58seconds. Lint/typecheck/strictSDKbuild passed.
+- Follow-up: review distinguished Anthropic output_config.effort support from enabled thinking token-budget support; a separate semantic follow-up validation will cover that distinction before push.
+
+
 Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typecheck and strict SDK build pass. Full suite: 5643 passed, 19 skipped, zero failed; 23183 assertions across 535 files (91.44 seconds).
 
 # Testing Log
 
+## 2026-10-10 — PR38 independent rereview R2: fresh verified-model constraints
+
+Closed Medium R2: built-in verified Grok controls no longer override fresh exact-model effort restrictions or wire values. Current effort lists intersect established model constraints; metadata wire mappings take effect. Partial/stale evidence retains established fallback, and known Kimi controls remain binary despite generic publisher depth flags. Route/menu/wire fixtures cover native Grok, routed Grok and Kimi, including unsupported low/max refusal before fetch. Independent host rereview closed the finding with no new Medium issues.
+
+Focused reasoning fixtures: 9 pass / 0 fail, 106 assertions. An initial typecheck caught the fake-fetch fixture's Bun-specific function cast; corrected before the frozen gate. `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5652 pass / 19 existing skips / 0 fail, 23294 assertions across 536 files (91.06 seconds). No paid inference, installed upgrade or release.
+
+## 2026-10-10 — PR38 reviewed dependency integration
+
+Integrated PR35 cache-freshness/bounded-port corrections and PR37 unavailable-subscription correction with PR38's reasoning compatibility fix. Retained both append-only test histories and the source-property whitelist fixture. Offline catalog/direct/reasoning checks passed 22 / 0 with 138 assertions. Frozen `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5651 pass / 19 existing skips / 0 fail, 23265 assertions across 536 files (90.61 seconds). No paid inference, installed upgrade or release.
+
+## 2026-10-10 — PR38 review: preserve established controls after catalog refresh
+
+Closed a Medium finding: positive OpenRouter reasoning capability with omitted depth fields removed existing effort choices and stopped sending the real `off` switch. The shared route/wire compatibility rule now preserves established adapters when discovery supplies no replacement control facts. Explicit unsupported evidence and narrower controls remain authoritative; unknown future IDs stay conservative. Offline normalizer-to-menu-to-wire fixtures cover GLM 5.2, Claude Sonnet 4.5 and GPT-5, stale snapshots, unsupported evidence, binary overrides and future unknown IDs.
+
+Focused reasoning fixtures: 8 pass / 0 fail, 77 assertions. Frozen `bun run lint && bun run typecheck && bun run test` passed: 5647 pass / 19 existing skips / 0 fail, 23238 assertions across 536 files (93.28 seconds). `bun run build:sdk` also passed. No paid inference, installed upgrade, release or dependency-branch propagation.
+
+## 2026-10-10 — Future OpenAI reasoning request shape (#27 review)
+
+Fresh exact-model reasoning metadata now selects completion-token limits and omits temperature for IDs outside the legacy families. The synthetic future-ID wire fixture passed. `bun run lint && bun run typecheck && bun run test` passed: 5645 pass / 19 existing skips / 0 fail, 23187 assertions across 536 files. An initial lint run caught local formatting and was corrected before the frozen full gate. No paid inference or installed upgrade.
+
+## 2026-10-10 — Model-aware reasoning controls (#27)
+
+Scope: exact direct/routed Grok depth, Kimi binary switch, metadata-driven future IDs, route validation, immutable per-turn metadata, unknown/stale refusal and refreshed-unknown compatibility. No paid provider requests or installed upgrade. Focused provider/route tests passed (101 cases); five new reasoning fixtures cover actual wire bodies and omitted-off choices. The former Kimi non-reasoning fixture now uses GPT4o.
+
+Final exact #26 dependency-stack gate: `bun run lint && bun run typecheck && bun run test` passed **5644 / 19 existing skips / zero failures**, 23183 assertions across 536 files. Earlier runs exposed an obsolete Kimi expectation, a local moved-file test-runner ENOENT and one unrelated plugin shell timeout; each was corrected or rechecked. The isolated shell fixture passed 5/5, then the unchanged frozen full gate passed. Snapshot/unknown metadata fixtures are offline evidence, not live-account certification.
 ## 2026-10-10 — PR37 separate output-effort and thinking controls
 
 Follow-up contract review confirmed that Anthropic output_config.effort support

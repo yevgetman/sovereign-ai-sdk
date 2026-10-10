@@ -62,6 +62,31 @@ export function validateModelRecords(
         ))
     )
       return undefined;
+    if (
+      row.anthropicThinkingModes !== undefined &&
+      (!Array.isArray(row.anthropicThinkingModes) ||
+        row.anthropicThinkingModes.some(
+          (mode: unknown) => !['enabled', 'adaptive'].includes(String(mode)),
+        ))
+    )
+      return undefined;
+    if (
+      row.anthropicEffortSupported !== undefined &&
+      typeof row.anthropicEffortSupported !== 'boolean'
+    )
+      return undefined;
+    if (row.reasoningControl !== undefined) {
+      const control = row.reasoningControl;
+      if (
+        !control ||
+        !['openrouter', 'openai', 'xai'].includes(control.parameter) ||
+        typeof control.disableSupported !== 'boolean' ||
+        (control.binary !== undefined && typeof control.binary !== 'boolean') ||
+        (control.maxWireValue !== undefined &&
+          !['low', 'medium', 'high', 'xhigh', 'max'].includes(control.maxWireValue))
+      )
+        return undefined;
+    }
     if (row.pricing) {
       if (
         row.pricing.currency !== 'USD' ||
@@ -124,24 +149,11 @@ export function validateModelRecords(
           }
         : undefined,
     };
-    if (row.anthropicEffortSupported !== undefined) {
-      if (typeof row.anthropicEffortSupported !== 'boolean') return undefined;
-      model.anthropicEffortSupported = row.anthropicEffortSupported;
-    }
-    if (row.anthropicThinkingModes !== undefined) {
-      if (
-        !Array.isArray(row.anthropicThinkingModes) ||
-        row.anthropicThinkingModes.some(
-          (mode: unknown) => !['enabled', 'adaptive'].includes(String(mode)),
-        )
-      )
-        return undefined;
-      model.anthropicThinkingModes = [...new Set(row.anthropicThinkingModes)] as (
-        | 'enabled'
-        | 'adaptive'
-      )[];
-    }
     // Recognized additive control fields are kept, arbitrary source fields are not.
+    if (row.anthropicEffortSupported !== undefined)
+      Object.assign(model, { anthropicEffortSupported: row.anthropicEffortSupported });
+    if (row.anthropicThinkingModes !== undefined)
+      Object.assign(model, { anthropicThinkingModes: [...row.anthropicThinkingModes] });
     if (row.toolChoices !== undefined) {
       if (
         !Array.isArray(row.toolChoices) ||
@@ -150,6 +162,14 @@ export function validateModelRecords(
         return undefined;
       Object.assign(model, { toolChoices: [...row.toolChoices] });
     }
+    if (
+      row.anthropicThinkingModes !== undefined &&
+      (!Array.isArray(row.anthropicThinkingModes) ||
+        row.anthropicThinkingModes.some(
+          (mode: unknown) => !['enabled', 'adaptive'].includes(String(mode)),
+        ))
+    )
+      return undefined;
     if (row.reasoningControl !== undefined) {
       const control = row.reasoningControl;
       if (
