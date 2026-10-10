@@ -23,6 +23,13 @@ Resolved three Medium findings: image transport bytes no longer masquerade as in
 
 Configured lint, typecheck, strict SDK build and full tests pass: **5672 passed / 19 existing skips / zero failed**, 23424 assertions across 539 files (89.90s). Focused image/model-evidence checks passed 17 tests / 83 assertions. The initial combined gate caught a missing public type-surface witness; this gate includes its correction. The PNG fixture has valid chunk CRCs. Independent review closed the image and metadata findings. No paid inference or installed changes.
 
+## 2026-10-10 — PR37 fourth review: freeze direct discovery identity
+
+**Scope:** A confirmed High issue coupled headers captured at construction with a provider/endpoint read from mutable host options during refresh. Direct sources now capture the provider, endpoint, API key and account identity together. The regression repurposes the options before refresh and again during a two-page fetch for both OpenAI and Anthropic; endpoint, headers and normalized route remain tied to the original account.
+
+**Environment and commands:** macOS, Bun 1.3.13; injected fetch and fake credentials only. `bun test tests/providers/models/direct.test.ts`: 8 passed, 0 failed, 67 assertions. `bun run lint`, `bun run typecheck` and `bun run --cwd packages/sdk build` pass. `TMPDIR=/private/tmp/sdk-fourth-37-tmp bun run test`: 5646 passed, 19 existing skips, 0 failed; 23220 assertions across 535 files (91.67 seconds).
+
+**Manual coverage and limits:** Isolated pre-fix reproduction observed an OpenAI fake bearer credential addressed to the xAI endpoint after caller mutation. No real credentials, paid inference, host configuration, runtime installation or learning-loop settings changed. No new regression observed; the prior account-isolation, native capability and cache contracts remain intact.
 
 ## 2026-10-10 — PR37 ancestor cache fixes integration
 
@@ -7969,3 +7976,9 @@ Mac cross-compilation can retain an invalid upstream Bun signature. Both final M
 Merged PR #8 (Decorum retired, conduct port stays empty) and PR #7 (headless subscription loop). SDK `.` entry gains toolset helpers, `loadSubscriptionProvider`, and the subscription error types, so the SDK moves 0.10.3 → 0.11.0. The harness moves 0.6.73 → 0.6.74.
 
 On the rebased subscription branch, before the version bump: `bun run typecheck` pass, `bun run lint` pass (biome + boundary, 203 modules), `bun test` 5404 pass / 31 skip / 0 fail (5435 tests, 515 files, 93.40s). PR #7 CI run 37501465646: lint + boundary + typecheck pass, open packages pass. Master CI for the PR #8 merge, run 37500573636, both jobs pass.
+
+## 2026-10-10 — Fourth review pass, PR #41
+
+Fixed Medium auxiliary compaction usage loss. Shared accumulation preserves split input/cache usage and the final cumulative output count. Isolated native-stream regression verifies a complete immutable receipt.
+
+Lint, type checking, strict SDK build and all discovered tests passed: 5703 passed, 19 existing skips, zero failures, 23561 assertions across 542 files. The global compile fixture ran under a lock; the existing footer theme fixture ran in an isolated process after the sorted full run exposed shared theme state. All test files remained covered. No live inference or learning soak performed.

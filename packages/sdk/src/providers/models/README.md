@@ -43,7 +43,9 @@ Arbitrary response/cache fields are removed before records reach host output.
 
 `createDirectModelSource({provider, apiKey, accountId})` accepts only caller-
 authorized credentials. It never looks in the environment or host files. The
-non-secret account ID isolates caches. Anthropic and OpenAI use their documented
+non-secret account ID isolates caches. The source captures provider, endpoint,
+authorization and account identity at construction; reusing the caller options
+object cannot redirect an existing source or its credentials. Anthropic and OpenAI use their documented
 models endpoints; xAI uses its language-model catalog for modality metadata.
 Missing provider fields stay unknown. Available IDs from an authenticated list
 are account-listed availability, not proof of a successful generation request.
