@@ -870,7 +870,7 @@ describe('openrouter lane (unified reasoning + usage drift fixes, 2026-08-03)', 
   test('non-gated model ⇒ byte-identical body (no reasoning key), at any effort', () => {
     const provider = new OpenAIProvider({ apiKey: 'sk-or-test', name: 'openrouter' });
     const nonReasoning = provider.buildKwargs({
-      model: 'moonshotai/kimi-k2.5',
+      model: 'openai/gpt-4o',
       system: [],
       messages: [],
       maxTokens: 100,
@@ -878,7 +878,7 @@ describe('openrouter lane (unified reasoning + usage drift fixes, 2026-08-03)', 
     });
     expect(nonReasoning.reasoning).toBeUndefined();
     const nonReasoningOff = provider.buildKwargs({
-      model: 'moonshotai/kimi-k2.5',
+      model: 'openai/gpt-4o',
       system: [],
       messages: [],
       maxTokens: 100,

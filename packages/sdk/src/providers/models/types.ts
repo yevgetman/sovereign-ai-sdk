@@ -21,10 +21,19 @@ export interface ModelRecord {
   contextWindow?: number | undefined;
   maxOutputTokens?: number | undefined;
   efforts?: ReasoningEffort[] | undefined;
-  /** Exact advertised Anthropic thinking modes; empty means neither mode is accepted. */
+  /** Native Anthropic modes explicitly published by its model API. */
   anthropicThinkingModes?: ('enabled' | 'adaptive')[] | undefined;
-  /** Whether output_config.effort is accepted; distinct from budget_tokens thinking. */
+  /** Whether native output_config.effort is supported, separate from thinking budgets. */
   anthropicEffortSupported?: boolean | undefined;
+  /** Verified adapter mapping. Capability=true alone does not establish depth controls. */
+  reasoningControl?:
+    | {
+        parameter: 'openrouter' | 'openai' | 'xai';
+        disableSupported: boolean;
+        binary?: boolean;
+        maxWireValue?: string;
+      }
+    | undefined;
   pricing?:
     | {
         inputPerMillion?: number | undefined;

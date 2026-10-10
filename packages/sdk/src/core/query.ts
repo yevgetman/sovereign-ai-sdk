@@ -30,6 +30,8 @@ import { LoopDetectorState } from '../loop/detector.js';
 import { toToolSchemas } from '../mcp/schemaSerialization.js';
 import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
 import { PersistBeforeRunError, isContextOverflowError } from '../providers/errors.js';
+import { listRoutes } from '../providers/routes/catalog.js';
+import { validateRouteSelection } from '../providers/routes/validate.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { type TurnSummary, detectStall } from '../util/stall.js';
@@ -115,6 +117,7 @@ function flattenContentBlock(block: unknown): string {
 
 /** Run one user turn, including provider streaming and tool-use continuation turns. */
 export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | Message, Terminal> {
+  const modelMetadata = params.modelMetadata ? structuredClone(params.modelMetadata) : undefined;
   const {
     provider,
     model,
@@ -391,6 +394,15 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     for (;;) {
       let providerStarted = false;
       try {
+        // Reject an impossible metadata-backed selection before a host can pay
+        // for reduction. Custom and metadata-less providers keep their contract.
+        if (modelMetadata && effort !== undefined) {
+          const route = listRoutes().find(
+            (candidate) =>
+              candidate.id === modelMetadata.routeId && candidate.provider === provider.name,
+          );
+          if (route) validateRouteSelection(route, { model, effort, modelMetadata });
+        }
         if (params.contextManager || params.contextLimits) {
           if (!params.contextManager || !params.contextLimits) {
             throw new ContextManagementError('contextManager requires contextLimits');
@@ -419,6 +431,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           maxTokens,
           ...(temperature !== undefined ? { temperature } : {}),
           ...(effort !== undefined ? { effort } : {}),
+          ...(modelMetadata !== undefined ? { modelMetadata } : {}),
           ...(signal ? { signal } : {}),
           cacheEnabled,
         })) {
