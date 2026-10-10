@@ -1,5 +1,11 @@
 # Testing Log
 
+## 2026-10-10 — PR42 review fix: custom OpenRouter endpoint isolation
+
+Addressed review C4 (Medium). A custom OpenRouter-compatible base URL now uses an endpoint-hashed unavailable discovery source and cannot inherit official public model limits, capabilities or prices. Absent or canonical official HTTPS API URLs (including trailing slash) retain public discovery. Custom refresh performs no fetch. Async/synchronous cache reads, endpoint isolation and query/fragment/userinfo/protocol/path exclusions are covered.
+
+Validation: `bun run lint && bun run typecheck && bun run build && bun run test` passed: **5691 pass / 19 skip / 0 fail**, 23422 assertions across 542 files (101.97s). Focused machine-catalog tests and two independent reviews passed: **7 pass / 0 fail**, 53 assertions. No paid inference, credentials or installed state changed.
+
 ## 2026-10-10 — route-scoped machine model discovery (#32)
 
 Added version-1 bounded `sov models`, opt-in refresh, account-isolated disk snapshots, author/search/pagination, safe invalid-query errors and additive capabilities discovery. Shared synchronous snapshots and async reads both mark noncurrent catalogs stale. Root and independent catalog-agent review found and fixed state-freshness and offline author-filter inconsistencies.

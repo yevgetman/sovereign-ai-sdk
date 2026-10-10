@@ -134,3 +134,9 @@ and cross-process credential coordination. They do not prove account eligibility
 Live proof still needs authorized keys for all API routes and eligible ChatGPT/Grok
 logins, followed by subscription tool cycles and resumed turns. Do not infer this
 proof from local credential presence or a mock provider.
+
+Custom OpenRouter-compatible endpoints do not reuse the official public catalog.
+Their model metadata remains unknown until a caller provides endpoint-specific
+evidence. Cache identity includes a nonsecret endpoint hash. Absent `baseUrl` or
+the official `https://openrouter.ai/api/v1` (with an optional trailing slash) keeps
+public discovery available. A custom-endpoint refresh does not fetch or infer.
