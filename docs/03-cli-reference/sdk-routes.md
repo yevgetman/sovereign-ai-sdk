@@ -38,10 +38,30 @@ imported. Claude subscriptions are not supported by this host.
 ```sh
 sov capabilities --json
 sov routes --json
+sov models --route openrouter-api --json
+sov models --route openrouter-api --refresh --json --limit 50
+sov models --route openrouter-api --json --author anthropic --search sonnet
 sov auth status --route chatgpt-subscription --json
 ```
 
-Each command emits one JSON object with `schemaVersion: 1`. Status is read-only:
+Each command emits one JSON object with `schemaVersion: 1`. Model reads use the local
+validated snapshot, with offline bundled suggestions when none is available. Only
+`models --refresh` requests provider metadata. It never starts inference or refreshes
+subscription tokens. Public OpenRouter discovery needs no key. Direct API discovery
+uses the first configured account selected by environment/config precedence. A credential
+pool's other accounts can have different model availability; this is not their combined catalog. Subscription suggestions do not prove entitlement.
+
+`models` separates authentication route, model author and inference host. Author filtering
+does not select the host. Results retain exact IDs, capability uncertainty, metadata age,
+context/output limits and pricing provenance. Pagination uses `--offset` (0–1000000) and
+`--limit` (1–100), with `nextOffset: null` on the last page. Filters are limited to 256
+characters. Invalid options return a safe error with exit code 2. Cache files live under
+the active SOV profile's `model-catalog/` directory; credentials are never stored there.
+Account-scoped caches do not borrow another account's catalog. Failed refreshes preserve
+stale metadata and exact configured model IDs. Use `capabilities.modelDiscovery` to
+check this additive machine interface without changing the existing route contract.
+
+Status is read-only:
 it does not call the provider, refresh tokens, open a browser or write credentials.
 `credentialState` is `missing`, `present`, `expired`, `unreadable` or `unavailable`.
 An expired token with a refresh token reports `refreshable: true`.
@@ -114,3 +134,9 @@ and cross-process credential coordination. They do not prove account eligibility
 Live proof still needs authorized keys for all API routes and eligible ChatGPT/Grok
 logins, followed by subscription tool cycles and resumed turns. Do not infer this
 proof from local credential presence or a mock provider.
+
+Custom OpenRouter-compatible endpoints do not reuse the official public catalog.
+Their model metadata remains unknown until a caller provides endpoint-specific
+evidence. Cache identity includes a nonsecret endpoint hash. Absent `baseUrl` or
+the official `https://openrouter.ai/api/v1` (with an optional trailing slash) keeps
+public discovery available. A custom-endpoint refresh does not fetch or infer.

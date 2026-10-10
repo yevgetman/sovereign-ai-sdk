@@ -1,5 +1,16 @@
 # Testing Log
 
+## 2026-10-10 — PR42 final parent integration and pricing gate
+
+Integrated authoritative reviewed PR41 `08b87cdf` (including final PR40 ancestry). Retained both testing histories and the new tree-budget documentation. All functional tracked files match the independently tested frozen tree exactly; source digest `43777b8e2ade3f10c604e0b7a5172e77ef8bbc9d3f8dc16a6398622ca37a669d`. Only documentation changed after that gate.
+
+Validation: `bun run lint && bun run typecheck && bun run build && bun run test` passed on the exact combined source: **5701 pass / 19 skip / 0 fail**, 23534 assertions across 542 files (96.73s). Lint rerun before the final merge commit. Custom endpoint isolation and immutable/unknown tree tariffs were independently reviewed. No paid inference, installed upgrade or release.
+
+## 2026-10-10 — PR42 inherits the reviewed discovery/reasoning parent
+
+Integrated final PR38 `1fc9d8ed`, including unavailable-subscription reporting, stale-cache persistence, bounded cache ports and verified reasoning restrictions. Runtime source merged without conflicts; retained both testing histories and normalized the Testing Log heading before its entries.
+
+Validation: frozen `bun run lint && bun run typecheck && bun run build && bun run test` passed: **5698 pass / 19 skip / 0 fail**, 23529 assertions across 542 files (90.44s). Tested tree `cf64f92039f64752a5dbc540ab233d5746ad78c5`; only this log entry followed the gate, with lint rerun. No paid inference or installed upgrade.
 ## 2026-10-10 — PR #41 review: unknown and immutable tree pricing
 
 Cross-review found two Medium tree-budget defects. An explicit model record with unknown prices could fall back to the built-in table and release its host cost reservation. Settlement also read mutable model identity and prices after the stream, allowing a cache update to reprice a completed call. The wrapper now captures provider/model identity and immutable tariff evidence before the host estimator or any provider await. Unknown prices retain the host upper bound and mark the cost incomplete. Metadata-absent callers keep the established table and implicit cache-rate behavior.
@@ -14,6 +25,17 @@ Integrated reviewed discovery/cache and reasoning fixes. Lint, typecheck and str
 
 Merged the reviewed PR35 cache fixes with PR37 subscription discovery. Lint, typecheck and strict SDK build pass. Full suite: 5643 passed, 19 skipped, zero failed; 23183 assertions across 535 files (91.44 seconds).
 
+## 2026-10-10 — PR42 review fix: custom OpenRouter endpoint isolation
+
+Addressed review C4 (Medium). A custom OpenRouter-compatible base URL now uses an endpoint-hashed unavailable discovery source and cannot inherit official public model limits, capabilities or prices. Absent or canonical official HTTPS API URLs (including trailing slash) retain public discovery. Custom refresh performs no fetch. Async/synchronous cache reads, endpoint isolation and query/fragment/userinfo/protocol/path exclusions are covered.
+
+Validation: `bun run lint && bun run typecheck && bun run build && bun run test` passed: **5691 pass / 19 skip / 0 fail**, 23422 assertions across 542 files (101.97s). Focused machine-catalog tests and two independent reviews passed: **7 pass / 0 fail**, 53 assertions. No paid inference, credentials or installed state changed.
+
+## 2026-10-10 — route-scoped machine model discovery (#32)
+
+Added version-1 bounded `sov models`, opt-in refresh, account-isolated disk snapshots, author/search/pagination, safe invalid-query errors and additive capabilities discovery. Shared synchronous snapshots and async reads both mark noncurrent catalogs stale. Root and independent catalog-agent review found and fixed state-freshness and offline author-filter inconsistencies.
+
+`bun run lint && bun run typecheck && bun run test` pass: **5690 pass / 19 skip / 0 fail**, 23393 assertions across 542 files (91.49s), on exact PR #41 parent `cdab5c67`. The strict package build also passed. Focused source-CLI/cache fixtures pass 7/0, including network refusal on offline reads and invalid refresh options. `bun build src/main.ts --compile --outfile /private/tmp/sov-models-contract-check` passed; compiled capabilities, routes, offline model pagination and rejected refresh pagination each emit one version-1 JSON object with expected exit status. These are offline contract checks, not live provider entitlement or Telekit UI proof.
 ## 2026-10-10 — PR40 reviewed parent integration
 
 Integrated the reviewed discovery and reasoning corrections from PR38 into the modality-validation branch. Preserved image/tool fixtures and additive review records. Frozen `bun run lint && bun run typecheck && bun run build:sdk && bun run test` passed: 5674 pass / 19 existing skips / 0 fail, 23380 assertions across 539 files (112.59 seconds). No paid inference, installed upgrade or release.

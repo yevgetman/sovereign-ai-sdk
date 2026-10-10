@@ -66,13 +66,28 @@ export function normalizeDirectModel(
         : support(capability.image_input ?? capability.images),
       reasoning: rawEfforts
         ? rawEfforts.length
-          ? 'supported'
+          ? efforts?.length
+            ? 'supported'
+            : 'unknown'
           : 'unsupported'
         : support(capability.thinking ?? capability.reasoning),
     },
     contextWindow: positiveNumber(row.max_input_tokens ?? row.context_window ?? row.context_length),
     maxOutputTokens: positiveNumber(row.max_tokens ?? row.max_output_tokens),
     efforts: efforts?.length ? ['off', ...efforts] : undefined,
+    ...(efforts?.length && (provider === 'openai' || provider === 'xai')
+      ? {
+          reasoningControl: {
+            parameter: provider,
+            disableSupported: false,
+            ...(rawEfforts?.includes('xhigh')
+              ? { maxWireValue: 'xhigh' }
+              : rawEfforts?.includes('max')
+                ? { maxWireValue: 'max' }
+                : {}),
+          },
+        }
+      : {}),
     // An authenticated model-list response proves listed availability, not that
     // a particular generation endpoint/account will execute a request.
     availability: 'account',
