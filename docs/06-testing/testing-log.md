@@ -1,5 +1,35 @@
 # Testing Log
 
+## 2026-10-10 — PR35 review fixes: cache freshness and bounded cache ports
+
+Addressed review C1 and C3 (Medium). Failed refreshes retain stale evidence in the external cache and keep a fail-safe per-instance snapshot if persistence fails. Cache reads/writes have bounded waits; serialized writes prevent a late old cache operation from overwriting a later successful refresh. Tests cover immediate second-instance reads, failed persistence, unresponsive cache ports, deduplicated retry and delayed write completion. No paid inference or installed upgrade.
+
+Validation: `bun run lint && bun run typecheck && bun run test` passed: **5633 pass / 19 skip / 0 fail**, 23133 assertions across 533 files (93.07s). Targeted catalog regressions: 8 pass / 0 fail. SDK package build passed.
+
+## 2026-10-10 — portable model catalog contract (#24)
+
+Scope: version-1 portable records, explicit refresh/offline read, injected memory/cache/fetch ports, stale/unknown metadata and runtime boundary validation. No credentials, disk defaults or paid inference.
+
+Validation: `bun run lint && bun run typecheck && bun run test` passed (5632 pass / 19 skip / 0 fail); targeted catalog/surface checks; `bun run build:sdk`; local `npm pack --ignore-scripts` and imports of the packed discovery module in Node and Bun passed. Worktree-only missing debug-console dependencies and TUI fixture were restored; additive SDK surface snapshot updated. A donor-workspace test attempt was superseded by a full run after `bun install --frozen-lockfile` in this worktree.
+
+
+## 2026-10-10 — Provider/model gap report and issue register
+
+Documentation-only assessment at source f2b59e617e4c4a220428a53e194b5062e52358d5 and installed SOV 0.6.76. The formal [gap report](../../specs/2026-10-10-provider-model-discovery-gap-report.md) records source evidence, public metadata, local selection/request probes and the limits of those checks. Filed and read back all 12 open issues: SDK #24–#33, Telekit #30 and Kernel installer #176. Each has acceptance criteria and cross-repository dependencies. This does not implement the gaps or select them into the active release roster.
+
+On macOS arm64, the configured commands `bun run lint`, `bun run typecheck` and `bun run test` pass: **5625 pass / 19 existing skips / zero fail**, 23098 assertions across 532 files (90.34s). Lint includes the boundary check. Report links and `git diff --check` pass. No runtime source, default, credentials, published version, installed binary or active session changed. Existing behavior tests do not prove the newly proposed capabilities; each issue defines its own closure checks.
+
+
+
+## 2026-10-10 — SDK planned-version manifest and source validation
+
+Owner requested PR23 merge and the runtime/installer release planning process for the SDK. Exact head ece3d67356a406aac841c7732b88af1c1049732f passed all six PR CI checks and merged as1b91237a4f51642ed76d2737d893412338f69c7d into master. New v4 draft selects that merge once for SDK0.13.1 / CLI0.6.77. Published SDK0.13.0 / CLI0.6.76 baseline was verified using downloaded checksums, SDK package manifest and arm64 CLI build-source metadata. No release or installed upgrade is claimed.
+
+Planning schemas derive from Kernel runtime's v4 contract, with an independent CLI companion version and package/platform artifact identifiers. CI's source gate now validates schemas with URI/date formats and checks version/baseline relationships, dependencies, duplicate items/units, source reachability, already-shipped units, merge mainline and mapping references. Cut assembly/freeze/publication remain the shared release-manifest lifecycle's separate operator gates. The documentation links product records and existing SDK/CLI QA procedures without authorizing npm or bypassing publication evidence.
+
+Twelve isolated regression cases cover valid/dormant drafts, bad versions/dates, dependency cycles, duplicate IDs/SHAs, baseline drift, missing QA, invalid preparation/mappings, YAML key order and source/merge provenance failures. Fixtures are independent of the active roster so a later rollover does not break these tests. First typecheck exposed a misplaced suppression directive on a multiline JavaScript import; added an explicit declaration file and removed the directive. Final configured gate passes lint/boundary, types and **5625 tests /19 existing skips /zero fail**,23098 assertions across532files (90.91s). Active release validation passes; frozen install is unchanged; advisory audit reports zero. New guide links and whitespace checks pass. Existing README sibling-repo links require a checkout beside sovereign-ai-docs and are absent only in this temporary worktree layout.
+
+
 ## 2026-10-09 — Live-turn evidence and failed delegation diagnostics
 
 Read-only observation of an attended installed SOV0.6.75 turn and three recent parent sessions. Resolve invocations by session_start/session_end, rather than treating persisted session age as one latency. During a4.5-minute fixed observation window, message rows advanced77→91, CPU mostly0–1.5% and sampled RSS71–99MiB; the process continued to make progress. Model first-token time was about1.45s median, cached input share about89%, and generation/tool work dominated wall time. Samples are not a memory/capacity certificate or task-quality benchmark. No active turn was stopped, steered, restarted, upgraded or configured.
