@@ -1,10 +1,10 @@
 // Skill guard scanner. Phase 9.5 blocks high-risk third-party skill content
 // before it reaches the prompt or gets written as an agent-created skill.
 
-import { constants } from 'node:fs';
-import { open, opendir, realpath, stat } from 'node:fs/promises';
+import { opendir, realpath } from 'node:fs/promises';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { DEFAULT_SKILL_DISCOVERY_LIMITS, isPathWithin } from './discovery.js';
+import { readBoundedSkillContent } from './fileRead.js';
 import type {
   SkillGuardDecision,
   SkillGuardFinding,
@@ -193,35 +193,11 @@ async function readSkillDirectoryTexts(
       const canonical = await realpath(file);
       if (canonical !== file || !isPathWithin(dir, canonical))
         throw new Error('skill resource changed its real path');
-      const fd = await open(
-        canonical,
-        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-      );
-      try {
-        const info = await fd.stat();
-        const maxBytes = Math.min(budget.fileBytesLimit, budget.bytesRemaining);
-        if (!info.isFile() || info.size > maxBytes)
-          throw new Error('skill resource exceeds its read limit');
-        const buffer = Buffer.alloc(maxBytes + 1);
-        let length = 0;
-        while (length < buffer.length) {
-          const { bytesRead } = await fd.read(buffer, length, buffer.length - length, null);
-          if (bytesRead === 0) break;
-          length += bytesRead;
-        }
-        budget.bytesRemaining -= Math.min(length, maxBytes);
-        if (length > maxBytes) throw new Error('skill resource grew past its read limit');
-        const current = await stat(canonical);
-        if (
-          (await realpath(file)) !== canonical ||
-          current.dev !== info.dev ||
-          current.ino !== info.ino
-        )
-          throw new Error('skill resource changed while reading');
-        out.push({ file: canonical, text: buffer.subarray(0, length).toString('utf8') });
-      } finally {
-        await fd.close();
-      }
+      const maxBytes = Math.min(budget.fileBytesLimit, budget.bytesRemaining);
+      const text = await readBoundedSkillContent(file, canonical, maxBytes, (bytes) => {
+        budget.bytesRemaining -= bytes;
+      });
+      out.push({ file: canonical, text });
     }
   };
   await walk(dir, 0);
