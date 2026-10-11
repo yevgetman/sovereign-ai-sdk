@@ -175,28 +175,34 @@ export async function loadSkillRegistry(opts: LoadSkillsOptions): Promise<SkillR
 
 /** Generation and visibility are read together for stable pagination. */
 export function getSkillRegistrySnapshot(
-  ctx: Pick<ToolContext, 'skills' | 'skillRegistryManager' | 'activeToolNames' | 'activeToolsets'>,
+  ctx: Pick<
+    ToolContext,
+    'skills' | 'skillRegistryManager' | 'skillActivation' | 'activeToolNames' | 'activeToolsets'
+  >,
 ): SkillRegistrySnapshot {
   const snapshot = ctx.skillRegistryManager?.snapshot() ?? {
     generation: 0,
     registry: ctx.skills ?? { skills: [], byName: new Map() },
     diagnostics: [],
   };
-  if (ctx.activeToolNames === undefined && ctx.activeToolsets === undefined) return snapshot;
-  const names = ctx.activeToolNames ?? [];
+  const names = ctx.skillActivation?.tools.map((tool) => tool.name) ?? ctx.activeToolNames;
+  if (names === undefined && ctx.activeToolsets === undefined) return snapshot;
   return {
     ...snapshot,
     registry: filterSkillRegistry(
       snapshot.registry,
-      ctx.activeToolNames !== undefined
+      names !== undefined
         ? inferActiveToolsets(names, ctx.activeToolsets)
         : (ctx.activeToolsets ?? []),
-      names,
+      names ?? [],
     ),
   };
 }
 export function getSkillRegistry(
-  ctx: Pick<ToolContext, 'skills' | 'skillRegistryManager' | 'activeToolNames' | 'activeToolsets'>,
+  ctx: Pick<
+    ToolContext,
+    'skills' | 'skillRegistryManager' | 'skillActivation' | 'activeToolNames' | 'activeToolsets'
+  >,
 ): SkillRegistry {
   return getSkillRegistrySnapshot(ctx).registry;
 }
