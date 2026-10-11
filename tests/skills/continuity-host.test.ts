@@ -239,6 +239,46 @@ describe('SOV private skill continuity adapter', () => {
     ).toBe('user:local');
   });
 
+  for (const priorProfile of [false, true]) {
+    test(`new child freezes absent guidance before a later parent activation (${priorProfile ? 'new profile' : 'first activation'})`, async () => {
+      const db = memoryDb();
+      const parent = session(db, 'alice');
+      if (priorProfile)
+        await activate(
+          buildSovSkillContinuity({
+            db,
+            harnessHome: '/private/earlier-profile',
+            sessionId: parent,
+          }),
+        );
+      const child = session(db, 'alice', parent);
+      const home = '/private/later-profile';
+      const parentPort = buildSovSkillContinuity({ db, harnessHome: home, sessionId: parent });
+      await activate(parentPort);
+      const childPort = buildSovSkillContinuity({ db, harnessHome: home, sessionId: child });
+      expect(await childPort.exportRecords()).toEqual([]);
+      expect((await childPort.guidance({ budget, turnId: 'child-turn' })).text).toBe('');
+      expect(db.loadSkillContinuity(childPort.scope.profile, childPort.scope.owner, child)).toBe(
+        '[]',
+      );
+      expect((await parentPort.exportRecords()).map((record) => record.name)).toEqual(['release']);
+    });
+  }
+
+  test('a genuine pre-continuity child can still inherit the nearest private snapshot', async () => {
+    const db = memoryDb();
+    const home = '/private/legacy-profile';
+    const parent = session(db, 'alice');
+    const child = session(db, 'alice', parent);
+    db.handle.run('UPDATE sessions SET schema_version = 6 WHERE session_id = ?', [child]);
+    await activate(buildSovSkillContinuity({ db, harnessHome: home, sessionId: parent }));
+    const childPort = buildSovSkillContinuity({ db, harnessHome: home, sessionId: child });
+    expect((await childPort.exportRecords()).map((record) => record.name)).toEqual(['release']);
+    expect((await childPort.guidance({ budget, turnId: 'legacy-turn' })).text).toContain(
+      JSON.stringify(workflow),
+    );
+  });
+
   test('nearest empty snapshot is a completion barrier and bounded cycles fail safely', async () => {
     const db = memoryDb();
     const home = '/private/profile';
@@ -408,6 +448,7 @@ describe('SOV private skill continuity adapter', () => {
       leaf = session(db, 'alice', leaf);
       // Emulate a session row created before continuity was introduced.
       db.handle.run('DELETE FROM skill_continuity WHERE session_id = ?', [leaf]);
+      db.handle.run('UPDATE sessions SET schema_version = 6 WHERE session_id = ?', [leaf]);
     }
     const events: SkillContinuityDiagnostic[] = [];
     const port = buildSovSkillContinuity({

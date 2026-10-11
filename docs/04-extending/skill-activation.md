@@ -7,7 +7,9 @@ filesystem paths and confined to the skill's real directory. A link to a file
 outside that directory is rejected.
 Reference reads use an opened regular-file handle and a one-megabyte byte limit.
 The tool rechecks canonical containment and file identity after reading, before
-it returns content. A replaced file or retargeted ancestor fails the read.
+it returns content. It pins canonical directory identities and the leaf's
+metadata before opening, then compares the opened handle before and after the
+read. A replaced file or a tested temporary ancestor swap fails the read.
 
 ## One activation contract
 
@@ -33,6 +35,11 @@ subsequent provider tool schemas and tool dispatch, including calls later in
 the same tool batch. A model-activated scope does not mutate the host's shared
 tool pool or survive into its next ordinary turn. Model activation is serial
 because it changes the effective capability floor.
+
+Parallel host activations on the same state also run in request order. The next
+activation observes the prior activation's complete restriction before it
+checks permissions or expands inline shell. Failed or cancelled requests release
+the queue. Independent turn states never wait on each other.
 
 ## Native restrictions and host policy
 
@@ -111,6 +118,8 @@ expanded text transport.
 `tests/skills/activation.test.ts` checks actual shell effects and negative
 permissions, raw inspection, linked references, hooks and transformations,
 model continuation schemas, turn expiry and child inheritance.
+`tests/skills/activationConcurrency.test.ts` checks concurrent host requests,
+native tool effects, inline shell, failure recovery and independent states.
 `tests/server/skillActivationClients.test.ts` drives the actual command/HTTP
 and line-driver paths. TUI tests check that the command activation POST keeps
 the skill identity. Existing skill scope tests retain the legacy native rule

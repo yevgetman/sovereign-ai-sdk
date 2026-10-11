@@ -12,6 +12,11 @@ The byte budget can return fewer entries than the entry limit. Follow
 `nextCursor` with the same query until it is absent. `total` counts matching
 entries, and `truncated` states whether more entries remain.
 
+Queries have a 256-character limit before trimming. If a query's serialized
+response fields exceed the current page budget, the caller receives an error
+and must shorten the query or increase context headroom. The same checks apply
+to the public pure helper and the model tool.
+
 The cursor pins the registry generation, visible entries and normalized query.
 A mutation, visibility change or changed query rejects an old cursor with a
 restart instruction. Sorting uses names, independent of locale. A refresh never

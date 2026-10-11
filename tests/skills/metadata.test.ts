@@ -20,6 +20,127 @@ const raw = (name: string, body: string, description = 'Public workflow fixture'
   `---\nname: ${name}\ndescription: ${description}\n---\n${body}`;
 
 describe('metadata-only discovery', () => {
+  test('valid bounded headers retain long-body skills at partial-chunk limits', async () => {
+    await fixture(async (cwd, harnessHome) => {
+      const dir = join(cwd, '.agents/skills');
+      await mkdir(dir, { recursive: true });
+      const header = '---\nname: bounded\ndescription: Safe header\n---\n';
+      await writeFile(
+        join(dir, 'bounded.md'),
+        `${header}${'Long deferred body.\n'.repeat(20_000)}`,
+      );
+      for (const metadataMaxBytes of [Buffer.byteLength(header), 128, 300]) {
+        let bytesRead = -1;
+        const catalog = await loadSkills({
+          cwd,
+          harnessHome,
+          mode: 'metadata',
+          metadataMaxBytes,
+          onLoadStats: (stats) => {
+            bytesRead = stats.bytesRead;
+          },
+        });
+        const loaded = catalog.byName.get('bounded');
+        expect(loaded).toBeDefined();
+        expect(loaded?.bodyLoaded).toBe(false);
+        expect(loaded?.body).toBe('');
+        expect(bytesRead).toBeLessThanOrEqual(metadataMaxBytes);
+        expect(bytesRead).toBeLessThanOrEqual(256);
+      }
+      const rejected = await loadSkills({
+        cwd,
+        harnessHome,
+        mode: 'metadata',
+        metadataMaxBytes: Buffer.byteLength(header) - 2,
+      });
+      expect(rejected.skills).toEqual([]);
+      const longHeader = `---\nname: bounded\ndescription: ${'x'.repeat(240)}\n---\n`;
+      expect(Buffer.byteLength(longHeader)).toBeGreaterThan(256);
+      expect(Buffer.byteLength(longHeader)).toBeLessThan(300);
+      await writeFile(join(dir, 'bounded.md'), `${longHeader}${'Deferred body.'.repeat(20_000)}`);
+      let bytesRead = -1;
+      const partialChunk = await loadSkills({
+        cwd,
+        harnessHome,
+        mode: 'metadata',
+        metadataMaxBytes: 300,
+        onLoadStats: (stats) => {
+          bytesRead = stats.bytesRead;
+        },
+      });
+      expect(partialChunk.byName.get('bounded')?.guardDeferred).toBe(true);
+      expect(bytesRead).toBe(300);
+    });
+  });
+
+  test('lazy header reads reject an outside ancestor restored after post-read stat', () => {
+    const result = spawnSync(
+      'node',
+      [
+        '--input-type=module',
+        '-e',
+        `
+          import { createRequire, syncBuiltinESMExports } from 'node:module';
+          import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+          import { tmpdir } from 'node:os';
+          import { join } from 'node:path';
+          import { loadSkills } from '@yevgetman/sov-sdk/skills/loader';
+          const fs = createRequire(import.meta.url)('node:fs/promises');
+          const root = realpathSync(mkdtempSync(join(tmpdir(), 'skill-hidden-header-')));
+          const folder = join(root, '.agents', 'skills', 'safe');
+          const target = join(folder, 'SKILL.md');
+          const outside = join(root, 'outside');
+          const text = name => '---\\nname: ' + name + '\\ndescription: Safe fixture\\n---\\n' + 'Long deferred body.'.repeat(2000);
+          mkdirSync(folder, { recursive: true });
+          mkdirSync(outside, { recursive: true });
+          writeFileSync(target, text('inside'));
+          writeFileSync(join(outside, 'SKILL.md'), text('outside'));
+          const originalOpen = fs.open;
+          const originalStat = fs.stat;
+          let swapped = false;
+          let attempted = false;
+          fs.open = async (path, ...args) => {
+            if (path === target && !attempted) {
+              renameSync(folder, folder + '-accepted');
+              symlinkSync(outside, folder);
+              swapped = attempted = true;
+            }
+            return originalOpen(path, ...args);
+          };
+          fs.stat = async (path, ...args) => {
+            const info = await originalStat(path, ...args);
+            if (path === target && swapped) {
+              rmSync(folder);
+              renameSync(folder + '-accepted', folder);
+              swapped = false;
+            }
+            return info;
+          };
+          syncBuiltinESMExports();
+          try {
+            const catalog = await loadSkills({ cwd: root, harnessHome: join(root, 'home'), mode: 'metadata' });
+            if (!attempted) throw new Error('filesystem boundary was not reached');
+            if (catalog.skills.length) throw new Error('outside header was accepted');
+            console.log('rejected');
+          } finally {
+            fs.open = originalOpen;
+            fs.stat = originalStat;
+            syncBuiltinESMExports();
+            rmSync(root, { recursive: true, force: true });
+          }
+        `,
+      ],
+      {
+        cwd: fileURLToPath(new URL('../../', import.meta.url)),
+        encoding: 'utf8',
+        timeout: 20_000,
+      },
+    );
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe('rejected');
+  });
+
   test('rejected asynchronous load diagnostics do not terminate a public Node host', () => {
     const result = spawnSync(
       'node',

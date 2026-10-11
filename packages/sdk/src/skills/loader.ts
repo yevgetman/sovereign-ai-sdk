@@ -4,7 +4,7 @@
 
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { open, realpath, stat } from 'node:fs/promises';
+import { open, realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
@@ -20,6 +20,8 @@ import {
   discoverSkills,
   observeSkillDiagnostic,
 } from './discovery.js';
+import { assertSkillFileIdentity, captureSkillFileIdentity } from './fileIdentity.js';
+import { readBoundedSkillContent } from './fileRead.js';
 import { splitCommaList, splitFrontmatter } from './frontmatter.js';
 import {
   type SkillGuardResourceBudget,
@@ -547,54 +549,45 @@ async function readBoundedSkillFile(
   metadataOnly = false,
 ): Promise<string> {
   if (maxBytes <= 0) throw new Error('skill discovery read budget exhausted');
+  if (!metadataOnly) return readBoundedSkillContent(path, rp, maxBytes, onRead);
   if ((await realpath(path)) !== rp || (await realpath(rp)) !== rp)
     throw new Error('skill real path changed before reading');
+  const identity = await captureSkillFileIdentity(rp);
   const handle = await open(rp, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
-    const info = await handle.stat();
-    if (!info.isFile()) throw new Error('skill content must be a regular file');
-    if (!metadataOnly && info.size > maxBytes)
-      throw new Error('skill file exceeds the bounded read limit');
-    const buffer = Buffer.alloc(maxBytes + 1);
+    await assertSkillFileIdentity(rp, handle, identity);
+    const buffer = Buffer.alloc(maxBytes);
     let length = 0;
     let header: string | undefined;
     while (length < buffer.length) {
       const { bytesRead } = await handle.read(
         buffer,
         length,
-        metadataOnly ? Math.min(256, buffer.length - length) : buffer.length - length,
+        Math.min(256, buffer.length - length),
         null,
       );
       if (bytesRead === 0) break;
       length += bytesRead;
-      if (metadataOnly) {
-        const prefix = buffer.subarray(0, length).toString('utf8');
-        const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n)/.exec(prefix);
-        if (match) {
-          header = match[0];
-          break;
-        }
+      const prefix = buffer.subarray(0, length).toString('utf8');
+      const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n)/.exec(prefix);
+      if (match) {
+        header = match[0];
+        break;
       }
     }
     onRead?.(Math.min(length, maxBytes));
-    if (metadataOnly && !header) {
+    if (!header) {
       const prefix = buffer.subarray(0, length).toString('utf8');
-      if (length === info.size) header = /^---\r?\n[\s\S]*?\r?\n---$/.exec(prefix)?.[0];
+      if (length === identity.file.size) header = /^---\r?\n[\s\S]*?\r?\n---$/.exec(prefix)?.[0];
       if (!header)
         throw new Error(
           'skill frontmatter exceeds bounded metadata read limit or has no closing delimiter',
         );
     }
-    if (length > maxBytes) throw new Error('skill file exceeds the bounded read limit');
-    const current = await stat(rp);
-    if (
-      (await realpath(path)) !== rp ||
-      (await realpath(rp)) !== rp ||
-      current.dev !== info.dev ||
-      current.ino !== info.ino
-    )
+    if ((await realpath(path)) !== rp || (await realpath(rp)) !== rp)
       throw new Error('skill real path or file identity changed while reading');
-    return header ?? buffer.subarray(0, length).toString('utf8');
+    await assertSkillFileIdentity(rp, handle, identity);
+    return header;
   } finally {
     await handle.close();
   }

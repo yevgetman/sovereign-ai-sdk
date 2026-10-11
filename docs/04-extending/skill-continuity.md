@@ -65,8 +65,9 @@ Approved shell effects and continuity persistence are not one transaction.
 Query records successful, failed and cancelled turn outcomes. A successful turn
 is not proof that an entire workflow finished. Session/workflow records can
 retain the outcome for a later recovery turn. Completion is explicit.
-Provider output truncation (`max_tokens`) records a failed turn. Its guidance
-remains available for recovery, including when an incomplete tool call did not run.
+Provider output truncation (`max_tokens`) and iteration exhaustion (`max_turns`)
+record a failed turn. Guidance remains available for recovery, including when
+an incomplete tool call did not run.
 
 Guidance retention never restores a permission grant, tool pool, approval or
 resource-root authority. A resumed turn creates fresh activation state. A native
@@ -128,7 +129,9 @@ change workflow state.
 SOV database schema 7 stores this data in a session-scoped private table. Trusted
 SessionContexts derive the profile and owner from host state. Session creation
 freezes a same-owner parent's non-turn snapshot in its existing transaction.
-Empty snapshots stop inheritance after completion. Legacy lineage lookup is
+For new sessions, a profile with no snapshot at creation remains empty even if
+the parent activates guidance later. Empty snapshots stop inheritance after
+completion. Legacy lineage lookup applies only to pre-schema-7 sessions. It is
 bounded to eight ancestors and rejects owner changes and cycles. Deleting a
 session cascades its private records. Public session metadata, transcript search
 and remote catalogs do not expose this table.

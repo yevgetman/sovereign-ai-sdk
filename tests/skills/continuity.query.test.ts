@@ -279,6 +279,39 @@ describe('skill guidance in the real turn loop', () => {
     expect(f.continuity.diagnostics().some((event) => event.code === 'succeeded')).toBe(false);
     expect(f.continuity.diagnostics().some((event) => event.code === 'failed')).toBe(true);
   });
+  test('an exhausted iteration limit records failed guidance without claiming success', async () => {
+    const f = await fixture();
+    const p: LLMProvider = {
+      name: 'fixture',
+      async *stream() {
+        const message: AssistantMessage = {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'limit-read', name: 'Read', input: {} }],
+        };
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'tool_use' };
+        return message;
+      },
+    };
+    const terminal = await drain(
+      query({
+        provider: p,
+        model: 'custom',
+        messages: [latest],
+        systemPrompt: [],
+        tools: f.tools,
+        maxTokens: 128,
+        maxTurns: 1,
+        toolContext: { ...f.ctx, skillActivation: f.state },
+      }),
+    );
+    expect(terminal.reason).toBe('max_turns');
+    const records = await f.continuity.exportRecords();
+    expect(records[0]?.outcome).toBe('failed');
+    expect(records[0]?.guidance).toBe(steps);
+    expect(f.continuity.diagnostics().some((event) => event.code === 'succeeded')).toBe(false);
+    expect(f.continuity.diagnostics().some((event) => event.code === 'failed')).toBe(true);
+  });
   test('reference contents survive resume; mid-workflow reference edits refuse replacement', async () => {
     const f = await fixture();
     const reference = join(f.dir, 'steps.md');

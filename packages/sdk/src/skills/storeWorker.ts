@@ -362,8 +362,9 @@ function leaves(txn: string): { staged: string; backup: string } {
   return { staged: `.sov-skill-stage-${id}`, backup: `.sov-skill-backup-${id}` };
 }
 
-function createStage(staged: string, entry: SkillStoreWireEntry): void {
+function createStage(staged: string, entry: SkillStoreWireEntry): Stats {
   mkdirSync(staged, { mode: 0o700 });
+  const identity = assertDirectory(staged);
   inPinnedDirectory(staged, () => {
     for (const path of Object.keys(entry.directoryModes)
       .filter(Boolean)
@@ -384,6 +385,23 @@ function createStage(staged: string, entry: SkillStoreWireEntry): void {
     syncDirectory('.');
   });
   syncDirectory('.');
+  return identity;
+}
+
+function assertPublishedTree(
+  path: string,
+  entry: SkillStoreWireEntry,
+  identity: Pick<Stats, 'dev' | 'ino'>,
+  staged = false,
+): void {
+  const current = assertDirectory(path);
+  if (current.dev !== identity.dev || current.ino !== identity.ino)
+    throw new Error('skill publication directory changed during transaction');
+  const captured = snapshot(path);
+  // A stage is private until its published root mode has been applied.
+  if (captured && staged) captured.directoryModes[''] = entry.directoryModes[''] ?? 0o700;
+  if (!captured || skillStoreRevision(captured) !== entry.revision)
+    throw new Error('skill staged tree changed during transaction');
 }
 
 function removeTransaction(txn: string): void {
@@ -542,6 +560,7 @@ function execute(request: SkillStoreWorkerRequest): {
     let committed = false;
     let published = false;
     let entry: SkillStoreWireEntry | undefined;
+    let stagedIdentity: Pick<Stats, 'dev' | 'ino'> | undefined;
     try {
       if (request.action !== 'delete') {
         const files = request.files ?? previous?.files ?? {};
@@ -554,8 +573,8 @@ function execute(request: SkillStoreWorkerRequest): {
         }
         entry = { name: request.name, files, directoryModes, revision: '' };
         validateSkillStoreEntry(entry, request.trustTier);
-        createStage(staged, entry);
         entry.revision = skillStoreRevision(entry);
+        stagedIdentity = createStage(staged, entry);
       }
       const journal: Journal = {
         name: request.name,
@@ -566,6 +585,7 @@ function execute(request: SkillStoreWorkerRequest): {
       };
       writeJournal(transaction, journal);
       assertRootPath(request);
+      if (entry && stagedIdentity) assertPublishedTree(staged, entry, stagedIdentity, true);
       if (previous) {
         // Recheck the whole tree and destination type immediately before
         // commit. An out-of-band editor cannot overwrite an accepted revision.
@@ -585,6 +605,11 @@ function execute(request: SkillStoreWorkerRequest): {
         inPinnedDirectory(request.name, () =>
           syncDirectory('.', entry?.directoryModes[''] ?? 0o700),
         );
+        if (!stagedIdentity) throw new Error('missing skill stage identity');
+        // Verify what the rename actually published before returning its
+        // receipt. Validation of the supplied bytes alone cannot detect a
+        // changed stage at the publication boundary.
+        assertPublishedTree(request.name, entry, stagedIdentity);
       }
       syncDirectory('.');
       committed = entry !== undefined;
@@ -617,10 +642,15 @@ function execute(request: SkillStoreWorkerRequest): {
       if (published) {
         // Publication followed by a failed durability check must not become a
         // failed mutation that nevertheless replaced the accepted tree.
-        const accepted = snapshot(request.name);
-        if (accepted) accepted.directoryModes[''] = entry?.directoryModes[''] ?? 0o700;
-        if (!accepted || skillStoreRevision(accepted) !== entry?.revision)
+        const current = assertDirectory(request.name);
+        if (
+          !stagedIdentity ||
+          current.dev !== stagedIdentity.dev ||
+          current.ino !== stagedIdentity.ino
+        )
           throw new Error('recovery conflict after publication failure');
+        // A changed tree inside our own uncommitted stage can be rolled back.
+        // An unrelated replacement directory must remain for manual recovery.
         renameSync(request.name, staged);
         if (previous) renameSync(backup, request.name);
         syncDirectory('.');

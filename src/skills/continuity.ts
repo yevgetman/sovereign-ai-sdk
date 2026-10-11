@@ -15,6 +15,7 @@ import { type SessionDb, skillContinuityOwnerKey } from '../agent/sessionDb.js';
 
 const MAX_LINEAGE_DEPTH = 8;
 const MAX_SNAPSHOT_BYTES = 512 * 1024;
+const CONTINUITY_SCHEMA_VERSION = 7;
 
 /** Profiles are host-owned roots. No client-supplied owner/profile selectors. */
 export function skillContinuityProfileKey(harnessHome: string): string {
@@ -50,6 +51,12 @@ export class SessionSkillContinuityStore implements SkillContinuityStore {
     this.assertScope(scope);
     const own = this.db.loadSkillContinuity(scope.profile, scope.owner, scope.session);
     if (own !== null) return parseSnapshot(own);
+    // New sessions copied every available profile snapshot at creation. An
+    // absent profile is a frozen empty state, not permission to adopt a later
+    // parent activation. Only genuinely older rows need lineage fallback.
+    const allowLegacyInheritance =
+      (this.db.getSession(scope.session)?.schemaVersion ?? CONTINUITY_SCHEMA_VERSION) <
+      CONTINUITY_SCHEMA_VERSION;
     // Existing pre-feature child sessions can resume from the nearest private
     // snapshot. Never cross a principal boundary or resurrect a completed
     // workflow from an older ancestor after encountering an empty snapshot.
@@ -69,7 +76,8 @@ export class SessionSkillContinuityStore implements SkillContinuityStore {
       }
       const snapshot = this.db.loadSkillContinuity(scope.profile, scope.owner, parent.sessionId);
       if (snapshot !== null) {
-        inherited = parseSnapshot(snapshot).filter((record) => record?.lifetime !== 'turn');
+        if (allowLegacyInheritance)
+          inherited = parseSnapshot(snapshot).filter((record) => record?.lifetime !== 'turn');
         break;
       }
       parentId = parent.parentSessionId;
