@@ -1,3 +1,65 @@
+## 2026-10-11 — PR57 reviewed dependency integration
+
+Inherited the reviewed parent branch without rewriting existing PR history. Preserved this PR's reviewed behavior, all upstream fixes and both testing histories. Final integrated source passes configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,864 passed / 19 existing skips / zero failed**, 24,386 assertions across 563 files. Public protocol/SDK and local TUI artifacts were rebuilt first. Global compiler and footer fixtures were isolated; remaining files used a unique temporary root. No assertion was weakened or test omitted. No release or installed host change.
+
+## 2026-10-11 — PR56 reviewed dependency integration
+
+Inherited the reviewed parent branch without rewriting existing PR history. Preserved this PR's reviewed behavior, all upstream fixes and both testing histories. Final integrated source passes configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,846 passed / 19 existing skips / zero failed**, 24,300 assertions across 561 files. Public protocol/SDK and local TUI artifacts were rebuilt first. Global compiler and footer fixtures were isolated; remaining files used a unique temporary root. No assertion was weakened or test omitted. No release or installed host change.
+
+## 2026-10-11 — PR55 reviewed dependency integration
+
+Inherited the reviewed parent branch without rewriting existing PR history. Preserved this PR's reviewed behavior, all upstream fixes and both testing histories. Final integrated source passes configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,838 passed / 19 existing skips / zero failed**, 24,242 assertions across 559 files. Public protocol/SDK and local TUI artifacts were rebuilt first. Global compiler and footer fixtures were isolated; remaining files used a unique temporary root. No assertion was weakened or test omitted. No release or installed host change.
+
+An earlier branch-switch attempt refused four generated Python cache files. Its unintended repeat of the already-passing PR54 suite was stopped; only those generated .pyc files were removed. The recorded PR55 result is the fresh complete run at this actual merged branch. Later gates disable Python bytecode cache writes in their test environment.
+
+## 2026-10-11 — PR54 reviewed dependency integration
+
+Inherited the reviewed parent branch without rewriting existing PR history. Preserved this PR's reviewed behavior, all upstream fixes and both testing histories. Final integrated source passes configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,831 passed / 19 existing skips / zero failed**, 24,199 assertions across 558 files. Public protocol/SDK and local TUI artifacts were rebuilt first. Global compiler and footer fixtures were isolated; remaining files used a unique temporary root. No assertion was weakened or test omitted. No release or installed host change.
+
+## 2026-10-11 — PR53 reviewed parent integration
+
+Merged reviewed PR52 reference confinement and bounded-read fix into the discovery branch. Preserved discovery canonical-path reload checks and both testing histories. Final integrated source passes configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,778 passed / 19 existing skips / zero failed**, 23,976 assertions across 554 files. Public protocol/SDK and local TUI artifacts were rebuilt first. Global compiler and footer fixtures were isolated; all remaining files used a unique temporary root. No assertion was weakened or test omitted. No release or installed host change.
+
+## 2026-10-11 — Review PR52 legacy reference bounds and file identity
+
+Confirmed two defects in the legacy `skill_view` path: a canonical reference ancestor retargeted between metadata validation and pathname reading could expose an outside file (High), and an unbounded reference read could consume arbitrary memory and model input (Medium). A deterministic metadata hook reproduced the outside-reference exposure against unchanged PR53 legacy source; a 1,048,577-byte flat-skill reference reproduced the missing byte bound. Both fail-before regression runs correctly reported zero passed and one failed. The corrected path reads a no-follow, nonblocking regular-file handle within a one-megabyte limit, then checks opened identity and both canonical and logical paths before returning bytes. Three negative regressions cover oversize content and ancestor swaps during metadata checks and after handle reads.
+
+Environment: macOS arm64, Bun 1.3.13, isolated worktree dependencies and temporary fixtures. `bun test tests/tools/skillsViewSecurity.test.ts tests/skills/activation.test.ts tests/tools/skillsProgressiveTools.test.ts`: **22 passed / zero failed / 83 assertions**. Separate read-only review passes on original PR53 and PR55 source found no additional above-Low defect: discovery/loader/guard **62 passed / 137 assertions**; descriptor/normalization/activation/import/HTTP **42 passed / 180 assertions**.
+
+Initial typechecks caught a missing fixture session ID and overloaded stat-spy typing; corrected before the final gate. The first complete run lacked a worktree-local TUI binary because installation deliberately skipped lifecycle scripts. Its launcher failures were fixture preparation errors; that failed run was stopped, the local binary was built with `bun run tui:build`, and the complete gate was rerun. Public protocol and SDK artifacts were built with `bun run build` before testing.
+
+`python3 /private/tmp/sdk-skills-hardening-gate.py /private/tmp/sdk-pr-review-20261011/wt-52 pr52-review-prepared` passes configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,766 passed / 19 existing skips / zero failed / 23,927 assertions across 553 files**. The global compiler fixture was serialized, the shared-theme footer isolated, and the remaining suite used a unique temporary root. `git diff --check` passes. No live provider, push, merge, publication, installation or runtime restart was performed by this reviewer; the coordinating reviewer propagates the fix through the dependent PRs.
+
+## 2026-10-11 — PR54 review: asynchronous store observer containment
+
+**Scope:** committed store listeners. A callback typed void may return a rejected promise; the old synchronous try/catch lets Node terminate after a successful mutation. Store notification now contains promise rejections and synchronous exceptions.
+
+**Checks:** `tests/skills/storeObserverSafety.test.ts` launches packaged Node with `--unhandled-rejections=strict`, rejects an async listener and verifies the host survives with the committed tree readable. Original PR54 fails this regression. The unchanged final source is covered by configured `review54-source-final`: **5,828 pass / 19 existing skips / zero fail**, 24,194 assertions, all 557 discovered files. Final lint/boundary passes. No observer failure can reverse the accepted write; no live host or notification side effect was exercised.
+
+## 2026-10-11 — PR54 review: proposal tree ownership
+
+**Scope:** review approval/revoke. Matching SKILL.md text does not prove a proposal owns an existing complete tree. Approval retries now require the proposal's already-recorded full revision and matching body. An unrelated same-body tree is refused, so later revoke cannot delete its resources.
+
+**Checks:** original-head standalone reproduction approves and revokes an unrelated tree, leaving no preexisting tree. New regressions cover refusal and recorded unchanged retry/revoke; the existing approval/revoke suite remains passing. The unchanged final source is covered by the configured `review54-source-final` complete gate immediately above: **5,828 pass / 19 existing skips / zero fail**, 24,194 assertions, all 557 discovered files. Final lint/boundary passes. Worktree-local fixtures only; no live review queue or installed host change.
+
+## 2026-10-11 — PR54 review: stable source-capture identity
+
+**Scope:** both exported source-capture APIs. An approved resource ancestor can be replaced with an outside link for lstat/open/read and restored before realpath validation. The original tree and single-file APIs both return outside fixture bytes. Capture now checks canonical directory identities, opened metadata and the current post-read leaf; tree directory modes and timestamps must also remain stable. No host chdir or public API change.
+
+**Environment and checks:** same isolated Darwin/Bun 1.3.13/Node 25.9.0 worktree and local public SDK/protocol build as the preceding PR54 review. `bun run build`; `bun test tests/skills/storeSourceSafety.test.ts tests/skills/store.test.ts tests/skills/install.test.ts tests/skills/import.test.ts`: **57 pass / zero fail**, 215 assertions. Four negative source-race tests fail on original PR54; unchanged alias test passes. Both direct swaps and temporary restoration during directory checks are tested for both APIs. Stable in-tree file/directory aliases retain bytes and modes. Independent peer reproductions reject latest source before outside reads.
+
+**Final frozen gate:** `python3 /private/tmp/sdk-skills-hardening-gate.py /private/tmp/sdk-pr-review-20261011/storage review54-source-final` runs configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,828 passed / 19 existing skips / zero failures**, 24,194 assertions across 557 files. No test file omitted or assertion weakened. This exact final source includes the atomic proposal-ownership and async-observer fixes documented next. No installed host update, live provider call or publication occurred.
+
+## 2026-10-11 — PR54 review: confined and durable complete-tree storage
+
+**Scope:** original PR54 head `abb73963`, with PR52/53 contracts and PR59 consumers checked. Fixed nested snapshot/staging/cleanup confinement, POSIX parent/nested-directory flush ordering, failed-delete/publication conservation, complete directory-parent revisions and file-directory representability. Stages/backups now use hidden root leaves; journals/locks stay in the pinned private directory. Discovery and resource guards exclude both new families and aliases. Legacy nested journals retain recovery support. Regular capture uses nonblocking opens before descriptor validation.
+
+**Environment:** isolated `/private/tmp/sdk-pr-review-20261011/storage`, worktree-local dependencies and generated protocol/SDK/TUI artifacts; Bun 1.3.13, Node 25.9.0, Darwin. No live inference or learning setting change.
+
+**Evidence:** original-head negative fixtures reproduce outside resource capture, internal staging redirection, inconsistent tree revisions, missing root/directory fsyncs, destructive delete-marker EIO and the 20-second FIFO timeout. Twenty-two safety fixtures cover full-tree CAS, both swaps, outside cleanup sentinels, dead-owner reopen, six actual SIGKILL/reopen boundaries, restrictive modes, create/edit/delete journal EIO before/after markers and malformed legacy records. Discovery checks cover hidden names/aliases and resource guard exclusion. Physical power loss and Windows were not tested; POSIX ordering is checked by syscall traces.
+
+**Gate:** `bun run build`, `bun run tui:build`; `python3 /private/tmp/sdk-skills-hardening-gate.py /private/tmp/sdk-pr-review-20261011/storage review54-storage-frozen` runs configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,823 passed / 19 existing skips / zero failures**, 24,167 assertions across 556 files. Compiler/theme fixtures are serialized and isolated; no file omitted. The frozen review source also includes the separately committed proposal-ownership and observer corrections. Focused store/review/Node checks pass 78/0; discovery checks pass 13/0. Initial fixture-only failures from Darwin realpath spelling, URL-valued module-loader opens, and readonly-fixture teardown were corrected. No assertion was weakened.
+
 ## 2026-10-11 — PR #57 review: isolate runtime mutation observers
 
 **Scope:** independent review of the original PR #57 head `7b3019cf` against PR #56 `caeec0bd`, with PR #59 consumers checked. Fixed two Medium event defects: rejected async runtime observers terminated Node after publication, and an observer forwarding a committed mutation to `onMutation()` recursively emitted that same event. Recent commit keys are recorded before notification; each independently observed store commit still notifies, including identical tree recreation after deletion. No runtime, permission, storage or continuity API changed.

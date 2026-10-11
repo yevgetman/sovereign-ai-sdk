@@ -167,9 +167,15 @@ async function applySkillApproval(home: string, dir: string, ctx: CommandContext
     : (ctx.skillStore ?? createSovSkillStore(join(home, 'skills', 'agent-created')));
   if (!store) throw new Error('this skill runtime has no writable store');
   const content = readFileSync(join(dir, 'SKILL.md'), 'utf-8');
-  // Idempotent recovery if publication succeeded before queue bookkeeping.
+  // A matching body is not proof that this proposal created the tree. Only
+  // its recorded complete revision permits retry and subsequent revocation.
   const current = await store.read(meta.skillName);
-  if (current && current.content !== content)
+  if (
+    current &&
+    (!meta.appliedSkillRevision ||
+      current.revision !== meta.appliedSkillRevision ||
+      current.content !== content)
+  )
     throw new Error(
       `skill '${meta.skillName}' already exists; approval does not overwrite another revision`,
     );
