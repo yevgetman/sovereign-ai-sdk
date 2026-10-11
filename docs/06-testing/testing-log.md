@@ -1,3 +1,13 @@
+## 2026-10-11 — PR54 carry of the PR53 CI prerequisite receipt
+
+Merged corrected parent `a939f457aa94de142f23109e21f1c3f05a10971e` without changing functional source or regression assertions. The public-package build prerequisite already exists identically in PR54. Only the testing-log histories change in this merge. Final lint/boundary and typecheck pass. The unchanged source retains the complete configured gate at `5f3fe9ad`: 5,837 passed / 19 existing skips / zero failures, 24,242 assertions across 559 files. No new full-suite run is claimed for this log-only carry. Original head and updated parent ancestry are preserved.
+
+## 2026-10-11 — PR53 CI artifact prerequisite correction
+
+Exact-head GitHub run `38176068641` on source `ab8f6109d25bb9d23ce2436a1e1ae728b2a21ff5` failed its Mac and Linux runtime jobs because the strict-Node discovery regression imported `@yevgetman/sov-sdk/dist/skills/discovery.js` before CI built public artifacts (`ERR_MODULE_NOT_FOUND`). The runtime job now runs the identical public-package build prerequisite already present in PR54 before `bun run test`. Functional source and regression assertions are unchanged.
+
+Validation: `bun run lint`, `bun run typecheck`, `bun run build`, workflow YAML parsing/step-order validation and `bun test tests/skills/discovery.test.ts -t 'throwing and rejecting'` all pass. The compiled strict-Node effect regression reports **one passed / zero failed**, three assertions. The unchanged functional source retains its complete configured receipt at `ab8f6109`: **5,781 passed / 19 existing skips / zero failed**, 24,005 assertions across 554 files. This CI-only commit does not claim a new full-suite run or green remote CI; exact-head CI must rerun after push. No release or installed-host update.
+
 ## 2026-10-11 — Fourth-review parent propagation to PR54
 
 Scope: carry reviewed parent `ab8f6109d25bb9d23ce2436a1e1ae728b2a21ff5` into PR54, preserving its original head and both testing histories. The owner requested dependency-aware review and fixes. No PR is merged into master.
