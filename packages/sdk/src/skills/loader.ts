@@ -18,6 +18,7 @@ import {
   type SkillClassification,
   type SkillDiscoveryOptions,
   discoverSkills,
+  observeSkillDiagnostic,
 } from './discovery.js';
 import { splitCommaList, splitFrontmatter } from './frontmatter.js';
 import {
@@ -246,7 +247,7 @@ export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry
       trustTier: candidate.classification.trustTier,
     };
     if (!loaded) {
-      opts.onDiscoveryDecision?.({
+      observeSkillDiagnostic(opts.onDiscoveryDecision, {
         ...decision,
         code: 'load-rejected',
         message: 'skill validation, guard or read limit rejected the file',
@@ -254,8 +255,11 @@ export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry
       continue;
     }
     if (byName.has(loaded.name)) {
-      opts.warn?.(`skill skipped (${candidate.path}): duplicate skill name '${loaded.name}'`);
-      opts.onDiscoveryDecision?.({
+      observeSkillDiagnostic(
+        opts.warn,
+        `skill skipped (${candidate.path}): duplicate skill name '${loaded.name}'`,
+      );
+      observeSkillDiagnostic(opts.onDiscoveryDecision, {
         ...decision,
         code: 'duplicate-name',
         message: `duplicate skill name '${loaded.name}'`,
@@ -348,7 +352,7 @@ export async function loadSkillFromPath(
   try {
     return await loadSkillFile(path, await realpath(path), classification, warn, pluginRoot);
   } catch (err) {
-    warn?.(`skill skipped (${path}): ${errorMessage(err)}`);
+    observeSkillDiagnostic(warn, `skill skipped (${path}): ${errorMessage(err)}`);
     return null;
   }
 }
@@ -380,7 +384,7 @@ async function loadSkillFile(
       trustTier: classification.trustTier,
     });
     if (guard.action === 'block') {
-      warn?.(`skill skipped (${path}): ${formatGuardBlockMessage(guard)}`);
+      observeSkillDiagnostic(warn, `skill skipped (${path}): ${formatGuardBlockMessage(guard)}`);
       return null;
     }
     return loadSkillText(raw, {
@@ -392,7 +396,7 @@ async function loadSkillFile(
       ...(pluginRoot !== undefined ? { pluginRoot } : {}),
     });
   } catch (err) {
-    warn?.(`skill skipped (${path}): ${errorMessage(err)}`);
+    observeSkillDiagnostic(warn, `skill skipped (${path}): ${errorMessage(err)}`);
     return null;
   }
 }
@@ -417,13 +421,16 @@ export function loadSkillText(
   if (guard.action === 'block') throw new Error(formatGuardBlockMessage(guard));
   const descriptor = normalizeSkillDescriptor(frontmatter);
   for (const diagnostic of descriptor.execution.diagnostics)
-    observeWarning(
+    observeSkillDiagnostic(
       options.warn,
       `skill '${frontmatter.name}' (${options.path}): ${diagnostic.message}`,
     );
   const rigor = validateWhenToUse(frontmatter.whenToUse);
   if (!rigor.ok)
-    observeWarning(options.warn, `skill '${frontmatter.name}' (${options.path}): ${rigor.reason}`);
+    observeSkillDiagnostic(
+      options.warn,
+      `skill '${frontmatter.name}' (${options.path}): ${rigor.reason}`,
+    );
   const digest = createHash('sha256').update(raw).digest('hex');
   return {
     ...(options.metadataOnly
@@ -448,16 +455,6 @@ export function loadSkillText(
     guard,
     body: options.metadataOnly ? '' : parsed.body.trim(),
   };
-}
-
-/** Advisory delivery cannot reject an otherwise valid skill or terminate a
- * public host when an asynchronous warning sink fails. */
-function observeWarning(warn: ((message: string) => void) | undefined, message: string): void {
-  try {
-    Promise.resolve(warn?.(message)).catch(() => undefined);
-  } catch {
-    /* Warning sinks are not part of skill validation or authority. */
-  }
 }
 
 function normalizeHarnessMetadata(
