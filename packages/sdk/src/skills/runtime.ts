@@ -114,7 +114,9 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
     throw new Error('initial belongs to a newly composed skill registry manager');
   const storeOnly = choices === 0;
   const classification = options.storeClassification ?? MEMORY_CLASSIFICATION;
-  const discovery = options.discovery;
+  const discovery = options.discovery
+    ? { mode: 'metadata' as const, ...options.discovery }
+    : undefined;
   const store = options.store;
   const load =
     options.load ??

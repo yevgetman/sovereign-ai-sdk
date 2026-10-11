@@ -1,0 +1,166 @@
+import { describe, expect, test } from 'bun:test';
+import {
+  clipSkillText,
+  resolveSkillContextBudget,
+  skillTextTokenBound,
+} from '@yevgetman/sov-sdk/skills/budget';
+import { buildSkillCatalogIndex, listSkillCatalog } from '@yevgetman/sov-sdk/skills/catalog';
+import type { Skill } from '@yevgetman/sov-sdk/skills/types';
+
+function skill(
+  name: string,
+  description = 'Small public fixture',
+  whenToUse = 'When asked to use this fixture',
+): Skill {
+  return {
+    name,
+    description,
+    whenToUse,
+    body: '',
+    allowedTools: [],
+    path: '',
+    realpath: '',
+    dir: '',
+    source: 'bundle',
+    trustTier: 'builtin',
+    allowShellInterpolation: false,
+    metadata: {
+      harness: {
+        requiresTools: [],
+        requiresToolsets: [],
+        fallbackForTools: [],
+        fallbackForToolsets: [],
+      },
+    },
+    guard: { action: 'allow', findings: [] },
+  };
+}
+const largeBudget = resolveSkillContextBudget({
+  contextWindowTokens: 200_000,
+  outputTokens: 8_192,
+});
+
+describe('complete bounded skill catalogs', () => {
+  test('all 530 entries enumerate and long metadata cannot hide the next skill', () => {
+    const input = Array.from({ length: 530 }, (_, i) =>
+      skill(`fixture-${String(i).padStart(4, '0')}`),
+    );
+    const firstSkill = input[0];
+    if (!firstSkill) throw new Error('fixture missing');
+    firstSkill.description = '巨'.repeat(100_000);
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const page = listSkillCatalog(input, {
+        generation: 4,
+        budget: largeBudget,
+        ...(cursor ? { cursor } : {}),
+      });
+      expect(skillTextTokenBound(JSON.stringify(page))).toBeLessThanOrEqual(largeBudget.pageTokens);
+      expect(page.budgetExhausted).toBeUndefined();
+      if (pages === 0) expect(page.skills[0]?.metadataTruncated).toBe(true);
+      seen.push(...page.skills.map((s) => s.name));
+      cursor = page.nextCursor;
+      pages++;
+    } while (cursor && pages < 1_000);
+    expect(seen).toEqual(input.map((s) => s.name));
+    expect(pages).toBeLessThan(1_000);
+    expect(
+      listSkillCatalog(input, { query: 'fixture-0529', budget: largeBudget }).skills[0]?.name,
+    ).toBe('fixture-0529');
+  });
+
+  test('oversized identities can be reconstructed without blocking other entries', () => {
+    const name = `a${'b'.repeat(10_000)}`;
+    const input = [skill(name), skill('z-last')];
+    let cursor: string | undefined;
+    let recovered = '';
+    let reachedLast = false;
+    do {
+      const page = listSkillCatalog(input, { budget: largeBudget, ...(cursor ? { cursor } : {}) });
+      expect(skillTextTokenBound(JSON.stringify(page))).toBeLessThanOrEqual(largeBudget.pageTokens);
+      for (const item of page.skills) {
+        if (item.nameFragment) recovered += item.name;
+        if (item.name === 'z-last') reachedLast = true;
+      }
+      cursor = page.nextCursor;
+    } while (cursor);
+    expect(recovered).toBe(name);
+    expect(reachedLast).toBe(true);
+  });
+
+  test('generation, metadata, visibility and query changes reject stale cursors', () => {
+    const skills = [skill('one'), skill('two'), skill('three')];
+    const first = listSkillCatalog(skills, { generation: 1, limit: 1 });
+    expect(first.nextCursor).toBeDefined();
+    const continuation = first.nextCursor;
+    if (!continuation) throw new Error('fixture cursor missing');
+    expect(() => listSkillCatalog(skills, { generation: 2, cursor: continuation })).toThrow(
+      'changed',
+    );
+    expect(() =>
+      listSkillCatalog(skills.slice(1), { generation: 1, cursor: continuation }),
+    ).toThrow('changed');
+    expect(() =>
+      listSkillCatalog(skills, { generation: 1, query: 'one', cursor: continuation }),
+    ).toThrow('query');
+    const firstSkill = skills[0];
+    if (!firstSkill) throw new Error('fixture missing');
+    firstSkill.description = 'edited';
+    expect(() => listSkillCatalog(skills, { generation: 1, cursor: continuation })).toThrow(
+      'changed',
+    );
+    expect(() => listSkillCatalog(skills, { cursor: 'bad' })).toThrow('invalid');
+  });
+
+  test('context budgets follow frozen numeric metadata with unknown fallback and task headroom', () => {
+    const unknown = resolveSkillContextBudget();
+    expect(unknown.contextWindowTokens).toBe(32_768);
+    expect(unknown.source).toBe('fallback');
+    const small = resolveSkillContextBudget({
+      contextWindowTokens: 8_192,
+      outputTokens: 1_024,
+      reservedInputTokens: 2_048,
+    });
+    const large = resolveSkillContextBudget({
+      contextWindowTokens: 1_000_000,
+      outputTokens: 32_768,
+      reservedInputTokens: 100_000,
+    });
+    expect(small.indexTokens).toBeLessThan(large.indexTokens);
+    expect(large.indexTokens).toBe(2_048);
+    expect(large.retentionTokens).toBe(8_192);
+    const exhausted = resolveSkillContextBudget({ contextWindowTokens: 100, outputTokens: 100 });
+    expect(exhausted.indexTokens).toBe(0);
+    expect(exhausted.retentionTokens).toBe(0);
+    expect(listSkillCatalog([skill('one')], { budget: exhausted }).budgetExhausted).toBe(true);
+  });
+
+  test('initial metadata is complete for small catalogs, searchable fallback for larger catalogs', () => {
+    const small = buildSkillCatalogIndex([skill('one'), skill('two')], { budget: largeBudget });
+    expect(small.shown).toBe(2);
+    expect(small.omitted).toBe(0);
+    expect(small.text).toContain('one');
+    const many = buildSkillCatalogIndex(
+      Array.from({ length: 1_000 }, (_, i) => skill(`fixture-${i}`)),
+      { budget: largeBudget },
+    );
+    expect(many.shown).toBe(0);
+    expect(many.omitted).toBe(1_000);
+    expect(many.text).toContain('search/page');
+    expect(many.estimatedTokens).toBeLessThanOrEqual(largeBudget.indexTokens);
+    const largeDescription = buildSkillCatalogIndex([skill('huge', '😀'.repeat(20_000))], {
+      budget: largeBudget,
+    });
+    expect(largeDescription.text).toContain('metadataTruncated');
+    expect(largeDescription.estimatedTokens).toBeLessThanOrEqual(largeBudget.indexTokens);
+  });
+
+  test('UTF-8 clipping never cuts a Unicode codepoint and bounds arbitrary text', () => {
+    expect(clipSkillText('😀😀x', 5)).toEqual({ text: '😀', clipped: true });
+    expect(skillTextTokenBound('😀')).toBe(4);
+    expect(() => clipSkillText('large', Number.NaN)).toThrow('byte limit');
+    expect(() => resolveSkillContextBudget({ outputTokens: Number.NaN })).toThrow('reservations');
+  });
+});

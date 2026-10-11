@@ -143,12 +143,18 @@ export async function loadSkillRegistry(opts: LoadSkillsOptions): Promise<SkillR
   });
   for (const skill of registry.skills) {
     diagnostics.push({
-      code: `guard-${skill.guard.action}`,
+      code: skill.guardDeferred ? 'guard-deferred' : `guard-${skill.guard.action}`,
       name: skill.name,
       source: skill.source,
       trustTier: skill.trustTier,
-      severity: skill.guard.action === 'allow' ? 'info' : 'warning',
-      message: `skill guard decision: ${skill.guard.action}`,
+      severity: skill.guardDeferred
+        ? 'warning'
+        : skill.guard.action === 'allow'
+          ? 'info'
+          : 'warning',
+      message: skill.guardDeferred
+        ? 'metadata header checked; full body/resource guard deferred until activation or inspection'
+        : `skill guard decision: ${skill.guard.action}`,
     });
     for (const diagnostic of skill.descriptor?.execution.diagnostics ?? [])
       diagnostics.push({

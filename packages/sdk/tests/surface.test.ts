@@ -193,8 +193,11 @@ import type {
   SkillActivationEnvelope,
   SkillActivationSource,
   SkillActivationState,
+  SkillCatalogEntry,
+  SkillCatalogPage,
   SkillClassification,
   SkillCompatibilityDiagnostic,
+  SkillContextBudget,
   SkillDescriptor,
   SkillDiscoveryDecision,
   SkillDiscoveryLimits,
@@ -316,10 +319,12 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'budgetProvider',
   'buildHookRunner',
   'buildMcpClientPool',
+  'buildSkillCatalogIndex',
   'buildSkillCommands',
   'buildTool',
   'buildToolContext',
   'buildToolScope',
+  'clipSkillText',
   'createAgent',
   'createAssayUsageRecorder',
   'createDirectModelSource',
@@ -354,6 +359,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'isRemoteMcpConfig',
   'isSkillInvocable',
   'isToolsetName',
+  'listSkillCatalog',
   'loadSkillRegistry',
   'loadSkillText',
   'loadSkills',
@@ -367,9 +373,12 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'renamesFor',
   'resolveModelAlias',
   'resolveProvider',
+  'resolveSkillContextBudget',
   'resolveSkillResource',
   'serializerSupportsImages',
+  'skillCatalogGeneration',
   'skillRestrictionRules',
+  'skillTextTokenBound',
   'validateModelRequest',
   'validateOpenRouterPolicy',
   'wrapConductAuditSink',
@@ -593,6 +602,9 @@ type TypeSurfaceWitness = {
   skillActivationSource?: SkillActivationSource;
   skillActivationState?: SkillActivationState;
   skillClassification?: SkillClassification;
+  skillContextBudget?: SkillContextBudget;
+  skillCatalogEntry?: SkillCatalogEntry;
+  skillCatalogPage?: SkillCatalogPage;
   skillDescriptor?: SkillDescriptor;
   skillCompatibilityDiagnostic?: SkillCompatibilityDiagnostic;
   skillExpansionOptions?: SkillExpansionOptions;

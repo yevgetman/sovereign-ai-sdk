@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-11T17:23:13.255Z",
+  "fixture": "35 skills, each 24KB body + 10KB reference, three warm filesystem repetitions, excludes provider calls",
+  "rows": [
+    {
+      "mode": "eager",
+      "run": 1,
+      "candidateReads": 35,
+      "bytesRead": 1194155,
+      "deferredBodies": 0,
+      "rejected": 0,
+      "elapsedMs": 42.341584
+    },
+    {
+      "mode": "eager",
+      "run": 2,
+      "candidateReads": 35,
+      "bytesRead": 1194155,
+      "deferredBodies": 0,
+      "rejected": 0,
+      "elapsedMs": 27.490375
+    },
+    {
+      "mode": "eager",
+      "run": 3,
+      "candidateReads": 35,
+      "bytesRead": 1194155,
+      "deferredBodies": 0,
+      "rejected": 0,
+      "elapsedMs": 28.515291999999988
+    },
+    {
+      "mode": "metadata",
+      "run": 1,
+      "candidateReads": 35,
+      "bytesRead": 8960,
+      "deferredBodies": 35,
+      "rejected": 0,
+      "elapsedMs": 11.235332999999997
+    },
+    {
+      "mode": "metadata",
+      "run": 2,
+      "candidateReads": 35,
+      "bytesRead": 8960,
+      "deferredBodies": 35,
+      "rejected": 0,
+      "elapsedMs": 8.91666699999999
+    },
+    {
+      "mode": "metadata",
+      "run": 3,
+      "candidateReads": 35,
+      "bytesRead": 8960,
+      "deferredBodies": 35,
+      "rejected": 0,
+      "elapsedMs": 9.680374999999998
+    }
+  ]
+}
