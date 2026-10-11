@@ -1,9 +1,17 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { type SkillDiscoveryDecision, discoverSkills } from '@yevgetman/sov-sdk/skills/discovery';
-import { loadSkills } from '@yevgetman/sov-sdk/skills/loader';
+import { loadSkills, reloadSkill } from '@yevgetman/sov-sdk/skills/loader';
 
 async function fixture(fn: (root: string) => Promise<void>): Promise<void> {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'sov-skill-discovery-')));
@@ -29,6 +37,23 @@ function link(target: string, destination: string): void {
 }
 
 describe('portable bounded skill discovery', () => {
+  test('reload pins a discovered canonical directory instead of accepting a later link swap', async () => {
+    await fixture(async (root) => {
+      const cwd = join(root, 'project');
+      repository(cwd);
+      const folder = join(cwd, '.agents', 'skills', 'safe');
+      skill(join(folder, 'SKILL.md'), 'safe');
+      const loaded = (await loadSkills({ cwd, harnessHome: join(root, 'home') })).byName.get(
+        'safe',
+      );
+      if (!loaded) throw new Error('fixture missing');
+      const outside = join(root, 'outside');
+      skill(join(outside, 'SKILL.md'), 'safe', 'Replacement outside the approved root');
+      renameSync(folder, `${folder}-old`);
+      symlinkSync(outside, folder);
+      await expect(reloadSkill(loaded)).rejects.toThrow('changed its resolved path');
+    });
+  });
   test('loads managed node directory projections once from root and subfolders', async () => {
     await fixture(async (root) => {
       const cwd = join(root, 'project');

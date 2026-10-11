@@ -1,3 +1,7 @@
+## 2026-10-11 — Discovery/activation stack compatibility
+
+Pinned canonical reload paths for loader-produced descriptors and canonicalized legacy host objects before bounded reads. A post-discovery parent link swap now fails before outside content can be reloaded. Combined #44/#45 checks pass lint/boundary, types, strict SDK build and all discovered tests: **5,772 passed / 19 existing skips / zero failures**, 23,940 assertions across 553 files (`stack45` gate). No weakened assertions or installed updates.
+
 ## 2026-10-11 — Issue 45: bounded portable skill discovery
 
 Implemented shared SDK/SOV discovery for native `.harness/skills`, portable `.agents/skills`, eligible project ancestors and approved managed links. Nearest project roots retain first-wins precedence above user/plugin/bundle roots. Git and Kernel node boundaries stop ambient ancestor catalogs; cross-repository targets require explicit `allowedLinkRoots`. Structured decisions report roots, links, conflicts and limits. Discovery excludes internal transaction directories, including aliases and case variants. Canonical regular-file reads reject leaf and parent retargeting. Directory guard scans share byte and entry budgets and reject incomplete scans.

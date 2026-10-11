@@ -5,11 +5,9 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open, realpath, stat } from 'node:fs/promises';
-import { basename, dirname } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import { shellCommand } from '../util/platform.js';
-import { spawnProc } from '../util/spawn.js';
 import {
   DEFAULT_SKILL_DISCOVERY_LIMITS,
   type SkillClassification,
@@ -286,13 +284,15 @@ export async function expandSkillText(
 
 export async function reloadSkill(skill: Skill, warn?: (message: string) => void): Promise<Skill> {
   const currentRealpath = await realpath(skill.path);
-  const expectedRealpath = join(await realpath(dirname(skill.realpath)), basename(skill.realpath));
+  const expectedRealpath = skill.revision
+    ? skill.realpath
+    : join(await realpath(dirname(skill.realpath)), basename(skill.realpath));
   if (currentRealpath !== expectedRealpath) {
     throw new Error(`skill '${skill.name}' changed its resolved path; reload the registry`);
   }
   const loaded = await loadSkillFile(
     skill.path,
-    skill.realpath,
+    currentRealpath,
     { source: skill.source, trustTier: skill.trustTier },
     warn,
     // Preserve the plugin root across reloads so a plugin command's
