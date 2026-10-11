@@ -435,11 +435,16 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     const budget = resolveSkillContextBudget({
       ...(effectiveModelLimits ? { contextWindowTokens: effectiveModelLimits.contextTokens } : {}),
       outputTokens: outputCeiling,
-      reservedInputTokens: requestInputTokenEstimate(
-        history,
-        standing,
-        toToolSchemas(activationState.tools),
-      ).tokens,
+      reservedInputTokens: params.inputTokenCounter
+        ? params.inputTokenCounter({
+            model,
+            messages: history,
+            system: standing,
+            tools: toToolSchemas(activationState.tools),
+            maxTokens: outputCeiling,
+            ...(modelMetadata ? { modelMetadata } : {}),
+          })
+        : requestInputTokenEstimate(history, standing, toToolSchemas(activationState.tools)).tokens,
     });
     toolCtx.skillContextBudget = budget;
     const snapshot = getSkillRegistrySnapshot(toolCtx);
