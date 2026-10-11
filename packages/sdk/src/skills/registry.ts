@@ -188,7 +188,9 @@ export function getSkillRegistrySnapshot(
     ...snapshot,
     registry: filterSkillRegistry(
       snapshot.registry,
-      ctx.activeToolNames !== undefined ? inferActiveToolsets(names) : (ctx.activeToolsets ?? []),
+      ctx.activeToolNames !== undefined
+        ? inferActiveToolsets(names, ctx.activeToolsets)
+        : (ctx.activeToolsets ?? []),
       names,
     ),
   };
