@@ -1,3 +1,55 @@
+## 2026-10-11 — Third review PR57 dependency integration
+
+Merged the corrected parent without rewriting PR history. Complete source gate: **5,882 passed / 19 existing skips / zero failures**, 24,458 assertions across all 565 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
+
+## 2026-10-11 — Third review PR56 dependency integration
+
+Merged the corrected parent without rewriting PR history. Complete source gate: **5,851 passed / 19 existing skips / zero failures**, 24,319 assertions across all 562 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
+
+## 2026-10-11 — Third review PR55 dependency integration
+
+Merged the corrected parent without rewriting PR history. Complete source gate: **5,841 passed / 19 existing skips / zero failures**, 24,256 assertions across all 560 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
+
+Initial preparation refused a testing-log prefix difference before dependency installation; the build then reported the missing compiler. Both were preparation failures. The log merge retains both histories, dependencies were installed, and the complete gate below runs on the correct merged source.
+
+## 2026-10-11 — Third review PR54: validate the moved backup revision
+
+Confirmed High: a direct owner edit between the final revision snapshot and
+the backup rename was overwritten by edit or discarded by delete. The actual
+complete backup tree is now checked after its rename/root flush and before
+publication/deletion commit. A mismatch uses prepared-journal recovery to
+restore the newer tree and emits no mutation event.
+
+Two isolated packaged-Node worker regressions fail on original PR54
+`b7a57643` (0 pass / 2 fail) and pass after correction. Both inject the direct
+write at the actual rename boundary and verify normal-store readability and
+zero events. Focused `bun test tests/skills/storePublicationRace.test.ts
+tests/skills/storeSafetyReview.test.ts tests/skills/store.test.ts
+tests/commands/reviewOps.test.ts`: **101 pass / zero fail / 328 assertions**.
+The same third review finds no new independent above-Low defect in PR52
+activation or PR53 discovery. Their actual-head focused native/HTTP/cron/view
+checks pass **25/0**, 122 assertions; discovery/guard/loader checks pass
+**62/0**, 137 assertions.
+
+Darwin arm64, Bun 1.3.13; temporary worktrees, local Node and fake stores only.
+`bun install --ignore-scripts --frozen-lockfile`, `bun run build` and
+`bun run tui:build` prepared this isolated worktree. Complete gate:
+`python3 /private/tmp/sdk-skills-hardening-gate.py
+/private/tmp/sdk-skills-round2-20261011/54 third54-backup-cas`. Configured
+lint/boundary, typecheck, strict SDK build and every discovered test file pass:
+**5,833 passed / 19 existing skips / zero failures**, 24,207 assertions across
+559 files. The compiler fixture is serialized, footer/theme fixture isolated
+and all remaining files run with a unique temporary root. No test omitted or
+assertion weakened. Added an independent recreated-owner-tree regression:
+publication and repeated reopening both refuse with a recovery conflict while
+retaining the new owner tree, the original backup and zero mutation events.
+All three race fixtures pass **3/0**, 14 assertions. Final complete rerun with
+the added regression uses `third54-backup-cas-final` and passes
+**5,834 passed / 19 existing skips / zero failures**, 24,213 assertions across
+559 files, plus lint/boundary, typecheck and strict SDK build. No further source
+or test change followed that gate. No physical power-loss or Windows execution claim, paid
+inference, installed host change, release or restart.
+
 ## 2026-10-11 — PR57 third review: durable forwarded-event identity
 
 The coordinator reproduced a new Medium event-identity defect: after more than 64 genuine commits, delayed copied observer events lost their recent-key guard and repeatedly re-emitted themselves. The bounded 67-commit negative regression produced 267 mutation notifications before its 200-forward safety cap. Independent cross-runtime controls also showed duplicate shared-store notifications and loss of a genuine identical-revision create after delete. Runtime observer copies now carry private enumerable symbol provenance with weak runtime origins. Actual store callbacks also carry a weak token shared by runtimes using that injected store. New marked commits bypass repeated-revision key dedupe; unmarked custom events retain its bounded 64-key fallback. No unbounded commit set or public JSON field was added.
