@@ -316,6 +316,36 @@ describe('portable bounded skill discovery', () => {
     });
   });
 
+  test('canonical exclusions stop aliases while explicit approved package roots remain eligible', async () => {
+    await fixture(async (root) => {
+      const cwd = join(root, 'project');
+      repository(cwd);
+      const tree = join(cwd, '.agents', 'skills');
+      for (const directory of ['.git', '.svn', '.hg', 'node_modules', 'vendor']) {
+        const name = `hidden-${directory.replace(/[^a-z]/g, '')}`;
+        const target = join(tree, directory, 'package');
+        skill(join(target, 'SKILL.md'), name);
+        link(target, join(tree, `alias-${name}`));
+      }
+      const denied = await loadSkills({ cwd, harnessHome: join(root, 'home') });
+      expect(denied.skills).toEqual([]);
+      const packageRoot = join(tree, 'node_modules', 'package');
+      const approved = await loadSkills({
+        cwd,
+        harnessHome: join(root, 'home'),
+        allowedLinkRoots: [packageRoot],
+      });
+      expect(approved.skills.map((entry) => entry.name)).toEqual(['hidden-nodemodules']);
+      const explicit = await loadSkills({
+        cwd,
+        harnessHome: join(root, 'home'),
+        extraRoots: [{ path: packageRoot, source: 'plugin', trustTier: 'community' }],
+      });
+      expect(explicit.byName.get('hidden-nodemodules')?.source).toBe('plugin');
+      expect(explicit.byName.get('hidden-nodemodules')?.trustTier).toBe('community');
+    });
+  });
+
   test('depth, tree count, file count, per-file bytes, and total bytes are bounded and explained', async () => {
     await fixture(async (root) => {
       const cwd = join(root, 'project');

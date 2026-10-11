@@ -12,6 +12,7 @@ import {
   resolveSkillResource,
 } from './activation.js';
 import { DEFAULT_SKILL_DISCOVERY_LIMITS } from './discovery.js';
+import { assertSkillFileIdentity, captureSkillFileIdentity } from './fileIdentity.js';
 import { guardSkillText } from './guard.js';
 import {
   type LoadSkillsOptions,
@@ -36,6 +37,7 @@ import type {
 } from './storeTypes.js';
 import { SKILL_STORE_LIMITS, assertSkillStoreResource } from './storeValidation.js';
 import type { Skill } from './types.js';
+import { inferActiveToolsets, isSkillVisible } from './visibility.js';
 
 export type SkillRuntimeEvent =
   | { type: 'refreshed'; generation: number }
@@ -302,7 +304,22 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
             : undefined;
         return activateSkill(skill, {
           ...activationOptions,
-          resolveSkill: resolveCurrent,
+          resolveSkill: async (candidate) => {
+            const current = await resolveCurrent(candidate);
+            // Resolution runs inside the turn's activation queue. Earlier
+            // requests or freshly loaded metadata may change prerequisites.
+            const names = activationOptions.state.tools.map((tool) => tool.name);
+            if (
+              current.name !== name ||
+              !isSkillVisible(
+                current,
+                inferActiveToolsets(names, activationOptions.toolContext.activeToolsets),
+                names,
+              )
+            )
+              throw new Error(`unknown or unavailable skill '${name}'`);
+            return current;
+          },
           ...(roots !== undefined ? { allowedResourceRoots: roots } : {}),
           ...(virtual ? { executionDirectory: activationOptions.toolContext.cwd } : {}),
         });
@@ -412,10 +429,16 @@ async function loadStoreCatalog(
     throw new Error('skill store discovery limits must be positive integers');
   const skills: Skill[] = [];
   const seen = new Set<string>();
+  const seenCursors = new Set<string>();
+  let pages = 0;
   let cursor: string | undefined;
   let generation: string | undefined;
   let bytes = 0;
   do {
+    // Empty pages do not consume the entry allowance. Bound page traversal
+    // separately, with one extra page for a finite empty/terminal boundary.
+    if (pages++ >= maxEntries + 1)
+      throw new Error('skill store pagination exceeds the bounded discovery limit');
     const page = await store.list({ limit: 100, ...(cursor ? { cursor } : {}) });
     if (generation !== undefined && page.generation !== generation)
       throw new Error('skill store changed during discovery; retry');
@@ -438,8 +461,11 @@ async function loadStoreCatalog(
       if (skill.name !== name) throw new Error('skill store identity does not match frontmatter');
       skills.push(skill);
     }
-    if (page.truncated && (!page.nextCursor || page.nextCursor === cursor))
-      throw new Error('skill store returned a stalled pagination cursor');
+    if (page.truncated) {
+      if (!page.nextCursor || page.nextCursor === cursor || seenCursors.has(page.nextCursor))
+        throw new Error('skill store returned a stalled or repeated pagination cursor');
+      seenCursors.add(page.nextCursor);
+    }
     cursor = page.truncated ? page.nextCursor : undefined;
   } while (cursor);
   // Membership can change while the last page's bodies are read. Verify the
@@ -458,11 +484,15 @@ async function readBoundedResource(
   target: string,
   roots?: readonly string[],
 ): Promise<string> {
+  const identity = await captureSkillFileIdentity(target);
+  if (identity.file.size > DEFAULT_SKILL_DISCOVERY_LIMITS.maxFileBytes)
+    throw new Error('skill resource is not a bounded regular file');
   const handle = await open(
     target,
     constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
   );
   try {
+    await assertSkillFileIdentity(target, handle, identity);
     const info = await handle.stat();
     const maxBytes = DEFAULT_SKILL_DISCOVERY_LIMITS.maxFileBytes;
     if (!info.isFile() || info.size > maxBytes)
@@ -483,6 +513,7 @@ async function readBoundedResource(
       current.dev !== info.dev
     )
       throw new Error('skill resource changed during read');
+    await assertSkillFileIdentity(target, handle, identity);
     return buffer.subarray(0, length).toString('utf8');
   } finally {
     await handle.close();

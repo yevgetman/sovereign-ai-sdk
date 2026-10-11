@@ -105,3 +105,72 @@ await import(${JSON.stringify(resolve('packages/sdk/dist/skills/storeWorkerEntry
   expect(await readFile(join(root, 'note', 'SKILL.md'), 'utf8')).toBe(external);
   expect(events).toEqual([]);
 });
+
+for (const action of ['create', 'edit'] as const) {
+  for (const resource of ['SKILL.md', 'references/checked.txt']) {
+    test(`${action} rejects a changed staged ${resource} at publication without a false receipt`, async () => {
+      const root = join(scratch, 'skills');
+      const regular = new FilesystemSkillStore({ root });
+      const initial =
+        action === 'edit'
+          ? (
+              await regular.mutate({
+                action: 'create',
+                name: 'note',
+                content,
+                files: new Map([
+                  ['references/checked.txt', { data: Buffer.from('SAFE_RESOURCE') }],
+                ]),
+              })
+            ).entry
+          : undefined;
+      const script = join(scratch, 'changed-stage-worker.mjs');
+      await writeFile(
+        script,
+        `import fs from 'node:fs';
+import {basename,join} from 'node:path';
+import {syncBuiltinESMExports} from 'node:module';
+const original={...fs};let changed=false;
+fs.renameSync=(from,to)=>{
+  if(!changed && basename(from).startsWith('.sov-skill-stage-') && basename(to)==='note') {
+    changed=true;
+    original.writeFileSync(join(from,${JSON.stringify(resource)}),${JSON.stringify(resource === 'SKILL.md' ? content.replace('Checked workflow.', 'Changed staged body.') : 'CHANGED_RESOURCE')});
+  }
+  return original.renameSync(from,to);
+};
+syncBuiltinESMExports();
+await import(${JSON.stringify(resolve('packages/sdk/dist/skills/storeWorkerEntry.js'))});`,
+      );
+      const store = new FilesystemSkillStore({
+        root,
+        workerCommand: { executable: 'node', args: [script] },
+      });
+      const events: unknown[] = [];
+      store.subscribe((event) => events.push(event));
+      await expect(
+        store.mutate({
+          action,
+          name: 'note',
+          content: content.replace('Checked workflow.', 'Requested body.'),
+          files: new Map([['references/checked.txt', { data: Buffer.from('REQUESTED_RESOURCE') }]]),
+          ...(initial ? { expectedRevision: initial.revision } : {}),
+        }),
+      ).rejects.toThrow('skill staged tree changed during transaction');
+      const retained = await regular.read('note');
+      expect(retained?.revision).toBe(initial?.revision);
+      if (initial) {
+        expect(retained?.content).toBe(content);
+        expect(
+          Buffer.from(retained?.files.get('references/checked.txt')?.data ?? []).toString(),
+        ).toBe('SAFE_RESOURCE');
+      }
+      expect(events).toEqual([]);
+      expect((await regular.list()).names).toEqual(initial ? ['note'] : []);
+      expect(
+        (await readdir(root)).filter(
+          (name) => name.startsWith('.sov-skill-stage-') || name.startsWith('.sov-skill-backup-'),
+        ),
+      ).toEqual([]);
+    });
+  }
+}

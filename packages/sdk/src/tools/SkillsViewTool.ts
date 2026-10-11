@@ -7,6 +7,7 @@ import { open, realpath, stat } from 'node:fs/promises';
 import { dirname, relative } from 'node:path';
 import { z } from 'zod';
 import { resolveSkillResource } from '../skills/activation.js';
+import { assertSkillFileIdentity, captureSkillFileIdentity } from '../skills/fileIdentity.js';
 import { reloadSkill } from '../skills/loader.js';
 import { buildTool } from '../tool/buildTool.js';
 
@@ -100,11 +101,15 @@ async function readBoundedReference(
   target: string,
 ): Promise<string> {
   const maxBytes = 1024 * 1024;
+  const identity = await captureSkillFileIdentity(target);
+  if (identity.file.size > maxBytes)
+    throw new Error('skill reference must be a bounded regular file');
   const handle = await open(
     target,
     constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
   );
   try {
+    await assertSkillFileIdentity(target, handle, identity);
     const info = await handle.stat();
     if (!info.isFile() || info.size > maxBytes)
       throw new Error('skill reference must be a bounded regular file');
@@ -124,6 +129,7 @@ async function readBoundedReference(
       current.dev !== info.dev
     )
       throw new Error('skill reference path or identity changed while reading');
+    await assertSkillFileIdentity(target, handle, identity);
     return buffer.subarray(0, length).toString('utf8');
   } finally {
     await handle.close();
