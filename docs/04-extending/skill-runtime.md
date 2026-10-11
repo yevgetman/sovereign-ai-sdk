@@ -95,10 +95,19 @@ the shared default 1 MiB file limit before parsing or decoding, and the 16 MiB
 tree limit. Each skill retains its own revision; publishing a catalog does not
 create a transaction across multiple skill trees.
 
+Custom stores must advance their pagination cursors. Discovery rejects repeated
+cursors and bounds page traversal to `maxEntries + 1`, including empty pages.
+The extra page permits a finite empty boundary. Failure retains the accepted
+catalog and reports a refresh diagnostic; the host can correct its adapter and
+retry.
+
 Reference inspection applies the same 1 MiB per-file bound to filesystem links,
 memory resources and custom `readResource` adapters. Custom text is measured in
 UTF-8 bytes before it reaches `skill_view`; filesystem reads also stop at the
 byte bound. An approved resource root grants access without expanding this limit.
+Filesystem readers also pin canonical ancestors and pre-open leaf metadata.
+They compare the opened handle before reading and validate current identities
+after reading, so the tested temporary ancestor swaps expose no outside bytes.
 
 `activate(name, {source, toolContext, state, args?})` uses the common permissioned
 activation path. Native tool restrictions only narrow the existing host pool.

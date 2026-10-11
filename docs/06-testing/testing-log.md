@@ -1,3 +1,17 @@
+## 2026-10-11 — Fifth-review complete source gate for PR58
+
+Scope: owning review changes and ordinary parent correction carry in dependency order. Commands: frozen dependency install without scripts, public protocol/SDK build, TUI build, then configured lint/boundary, root types, strict SDK build and every discovered test file. Result: **5,932 passed / 19 existing skips / zero failures**, 24,894 assertions across all 575 files. Compiler, shared-theme, redaction-timing and subprocess fixtures run separately; no file or assertion is omitted. Prior testing histories remain intact. This validates review source; no master merge, release or installed-host change is performed.
+
+## 2026-10-11 — Fifth review PR58: bound lazy headers and query responses
+
+Confirmed Medium: metadata mode reads up to `metadataMaxBytes + 1` to detect a full-file overflow, then rejects a valid header that fit its allowance when deferred body bytes filled the extra byte. A 45-byte valid header with a long body was omitted at a 128-byte allowance. The metadata path now reads only its header cap, preserves 256-byte chunks and rejects only a missing/oversized delimiter. Positive controls retain deferred entries at exact-header, 128-byte and 300-byte limits; a header ending in a final partial 256-byte chunk loads with exactly 300 bytes read. An actually undersized allowance still rejects.
+
+Confirmed Medium: the public catalog helper checks only normalized query length but echoes the original query. A 10,000-space query produced a 10,092-byte page under a 1,024-byte cap. A native-schema-valid query with 256 control characters also exceeds the fallback page cap through JSON escaping. The helper now checks original length and rejects a query whose serialized response fields exceed the current page allowance. Valid trimmed search remains compatible.
+
+Dependency carry: the metadata reader inherits PR53's High temporary-ancestor read defect. Its strict-Node regression accepts an outside header against the original compiled package and rejects after carrying PR52's shared pre-open file/directory identity checks. Full-body reads use PR53's bounded helper; metadata startup still defers bodies/resources. Temporary helper copies support this detached review, while the parent branches own those files.
+
+Commands: isolated `bun install --ignore-scripts --frozen-lockfile`, `bun run build:protocol`, `bun run build:sdk`; baseline `bun test tests/skills/metadata.test.ts -t 'partial-chunk|outside ancestor'` (**zero passed / two failed**); baseline `bun test tests/skills/catalog.test.ts -t 'raw queries'` (**zero passed / one failed**); rebuilt strict SDK package; and `bun test tests/skills/metadata.test.ts tests/skills/catalog.test.ts tests/skills/catalogQuery.test.ts tests/skills/runtimeVisibility.test.ts tests/context/systemPrompt.test.ts`. Final focused result: **42 passed / zero failed**, 386 assertions across five files. Focused Biome initially reported a new-test formatting line, which was corrected, and now passes. No full gate, publication, release, install or master merge is claimed here; the coordinator performs the configured publication gate.
+
 ## 2026-10-11 — Fourth-review parent propagation to PR58
 
 Scope: carry reviewed parent `bfee8c122e3b3f93306d39c1f9fbb0801ad815cf` into PR58, preserving its original head and both testing histories. The owner requested dependency-aware review and fixes. No PR is merged into master.
@@ -15,6 +29,53 @@ Merged the corrected parent without rewriting PR history. Complete source gate: 
 The source merge had one query import conflict. The resolution retains all catalog/budget imports and the effective-tool visibility helper. Both behaviors remain covered by the complete merged-source gate.
 
 Initial merged-source run: remaining suite 5,859 pass / 19 existing skips / 3 fail. The new PR57 visibility fixtures assumed the first list page contained the complete catalog, while PR58 legitimately returned a cursor. The mock provider now consumes every page before asserting the full available/unavailable sets and refused activation. All prior positive/negative assertions remain; no production budget was widened. Focused visibility/catalog/query checks pass 17/0 with 244 assertions. Initial failed receipt is /private/tmp/sdk-skills-third-publish58-initial-pagination-failure.log. The final complete rerun below covers the corrected integration fixture.
+## 2026-10-11 — Fifth-review complete source gate for PR57
+
+Scope: owning review changes and ordinary parent correction carry in dependency order. Commands: frozen dependency install without scripts, public protocol/SDK build, TUI build, then configured lint/boundary, root types, strict SDK build and every discovered test file. Result: **5,915 passed / 19 existing skips / zero failures**, 24,604 assertions across all 572 files. Compiler, shared-theme, redaction-timing and subprocess fixtures run separately; no file or assertion is omitted. Prior testing histories remain intact. This validates review source; no master merge, release or installed-host change is performed.
+
+## 2026-10-11 — Fifth-review PR57 queued prerequisite follow-up and complete focused checks
+
+Confirmed Medium: cached initial eligibility let a queued or freshly resolved workflow activate with missing required tools. Resolution now checks identity and tool/profile prerequisites inside the activation queue. The real-runtime baseline fails two unavailable-workflow cases; the matching-tool/custom-profile control passes. The corrected full focused set includes the previously artifact-dependent strict public-Node host fixture: **42 passed / zero failed / 178 assertions across seven files** after `bun run build`. Native tool restrictions remain intact. Temporary inherited helper/activation copies are excluded from PR57 ownership and arrive through parent merges.
+
+## 2026-10-11 — Fifth review PR57: resource identity and bounded adapter pagination
+
+Confirmed High: composed filesystem reference inspection repeated the fallback
+reader's hidden-ancestor race. Swap the reference directory outside before open,
+capture outside post-read metadata and restore the directory before canonical
+checks. `skill_view` returns outside fixture bytes. The isolated baseline
+reference suite reports **1 passed / 2 failed / 5 assertions**. The main effect
+regression reproduces the leak; the second fixture checks the new pre-open
+snapshot boundary. Runtime inspection now uses the shared file-identity pins
+owned by PR52 before and after opened reads. Stable direct and in-tree linked
+references retain their accepted bytes and resource identities.
+
+Confirmed Medium: custom-store discovery detects only an immediately repeated
+cursor. Alternating empty `a`/`b` pages or infinitely unique empty cursors evade
+both entry and byte limits, leaving refresh pending. Real custom adapter
+regressions stop the broken baseline after six/seven calls:
+**1 passed / 2 failed / 7 assertions**. Discovery now rejects any repeated cursor
+and limits all page traversals to `maxEntries + 1`. A finite empty page followed
+by a valid terminal page remains supported. Failed refresh keeps the same
+accepted generation and catalog, publishes an error diagnostic, and succeeds
+after the adapter is corrected. Initial new fixture assertions incorrectly
+expected object identity for detached snapshots/registries; corrected them to
+full catalog equality and generation checks, preserving the diagnostic check.
+
+Darwin arm64, Bun 1.3.13, isolated offline frozen dependencies, temporary roots,
+controlled filesystem hooks, real host adapters and mock providers. Copied the
+owning PR52 fileIdentity helper for focused checks only; root carries it through
+the dependency merges. `bun test tests/skills/runtimePaginationBounds.test.ts
+tests/skills/runtimeReferenceIdentity.test.ts tests/skills/runtimeResourceLimits.test.ts
+tests/skills/runtimeVisibility.test.ts tests/server/skills.composedRuntime.test.ts`:
+**20 passed / zero failed / 98 assertions**. `bun test
+tests/skills/runtime.test.ts --test-name-pattern '^(?!.*public Node host).*'`:
+**18 passed / one filtered / zero failed / 66 assertions**. That one strict-Node
+case requires built public artifacts and belongs to root's complete gate;
+it is not a reported full-suite result. Focused Biome and diff checks pass.
+The coordinator owns full gates, dependency integration and publication. These
+tests prove the controlled read interleavings and SDK traversal bounds; they do
+not certify arbitrary race immunity or bound time spent inside a host adapter.
+
 ## 2026-10-11 — Fourth-review parent propagation to PR57
 
 Scope: carry reviewed parent `fa87169c12e7d485610911321ed4ca9ff8414ea6` into PR57, preserving its original head and both testing histories. The owner requested dependency-aware review and fixes. No PR is merged into master.
@@ -83,6 +144,26 @@ No live data, release or installed-host change.
 ## 2026-10-11 — Third review PR57 dependency integration
 
 Merged the corrected parent without rewriting PR history. Complete source gate: **5,882 passed / 19 existing skips / zero failures**, 24,458 assertions across all 565 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
+## 2026-10-11 — Fifth-review complete source gate for PR56
+
+Scope: owning review changes and ordinary parent correction carry in dependency order. Commands: frozen dependency install without scripts, public protocol/SDK build, TUI build, then configured lint/boundary, root types, strict SDK build and every discovered test file. Result: **5,871 passed / 19 existing skips / zero failures**, 24,415 assertions across all 564 files. Compiler, shared-theme, redaction-timing and subprocess fixtures run separately; no file or assertion is omitted. Prior testing histories remain intact. This validates review source; no master merge, release or installed-host change is performed.
+
+## 2026-10-11 — Fifth review PR56: registry and diagnostics
+
+Fresh parent-relative review at `fa87169c` against `87a35120`: no confirmed
+Critical, High or Medium finding. Reviewed detached/serialized publication,
+refresh failure retention, active tool/profile visibility, writer refreshes,
+ownership before diagnostics access, remote redaction, local doctor, and TUI
+doctor/reload behavior. Followed the final SDK runtime consumers.
+
+Environment: macOS, Bun 1.3.13, Node 25.9.0. Frozen dependencies were installed
+without scripts. Protocol and SDK builds pass. Focused
+`bun test tests/skills/registry.test.ts tests/server/skills.registry.test.ts --timeout 30000`:
+**11 passed / zero failed / 61 assertions**. Focused Go
+`go test ./internal/app -run 'TestSkillsDoctorReachesServerCommand|TestApp_SlashSkillsReload' -count=1`
+passes. Functional source remains unchanged. No full gate, release, install,
+or merge to master is claimed by this review receipt.
+
 ## 2026-10-11 — Fourth-review parent propagation to PR56
 
 Scope: carry reviewed parent `87a351202bbb9fd6060c9eb4f6356e73fc16b777` into PR56, preserving its original head and both testing histories. The owner requested dependency-aware review and fixes. No PR is merged into master.
@@ -96,6 +177,28 @@ Confirmed a Medium defect in the filesystem registry wrappers. Exceptions from h
 ## 2026-10-11 — Third review PR56 dependency integration
 
 Merged the corrected parent without rewriting PR history. Complete source gate: **5,851 passed / 19 existing skips / zero failures**, 24,319 assertions across all 562 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
+## 2026-10-11 — Fifth-review complete source gate for PR55
+
+Scope: owning review changes and ordinary parent correction carry in dependency order. Commands: frozen dependency install without scripts, public protocol/SDK build, TUI build, then configured lint/boundary, root types, strict SDK build and every discovered test file. Result: **5,860 passed / 19 existing skips / zero failures**, 24,349 assertions across all 562 files. Compiler, shared-theme, redaction-timing and subprocess fixtures run separately; no file or assertion is omitted. Prior testing histories remain intact. This validates review source; no master merge, release or installed-host change is performed.
+
+## 2026-10-11 — Fifth review PR55: invocation and portable-control checks
+
+No new independent confirmed finding above Low in the parent-relative change
+from PR54 `827be897` to PR55 `87a35120`. Reviewed descriptor/control validation,
+portable versus native tool policy, command and model visibility, current
+activation checks, import normalization, unknown-field retention, positional
+argument data and inert shell-output handling. Followed registry/runtime
+consumers on PR59. PR55 inherits the owning fixes identified on PR52 and PR53;
+this result does not certify the uncorrected incoming parents.
+
+Darwin arm64, Bun 1.3.13, isolated worktree with offline frozen dependencies;
+temporary filesystem fixtures and mock HTTP/providers only. `bun test
+tests/skills/descriptor.test.ts tests/skills/activation.test.ts
+tests/skills/import.test.ts tests/skills/normalizeAliases.test.ts
+tests/server/skillActivationClients.test.ts`: **44 passed / zero failed /
+226 assertions**. No production source change is needed for this PR's own
+review. The coordinator owns parent integration and complete configured gates.
+
 ## 2026-10-11 — Fourth-review PR55 final CI prerequisite ancestry
 
 Scope: ordinary merge of updated PR54 `827be89752e6a35c2b41009a0f103c52b15bc45f`, retaining updated PR53 `a939f457aa94de142f23109e21f1c3f05a10971e`. PR53 CI now builds public packages before the strict-Node discovery regression; PR54 and PR55 already have the identical build prerequisite. This second merge changes only testing-log histories. Runtime source, test trees, workflows, package/dependency/build files and all other tracked files are identical to the complete-gated PR55 merge `8459ed54`.
@@ -119,9 +222,46 @@ Commands: `bun install --frozen-lockfile --ignore-scripts`, `bun run build`, `bu
 Merged the corrected parent without rewriting PR history. Complete source gate: **5,841 passed / 19 existing skips / zero failures**, 24,256 assertions across all 560 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
 
 Initial preparation refused a testing-log prefix difference before dependency installation; the build then reported the missing compiler. Both were preparation failures. The log merge retains both histories, dependencies were installed, and the complete gate below runs on the correct merged source.
+## 2026-10-11 — Fifth-review complete source gate for PR54
+
+Scope: owning review changes and ordinary parent correction carry in dependency order. Commands: frozen dependency install without scripts, public protocol/SDK build, TUI build, then configured lint/boundary, root types, strict SDK build and every discovered test file. Result: **5,853 passed / 19 existing skips / zero failures**, 24,306 assertions across all 561 files. Compiler, shared-theme, redaction-timing and subprocess fixtures run separately; no file or assertion is omitted. Prior testing histories remain intact. This validates review source; no master merge, release or installed-host change is performed.
+
+## 2026-10-11 — Fifth review PR54: verify the actual published tree
+
+Confirmed High: a stage changed at its publication rename returned a successful
+receipt with requested bytes and revision, although the stored tree contained
+different bytes and a different revision. The worker now checks the complete
+stage before moving the previous tree and checks the published tree and stage
+directory identity before commitment. A change inside its uncommitted stage
+rolls back. An unrelated replacement remains a recovery conflict.
+
+Four benign isolated packaged-Node regressions change SKILL.md or a reference
+at the publication boundary for create/edit. Each fails against original
+`827be897` and passes with the correction. The assertions verify retained prior
+bytes/revision, no false mutation event, normal-store readability, and cleaned
+transaction leaves. Existing direct-owner-edit recovery coverage still passes.
+
+Environment: macOS, Bun 1.3.13, Node 25.9.0. Commands: frozen installation without
+scripts, `bun run build:protocol`, `bun run build:sdk`, and
+`bun test tests/skills/storePublicationRace.test.ts tests/skills/storeSafetyReview.test.ts tests/skills/storeObserverSafety.test.ts tests/skills/storeSourceSafety.test.ts tests/skills/store.test.ts --timeout 30000`.
+Focused result: **57 passed / zero failed / 246 assertions**. Changed-file Biome
+and diff whitespace checks pass. Full gates are pending coordinator validation.
+No release, install, or merge to master.
+
 ## 2026-10-11 — PR54 carry of the PR53 CI prerequisite receipt
 
 Merged corrected parent `a939f457aa94de142f23109e21f1c3f05a10971e` without changing functional source or regression assertions. The public-package build prerequisite already exists identically in PR54. Only the testing-log histories change in this merge. Final lint/boundary and typecheck pass. The unchanged source retains the complete configured gate at `5f3fe9ad`: 5,837 passed / 19 existing skips / zero failures, 24,242 assertions across 559 files. No new full-suite run is claimed for this log-only carry. Original head and updated parent ancestry are preserved.
+## 2026-10-11 — Fifth-review complete source gate for PR53
+
+Scope: owning review changes and ordinary parent correction carry in dependency order. Commands: frozen dependency install without scripts, public protocol/SDK build, TUI build, then configured lint/boundary, root types, strict SDK build and every discovered test file. Result: **5,793 passed / 19 existing skips / zero failures**, 24,045 assertions across all 556 files. Compiler, shared-theme, redaction-timing and subprocess fixtures run separately; no file or assertion is omitted. Prior testing histories remain intact. This validates review source; no master merge, release or installed-host change is performed.
+
+## 2026-10-11 — Fifth review PR53: pin reads and reject excluded canonical aliases
+
+Confirmed High: a temporary canonical ancestor link introduced immediately before opening a skill file can provide outside bytes. The prior post-read `stat` observes that outside inode; restoring the ancestor before the separate `realpath` checks makes eager load, direct load and reload accept the outside body under the approved path. The directory resource guard can also scan benign outside replacement text and miss a critical finding in the accepted resource. The four isolated strict-Node filesystem-boundary regressions failed against the original built package and pass with pre-open leaf/directory identity capture and opened/current-handle validation. The shared identity helper belongs to PR52; this PR uses it for loader and guard reads.
+
+Confirmed Medium: a normally named symlink to `.git`, `.svn`, `.hg`, `node_modules` or `vendor` bypasses lexical directory exclusions and advertises package data as trusted project skills. Discovery now checks excluded descendants of canonical approved scopes. Explicit host-approved package roots and plugin roots under `node_modules` remain eligible in positive controls.
+
+Commands: `bun install --ignore-scripts --frozen-lockfile`, `bun run build:protocol`, `bun run build:sdk`, `bun test tests/skills/discovery.identity.test.ts` (original built package: zero passed / four failed, with outside acceptance), rebuilt `bun run build:sdk`, and `bun test tests/skills/discovery.identity.test.ts tests/skills/discovery.test.ts tests/skills/loader.test.ts tests/skills/guard.test.ts`. Focused result: **68 passed / zero failed**, 156 assertions across four files. Focused Biome initially identified one new helper formatting line, which was corrected. Full configured lint/type/test gates remain the coordinator's publication gate. Tests use temporary files and controlled filesystem boundary faults; no release, install or master merge.
 
 ## 2026-10-11 — PR53 CI artifact prerequisite correction
 
@@ -251,6 +391,40 @@ Confirmed a Medium defect in portable discovery diagnostics. A host `onDiscovery
 ## 2026-10-11 — PR53 reviewed parent integration
 
 Merged reviewed PR52 reference confinement and bounded-read fix into the discovery branch. Preserved discovery canonical-path reload checks and both testing histories. Final integrated source passes configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,778 passed / 19 existing skips / zero failed**, 23,976 assertions across 554 files. Public protocol/SDK and local TUI artifacts were rebuilt first. Global compiler and footer fixtures were isolated; all remaining files used a unique temporary root. No assertion was weakened or test omitted. No release or installed host change.
+## 2026-10-11 — Fifth review PR52: serialize host activation and pin reference reads
+
+Confirmed High: parallel `activateSkill` calls on one turn state snapshot the
+same initial scope and overwrite each other's completed restrictions. A
+Read-only and Write-only pair returned both activation records while permitting
+an actual subsequent Write effect. The same race permitted inline Bash after
+the earlier Read-only request. Both effect regressions fail on incoming
+`634914c0`: **2 passed / 2 failed / 10 assertions**. Activation now runs in
+request order per state. Rejection releases the next slot. A queued cancelled
+request performs no resolver lookup. Separate turn states remain independent,
+even when they share a session ID.
+
+Confirmed High: the fallback `skill_view` opened a temporarily redirected
+ancestor, obtained an outside file's post-read metadata and then accepted
+restored canonical paths. An isolated open/stat swap reproduced exposure of
+`outside-private-reference`: **3 passed / 1 failed / 6 assertions** before
+correction. The shared file-identity helper captures canonical ancestor and
+pre-open leaf identities, compares opened metadata before reading, and checks
+handle/current leaf and ancestors again afterward. The new tests cover the
+concealed open swap and a concealed swap during the initial leaf snapshot.
+Existing oversize, canonical-retarget and metadata-boundary fixtures remain.
+
+Darwin arm64, Bun 1.3.13, isolated worktree and in-memory activation descriptors;
+reference tests use temporary filesystem roots and controlled metadata hooks.
+`bun install --offline --ignore-scripts --frozen-lockfile` prepares local
+dependencies. `bun test tests/tools/skillsViewSecurity.test.ts
+tests/skills/activationConcurrency.test.ts tests/skills/activation.test.ts`:
+**25 passed / zero failed / 95 assertions**. Focused Biome checks pass. The
+coordinator owns complete lint/type/build/test gates and PR publication. These
+checks establish the tested interleavings; they do not establish arbitrary
+filesystem-race immunity or live longitudinal workflow success.
+
+Coordinator full gate: lint/boundary, root types, strict SDK build and all 554 discovered test files pass: **5,775 passed / 19 existing skips / zero failures**, 23,977 assertions. Public protocol/SDK and TUI artifacts were built first. Compiler, theme, redaction timing and subprocess fixtures ran separately with no omitted files or changed assertions. The first type pass rejected a fixture tool output generic; the fixture now declares the correct broad output contract. This changed no effect or assertion. The complete clean rerun is the evidence used for publication.
+
 ## 2026-10-11 — Fourth review PR52: keep activated context references inert
 
 Confirmed High: the HTTP skill path rescanned activated text through

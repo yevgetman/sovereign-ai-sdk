@@ -41,6 +41,17 @@ const largeBudget = resolveSkillContextBudget({
 });
 
 describe('complete bounded skill catalogs', () => {
+  test('raw queries cannot bypass length or serialized page limits', () => {
+    expect(() => listSkillCatalog([], { query: ' '.repeat(10_000), budget: largeBudget })).toThrow(
+      '256',
+    );
+    expect(() => listSkillCatalog([], { query: '\u0001'.repeat(256) })).toThrow('page budget');
+    const valid = listSkillCatalog([skill('review')], { query: ' review ', budget: largeBudget });
+    expect(valid.skills.map((entry) => entry.name)).toEqual(['review']);
+    expect(valid.query).toBe(' review ');
+    expect(skillTextTokenBound(JSON.stringify(valid))).toBeLessThanOrEqual(largeBudget.pageTokens);
+  });
+
   test('all 530 entries enumerate and long metadata cannot hide the next skill', () => {
     const input = Array.from({ length: 530 }, (_, i) =>
       skill(`fixture-${String(i).padStart(4, '0')}`),

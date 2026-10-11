@@ -95,6 +95,8 @@ export function listSkillCatalog(
     budget?: SkillContextBudget;
   } = {},
 ): SkillCatalogPage {
+  if ((options.query?.length ?? 0) > 256)
+    throw new Error('skill catalog query must not exceed 256 characters');
   const query = options.query?.trim().toLowerCase() ?? '';
   if (query.length > 256) throw new Error('skill catalog query must not exceed 256 characters');
   const sorted = ordered(skills);
@@ -125,6 +127,8 @@ export function listSkillCatalog(
     truncated: false,
     ...(options.query !== undefined ? { query: options.query } : {}),
   };
+  if (options.query !== undefined && skillTextTokenBound(JSON.stringify(page)) > byteCap)
+    throw new Error('skill catalog query exceeds current page budget; shorten query');
   let index = start;
   let nameOffset = cursor?.nameOffset ?? 0;
   const withContinuation = (item: SkillCatalogEntry, next: number, nextNameOffset = 0): number =>
