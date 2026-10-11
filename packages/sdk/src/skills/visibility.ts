@@ -33,9 +33,15 @@ export function filterSkillRegistry(
   };
 }
 
-export function inferActiveToolsets(activeTools: readonly string[]): string[] {
+export function inferActiveToolsets(
+  activeTools: readonly string[],
+  hostToolsets: readonly string[] = [],
+): string[] {
   const toolSet = new Set(activeTools);
-  const out = new Set<string>();
+  // These capability sets are derived from tools. Other tags are host-owned
+  // profiles, such as a scheduler's selected custom capability profile.
+  const derived = new Set(['terminal', 'filesystem', 'search', 'memory', 'skills']);
+  const out = new Set(hostToolsets.filter((toolset) => !derived.has(toolset)));
   if (toolSet.has('Bash')) out.add('terminal');
   if (
     toolSet.has('FileRead') ||
