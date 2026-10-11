@@ -1,5 +1,9 @@
 # Testing log
 
+## 2026-10-11 — Third review final public consumers and report
+
+Frozen source `bd798df4e60da5d802225712a7361284e8f72e3a` retains all owning corrections and parent ancestry. Final source gate: **5,925 pass / 19 existing skips / 0 fail**, 24,915 assertions across all 572 discovered files; lint/boundary, types and strict SDK build pass. Final `go test ./...`, actual packed `bun run canary` Node/Bun/types/boundary consumers, and `bun run release:validate` pass. Independent bounded peer checks close ten findings (two High/eight Medium); details and supported-copy limits are appended to the existing review report. Only this report/log entry changes after the frozen source checks. No merge to master, release, consumer pin, installed update or restart.
+
 ## 2026-10-11 — Third review PR59 dependency integration
 
 Merged the corrected parent without rewriting PR history. Complete source gate: **5,925 passed / 19 existing skips / zero failures**, 24,915 assertions across all 572 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
