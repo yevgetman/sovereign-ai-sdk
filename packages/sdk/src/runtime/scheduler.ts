@@ -309,6 +309,11 @@ export class SubagentScheduler implements Scheduler {
     // inert for every other role / when the config is absent.
     const useSubprocessExecutor =
       this.opts.subscriptionExecutor?.enabled === true && agent.role === SUBSCRIPTION_EXECUTOR_ROLE;
+    const inheritedSkillRestrictions =
+      input.parentToolContext.skillActivation?.hasInheritedRestrictions === true ||
+      input.parentToolContext.skillActivation?.activations.some(
+        (activation) => activation.allowedTools.length > 0,
+      ) === true;
 
     // FIX 2 — reserve the per-parent slot ATOMICALLY at entry, BEFORE the first
     // `await`. AgentTool/task_create are concurrency-safe, so an orchestrator
@@ -334,13 +339,7 @@ export class SubagentScheduler implements Scheduler {
     let writeLockRelease: (() => void) | undefined;
     let treeRelease: (() => void) | undefined;
     try {
-      if (
-        useSubprocessExecutor &&
-        (policy !== undefined ||
-          input.parentToolContext.skillActivation?.activations.some(
-            (activation) => activation.allowedTools.length > 0,
-          ))
-      ) {
+      if (useSubprocessExecutor && (policy !== undefined || inheritedSkillRestrictions)) {
         throw new Error('native child policy cannot be enforced by the subprocess executor');
       }
       treeRelease = policy?.treeBudget?.reserveChild(childDepth);
@@ -482,6 +481,8 @@ export class SubagentScheduler implements Scheduler {
           : undefined;
         if (childActivation && parentActivation)
           childActivation.restrictionCanUseTool = parentActivation.restrictionCanUseTool;
+        if (childActivation && inheritedSkillRestrictions)
+          childActivation.hasInheritedRestrictions = true;
         const childToolContext: ToolContext = {
           ...inheritedContext,
           ...(childContinuity ? { skillContinuity: childContinuity } : {}),

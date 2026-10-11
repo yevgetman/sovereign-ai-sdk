@@ -253,6 +253,8 @@ async function* queryInternal(
     params.canUseTool !== undefined || inheritedActivation?.hasHostPermission === true;
   if (toolCtx && skillsEnabled) {
     if (inheritedActivation) activationState.turnId = inheritedActivation.turnId;
+    if (inheritedActivation?.hasInheritedRestrictions)
+      activationState.hasInheritedRestrictions = true;
     activationState.activations = toolCtx.skillActivation?.activations.slice() ?? [];
     if (toolCtx.skillActivation)
       activationState.restrictionCanUseTool = toolCtx.skillActivation.restrictionCanUseTool;

@@ -34,6 +34,8 @@ export type SkillActivationState = {
   canUseTool: CanUseTool;
   /** Scope-only floor, also checked after host/hook input transformations. */
   restrictionCanUseTool: CanUseTool;
+  /** A native ancestor's skill floor survives even without inherited activations. */
+  hasInheritedRestrictions?: boolean;
   hasHostPermission: boolean;
   hookRunner?: HookRunner;
   activations: SkillActivationEnvelope[];
