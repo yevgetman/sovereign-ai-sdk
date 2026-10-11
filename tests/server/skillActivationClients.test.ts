@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
 import { DriveSseManager, EventRenderer, runSlashCommand } from '../../src/cli/driveCommand.js';
+import { buildConsentRecord, writeConsent } from '../../src/plugins/consent.js';
+import { hashPluginTree } from '../../src/plugins/integrity.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { startServer } from '../../src/server/index.js';
 import { buildRuntime } from '../../src/server/runtime.js';
@@ -30,6 +32,96 @@ afterEach(() => {
 });
 
 describe('one skill activation path across clients', () => {
+  test('command-only plugin activation retains precedence, restrictions and inert shell across transport', async () => {
+    const installDir = join(home, 'plugins', 'command-fixture');
+    mkdirSync(join(installDir, '.claude-plugin'), { recursive: true });
+    mkdirSync(join(installDir, 'commands'), { recursive: true });
+    writeFileSync(
+      join(installDir, '.claude-plugin/plugin.json'),
+      JSON.stringify({
+        name: 'command-fixture',
+        version: '1.0.0',
+        description: 'Command-only plugin fixture',
+      }),
+    );
+    writeFileSync(
+      join(installDir, 'commands/plugin-only.md'),
+      '---\nname: plugin-only\ndescription: Plugin workflow\nallowedTools: [Read]\n---\nPLUGIN {{args}} !`touch plugin-marker`',
+    );
+    writeFileSync(
+      join(installDir, 'commands/readonly.md'),
+      '---\nname: readonly\ndescription: Plugin wins command precedence\nallowedTools: [Read]\n---\nPLUGIN_PRECEDENCE {{args}}',
+    );
+    writeFileSync(
+      join(installDir, 'commands/help.md'),
+      '---\nname: help\ndescription: Cannot shadow built-in help\n---\nPLUGIN_HELP',
+    );
+    writeConsent(
+      installDir,
+      buildConsentRecord({
+        pluginId: 'command-fixture',
+        version: '1.0.0',
+        treeHash: hashPluginTree(installDir),
+        decisions: { skills: true, commands: true },
+        consentedAt: '2026-10-11T00:00:00Z',
+      }),
+    );
+    const runtime = await buildRuntime({
+      cwd: home,
+      harnessHome: home,
+      provider: 'mock',
+      preflight: false,
+      permissionMode: 'bypass',
+    });
+    try {
+      const app = buildAppWithRuntime(runtime);
+      expect(runtime.skills.byName.get('plugin-only')).toBeUndefined();
+      for (const name of ['plugin-only', 'readonly']) {
+        const { sessionId } = (await (
+          await app.request('/sessions', { method: 'POST' })
+        ).json()) as {
+          sessionId: string;
+        };
+        const response = await app.request(`/sessions/${sessionId}/commands`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, args: 'transport-data' }),
+        });
+        const command = (await response.json()) as { promptToSend: string; turnKind: string };
+        expect(command.turnKind).toBe('skill');
+        await app.request(`/sessions/${sessionId}/turns`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: command.promptToSend,
+            kind: 'skill',
+            skillSource: 'command',
+          }),
+        });
+        const events = await (await app.request(`/sessions/${sessionId}/events`)).text();
+        expect(events).toContain('turn_complete');
+        expect(events).not.toContain('turn_error');
+        expect(observedToolNames()).toEqual(['FileRead']);
+        const persisted = JSON.stringify(runtime.sessionDb.loadMessages(sessionId)[0]?.content);
+        expect(persisted).toContain(name === 'readonly' ? 'PLUGIN_PRECEDENCE' : 'PLUGIN');
+        expect(persisted).toContain('transport-data');
+      }
+      expect(existsSync(join(installDir, 'commands/plugin-marker'))).toBe(false);
+      const { sessionId } = (await (await app.request('/sessions', { method: 'POST' })).json()) as {
+        sessionId: string;
+      };
+      const denied = await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: '/help', kind: 'skill', skillSource: 'command' }),
+      });
+      expect(denied.status).toBe(400);
+      expect(runtime.sessionDb.loadMessages(sessionId)).toHaveLength(0);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
   test('plain POST recognizes a known skill across whitespace and scopes actual effects', async () => {
     writeFileSync(
       join(home, '.harness/skills/dynamic.md'),
