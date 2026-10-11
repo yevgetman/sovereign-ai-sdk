@@ -2,7 +2,8 @@ import { getSkillRegistry } from '../skills/registry.js';
 // Progressive skill disclosure. Returns the full body for one visible skill,
 // or a specific reference file under that skill's directory.
 
-import { readFile, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { open, realpath, stat } from 'node:fs/promises';
 import { dirname, relative } from 'node:path';
 import { z } from 'zod';
 import { resolveSkillResource } from '../skills/activation.js';
@@ -61,11 +62,7 @@ export const SkillsViewTool = buildTool<Input, Output>({
     }
 
     const target = await resolveSkillResource(current, input.path);
-    const targetStat = await stat(target);
-    if (!targetStat.isFile()) {
-      throw new Error(`skill reference path is not a file: ${input.path}`);
-    }
-    const content = await readFile(target, 'utf8');
+    const content = await readBoundedReference(current, input.path, target);
     return {
       data: {
         skill: current.name,
@@ -83,3 +80,42 @@ export const SkillsViewTool = buildTool<Input, Output>({
     content: [`<skill name="${out.skill}" path="${out.path}">`, out.content, '</skill>'].join('\n'),
   }),
 });
+
+/** Keep the fallback tool path safe for hosts without a composed skill runtime.
+ * Read an opened regular file within the per-file loader limit, then verify
+ * both the opened identity and logical path before exposing any bytes. */
+async function readBoundedReference(
+  skill: Parameters<typeof resolveSkillResource>[0],
+  path: string,
+  target: string,
+): Promise<string> {
+  const maxBytes = 1024 * 1024;
+  const handle = await open(
+    target,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || info.size > maxBytes)
+      throw new Error('skill reference must be a bounded regular file');
+    const buffer = Buffer.alloc(maxBytes + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+    if (length > maxBytes) throw new Error('skill reference exceeds its bounded read limit');
+    const current = await stat(target);
+    if (
+      (await realpath(target)) !== target ||
+      (await resolveSkillResource(skill, path)) !== target ||
+      current.ino !== info.ino ||
+      current.dev !== info.dev
+    )
+      throw new Error('skill reference path or identity changed while reading');
+    return buffer.subarray(0, length).toString('utf8');
+  } finally {
+    await handle.close();
+  }
+}
