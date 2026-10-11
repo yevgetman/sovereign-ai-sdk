@@ -1,3 +1,39 @@
+## 2026-10-11 — Fourth review PR52: keep activated context references inert
+
+Confirmed High: the HTTP skill path rescanned activated text through
+`expandContextReferences`, so author body text, substituted arguments or
+approved inline stdout could read a file denied by host Read policy, list
+folders, fetch URLs or launch git outside the skill gate. A real HTTP fixture
+with Read/Bash/WebFetch denial persisted private fixture bytes and delivered
+them to the mock provider. A second fixture reproduced the same second-pass
+read from approved Bash stdout. Both regressions fail on original PR52 source:
+**0 pass / 2 fail / 4 assertions**. The initial public reserved-address URL
+fixture timed out; the final hermetic URL uses a blocked loopback address.
+An initial stdout fixture's blanket Read deny also correctly denied printf
+through Bash's virtual Read classification; its corrected FileRead deny and
+Bash-only scope isolate the intended second-pass regression.
+
+The route now uses the validated activation envelope to keep activated body,
+arguments and stdout literal. Ordinary explicit non-skill user references keep
+the existing expansion behavior. The same route covers direct HTTP, command
+transport, drive and TUI; model and cron activation already keep these spans
+inert. The documentation explains that workflows obtain context through their
+permitted tools and host gate.
+
+Darwin arm64, Bun 1.3.13, isolated worktree and fake host with mock provider.
+Prepared with `bun install --ignore-scripts --frozen-lockfile`, `bun run build`
+and `bun run tui:build`. Focused `bun test
+ tests/server/skillActivationClients.test.ts tests/server/turns.references.test.ts
+ tests/skills/activation.test.ts tests/cron/skillActivation.test.ts
+ tests/tools/skillsViewSecurity.test.ts`: **29 pass / 0 fail / 155 assertions**.
+Complete configured gate: `PYTHONDONTWRITEBYTECODE=1 python3
+/private/tmp/sdk-skills-round2-20261011/gate.py
+/private/tmp/sdk-skills-round4-20261011/52 fourth-52`:
+**5,768 pass / 19 existing skips / 0 fail / 23,953 assertions across 553 files**.
+Lint/boundary, types and strict SDK build pass. All discovered files are covered;
+compiler fixture serialized, footer theme fixture isolated, remaining files use
+a unique TMPDIR. No paid inference, release, installation or live restart.
+
 ## 2026-10-11 — Review PR52 legacy reference bounds and file identity
 
 Confirmed two defects in the legacy `skill_view` path: a canonical reference ancestor retargeted between metadata validation and pathname reading could expose an outside file (High), and an unbounded reference read could consume arbitrary memory and model input (Medium). A deterministic metadata hook reproduced the outside-reference exposure against unchanged PR53 legacy source; a 1,048,577-byte flat-skill reference reproduced the missing byte bound. Both fail-before regression runs correctly reported zero passed and one failed. The corrected path reads a no-follow, nonblocking regular-file handle within a one-megabyte limit, then checks opened identity and both canonical and logical paths before returning bytes. Three negative regressions cover oversize content and ancestor swaps during metadata checks and after handle reads.
