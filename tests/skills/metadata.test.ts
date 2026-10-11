@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { activateSkill, createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
 import { expandSkillPrompt, loadSkills, reloadSkill } from '@yevgetman/sov-sdk/skills/loader';
 import { loadSkillRegistry } from '@yevgetman/sov-sdk/skills/registry';
@@ -18,6 +20,49 @@ const raw = (name: string, body: string, description = 'Public workflow fixture'
   `---\nname: ${name}\ndescription: ${description}\n---\n${body}`;
 
 describe('metadata-only discovery', () => {
+  test('rejected asynchronous load diagnostics do not terminate a public Node host', () => {
+    const result = spawnSync(
+      'node',
+      [
+        '--unhandled-rejections=strict',
+        '--input-type=module',
+        '-e',
+        `
+          import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+          import { tmpdir } from 'node:os';
+          import { join } from 'node:path';
+          import { loadSkills } from '@yevgetman/sov-sdk/skills/loader';
+          const root = await mkdtemp(join(tmpdir(), 'skill-metadata-observer-'));
+          try {
+            const dir = join(root, '.harness/skills');
+            await mkdir(dir, { recursive: true });
+            await writeFile(join(dir, 'safe.md'), '---\\nname: safe\\ndescription: Public fixture\\n---\\nSafe guidance.');
+            let observed = 0;
+            const loaded = await loadSkills({
+              cwd: root, harnessHome: join(root, 'home'), mode: 'metadata',
+              onLoadStats: async () => {
+                observed++;
+                await Promise.resolve();
+                throw new Error('private diagnostic failure');
+              },
+            });
+            await new Promise(resolve => setTimeout(resolve, 10));
+            if (observed !== 1 || loaded.byName.get('safe')?.bodyLoaded !== false)
+              throw new Error('metadata publication lost');
+            console.log('loaded');
+          } finally { await rm(root, { recursive: true, force: true }); }
+        `,
+      ],
+      {
+        cwd: fileURLToPath(new URL('../../', import.meta.url)),
+        encoding: 'utf8',
+        timeout: 20_000,
+      },
+    );
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe('loaded');
+  });
   test('does not read oversized resources or materialize a full body/revision at startup', async () => {
     await fixture(async (cwd, harnessHome) => {
       const dir = join(cwd, '.harness/skills/example');

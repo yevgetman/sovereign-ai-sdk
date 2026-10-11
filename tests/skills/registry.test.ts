@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { z } from 'zod';
+import { createSkillActivationState } from '../../packages/sdk/src/skills/activation.js';
 import {
   createSkillRegistryManager,
   getSkillRegistry,
@@ -6,6 +8,7 @@ import {
   remoteSkillDiagnostics,
 } from '../../packages/sdk/src/skills/registry.js';
 import type { Skill, SkillRegistry } from '../../packages/sdk/src/skills/types.js';
+import { buildTool } from '../../packages/sdk/src/tool/buildTool.js';
 import { SkillsListTool } from '../../packages/sdk/src/tools/SkillsListTool.js';
 
 function skill(name: string, requiresTools: string[] = []): Skill {
@@ -37,6 +40,75 @@ function registry(...skills: Skill[]): SkillRegistry {
 }
 
 describe('live skill registry', () => {
+  test('activation state replaces stale visibility hints after a pool narrows', async () => {
+    const custom = skill('custom');
+    custom.metadata.harness.requiresToolsets = ['research-profile'];
+    const shell = skill('shell', ['Bash']);
+    const fallback = skill('fallback');
+    fallback.metadata.harness.fallbackForToolsets = ['terminal'];
+    const manager = createSkillRegistryManager({
+      load: async () => ({ registry: registry(custom, shell, fallback) }),
+    });
+    await manager.refresh();
+    const bash = buildTool({
+      name: 'Bash',
+      description: () => 'fixture only',
+      inputSchema: z.unknown(),
+      checkPermissions: async () => ({ behavior: 'allow' }),
+      call: async () => ({ data: null }),
+    });
+    const state = createSkillActivationState({ tools: [bash, SkillsListTool] });
+    const context = {
+      cwd: '/nonexistent',
+      sessionId: 'state-fixture',
+      skillRegistryManager: manager,
+      skillActivation: state,
+      activeToolNames: ['Bash', 'skills_list'],
+      activeToolsets: ['terminal', 'research-profile'],
+    };
+    const before = await SkillsListTool.call({}, context);
+    expect(before.data.skills.map((entry) => entry.name)).toEqual(['custom', 'shell']);
+    state.tools = [SkillsListTool];
+    const after = await SkillsListTool.call({}, context);
+    expect(after.data.skills.map((entry) => entry.name)).toEqual(['custom', 'fallback']);
+  });
+  test('live tool views preserve custom profiles while replacing stale inferred capabilities', async () => {
+    const custom = skill('customProfile');
+    custom.metadata.harness.requiresToolsets = ['research-profile'];
+    const terminal = skill('terminalOnly');
+    terminal.metadata.harness.requiresToolsets = ['terminal'];
+    const fallback = skill('terminalFallback');
+    fallback.metadata.harness.fallbackForToolsets = ['terminal'];
+    const manager = createSkillRegistryManager({
+      load: async () => ({ registry: registry(custom, terminal, fallback) }),
+    });
+    await manager.refresh();
+    const context = {
+      cwd: '/nonexistent',
+      sessionId: 'profile-fixture',
+      skillRegistryManager: manager,
+      activeToolNames: ['skills_list'],
+      activeToolsets: ['terminal', 'research-profile'],
+    };
+    const listed = await SkillsListTool.call({}, context);
+    expect(listed.data.skills.map((entry) => entry.name)).toEqual([
+      'customProfile',
+      'terminalFallback',
+    ]);
+    const withoutProfile = await SkillsListTool.call({}, { ...context, activeToolsets: [] });
+    expect(withoutProfile.data.skills.map((entry) => entry.name)).toEqual(['terminalFallback']);
+    const withBash = await SkillsListTool.call(
+      {},
+      {
+        ...context,
+        activeToolNames: ['skills_list', 'Bash'],
+      },
+    );
+    expect(withBash.data.skills.map((entry) => entry.name)).toEqual([
+      'customProfile',
+      'terminalOnly',
+    ]);
+  });
   test('serializes publication, retains prior generation on failure, and isolates snapshots', async () => {
     let calls = 0;
     let active = 0;

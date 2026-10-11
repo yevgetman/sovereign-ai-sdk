@@ -289,13 +289,15 @@ export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry
   }
   skills.sort((a, b) => a.name.localeCompare(b.name));
   try {
-    opts.onLoadStats?.({
-      candidateReads: discovery.candidates.length,
-      bytesRead: discovery.limits.maxTotalBytes - readBudget.bytesRemaining,
-      deferredBodies: skills.filter((skill) => skill.guardDeferred).length,
-      rejected: discovery.candidates.length - skills.length,
-      elapsedMs: performance.now() - started,
-    });
+    Promise.resolve(
+      opts.onLoadStats?.({
+        candidateReads: discovery.candidates.length,
+        bytesRead: discovery.limits.maxTotalBytes - readBudget.bytesRemaining,
+        deferredBodies: skills.filter((skill) => skill.guardDeferred).length,
+        rejected: discovery.candidates.length - skills.length,
+        elapsedMs: performance.now() - started,
+      }),
+    ).catch(() => undefined);
   } catch {
     /* Diagnostics cannot change the loaded catalog. */
   }

@@ -99,6 +99,123 @@ describe('optional composed skill runtime', () => {
       runtime.dispose();
     },
   );
+  test('copied observer events remain safe after newer commits evict recent mutation keys', async () => {
+    const runtime = createSkillRuntime({ store: new InMemorySkillStore() });
+    let release = () => {};
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const publications: Promise<void>[] = [];
+    const notifications: string[] = [];
+    runtime.subscribe((event) => {
+      if (event.type !== 'mutation') return;
+      notifications.push(event.event.name);
+      // Bound the fixture's failure path so a broken runtime cannot hang tests.
+      // Passing requires each of the 67 real commits to notify exactly once.
+      if (publications.length < 200) {
+        publications.push(barrier.then(() => runtime.onMutation({ ...event.event })));
+      }
+    });
+    try {
+      for (let index = 0; index < 67; index++) {
+        const name = `delayed${index}`;
+        await runtime.mutate({ action: 'create', name, content: markdown(name) });
+      }
+      release();
+      let completed = 0;
+      while (completed < publications.length) {
+        const pending = publications.slice(completed);
+        completed = publications.length;
+        await Promise.all(pending);
+      }
+      expect(notifications).toEqual(Array.from({ length: 67 }, (_, index) => `delayed${index}`));
+      expect(publications).toHaveLength(67);
+      expect(runtime.snapshot().registry.skills).toHaveLength(67);
+    } finally {
+      runtime.dispose();
+    }
+  });
+  test.each([false, true])(
+    'delayed copies forwarded between runtimes preserve genuine commits (shared store: %s)',
+    async (sharedStore) => {
+      const store = new InMemorySkillStore();
+      const first = createSkillRuntime({ store });
+      const second = createSkillRuntime({
+        store: sharedStore ? store : new InMemorySkillStore(),
+      });
+      let release = () => {};
+      const barrier = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const publications: Promise<void>[] = [];
+      const firstEvents: string[] = [];
+      const secondEvents: string[] = [];
+      const forward = (event: SkillRuntimeEvent, target: typeof first, events: string[]) => {
+        if (event.type !== 'mutation') return;
+        events.push(`${event.event.action}:${event.event.name}`);
+        if (publications.length < 300)
+          publications.push(barrier.then(() => target.onMutation({ ...event.event })));
+      };
+      first.subscribe((event) => forward(event, second, firstEvents));
+      second.subscribe((event) => forward(event, first, secondEvents));
+      try {
+        const create = { action: 'create', name: 'repeat', content: markdown('repeat') } as const;
+        const original = await first.mutate(create);
+        await first.mutate({
+          action: 'delete',
+          name: 'repeat',
+          expectedRevision: original.entry?.revision ?? '',
+        });
+        const recreated = await first.mutate(create);
+        expect(recreated.entry?.revision).toBe(original.entry?.revision);
+        for (let index = 0; index < 67; index++) {
+          const name = `forwarded${index}`;
+          await first.mutate({ action: 'create', name, content: markdown(name) });
+        }
+        release();
+        let completed = 0;
+        while (completed < publications.length) {
+          const pending = publications.slice(completed);
+          completed = publications.length;
+          await Promise.all(pending);
+        }
+        const expected = [
+          'create:repeat',
+          'delete:repeat',
+          'create:repeat',
+          ...Array.from({ length: 67 }, (_, index) => `create:forwarded${index}`),
+        ];
+        expect(firstEvents).toEqual(expected);
+        expect(secondEvents).toEqual(expected);
+        expect(publications).toHaveLength(140);
+      } finally {
+        first.dispose();
+        second.dispose();
+      }
+    },
+  );
+  test('unmarked host adapter events remain accepted and expose the same public fields', async () => {
+    const runtime = createSkillRuntime({
+      load: async () => ({ registry: { skills: [], byName: new Map() } }),
+    });
+    const external = { action: 'create', name: 'custom', revision: 'host-revision' } as const;
+    const notifications: unknown[] = [];
+    const publications: Promise<void>[] = [];
+    runtime.subscribe((event) => {
+      if (event.type !== 'mutation') return;
+      notifications.push(JSON.parse(JSON.stringify(event.event)));
+      publications.push(runtime.onMutation({ ...event.event }));
+    });
+    try {
+      await runtime.onMutation(external);
+      await Promise.all(publications);
+      await runtime.onMutation({ ...external });
+      expect(notifications).toEqual([external]);
+      expect(publications).toHaveLength(1);
+    } finally {
+      runtime.dispose();
+    }
+  });
   test('rejected async observers cannot terminate a public Node host after catalog or store publication', () => {
     const script = `
       import { createSkillRuntime, InMemorySkillStore } from '@yevgetman/sov-sdk';

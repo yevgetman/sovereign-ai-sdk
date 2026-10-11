@@ -1,5 +1,11 @@
 # Testing log
 
+## 2026-10-11 — Third review PR59 dependency integration
+
+Merged the corrected parent without rewriting PR history. Complete source gate: **5,925 passed / 19 existing skips / zero failures**, 24,915 assertions across all 572 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
+
+Manual query conflict resolution retains continuity loader/registry imports and the effective-tool helper, inherited turn ID/restriction marker, actual pool hints and copied activation/permission state. Both testing histories were retained; every original H2 log entry was checked intact. Independent final bounded rechecks pass: visibility/registry/storage race 17/0 with 77 assertions, and continuity/query/host/nested delegation 31/0 with 216 assertions. These use separate temporary roots and no rebuilds or source edits. No confirmed above-Low residual remains in those checked paths.
+
 ## 2026-10-11 — PR59 reviewed dependency integration
 
 Inherited the reviewed parent branch without rewriting existing PR history. Preserved this PR's reviewed behavior, all upstream fixes and both testing histories. Final integrated source passes configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,898 passed / 19 existing skips / zero failed**, 24,790 assertions across 569 files. Public protocol/SDK and local TUI artifacts were rebuilt first. Global compiler and footer fixtures were isolated; remaining files used a unique temporary root. No assertion was weakened or test omitted. No release or installed host change.
@@ -7,6 +13,95 @@ Inherited the reviewed parent branch without rewriting existing PR history. Pres
 ## 2026-10-11 — PR59 second-review package and integration audit
 
 Final merged-source `bun run canary` passes real packed SDK/protocol Node/Bun consumers, consumer types and shipped-artifact boundaries. `go test ./...` passes every Go package. An independent read-only audit of the resolved reference reader and continuity consumers found no further confirmed issue above Low; bounded reads, canonical identity checks, continuity session/resource pins and inert main-body aliases are all preserved. These checks ran after the full merged-source gate. No live provider, installed host, release or consumer pin changed.
+## 2026-10-11 — Third review PR58 dependency integration
+
+Merged the corrected parent without rewriting PR history. Complete source gate: **5,894 passed / 19 existing skips / zero failures**, 24,697 assertions across all 568 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
+
+The source merge had one query import conflict. The resolution retains all catalog/budget imports and the effective-tool visibility helper. Both behaviors remain covered by the complete merged-source gate.
+
+Initial merged-source run: remaining suite 5,859 pass / 19 existing skips / 3 fail. The new PR57 visibility fixtures assumed the first list page contained the complete catalog, while PR58 legitimately returned a cursor. The mock provider now consumes every page before asserting the full available/unavailable sets and refused activation. All prior positive/negative assertions remain; no production budget was widened. Focused visibility/catalog/query checks pass 17/0 with 244 assertions. Initial failed receipt is /private/tmp/sdk-skills-third-publish58-initial-pagination-failure.log. The final complete rerun below covers the corrected integration fixture.
+
+## 2026-10-11 — Third review PR57 dependency integration
+
+Merged the corrected parent without rewriting PR history. Complete source gate: **5,882 passed / 19 existing skips / zero failures**, 24,458 assertions across all 565 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
+
+## 2026-10-11 — Third review PR56 dependency integration
+
+Merged the corrected parent without rewriting PR history. Complete source gate: **5,851 passed / 19 existing skips / zero failures**, 24,319 assertions across all 562 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
+
+## 2026-10-11 — Third review PR55 dependency integration
+
+Merged the corrected parent without rewriting PR history. Complete source gate: **5,841 passed / 19 existing skips / zero failures**, 24,256 assertions across all 560 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
+
+Initial preparation refused a testing-log prefix difference before dependency installation; the build then reported the missing compiler. Both were preparation failures. The log merge retains both histories, dependencies were installed, and the complete gate below runs on the correct merged source.
+
+## 2026-10-11 — Third review PR54: validate the moved backup revision
+
+Confirmed High: a direct owner edit between the final revision snapshot and
+the backup rename was overwritten by edit or discarded by delete. The actual
+complete backup tree is now checked after its rename/root flush and before
+publication/deletion commit. A mismatch uses prepared-journal recovery to
+restore the newer tree and emits no mutation event.
+
+Two isolated packaged-Node worker regressions fail on original PR54
+`b7a57643` (0 pass / 2 fail) and pass after correction. Both inject the direct
+write at the actual rename boundary and verify normal-store readability and
+zero events. Focused `bun test tests/skills/storePublicationRace.test.ts
+tests/skills/storeSafetyReview.test.ts tests/skills/store.test.ts
+tests/commands/reviewOps.test.ts`: **101 pass / zero fail / 328 assertions**.
+The same third review finds no new independent above-Low defect in PR52
+activation or PR53 discovery. Their actual-head focused native/HTTP/cron/view
+checks pass **25/0**, 122 assertions; discovery/guard/loader checks pass
+**62/0**, 137 assertions.
+
+Darwin arm64, Bun 1.3.13; temporary worktrees, local Node and fake stores only.
+`bun install --ignore-scripts --frozen-lockfile`, `bun run build` and
+`bun run tui:build` prepared this isolated worktree. Complete gate:
+`python3 /private/tmp/sdk-skills-hardening-gate.py
+/private/tmp/sdk-skills-round2-20261011/54 third54-backup-cas`. Configured
+lint/boundary, typecheck, strict SDK build and every discovered test file pass:
+**5,833 passed / 19 existing skips / zero failures**, 24,207 assertions across
+559 files. The compiler fixture is serialized, footer/theme fixture isolated
+and all remaining files run with a unique temporary root. No test omitted or
+assertion weakened. Added an independent recreated-owner-tree regression:
+publication and repeated reopening both refuse with a recovery conflict while
+retaining the new owner tree, the original backup and zero mutation events.
+All three race fixtures pass **3/0**, 14 assertions. Final complete rerun with
+the added regression uses `third54-backup-cas-final` and passes
+**5,834 passed / 19 existing skips / zero failures**, 24,213 assertions across
+559 files, plus lint/boundary, typecheck and strict SDK build. No further source
+or test change followed that gate. No physical power-loss or Windows execution claim, paid
+inference, installed host change, release or restart.
+
+## 2026-10-11 — PR57 third review: durable forwarded-event identity
+
+The coordinator reproduced a new Medium event-identity defect: after more than 64 genuine commits, delayed copied observer events lost their recent-key guard and repeatedly re-emitted themselves. The bounded 67-commit negative regression produced 267 mutation notifications before its 200-forward safety cap. Independent cross-runtime controls also showed duplicate shared-store notifications and loss of a genuine identical-revision create after delete. Runtime observer copies now carry private enumerable symbol provenance with weak runtime origins. Actual store callbacks also carry a weak token shared by runtimes using that injected store. New marked commits bypass repeated-revision key dedupe; unmarked custom events retain its bounded 64-key fallback. No unbounded commit set or public JSON field was added.
+
+Corrected focused agent/runtime/server/registry checks pass **36 tests / zero failures / 156 assertions**. Independent peers verify 67 delayed self-forwards produce exactly 67 notifications, while 70 genuine commits produce exactly 70 events in each shared-store and separate-store runtime; create/delete/create at the same revision is retained. An explicit unmarked custom-host event test verifies accepted publication, shallow-copy forwarding and unchanged JSON fields. The runtime guide states that serialized reconstruction drops local provenance and uses the recent-key fallback; hosts use refresh for already-observed serialized notifications.
+
+Final frozen-source configured lint/boundary, typecheck, strict SDK build and every discovered test pass through `third-review57-frozen-runtime`: **5,879 passed / 19 existing skips / zero failures**, **24,444 assertions across 564 files**. The compiler/theme fixtures are isolated and all remaining files use a private temporary root. An initial strict typecheck rejected an excess symbol property on the public event literal; using the internal typed event copy corrected it before this final gate. Earlier visibility-only gates do not serve as the final receipt. No assertion was weakened, test omitted, release performed, installed host changed or real provider called.
+
+## 2026-10-11 — PR57 third review: effective tools and selected profiles
+
+Two new Medium catalog cases were reproduced through real native SDK provider loops. Minimal contexts omitted tool visibility; stale contexts retained Bash and hid the valid fallback. Signal-backed context copies could retain broader hints after activation narrowed the provider schema. Direct activation also needed to bind the supplied state rather than a prior context state. Separately, a selected custom capability profile filtered the pool but was absent from the skill context, hiding its valid workflow. SDK query contexts now use actual initial and current state tools, direct activation binds its supplied state, and a copied skill-enabled context retains the selected standing or per-turn profile. Host custom tags and generic context identity are preserved.
+
+The first three regressions fail original `fb307d7d` (zero passed / three failed); independent signal/profile probes and both conflicting-state directions also fail before their corrections. The corrected actual agent/runtime/server/registry suite passes **36 tests / zero failures / 156 assertions**. Independent peers verify minimal and stale contexts, signal narrowing, selected profiles and supplied-state authority. The separate forwarded-event correction was present in the final composed source validated here.
+
+`PYTHONDONTWRITEBYTECODE=1 python3 /private/tmp/sdk-skills-hardening-gate.py /private/tmp/sdk-skills-round2-20261011/57 third-review57-frozen-runtime` passes configured lint/boundary, typecheck, strict SDK build and all discovered tests: **5,879 passed / 19 existing skips / zero failed**, **24,444 assertions across 564 files**. Protocol/SDK and worktree-local TUI artifacts were built. Compiler and shared-theme fixtures are isolated; remaining files use the gate's private temporary root. No assertion was weakened or test omitted. Temporary stores and mock providers only. No release, installed update, restart, machine configuration change or live inference.
+
+## 2026-10-11 — PR56 third review: use current activation tools for live visibility
+
+Independent follow-up reproduced a second Medium live-view defect: after activation narrows a shared state, previously stamped context names can retain Bash. `skills_list` then hides the valid terminal fallback and exposes a workflow requiring an unavailable tool. Abort-signal context copies and refreshed SDK catalog budgets can preserve those stale names. Registry snapshots now derive names from the current activation state when supplied, while retaining host custom profile tags. Tool-name hints remain the fallback for contexts without a turn activation state.
+
+The actual list-tool regression fails the preceding reviewed source `cd1f2518` (zero passed / one failed). After correction, registry/server checks pass **10 tests / zero failures / 58 assertions**. `PYTHONDONTWRITEBYTECODE=1 python3 /private/tmp/sdk-skills-hardening-gate.py /private/tmp/sdk-skills-round2-20261011/56 third-review56-state-authority` passes configured lint/boundary, root typecheck, strict SDK build and all discovered test files: **5,848 passed / 19 existing skips / zero failed**, **24,305 assertions across 561 files**. The compiler and shared-theme fixtures remain isolated and all other files use the gate's unique temporary root. No test or assertion was omitted. Temporary stores and mock providers only; no live runtime, publication or host configuration changes.
+
+## 2026-10-11 — PR56 third review: preserve host custom profile visibility
+
+Independent parent-relative review found a Medium catalog defect: the live registry discarded host-owned custom profile tags whenever actual tool names were present. Scheduler-selected custom-profile skills disappeared from `skills_list`. The shared inference helper now preserves host tags and recomputes only terminal/filesystem/search/memory/skills from real tools. Registry views use both inputs, so stale inferred terminal authority cannot hide a valid fallback.
+
+The new actual `SkillsListTool` regression fails original `e81f0628` (zero passed / one failed). Corrected registry/server checks pass **9 tests / zero failed / 56 assertions**. The unchanged descriptor/activation/import/HTTP source on parent PR55 passes **42 tests / 180 assertions**. `go test ./internal/app -run 'SkillsDoctor|SkillsReload'` passes the PR56 TUI doctor/reload check.
+
+Environment: isolated Darwin worktree, Bun 1.3.13, temporary profiles and mock providers. After `bun install --ignore-scripts --frozen-lockfile`, `bun run build` and `bun run tui:build`, `PYTHONDONTWRITEBYTECODE=1 python3 /private/tmp/sdk-skills-hardening-gate.py /private/tmp/sdk-skills-round2-20261011/56 third-review56-custom-profile` passes configured lint/boundary, root typecheck, strict SDK build and every discovered test: **5,847 passed / 19 existing skips / zero failed**, **24,303 assertions across 561 files**. Compiler and shared-theme fixtures run separately; all remaining files use a unique temporary root. No assertion was changed to permit failure. No live provider, release, installed-host or machine-configuration change occurred. The coordinator owns upstream integration and branch pushes.
 
 ## 2026-10-11 — PR58 reviewed dependency integration
 
@@ -8513,3 +8608,8 @@ The focused core/query/host/delegation suite passes **31 tests / zero failed / 2
 Confirmed a Medium mismatch between the catalog and continuity identity rules. A slash-safe 258-byte name loads and activates normally, but the continuity record validator previously rejected it and dropped the small workflow despite available context and private storage. The real loader/activation/query regression failed with an empty private snapshot on the original name cap. Continuity now uses the catalog's slash-safe identity grammar and counts identity bytes in its existing per-record, aggregate and resource limits. The corrected query retains the whole workflow; separate negative checks reject an over-budget identity and retain only the newest four of five 60 KiB identities. Long identities remain absent from public diagnostics.
 
 The final focused continuity suite passes **31 tests / zero failed / 216 assertions**. The frozen final source passes lint/boundary, root typecheck, strict SDK build and all discovered tests through `sdk-skills-hardening-gate.py ... third-review59-final`: **5,906 passed / 19 existing skips / zero failed**, 24,836 assertions across 570 files. The complete same-source gate also covers the separately committed observer and inherited executor corrections. No further confirmed finding above Low remains in this independent PR59 review. No paid inference, release or installed-host change.
+## 2026-10-11 — Third PR58 review: asynchronous load diagnostics
+
+Parent-relative review confirmed a Medium failure in the newly added `onLoadStats` callback: an asynchronous diagnostic rejection escaped the synchronous catch and terminated a Node host after successful metadata loading. Callback promises now receive a rejection handler. A strict-unhandled-rejection Node subprocess imports the actual local public SDK, loads a temporary metadata catalog and verifies that both the process and accepted catalog survive. The regression failed against the original callback handling and passed after the correction.
+
+Environment: macOS arm64, Bun 1.3.13, Node 25.9.0, isolated worktree at original PR58 head `63565059`, frozen dependencies and worktree-local public packages/TUI. Focused command `bun test tests/skills/catalog.test.ts tests/skills/catalogQuery.test.ts tests/skills/metadata.test.ts tests/context/systemPrompt.test.ts packages/sdk/tests/surface.test.ts`: **32 passed / zero failed / 392 assertions**. Complete command `python3 /private/tmp/sdk-skills-hardening-gate.py /private/tmp/sdk-skills-round2-20261011/58 third-review58`: lint/boundary, root types, strict SDK build and all discovered tests pass: **5,876 passed / 19 existing skips / zero failed**, 24,621 assertions across 566 files. Global compiler and footer fixtures ran separately; every discovered file remained covered. No further confirmed independent finding above Low in the catalog, pagination, lazy metadata or frozen-budget contracts. No paid inference, release or installed-host change.
