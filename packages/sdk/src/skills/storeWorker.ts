@@ -573,6 +573,11 @@ function execute(request: SkillStoreWorkerRequest): {
           throw new Error('skill changed during transaction');
         renameSync(request.name, backup);
         syncDirectory('.');
+        // The pathname can change after the last snapshot and before rename.
+        // Validate the tree we actually moved before publishing or deleting it.
+        // A mismatch leaves the prepared journal to restore that newer tree.
+        if (snapshot(backup)?.revision !== previous.revision)
+          throw new Error('skill changed during transaction');
       } else if (existsSync(request.name)) throw new Error('skill appeared during transaction');
       if (entry) {
         renameSync(staged, request.name);
