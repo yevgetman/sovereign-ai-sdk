@@ -375,6 +375,8 @@ export const CommandResponseSchema = z.object({
    *  output string, which interpolated the ContentBlock[] array as
    *  "[object Object]". */
   promptToSend: z.string().optional(),
+  /** Skill identity travels as a raw slash turn and is resolved at activation. */
+  turnKind: z.literal('skill').optional(),
 });
 
 export type CommandResponse = z.infer<typeof CommandResponseSchema>;

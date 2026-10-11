@@ -233,10 +233,19 @@ func UninstallSkill(ctx context.Context, baseURL, sessionID, name string) (*Unin
 // wraps it in a tea.Cmd so the post + JSON serialization run off the
 // Update goroutine.
 func PostSkillTurn(ctx context.Context, baseURL, sessionID, rawText string) error {
+	return postSkillTurn(ctx, baseURL, sessionID, rawText, "user")
+}
+
+func PostSkillCommandTurn(ctx context.Context, baseURL, sessionID, rawText string) error {
+	return postSkillTurn(ctx, baseURL, sessionID, rawText, "command")
+}
+
+func postSkillTurn(ctx context.Context, baseURL, sessionID, rawText, source string) error {
 	url := fmt.Sprintf("%s/sessions/%s/turns", baseURL, sessionID)
 	payload, err := json.Marshal(map[string]string{
-		"text": rawText,
-		"kind": "skill",
+		"text":        rawText,
+		"kind":        "skill",
+		"skillSource": source,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal body: %w", err)

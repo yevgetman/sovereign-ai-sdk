@@ -170,6 +170,7 @@ type CommandResponse struct {
 	// optional `promptToSend` field. Empty/unset for local commands
 	// (/help, /cost, etc.).
 	PromptToSend string              `json:"promptToSend,omitempty"`
+	TurnKind     string              `json:"turnKind,omitempty"`
 	SideEffects  *CommandSideEffects `json:"sideEffects,omitempty"`
 }
 

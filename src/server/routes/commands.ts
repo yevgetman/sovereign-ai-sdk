@@ -129,6 +129,7 @@ export function commandsRoute(runtime: Runtime): Hono<{ Variables: AppVariables 
       let output: string;
       let error: string | undefined;
       let promptToSend: string | undefined;
+      let turnKind: 'skill' | undefined;
 
       switch (result.kind) {
         case 'local':
@@ -142,6 +143,14 @@ export function commandsRoute(runtime: Runtime): Hono<{ Variables: AppVariables 
           error = result.output;
           break;
         case 'prompt':
+          if (result.command.skill) {
+            // A preview must not execute dynamic context or mint permissions.
+            // The turn endpoint reloads the skill and checks current host policy.
+            promptToSend = rawInput;
+            turnKind = 'skill';
+            output = `Skill /${result.command.skill.name} is ready to activate.`;
+            break;
+          }
           // Prompt-type commands (/init, /commit, every skill-sourced
           // command, etc.) expand into a content-block array meant to be
           // submitted as the next agent turn. The route surfaces both
@@ -169,6 +178,7 @@ export function commandsRoute(runtime: Runtime): Hono<{ Variables: AppVariables 
         output,
         ...(error !== undefined ? { error } : {}),
         ...(promptToSend !== undefined ? { promptToSend } : {}),
+        ...(turnKind !== undefined ? { turnKind } : {}),
         ...(hasSideEffects(sideEffects) ? { sideEffects: pickSideEffects(sideEffects) } : {}),
       };
       return c.json(response);

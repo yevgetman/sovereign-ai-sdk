@@ -188,6 +188,9 @@ import type {
   SessionWorkQueueSnapshot,
   Settings,
   Skill,
+  SkillActivationEnvelope,
+  SkillActivationSource,
+  SkillActivationState,
   SkillClassification,
   SkillExpansionOptions,
   SkillGuardDecision,
@@ -277,6 +280,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'TreeBudgetExceededError',
   'UnknownToolsetError',
   'accumulateUsage',
+  'activateSkill',
   'aliasToNativeName',
   'budgetProvider',
   'buildHookRunner',
@@ -293,6 +297,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'createModelDiscovery',
   'createNoopTranscriptStore',
   'createOpenRouterModelSource',
+  'createSkillActivationState',
   'createSubscriptionModelSource',
   'createTurnLogRecorder',
   'createUsageAccumulator',
@@ -320,7 +325,9 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'renamesFor',
   'resolveModelAlias',
   'resolveProvider',
+  'resolveSkillResource',
   'serializerSupportsImages',
+  'skillRestrictionRules',
   'validateModelRequest',
   'validateOpenRouterPolicy',
   'wrapConductAuditSink',
@@ -520,6 +527,9 @@ type TypeSurfaceWitness = {
   sessionWorkQueueSnapshot?: SessionWorkQueueSnapshot;
   settings?: Settings;
   skill?: Skill;
+  skillActivationEnvelope?: SkillActivationEnvelope;
+  skillActivationSource?: SkillActivationSource;
+  skillActivationState?: SkillActivationState;
   skillClassification?: SkillClassification;
   skillExpansionOptions?: SkillExpansionOptions;
   skillGuardDecision?: SkillGuardDecision;

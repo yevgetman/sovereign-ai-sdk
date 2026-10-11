@@ -2322,9 +2322,9 @@ Visible skills register as slash commands:
 
 The model can also discover skills with `skills_list`, inspect them with `skill_view`, and invoke them through `SkillTool`.
 
-**`allowedTools` is enforced on the `/skill` path.** When you invoke a skill as a slash command (`/simplify …`), its `allowedTools` becomes a real boundary **for that turn only**: the live tool pool is narrowed to the listed tools (and the gate denies any out-of-scope call with `tool is outside slash-command scope`), so a skill that declares `allowedTools: [Read]` cannot run `Bash`/`Write`/`Edit` even mid-turn. Sub-agents the turn forks inherit the same narrowed pool. The restriction is turn-scoped — it evaporates when the turn ends. A skill with no `allowedTools` (or an empty list) runs against the full pool, exactly as before. The model-invoked `SkillTool` path stays **advisory** (it surfaces the `allowedTools` as guidance but does not hard-narrow the pool mid-loop). Enforcement applies to the interactive `/skill` path; cron, the OpenAI server, and channels expand skills through separate seams that already run a safe-by-default permission posture.
+**Native `allowedTools` is enforced on every activation path.** User slash turns, TUI/drive command turns and model `SkillTool` activation narrow the permitted tools and input patterns for the current turn. Child agents inherit that floor. Empty native rules keep the host pool. Skills cannot override host denials. `skill_view` returns raw text and never executes dynamic context. Inline shell requires a host permission callback and uses the normal Bash approval/hook path. Direct expansion callers must now supply a controlled runner or use `activateSkill`. See `docs/04-extending/skill-activation.md`.
 
-Skill bodies and reference files support:
+Activated skill bodies support the substitutions below. Reference inspection remains raw text:
 
 - `{{args}}`
 - `${HARNESS_SKILL_DIR}`

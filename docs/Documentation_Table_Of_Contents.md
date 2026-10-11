@@ -56,6 +56,7 @@ Recipes for adding extension points.
 - [Metering an agent](04-extending/metering-an-agent.md) — the three token-usage read surfaces (per-run `RunResult`, per-span `traceRecorder`, per-turn gateway wire), the disjoint-phase cost invariant, `reasoningTokens`, and the public accumulator + pricing primitives (`PRICING_VERSION`).
 
 - [Host session lifecycle](04-extending/host-session-lifecycle.md) — optional bounded in-process session ownership, cancellation and joined shutdown; no distributed lease.
+- [Permissioned skill activation](04-extending/skill-activation.md) — raw inspection, shared activation identity, host permission floors and client transport.
 
 ## 05 — Conventions
 

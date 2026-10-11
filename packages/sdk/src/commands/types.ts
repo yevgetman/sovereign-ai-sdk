@@ -299,6 +299,8 @@ export type PromptCommand = {
   description: string;
   usage?: string;
   allowedTools?: string[];
+  /** Skill commands preserve identity; preview text is never an activation. */
+  skill?: { name: string; revision?: string };
   getPromptForCommand: (args: string, ctx: CommandContext) => Promise<ContentBlock[]>;
 };
 

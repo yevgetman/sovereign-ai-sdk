@@ -136,11 +136,11 @@ Skills are markdown files loaded by `packages/sdk/src/skills/loader.ts`. Runtime
 
 New skill features should preserve progressive disclosure: the system prompt should carry a reminder, not the full skill body.
 
-### `allowedTools` is enforced on the `/skill` path
+### Native `allowedTools` is enforced on every activation path
 
-A skill's `allowedTools` is a **real boundary** when the skill is invoked as a slash command. At the `/skill` seam (`src/server/routes/turns.ts`), the resolved skill's `allowedTools` is threaded into `runTurnInBackground` and run through `buildToolScope` (`src/commands/toolScope.ts`): the live tool pool is narrowed to the allow-list and `canUseTool` denies any out-of-scope call (`tool is outside slash-command scope`) — turn-scoped, so the restriction evaporates at turn end. The scope feeds both the `query()` call and `buildSessionToolContext` (whose `effectivePool` param defaults to `runtime.toolPool`), so sub-agents forked mid-turn inherit the narrowed pool (child ⊆ skill scope ⊆ runtime pool). `runtime.toolPool` is **read, never mutated** (it is a shared array mutated in place on reload — `buildToolScope` returns a fresh filtered copy). An empty/absent `allowedTools` is the identity (no narrowing).
+A skill's native `allowedTools` narrows the current turn's tool pool and input-pattern gate through the shared `activateSkill` contract. This applies to user slash turns, command dispatch through the TUI/drive transport, and model `SkillTool` activation. Children inherit the narrowed pool and gate. The shared runtime tool pool remains unchanged; model-activated scopes expire at turn end. Empty native `allowedTools` keeps the existing host pool.
 
-The model-invoked `SkillTool` path is **advisory**: it surfaces the `allowedTools` as guidance to the model but does not hard-narrow the pool mid-loop (`query()` reads `tools` once at turn start). A clean future upgrade is for `SkillTool` to write a "pending scope" onto `SessionContext` honored at the next turn (same `/skill` seam) — flagged, not built.
+`skill_view` is raw inspection and never executes inline shell. Dynamic context uses the ordinary scoped Bash permission and hook pipeline; a host denial remains effective. Command previews carry identity to activation rather than execute context early. See `docs/04-extending/skill-activation.md` for the SDK contract, resource confinement and migration requirements.
 
 ### Importing Claude Code skills
 

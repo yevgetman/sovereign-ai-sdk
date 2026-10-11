@@ -70,6 +70,8 @@ export type ToolContext = {
   memoryManager?: import('../memory/provider.js').MemoryRuntime;
   subdirectoryHintState?: import('../context/subdirectoryHints.js').SubdirectoryHintState;
   skills?: import('../skills/types.js').SkillRegistry;
+  /** Fresh per-turn state. Model activation can only narrow this pool/gate. */
+  skillActivation?: import('../skills/activation.js').SkillActivationState;
   /** Phase 13 — sub-agent definitions available for delegation via AgentTool. */
   agents?: import('../agents/types.js').AgentRegistry;
   /** Explicit inherited host policy and host-stamped recursion depth. */

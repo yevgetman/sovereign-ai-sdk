@@ -2,13 +2,12 @@
 // directories, parses markdown frontmatter, and lazily expands skill bodies
 // when a slash command or SkillTool invokes one.
 
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import { shellCommand } from '../util/platform.js';
-import { spawnProc } from '../util/spawn.js';
 import { splitCommaList, splitFrontmatter } from './frontmatter.js';
 import { formatGuardBlockMessage, guardSkillLoad } from './guard.js';
 import type {
@@ -84,7 +83,6 @@ export const SkillFrontmatterSchema = z.preprocess(
 );
 
 const SHELL_INTERPOLATION_RE = /(?:`!([^`]+)`|!`([^`]+)`)/g;
-const SHELL_TIMEOUT_MS = 10_000;
 const SHELL_OUTPUT_CAP = 16 * 1024;
 
 /** The trusted environment placeholders a skill body may reference. Every value
@@ -313,7 +311,7 @@ export async function expandSkillText(
   // every placeholder is resolved as prose.
   const shellAllowed = skill.allowShellInterpolation && skill.source !== 'plugin';
   const body = shellAllowed
-    ? await interpolateShellCommands(text, skill.dir, env)
+    ? await interpolateShellCommands(text, skill.dir, env, opts.runShellCommand)
     : substituteEnvProse(text, env);
 
   // Merge args as INERT text: substitute {{args}} and/or append them. Skills
@@ -327,6 +325,11 @@ export async function expandSkillText(
 }
 
 export async function reloadSkill(skill: Skill, warn?: (message: string) => void): Promise<Skill> {
+  const currentRealpath = await realpath(skill.path);
+  const expectedRealpath = join(await realpath(dirname(skill.realpath)), basename(skill.realpath));
+  if (currentRealpath !== expectedRealpath) {
+    throw new Error(`skill '${skill.name}' changed its resolved path; reload the registry`);
+  }
   const loaded = await loadSkillFile(
     skill.path,
     skill.realpath,
@@ -379,6 +382,7 @@ async function loadSkillFile(
       warn?.(`skill '${frontmatter.name}' (${path}): ${rigor.reason}`);
     }
     return {
+      revision: createHash('sha256').update(raw).digest('hex'),
       name: frontmatter.name,
       description: frontmatter.description,
       whenToUse: frontmatter.whenToUse,
@@ -472,7 +476,12 @@ async function walk(dir: string, out: string[]): Promise<void> {
 // (`substituteEnvCommand`) — while prose regions keep the sanitized display value
 // (`substituteEnvProse`). Command output is inserted verbatim, never re-scanned
 // or re-substituted.
-async function interpolateShellCommands(body: string, cwd: string, env: SkillEnv): Promise<string> {
+async function interpolateShellCommands(
+  body: string,
+  cwd: string,
+  env: SkillEnv,
+  runShellCommand: SkillExpansionOptions['runShellCommand'],
+): Promise<string> {
   const matches = Array.from(body.matchAll(SHELL_INTERPOLATION_RE));
   if (matches.length === 0) return substituteEnvProse(body, env);
   let out = '';
@@ -491,39 +500,13 @@ async function interpolateShellCommands(body: string, cwd: string, env: SkillEnv
     const command = substituteEnvCommand(rawCommand, env);
     // Command stdout is inserted verbatim; no `.replace`, so a `$`-sequence in
     // the output ($1/$2 in awk, prices, git diffs) is never treated as special.
-    out += await runInterpolationCommand(command, cwd);
+    if (!runShellCommand) {
+      throw new Error('skill inline shell requires an explicit permissioned host runner');
+    }
+    out += truncateShellOutput((await runShellCommand(command, cwd)).trimEnd());
   }
   out += substituteEnvProse(body.slice(lastIndex), env);
   return out;
-}
-
-async function runInterpolationCommand(command: string, cwd: string): Promise<string> {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), SHELL_TIMEOUT_MS);
-  try {
-    // `bash -lc` on POSIX; the platform-resolved shell on Windows. A missing
-    // shell throws here and surfaces as an inline-shell error like any other.
-    const shell = shellCommand(command, { login: true });
-    const proc = spawnProc([shell.cmd, ...shell.args], {
-      cwd,
-      stdout: 'pipe',
-      stderr: 'pipe',
-      signal: ctl.signal,
-    });
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    if (exitCode !== 0) {
-      return `[inline-shell error: ${command}\nexit_code: ${exitCode}\n${stderr.trimEnd()}]`;
-    }
-    return truncateShellOutput(stdout.trimEnd());
-  } catch (err) {
-    return `[inline-shell error: ${command}\n${errorMessage(err)}]`;
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 function truncateShellOutput(text: string): string {

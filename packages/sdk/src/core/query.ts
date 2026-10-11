@@ -40,6 +40,8 @@ import { validateModelRequest } from '../providers/models/validateRequest.js';
 import { listRoutes } from '../providers/routes/catalog.js';
 import { validateRouteSelection } from '../providers/routes/validate.js';
 import type { ProviderRequest } from '../providers/types.js';
+import { createSkillActivationState } from '../skills/activation.js';
+import { intersectCanUseTool } from '../tool/capabilityProfiles.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { type TurnSummary, detectStall } from '../util/stall.js';
@@ -169,10 +171,43 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   } = params;
 
   // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
-  const toolPool: Tool<any, any>[] = tools ?? [];
-  const toolCtx: ToolContext | undefined = params.toolContext;
-  const canUseTool = params.canUseTool;
-  const hookRunner = params.hookRunner;
+  let toolPool: Tool<any, any>[] = tools ?? [];
+  const inheritedActivation = params.toolContext?.skillActivation;
+  if (inheritedActivation) {
+    const inheritedNames = new Set(inheritedActivation.tools.map((tool) => tool.name));
+    toolPool = toolPool.filter((tool) => inheritedNames.has(tool.name));
+  }
+  // Isolate skill-enabled contexts so their capabilities expire with the turn.
+  // Generic host contexts retain the public query() identity contract.
+  const skillsEnabled = Boolean(params.toolContext?.skills || params.toolContext?.skillActivation);
+  const toolCtx: ToolContext | undefined =
+    skillsEnabled && params.toolContext ? { ...params.toolContext } : params.toolContext;
+  const inheritedChildPermission = toolCtx?.canUseTool;
+  const hostPermission =
+    inheritedActivation && params.canUseTool && params.canUseTool !== inheritedActivation.canUseTool
+      ? intersectCanUseTool(inheritedActivation.canUseTool, params.canUseTool)
+      : (params.canUseTool ?? inheritedActivation?.canUseTool);
+  const skillHooks = params.hookRunner ?? inheritedActivation?.hookRunner;
+  const activationState = createSkillActivationState({
+    tools: toolPool,
+    ...(hostPermission ? { canUseTool: hostPermission } : {}),
+    ...(skillHooks ? { hookRunner: skillHooks } : {}),
+  });
+  activationState.hasHostPermission =
+    params.canUseTool !== undefined || inheritedActivation?.hasHostPermission === true;
+  if (toolCtx && skillsEnabled) {
+    activationState.activations = toolCtx.skillActivation?.activations.slice() ?? [];
+    if (toolCtx.skillActivation)
+      activationState.restrictionCanUseTool = toolCtx.skillActivation.restrictionCanUseTool;
+    toolCtx.skillActivation = activationState;
+  }
+  // Resolve dynamically: serial calls after SkillTool in the same batch must
+  // obey its new floor as well as continuation requests on the next iteration.
+  const canUseTool = skillsEnabled
+    ? async (...args: Parameters<typeof activationState.canUseTool>) =>
+        activationState.canUseTool(...args)
+    : params.canUseTool;
+  const hookRunner = skillHooks;
   const sessionId = params.sessionId ?? toolCtx?.sessionId;
   const cwd = params.cwd ?? toolCtx?.cwd;
   const recordTrace = makeTraceRecorder(params.traceRecorder);
@@ -449,7 +484,9 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           model,
           system: systemPrompt,
           messages: history,
-          ...(toolPool.length > 0 ? { tools: toToolSchemas(toolPool) } : {}),
+          ...(activationState.tools.length > 0
+            ? { tools: toToolSchemas(activationState.tools) }
+            : {}),
           maxTokens,
           ...(temperature !== undefined ? { temperature } : {}),
           ...(effort !== undefined ? { effort } : {}),
@@ -483,14 +520,18 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
                     model,
                     messages: history,
                     system: systemPrompt,
-                    tools: toToolSchemas(toolPool),
+                    tools: toToolSchemas(activationState.tools),
                     maxTokens,
                     ...(modelMetadata ? { modelMetadata } : {}),
                   }),
                   complete: true,
                   uncountedImages: 0,
                 }
-              : requestInputTokenEstimate(history, systemPrompt, toToolSchemas(toolPool));
+              : requestInputTokenEstimate(
+                  history,
+                  systemPrompt,
+                  toToolSchemas(activationState.tools),
+                );
             return inputAccounting.tokens;
           };
           let inputTokens = inputBound();
@@ -766,6 +807,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       return { reason: 'completed' };
     }
 
+    toolPool = activationState.tools;
     if (toolPool.length === 0) {
       const msg = consumeGuidance(
         synthesizeToolResultMessage(
@@ -804,6 +846,23 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     // tools (BashTool's subprocess) and permission prompts can abort on
     // Ctrl-C. Phase 2 omitted this — latent until Phase 3 made it observable.
     const turnCtx: ToolContext = signal ? { ...toolCtx, signal } : toolCtx;
+    if (skillsEnabled) {
+      const effectiveNames = new Set(activationState.tools.map((tool) => tool.name));
+      turnCtx.parentToolPool = (turnCtx.parentToolPool ?? activationState.tools).filter((tool) =>
+        effectiveNames.has(tool.name),
+      );
+    }
+    if (skillsEnabled && canUseTool) {
+      turnCtx.canUseTool =
+        inheritedChildPermission && inheritedChildPermission !== params.canUseTool
+          ? async (tool, input, ctx) => {
+              const result = await canUseTool(tool, input, ctx);
+              return result.behavior === 'deny'
+                ? result
+                : inheritedChildPermission(tool, result.updatedInput ?? input, ctx);
+            }
+          : canUseTool;
+    }
 
     if (params.persistBeforeTools && assistant) {
       try {

@@ -663,12 +663,16 @@ async function postTurn(opts: {
   baseURL: string;
   sessionId: string;
   text: string;
+  kind?: 'skill';
 }): Promise<boolean> {
   try {
     const res = await fetch(`${opts.baseURL}/sessions/${opts.sessionId}/turns`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: opts.text }),
+      body: JSON.stringify({
+        text: opts.text,
+        ...(opts.kind ? { kind: opts.kind, skillSource: 'command' } : {}),
+      }),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
@@ -719,6 +723,7 @@ export async function runSlashCommand(opts: {
       output?: string;
       error?: string;
       promptToSend?: string;
+      turnKind?: 'skill';
       sideEffects?: { newSessionId?: string };
     };
     if (body.error) {
@@ -752,6 +757,7 @@ export async function runSlashCommand(opts: {
         // lands on the new session, not the stale one.
         sessionId: postSessionId,
         text: body.promptToSend,
+        ...(body.turnKind === 'skill' ? { kind: 'skill' } : {}),
       });
       if (!ok) {
         opts.renderer.cancelAwait();

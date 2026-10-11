@@ -2,9 +2,10 @@
 // or a specific reference file under that skill's directory.
 
 import { readFile, stat } from 'node:fs/promises';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { dirname, relative } from 'node:path';
 import { z } from 'zod';
-import { expandSkillPrompt, expandSkillText, reloadSkill } from '../skills/loader.js';
+import { resolveSkillResource } from '../skills/activation.js';
+import { reloadSkill } from '../skills/loader.js';
 import { buildTool } from '../tool/buildTool.js';
 
 const inputSchema = z.object({
@@ -45,10 +46,7 @@ export const SkillsViewTool = buildTool<Input, Output>({
         data: {
           skill: current.name,
           path: 'SKILL.md',
-          content: await expandSkillPrompt(current, {
-            cwd: ctx.cwd,
-            sessionId: ctx.sessionId,
-          }),
+          content: current.body,
         },
         observation: {
           status: 'success',
@@ -58,10 +56,7 @@ export const SkillsViewTool = buildTool<Input, Output>({
       };
     }
 
-    const target = resolve(current.dir, input.path);
-    if (!isInside(current.dir, target)) {
-      throw new Error(`skill reference path escapes skill directory: ${input.path}`);
-    }
+    const target = await resolveSkillResource(current, input.path);
     const targetStat = await stat(target);
     if (!targetStat.isFile()) {
       throw new Error(`skill reference path is not a file: ${input.path}`);
@@ -70,15 +65,12 @@ export const SkillsViewTool = buildTool<Input, Output>({
     return {
       data: {
         skill: current.name,
-        path: relative(current.dir, target),
-        content: await expandSkillText(current, content, {
-          cwd: ctx.cwd,
-          sessionId: ctx.sessionId,
-        }),
+        path: relative(dirname(current.realpath), target),
+        content,
       },
       observation: {
         status: 'success',
-        summary: `viewed ${relative(current.dir, target)} (skill ${current.name})`,
+        summary: `viewed ${relative(dirname(current.realpath), target)} (skill ${current.name})`,
         artifacts: [target],
       },
     };
@@ -87,8 +79,3 @@ export const SkillsViewTool = buildTool<Input, Output>({
     content: [`<skill name="${out.skill}" path="${out.path}">`, out.content, '</skill>'].join('\n'),
   }),
 });
-
-function isInside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
-}
