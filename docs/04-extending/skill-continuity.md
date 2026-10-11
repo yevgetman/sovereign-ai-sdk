@@ -65,6 +65,8 @@ Approved shell effects and continuity persistence are not one transaction.
 Query records successful, failed and cancelled turn outcomes. A successful turn
 is not proof that an entire workflow finished. Session/workflow records can
 retain the outcome for a later recovery turn. Completion is explicit.
+Provider output truncation (`max_tokens`) records a failed turn. Its guidance
+remains available for recovery, including when an incomplete tool call did not run.
 
 Guidance retention never restores a permission grant, tool pool, approval or
 resource-root authority. A resumed turn creates fresh activation state. A native

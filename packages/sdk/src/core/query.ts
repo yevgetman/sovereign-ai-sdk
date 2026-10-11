@@ -165,7 +165,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   } finally {
     await continuity.finish(
       state.turnId,
-      failed || terminal?.reason === 'error'
+      failed || terminal?.reason === 'error' || terminal?.reason === 'max_tokens'
         ? 'failed'
         : !terminal || terminal.reason === 'interrupted'
           ? 'cancelled'

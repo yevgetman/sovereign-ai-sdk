@@ -1,5 +1,11 @@
 # Testing log
 
+## 2026-10-11 — PR59 follow-up: truncated skill turns record failure
+
+The follow-up code review reproduced a provider `max_tokens` response with an incomplete tool call. The turn correctly skipped the tool and returned `max_tokens`, but its private continuity record claimed `succeeded`. The regression failed before the fix. The wrapper now records `failed` for output truncation and preserves guidance for a recovery turn. Existing `max_turns` completion behavior is unchanged.
+
+macOS, Bun1.3.13, Node25.9.0; synthetic provider and isolated store only. Focused command: `bun test tests/skills/continuity.test.ts tests/skills/continuity.query.test.ts tests/skills/continuity-host.test.ts` — 23 pass, 170 assertions, zero failures. Worktree-local protocol/SDK and TUI builds pass. Full configured source gate: lint/boundary, root types and strict SDK build pass; all565 discovered files covered, **5860 pass /19 existing skips /0fail**,24651 assertions. The shared compile and theme fixtures run in isolated groups through `/private/tmp/sdk-skills-hardening-gate.py`; all tests remain covered. No paid request or installed-host change.
+
 ## 2026-10-11 — Compiled-worker CI prerequisite (#47)
 
 The initial GitHub runtime jobs for PR54–59 ran source tests without building the public SDK first. Both platform logs fail only the explicit packaged Node worker prerequisite; the public-package compatibility matrices already pass. Runtime CI now runs `bun run build` before the unchanged complete test suite. The correction originates in #47 and merges through each dependent PR without source changes. YAML ordering validation, lint/boundary, public package builds and all 22 store checks pass (96 assertions). Functional source remains identical to the 5,859-pass frozen gate. No assertions, test files or thresholds were removed.
