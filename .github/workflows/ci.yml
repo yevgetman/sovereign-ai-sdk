@@ -56,6 +56,9 @@ jobs:
       - name: Build TUI (required)
         working-directory: packages/tui
         run: go build -o ../../bin/sov-tui ./cmd/sov-tui
+      # Store consumer fixtures execute the real compiled Node worker.
+      - name: Build public package artifacts for runtime tests
+        run: bun run build
       - run: bun run test
       - name: Go suite
         working-directory: packages/tui
