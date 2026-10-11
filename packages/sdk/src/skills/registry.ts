@@ -130,7 +130,11 @@ export async function loadSkillRegistry(opts: LoadSkillsOptions): Promise<SkillR
         ...(precedence !== undefined ? { precedence } : {}),
         ...(duplicateName !== undefined ? { name: duplicateName } : {}),
       });
-      opts.onDiscoveryDecision?.(decision);
+      try {
+        Promise.resolve(opts.onDiscoveryDecision?.(decision)).catch(() => undefined);
+      } catch {
+        /* Host diagnostics cannot abort registry publication. */
+      }
     },
     warn(message) {
       diagnostics.push({
@@ -138,7 +142,11 @@ export async function loadSkillRegistry(opts: LoadSkillsOptions): Promise<SkillR
         severity: 'warning',
         message,
       });
-      opts.warn?.(message);
+      try {
+        Promise.resolve(opts.warn?.(message)).catch(() => undefined);
+      } catch {
+        /* Host diagnostics cannot change catalog membership. */
+      }
     },
   });
   for (const skill of registry.skills) {
