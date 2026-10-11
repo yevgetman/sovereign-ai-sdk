@@ -1,3 +1,9 @@
+## 2026-10-11 — Fourth-review PR55 final CI prerequisite ancestry
+
+Scope: ordinary merge of updated PR54 `827be89752e6a35c2b41009a0f103c52b15bc45f`, retaining updated PR53 `a939f457aa94de142f23109e21f1c3f05a10971e`. PR53 CI now builds public packages before the strict-Node discovery regression; PR54 and PR55 already have the identical build prerequisite. This second merge changes only testing-log histories. Runtime source, test trees, workflows, package/dependency/build files and all other tracked files are identical to the complete-gated PR55 merge `8459ed54`.
+
+Verification: exact staged changed-file comparison permits only this testing log; `git diff --check`, final `bun run lint` (including boundary) and `bun run typecheck` pass. Functional source retains the full gate: 5,844 passed / 19 existing skips / zero failures; 24,285 assertions across all 560 files. Independent peer verification adds the same 36 focused tests and four compiled strict-Node supported/unsupported sync/async descriptor scenarios, with warning delivery and invocation denial intact.
+
 ## 2026-10-11 — Fourth-review PR55 parent merge and complete source gate
 
 Scope: carry reviewed PR54 parent `5f3fe9ad236804b516b4eb46665db49d4e5a8858` into PR55, preserving its original head and both testing histories. Complete PR53 observer isolation at the PR55 descriptor warning caller as recorded below. The owner requested dependency-aware review and fixes. No PR is merged into master.
@@ -15,6 +21,16 @@ Commands: `bun install --frozen-lockfile --ignore-scripts`, `bun run build`, `bu
 Merged the corrected parent without rewriting PR history. Complete source gate: **5,841 passed / 19 existing skips / zero failures**, 24,256 assertions across all 560 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
 
 Initial preparation refused a testing-log prefix difference before dependency installation; the build then reported the missing compiler. Both were preparation failures. The log merge retains both histories, dependencies were installed, and the complete gate below runs on the correct merged source.
+## 2026-10-11 — PR54 carry of the PR53 CI prerequisite receipt
+
+Merged corrected parent `a939f457aa94de142f23109e21f1c3f05a10971e` without changing functional source or regression assertions. The public-package build prerequisite already exists identically in PR54. Only the testing-log histories change in this merge. Final lint/boundary and typecheck pass. The unchanged source retains the complete configured gate at `5f3fe9ad`: 5,837 passed / 19 existing skips / zero failures, 24,242 assertions across 559 files. No new full-suite run is claimed for this log-only carry. Original head and updated parent ancestry are preserved.
+
+## 2026-10-11 — PR53 CI artifact prerequisite correction
+
+Exact-head GitHub run `38176068641` on source `ab8f6109d25bb9d23ce2436a1e1ae728b2a21ff5` failed its Mac and Linux runtime jobs because the strict-Node discovery regression imported `@yevgetman/sov-sdk/dist/skills/discovery.js` before CI built public artifacts (`ERR_MODULE_NOT_FOUND`). The runtime job now runs the identical public-package build prerequisite already present in PR54 before `bun run test`. Functional source and regression assertions are unchanged.
+
+Validation: `bun run lint`, `bun run typecheck`, `bun run build`, workflow YAML parsing/step-order validation and `bun test tests/skills/discovery.test.ts -t 'throwing and rejecting'` all pass. The compiled strict-Node effect regression reports **one passed / zero failed**, three assertions. The unchanged functional source retains its complete configured receipt at `ab8f6109`: **5,781 passed / 19 existing skips / zero failed**, 24,005 assertions across 554 files. This CI-only commit does not claim a new full-suite run or green remote CI; exact-head CI must rerun after push. No release or installed-host update.
+
 ## 2026-10-11 — Fourth-review parent propagation to PR54
 
 Scope: carry reviewed parent `ab8f6109d25bb9d23ce2436a1e1ae728b2a21ff5` into PR54, preserving its original head and both testing histories. The owner requested dependency-aware review and fixes. No PR is merged into master.
