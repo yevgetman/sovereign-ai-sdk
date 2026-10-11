@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import {
   mkdirSync,
   mkdtempSync,
@@ -10,6 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { type SkillDiscoveryDecision, discoverSkills } from '@yevgetman/sov-sdk/skills/discovery';
 import { loadSkills, reloadSkill } from '@yevgetman/sov-sdk/skills/loader';
 
@@ -37,6 +39,63 @@ function link(target: string, destination: string): void {
 }
 
 describe('portable bounded skill discovery', () => {
+  test('throwing and rejecting diagnostic observers cannot reject catalogs or terminate Node', () => {
+    const result = spawnSync(
+      'node',
+      [
+        '--unhandled-rejections=strict',
+        '--input-type=module',
+        '-e',
+        `
+          import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+          import { tmpdir } from 'node:os';
+          import { join } from 'node:path';
+          import { discoverSkills } from '@yevgetman/sov-sdk/skills/discovery';
+          import { loadSkills } from '@yevgetman/sov-sdk/skills/loader';
+          const root = await mkdtemp(join(tmpdir(), 'skill-discovery-observers-'));
+          try {
+            const dir = join(root, '.agents/skills');
+            await mkdir(dir, { recursive: true });
+            const document = '---\\nname: safe\\ndescription: Public fixture\\n---\\nSafe guidance.';
+            await writeFile(join(dir, 'a.md'), document);
+            await writeFile(join(dir, 'duplicate.md'), document);
+            await writeFile(join(dir, 'malformed.md'), 'Malformed fixture');
+            for (const asynchronous of [false, true]) {
+              const decisions = new Set();
+              let warnings = 0;
+              const fail = () => {
+                if (asynchronous) return Promise.reject(new Error('diagnostic rejected'));
+                throw new Error('diagnostic threw');
+              };
+              const options = {
+                cwd: root, harnessHome: join(root, 'home'),
+                onDiscoveryDecision: decision => { decisions.add(decision.code); return fail(); },
+                warn: () => { warnings++; return fail(); },
+              };
+              if ((await discoverSkills(options)).candidates.length !== 3)
+                throw new Error('observer changed discovery');
+              const loaded = await loadSkills(options);
+              if (loaded.skills.length !== 1 || !loaded.byName.has('safe'))
+                throw new Error('observer changed catalog');
+              if (!decisions.has('load-rejected') || !decisions.has('duplicate-name') || !warnings)
+                throw new Error('observer delivery was lost');
+            }
+            await new Promise(resolve => setTimeout(resolve, 10));
+            console.log('loaded');
+          } finally { await rm(root, { recursive: true, force: true }); }
+        `,
+      ],
+      {
+        cwd: fileURLToPath(new URL('../../', import.meta.url)),
+        encoding: 'utf8',
+        timeout: 20_000,
+      },
+    );
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe('loaded');
+  });
+
   test('reload pins a discovered canonical directory instead of accepting a later link swap', async () => {
     await fixture(async (root) => {
       const cwd = join(root, 'project');

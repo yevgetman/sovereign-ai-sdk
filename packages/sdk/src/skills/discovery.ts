@@ -85,6 +85,20 @@ export type SkillDiscoveryResult = {
 };
 
 type ScopedRoot = { root: SkillRoot; scope: string };
+
+/** Diagnostics are observers. Keep delivery synchronous, but contain both
+ * synchronous exceptions and asynchronous rejection from host callbacks. */
+export function observeSkillDiagnostic<T>(
+  observer: ((value: T) => void) | undefined,
+  value: T,
+): void {
+  try {
+    Promise.resolve(observer?.(value)).catch(() => undefined);
+  } catch {
+    /* An observer cannot change discovery or catalog membership. */
+  }
+}
+
 const EXCLUDED_DIRECTORIES = new Set([
   '.sov-skill-store',
   '.git',
@@ -180,11 +194,11 @@ export async function discoverSkills(opts: SkillDiscoveryOptions): Promise<Skill
   const decisions: SkillDiscoveryDecision[] = [];
   const emit = (decision: SkillDiscoveryDecision): void => {
     decisions.push(decision);
-    opts.onDiscoveryDecision?.(decision);
+    observeSkillDiagnostic(opts.onDiscoveryDecision, decision);
     if (
       !['root-ready', 'root-missing', 'candidate', 'duplicate-realpath'].includes(decision.code)
     ) {
-      opts.warn?.(`skill skipped (${decision.path}): ${decision.message}`);
+      observeSkillDiagnostic(opts.warn, `skill skipped (${decision.path}): ${decision.message}`);
     }
   };
   const ancestors = await projectAncestors(opts, limits, emit);
