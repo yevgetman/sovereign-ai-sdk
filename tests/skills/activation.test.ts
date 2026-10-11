@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { query } from '@yevgetman/sov-sdk/core/query';
@@ -49,6 +57,68 @@ function namedTool(name: string, effect: (ctx: ToolContext) => void = () => {}) 
 }
 
 describe('skill activation permission floors', () => {
+  test('environment paths remain exact data in bare, single and double quoted shell words', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'skill-quote-context-'));
+    dirs.push(cwd);
+    const dir = join(cwd, '.harness/skills', 'literal-\'"\n$(touch injected-dollar)');
+    mkdirSync(dir, { recursive: true });
+    const body = [
+      "!`printf '%s' ${HARNESS_SKILL_DIR}`",
+      "!`printf '%s' '${HARNESS_SKILL_DIR}'`",
+      '!`printf \'%s\' "${HARNESS_SKILL_DIR}"`',
+      '!`printf \'%s\' "${HARNESS_SESSION_ID}"`',
+    ].join('\n');
+    writeFileSync(
+      join(dir, 'SKILL.md'),
+      `---\nname: quoted\ndescription: Exact path data\nallowedTools: [Bash]\n---\n${body}`,
+    );
+    const skills = await loadSkills({ cwd, harnessHome: join(cwd, 'empty-home') });
+    const skill = skills.byName.get('quoted');
+    if (!skill) throw new Error('quoted fixture failed to load');
+    const sessionId = 'session-$(touch injected-session)-`touch injected-backtick`-"-\\';
+    let checks = 0;
+    const state = createSkillActivationState({
+      tools: [BashTool],
+      canUseTool: async () => {
+        checks++;
+        return { behavior: 'allow' };
+      },
+    });
+    const { prompt } = await activateSkill(skill, {
+      source: 'user',
+      toolContext: { cwd, sessionId, skills },
+      state,
+    });
+    expect(prompt).toBe([...Array(3).fill(realpathSync(dir)), sessionId].join('\n'));
+    expect(checks).toBe(4);
+    for (const name of ['injected-dollar', 'injected-session', 'injected-backtick'])
+      expect(existsSync(join(dir, name))).toBe(false);
+    expect(state.activations).toHaveLength(1);
+  });
+
+  test('unsupported nested shell contexts refuse interpolation before host approval or effects', async () => {
+    for (const command of [
+      "printf '%s' $'${HARNESS_SKILL_DIR}'",
+      'printf "%s" "$(printf \'%s\' "${HARNESS_SKILL_DIR}")"',
+      'cat <<EOF\n${HARNESS_SKILL_DIR}\nEOF',
+    ]) {
+      const f = await fixture(`!\`${command}\``, ['Bash']);
+      let checks = 0;
+      const state = createSkillActivationState({
+        tools: [BashTool],
+        canUseTool: async () => {
+          checks++;
+          return { behavior: 'allow' };
+        },
+      });
+      await expect(
+        activateSkill(f.skill, { source: 'user', toolContext: f.context, state }),
+      ).rejects.toThrow('does not support');
+      expect(checks).toBe(0);
+      expect(state.activations).toHaveLength(0);
+    }
+  });
+
   test('a trusted in-memory resolver and empty resource roots perform no disk lookup', async () => {
     const f = await fixture();
     const memorySkill = {

@@ -49,6 +49,7 @@ import {
 import { type Runtime, createServerAsk } from '../runtime.js';
 import { isValidSessionId } from '../sessionId.js';
 import { buildSessionToolContext } from '../sessionToolContext.js';
+import { resolveSkillInvocation } from '../skillInvocation.js';
 import {
   type TurnPersistence,
   appendInstructions,
@@ -191,7 +192,10 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
     let skillScope: readonly string[] | undefined;
     let skillInvocation: { name: string; args: string; source: 'user' | 'command' } | undefined;
     const slash = /^\/([^\s/]+)(?:\s+([\s\S]*))?$/.exec(rawText.trim());
-    const namedSkill = slash ? runtime.skills.byName.get(slash[1] ?? '') : undefined;
+    const skillSource = body.skillSource === 'command' ? 'command' : 'user';
+    const namedSkill = slash
+      ? resolveSkillInvocation(runtime, slash[1] ?? '', skillSource)
+      : undefined;
     if (body.kind === 'skill' || namedSkill) {
       if (!slash) {
         return c.json({ error: 'kind: skill requires text to start with /' }, 400);
@@ -256,7 +260,7 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
       skillInvocation = {
         name: skillName,
         args,
-        source: body.skillSource === 'command' ? 'command' : 'user',
+        source: skillSource,
       };
     }
 
@@ -461,7 +465,7 @@ async function runTurnInBackground(
   let skillActivation: SkillActivationEnvelope | undefined;
   if (skillInvocation) {
     try {
-      const skill = runtime.skills.byName.get(skillInvocation.name);
+      const skill = resolveSkillInvocation(runtime, skillInvocation.name, skillInvocation.source);
       if (!skill) throw new Error(`unknown skill: ${skillInvocation.name}`);
       const hostGate = buildTurnCanUseTool(runtime, {
         ask: createServerAsk(runtime.approvalQueue, bus, sessionId),
