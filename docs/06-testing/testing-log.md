@@ -1,3 +1,28 @@
+## 2026-10-11 — Fourth review PR57: isolate pure loader warning observers
+
+Confirmed Medium: `loadSkillText()` newly delivered descriptor and trigger
+warnings without isolating host callbacks. A synchronous sink failure aborted
+otherwise valid inert loading. A rejected asynchronous sink terminated the
+actual compiled public SDK under Node's strict unhandled-rejection policy.
+Both warnings now contain synchronous throws and asynchronous rejections.
+Parsed guidance and unsupported-execution denial remain unchanged.
+
+`bun run test tests/skills/runtimeLoaderObserverSafety.test.ts` fails against
+exact PR57 `fd9b2ae0` (**zero pass / two fail**), including the compiled public
+Node crash. After `bun run build`, both checks pass. The complete focused
+five-file runtime/resource/warning suite passes **35 tests / zero failures /
+155 assertions**. Final combined review source passed the configured full
+gate: **5,886 pass / 19 existing skips / zero failures / 24,476 assertions**
+across all 567 discovered files. Lint/boundary, root typecheck and strict SDK
+build pass. Global compiler/shared-theme fixtures run separately without
+omitting test files. Environment: macOS, Bun 1.3.13, Node 25.9.0.
+
+The equivalent discovery/registry callback fixes belong to PR53 and PR56.
+Root integrates their shared diagnostic helper after propagating parents;
+this owning correction is independent and fast-forward compatible. No live
+upgrade or release. Warning outcomes were checked for data preservation and
+continued execution denial, not only for absence of a process error.
+
 ## 2026-10-11 — Fourth review PR57: bound every reference adapter
 
 Confirmed Medium: custom resource readers exposed unbounded text; the composed

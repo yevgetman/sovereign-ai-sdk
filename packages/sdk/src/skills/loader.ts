@@ -417,9 +417,13 @@ export function loadSkillText(
   if (guard.action === 'block') throw new Error(formatGuardBlockMessage(guard));
   const descriptor = normalizeSkillDescriptor(frontmatter);
   for (const diagnostic of descriptor.execution.diagnostics)
-    options.warn?.(`skill '${frontmatter.name}' (${options.path}): ${diagnostic.message}`);
+    observeWarning(
+      options.warn,
+      `skill '${frontmatter.name}' (${options.path}): ${diagnostic.message}`,
+    );
   const rigor = validateWhenToUse(frontmatter.whenToUse);
-  if (!rigor.ok) options.warn?.(`skill '${frontmatter.name}' (${options.path}): ${rigor.reason}`);
+  if (!rigor.ok)
+    observeWarning(options.warn, `skill '${frontmatter.name}' (${options.path}): ${rigor.reason}`);
   const digest = createHash('sha256').update(raw).digest('hex');
   return {
     ...(options.metadataOnly
@@ -444,6 +448,16 @@ export function loadSkillText(
     guard,
     body: options.metadataOnly ? '' : parsed.body.trim(),
   };
+}
+
+/** Advisory delivery cannot reject an otherwise valid skill or terminate a
+ * public host when an asynchronous warning sink fails. */
+function observeWarning(warn: ((message: string) => void) | undefined, message: string): void {
+  try {
+    Promise.resolve(warn?.(message)).catch(() => undefined);
+  } catch {
+    /* Warning sinks are not part of skill validation or authority. */
+  }
 }
 
 function normalizeHarnessMetadata(
