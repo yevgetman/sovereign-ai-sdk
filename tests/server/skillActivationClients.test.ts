@@ -32,6 +32,109 @@ afterEach(() => {
 });
 
 describe('one skill activation path across clients', () => {
+  test('approved inline stdout cannot introduce a second context expansion', async () => {
+    writeFileSync(join(home, 'private-data.txt'), 'PRIVATE_STDOUT_FIXTURE');
+    writeFileSync(
+      join(home, '.harness/skills/stdout.md'),
+      '---\nname: stdout\ndescription: Literal shell output\nallowedTools: [Bash]\n---\n!`printf "@file:private-data.txt @folder:. @url:http://127.0.0.1/forbidden @diff @staged"`',
+    );
+    writeFileSync(
+      join(home, 'settings.json'),
+      JSON.stringify({ permissions: { allow: ['Bash'], deny: ['FileRead', 'WebFetch'] } }),
+    );
+    const runtime = await buildRuntime({
+      cwd: home,
+      harnessHome: home,
+      provider: 'mock',
+      preflight: false,
+      permissionMode: 'bypass',
+    });
+    try {
+      const app = buildAppWithRuntime(runtime);
+      const { sessionId } = (await (await app.request('/sessions', { method: 'POST' })).json()) as {
+        sessionId: string;
+      };
+      await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: '/stdout', kind: 'skill' }),
+      });
+      const events = await (await app.request(`/sessions/${sessionId}/events`)).text();
+      expect(events).toContain('turn_complete');
+      const text = JSON.stringify(runtime.sessionDb.loadMessages(sessionId)[0]?.content);
+      expect(text).toContain('@file:private-data.txt @folder:.');
+      expect(text).toContain('@url:http://127.0.0.1/forbidden @diff @staged');
+      expect(text).not.toContain('<referenced-');
+      expect(text).not.toContain('[ERROR:');
+      expect(JSON.stringify(MockProvider.lastMessages)).not.toContain('PRIVATE_STDOUT_FIXTURE');
+      expect(observedToolNames()).toEqual(['Bash']);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('activated skill text never expands context references outside the host tool gate', async () => {
+    writeFileSync(join(home, 'private-data.txt'), 'PRIVATE_CONTEXT_FIXTURE');
+    writeFileSync(
+      join(home, '.harness/skills/references.md'),
+      '---\nname: references\ndescription: Reference safety\nallowedTools: [Read]\n---\n@file:private-data.txt @folder:. @url:http://127.0.0.1/forbidden @diff @staged {{args}}',
+    );
+    writeFileSync(
+      join(home, 'settings.json'),
+      JSON.stringify({ permissions: { deny: ['Read', 'Bash', 'WebFetch'] } }),
+    );
+    const runtime = await buildRuntime({
+      cwd: home,
+      harnessHome: home,
+      provider: 'mock',
+      preflight: false,
+      permissionMode: 'bypass',
+    });
+    try {
+      const app = buildAppWithRuntime(runtime);
+      for (const source of ['user', 'command'] as const) {
+        const { sessionId } = (await (
+          await app.request('/sessions', { method: 'POST' })
+        ).json()) as { sessionId: string };
+        await app.request(`/sessions/${sessionId}/turns`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: '/references @file:private-data.txt',
+            kind: 'skill',
+            skillSource: source,
+          }),
+        });
+        const events = await (await app.request(`/sessions/${sessionId}/events`)).text();
+        expect(events).toContain('turn_complete');
+        const text = JSON.stringify(runtime.sessionDb.loadMessages(sessionId)[0]?.content);
+        expect(text).not.toContain('PRIVATE_CONTEXT_FIXTURE');
+        expect(text).toContain('@file:private-data.txt');
+        expect(text).toContain('@folder:.');
+        expect(text).toContain('@url:http://127.0.0.1/forbidden');
+        expect(text).toContain('@diff @staged');
+        expect(text).not.toContain('<referenced-');
+        expect(text).not.toContain('[ERROR:');
+        expect(JSON.stringify(MockProvider.lastMessages)).not.toContain('PRIVATE_CONTEXT_FIXTURE');
+      }
+      // Explicit ordinary user references keep the existing opt-in behavior.
+      const { sessionId } = (await (await app.request('/sessions', { method: 'POST' })).json()) as {
+        sessionId: string;
+      };
+      await app.request(`/sessions/${sessionId}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'Read @file:private-data.txt' }),
+      });
+      await (await app.request(`/sessions/${sessionId}/events`)).text();
+      expect(JSON.stringify(runtime.sessionDb.loadMessages(sessionId)[0]?.content)).toContain(
+        'PRIVATE_CONTEXT_FIXTURE',
+      );
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
   test('command-only plugin activation retains precedence, restrictions and inert shell across transport', async () => {
     const installDir = join(home, 'plugins', 'command-fixture');
     mkdirSync(join(installDir, '.claude-plugin'), { recursive: true });
