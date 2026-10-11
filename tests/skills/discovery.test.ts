@@ -338,6 +338,62 @@ describe('portable bounded skill discovery', () => {
     });
   });
 
+  test('explicit package roots retain approval with an enclosing pluginRoot without approving excluded descendants', async () => {
+    await fixture(async (root) => {
+      const cwd = join(root, 'project');
+      repository(cwd);
+      const pluginRoot = join(root, 'plugin');
+      for (const directory of ['node_modules', 'vendor']) {
+        const packageRoot = join(pluginRoot, directory, 'dependency', 'skills');
+        const name = `explicit-${directory.replace(/[^a-z]/g, '')}`;
+        skill(join(packageRoot, 'safe.md'), name);
+        const nested = join(packageRoot, 'node_modules', 'nested');
+        skill(join(nested, 'SKILL.md'), 'implicit-nested');
+        link(nested, join(packageRoot, 'nested-alias'));
+        const transaction = join(packageRoot, '.sov-skill-store', 'transaction');
+        skill(join(transaction, 'SKILL.md'), 'private-transaction');
+        link(transaction, join(packageRoot, 'transaction-alias'));
+        const result = await loadSkills({
+          cwd,
+          harnessHome: join(root, 'home'),
+          extraRoots: [{ path: packageRoot, pluginRoot, source: 'plugin', trustTier: 'community' }],
+        });
+        expect(result.skills.map((entry) => entry.name)).toEqual([name]);
+        expect(result.byName.get(name)?.source).toBe('plugin');
+        expect(result.byName.get(name)?.trustTier).toBe('community');
+        expect(result.byName.get(name)?.pluginRoot).toBe(pluginRoot);
+      }
+      const approvedExternal = join(root, 'approved-external');
+      for (const directory of ['node_modules', 'vendor']) {
+        const packageRoot = join(approvedExternal, directory, 'dependency', 'skills');
+        const name = `external-${directory.replace(/[^a-z]/g, '')}`;
+        skill(join(packageRoot, 'safe.md'), name);
+        const nested = join(packageRoot, 'vendor', 'nested');
+        skill(join(nested, 'SKILL.md'), 'implicit-external-nested');
+        link(nested, join(packageRoot, 'nested-alias'));
+        const result = await loadSkills({
+          cwd,
+          harnessHome: join(root, 'home'),
+          allowedLinkRoots: [approvedExternal],
+          extraRoots: [{ path: packageRoot, pluginRoot, source: 'plugin', trustTier: 'community' }],
+        });
+        expect(result.skills.map((entry) => entry.name)).toEqual([name]);
+        expect(result.byName.get(name)?.source).toBe('plugin');
+        expect(result.byName.get(name)?.trustTier).toBe('community');
+        expect(result.byName.get(name)?.pluginRoot).toBe(pluginRoot);
+      }
+      const outside = join(root, 'outside');
+      skill(join(outside, 'safe.md'), 'outside');
+      const denied = await loadSkills({
+        cwd,
+        harnessHome: join(root, 'home'),
+        allowedLinkRoots: [approvedExternal],
+        extraRoots: [{ path: outside, pluginRoot, source: 'plugin', trustTier: 'community' }],
+      });
+      expect(denied.skills).toEqual([]);
+    });
+  });
+
   test('depth, tree count, file count, per-file bytes, and total bytes are bounded and explained', async () => {
     await fixture(async (root) => {
       const cwd = join(root, 'project');
