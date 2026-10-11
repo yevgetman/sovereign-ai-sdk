@@ -1,3 +1,11 @@
+## 2026-10-11 — PR54 review: stable source-capture identity
+
+**Scope:** both exported source-capture APIs. An approved resource ancestor can be replaced with an outside link for lstat/open/read and restored before realpath validation. The original tree and single-file APIs both return outside fixture bytes. Capture now checks canonical directory identities, opened metadata and the current post-read leaf; tree directory modes and timestamps must also remain stable. No host chdir or public API change.
+
+**Environment and checks:** same isolated Darwin/Bun 1.3.13/Node 25.9.0 worktree and local public SDK/protocol build as the preceding PR54 review. `bun run build`; `bun test tests/skills/storeSourceSafety.test.ts tests/skills/store.test.ts tests/skills/install.test.ts tests/skills/import.test.ts`: **57 pass / zero fail**, 215 assertions. Four negative source-race tests fail on original PR54; unchanged alias test passes. Both direct swaps and temporary restoration during directory checks are tested for both APIs. Stable in-tree file/directory aliases retain bytes and modes. Independent peer reproductions reject latest source before outside reads.
+
+**Final frozen gate:** `python3 /private/tmp/sdk-skills-hardening-gate.py /private/tmp/sdk-pr-review-20261011/storage review54-source-final` runs configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,828 passed / 19 existing skips / zero failures**, 24,194 assertions across 557 files. No test file omitted or assertion weakened. This exact final source includes the atomic proposal-ownership and async-observer fixes documented next. No installed host update, live provider call or publication occurred.
+
 ## 2026-10-11 — PR54 review: confined and durable complete-tree storage
 
 **Scope:** original PR54 head `abb73963`, with PR52/53 contracts and PR59 consumers checked. Fixed nested snapshot/staging/cleanup confinement, POSIX parent/nested-directory flush ordering, failed-delete/publication conservation, complete directory-parent revisions and file-directory representability. Stages/backups now use hidden root leaves; journals/locks stay in the pinned private directory. Discovery and resource guards exclude both new families and aliases. Legacy nested journals retain recovery support. Regular capture uses nonblocking opens before descriptor validation.

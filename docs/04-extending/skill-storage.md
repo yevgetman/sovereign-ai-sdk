@@ -99,8 +99,10 @@ cannot redirect the worker's writes. Store-internal state is private (0700).
 Each tree is bounded to 512 files, 512 directories, depth 16 and 16 MiB of data.
 Resource reads enforce those bounds before and during capture. Import accepts
 links to resources within the source tree by capturing their bytes. It refuses
-outside or dangling links and directory cycles. Installed aliases become ordinary
-files, so source locations are not retained as destination links.
+outside or dangling links and directory cycles. Capture checks canonical ancestor
+identities and compares the opened file with the current pathname after reading.
+An ancestor swapped away and restored during capture is refused. Installed aliases
+become ordinary files, so source locations are not retained as destination links.
 
 File data and modes, nested directories, new root ancestors and transaction
 records are synced before publication. POSIX directory syncs preserve ordering.
