@@ -321,7 +321,15 @@ export async function discoverSkills(opts: SkillDiscoveryOptions): Promise<Skill
         event('scope-denied', path, 'internal skill store transactions are excluded', rp);
         return;
       }
-      if (!targets.some((target) => isPathWithin(target, rp))) {
+      if (
+        !targets.some(
+          (target) =>
+            isPathWithin(target, rp) &&
+            !relative(target, rp)
+              .split(sep)
+              .some((part) => EXCLUDED_DIRECTORIES.has(part.toLowerCase())),
+        )
+      ) {
         event('scope-denied', path, 'real path is outside the approved discovery scope', rp);
         return;
       }

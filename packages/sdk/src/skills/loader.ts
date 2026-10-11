@@ -3,8 +3,7 @@
 // when a slash command or SkillTool invokes one.
 
 import { createHash } from 'node:crypto';
-import { constants } from 'node:fs';
-import { open, realpath, stat } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
@@ -15,6 +14,7 @@ import {
   discoverSkills,
   observeSkillDiagnostic,
 } from './discovery.js';
+import { readBoundedSkillContent } from './fileRead.js';
 import { splitCommaList, splitFrontmatter } from './frontmatter.js';
 import { type SkillGuardResourceBudget, formatGuardBlockMessage, guardSkillLoad } from './guard.js';
 import type { Skill, SkillExpansionOptions, SkillHarnessMetadata, SkillRegistry } from './types.js';
@@ -427,34 +427,7 @@ async function readBoundedSkillFile(
   onRead?: (bytes: number) => void,
 ): Promise<string> {
   if (maxBytes <= 0) throw new Error('skill discovery read budget exhausted');
-  if ((await realpath(path)) !== rp || (await realpath(rp)) !== rp)
-    throw new Error('skill real path changed before reading');
-  const handle = await open(rp, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-  try {
-    const info = await handle.stat();
-    if (!info.isFile()) throw new Error('skill content must be a regular file');
-    if (info.size > maxBytes) throw new Error('skill file exceeds the bounded read limit');
-    const buffer = Buffer.alloc(maxBytes + 1);
-    let length = 0;
-    while (length < buffer.length) {
-      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null);
-      if (bytesRead === 0) break;
-      length += bytesRead;
-    }
-    onRead?.(Math.min(length, maxBytes));
-    if (length > maxBytes) throw new Error('skill file exceeds the bounded read limit');
-    const current = await stat(rp);
-    if (
-      (await realpath(path)) !== rp ||
-      (await realpath(rp)) !== rp ||
-      current.dev !== info.dev ||
-      current.ino !== info.ino
-    )
-      throw new Error('skill real path or file identity changed while reading');
-    return buffer.subarray(0, length).toString('utf8');
-  } finally {
-    await handle.close();
-  }
+  return readBoundedSkillContent(path, rp, maxBytes, onRead);
 }
 
 // Resolve env placeholders SPAN-AWARE, then run each author inline-shell span.

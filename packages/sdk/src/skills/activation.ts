@@ -74,6 +74,11 @@ export function skillRestrictionRules(skill: Skill): string[] | undefined {
   return rules;
 }
 
+// A turn may receive parallel host activation requests. Each activation must
+// finish before the next one reads its floor, including permissioned expansion.
+// A rejected activation releases only its own slot and does not poison the turn.
+const pendingActivations = new WeakMap<SkillActivationState, Promise<void>>();
+
 export async function activateSkill(
   skill: Skill,
   opts: {
@@ -85,6 +90,27 @@ export async function activateSkill(
     /** Trusted host resolver; permits in-memory catalogs without disk reads. */
     resolveSkill?: (skill: Skill) => Promise<Skill>;
   },
+): Promise<{ prompt: string; activation: SkillActivationEnvelope }> {
+  const previous = pendingActivations.get(opts.state);
+  let release: () => void = () => {};
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  pendingActivations.set(opts.state, pending);
+  try {
+    await previous;
+    if (opts.toolContext.signal?.aborted)
+      throw new Error('skill activation cancelled before execution');
+    return await activateSkillSerial(skill, opts);
+  } finally {
+    release();
+    if (pendingActivations.get(opts.state) === pending) pendingActivations.delete(opts.state);
+  }
+}
+
+async function activateSkillSerial(
+  skill: Skill,
+  opts: Parameters<typeof activateSkill>[1],
 ): Promise<{ prompt: string; activation: SkillActivationEnvelope }> {
   const current = await (opts.resolveSkill ?? reloadSkill)(skill);
   if (current.guard.action === 'block') throw new Error(`skill '${current.name}' is blocked`);
