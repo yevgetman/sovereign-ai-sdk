@@ -1,5 +1,53 @@
 # Testing log
 
+## 2026-10-11 — PR59 reserve optional guidance with host token accounting
+
+Confirmed Medium in the final dependency check: `attachSkillGuidance()` reserved
+the generic text/framing estimate even when the host supplied verified image
+accounting. An actual compiled public Node consumer counts a valid base request
+at 32,386 tokens in a 32,768-token context and completes with one provider call.
+Pinned continuity adds 558 tokens of optional guidance; the original query
+counts 32,944 tokens, returns `request input leaves no output room`, and makes
+zero provider calls. This reproduces on original PR59 `debd77d6` and after all
+corrected parents merge at `f74f874a`.
+
+Guidance now reserves the current base history, catalog-bearing system prompt,
+actual tool schemas, output ceiling and frozen model metadata through the host
+counter. The generic fallback and reservation validation remain. Final request
+admission still accounts the augmented request. Insufficient headroom drops
+optional guidance with a diagnostic while preserving saved records; sufficient
+headroom restores the complete pinned guidance at user-message authority.
+
+The four new `continuityTokenAccounting.test.ts` cases initially yield two
+passes / two failures on integrated `f74f874a`. The strengthened final checks
+yield one pass / three failures against the exact original compiled package.
+After correction, the new tests plus existing continuity-query and catalog
+tests pass **18 tests / zero failures / 150 assertions** across three files.
+They cover the admitted no-guidance request, positive restoration with current
+catalog/system/tools, no-counter fallback, and invalid/throwing counters
+specifically after successful catalog accounting. A corrected compiled Node
+consumer completes both control and continuity requests with one provider call
+each; continuity emits `budget-dropped` without losing private saved guidance.
+
+Root independently reproduced the original effect and inspected the correction.
+A native sibling independently passed the same 18 tests / 150 assertions and
+compiled public Node checks for low-to-high headroom on one continuity object,
+fallback and guidance-specific invalid counters. Source is unchanged from that
+peer check. The first new gate stopped on two test-only optional-type errors;
+an explicit 32,768 fixture constant fixed the typing without changing any
+assertion or value. Two introduced non-null assertion warnings were removed
+with explicit missing-request checks before the final clean gate. The failed
+typecheck and prior passing gate logs remain as historical evidence.
+
+Commands: `bun run build`, `bun run tui:build`, focused `bun run test`, then the
+separate serialized `fourth-corrected-59-clean` complete gate. Result: **5,939
+passed / 19 existing skips / zero failures / 25,036 assertions**, all 575
+discovered files. Configured lint/boundary, root types and strict SDK build
+pass. Compiler, theme, redaction timing and subprocess fixtures run separately;
+no file or assertion is omitted. The previous propagation gate remains a
+separate receipt. Environment: macOS, Bun 1.3.13, Node 25.9.0. No release,
+installed-host change or merge into master.
+
 ## 2026-10-11 — Fourth-review parent propagation to PR59
 
 Scope: carry reviewed parent `1f055954367f10bf4ba7fde61382748bd3c16732` into PR59, preserving its original head and both testing histories. The owner requested dependency-aware review and fixes. No PR is merged into master.

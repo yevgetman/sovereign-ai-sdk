@@ -569,11 +569,17 @@ async function* queryInternal(
     const budget = resolveSkillContextBudget({
       ...(effectiveModelLimits ? { contextWindowTokens: effectiveModelLimits.contextTokens } : {}),
       outputTokens: outputCeiling,
-      reservedInputTokens: requestInputTokenEstimate(
-        history,
-        systemPrompt,
-        toToolSchemas(activationState.tools),
-      ).tokens,
+      reservedInputTokens: params.inputTokenCounter
+        ? params.inputTokenCounter({
+            model,
+            messages: history,
+            system: systemPrompt,
+            tools: toToolSchemas(activationState.tools),
+            maxTokens: outputCeiling,
+            ...(modelMetadata ? { modelMetadata } : {}),
+          })
+        : requestInputTokenEstimate(history, systemPrompt, toToolSchemas(activationState.tools))
+            .tokens,
     });
     const retained = await toolCtx.skillContinuity.guidance({
       budget,
