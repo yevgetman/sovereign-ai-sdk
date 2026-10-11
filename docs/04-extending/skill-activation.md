@@ -67,6 +67,12 @@ Dynamic context runs in the skill directory with a ten-second timeout and a
 bounded output. User arguments are merged last and never rescanned as shell.
 Permission failure stops activation and produces no activation record.
 
+Activated instructions, arguments and shell output are not rescanned for
+`@file:`, `@folder:`, `@url:`, `@diff` or `@staged` context references. These
+remain literal text. The skill must use its permitted tools to obtain context
+through the host gate. Ordinary explicit references in non-skill user turns
+retain their existing expansion behavior.
+
 Environment placeholders in inline shell preserve their exact data in ordinary
 bare, single-quoted and double-quoted words. Shell metacharacters in a directory
 or session id cannot become new substitutions. ANSI-C/localized quotes, nested

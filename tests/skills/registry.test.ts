@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { createSkillActivationState } from '../../packages/sdk/src/skills/activation.js';
 import {
@@ -40,6 +42,60 @@ function registry(...skills: Skill[]): SkillRegistry {
 }
 
 describe('live skill registry', () => {
+  test('filesystem diagnostic wrappers contain host exceptions and rejected promises under Node', () => {
+    const result = spawnSync(
+      'node',
+      [
+        '--unhandled-rejections=strict',
+        '--input-type=module',
+        '-e',
+        `
+          import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+          import { tmpdir } from 'node:os';
+          import { join } from 'node:path';
+          import { loadSkillRegistry, createSkillRegistryManager } from '@yevgetman/sov-sdk/skills/registry';
+          const root = await mkdtemp(join(tmpdir(), 'skill-registry-observers-'));
+          try {
+            const dir = join(root, '.agents/skills');
+            await mkdir(dir, { recursive: true });
+            await writeFile(join(dir, 'safe.md'), '---\\nname: safe\\ndescription: Public fixture\\n---\\nSafe guidance.');
+            await writeFile(join(dir, 'malformed.md'), 'Malformed fixture');
+            for (const asynchronous of [false, true]) {
+              let warnings = 0;
+              let decisions = 0;
+              const fail = () => {
+                if (asynchronous) return Promise.reject(new Error('diagnostic rejected'));
+                throw new Error('diagnostic threw');
+              };
+              const manager = createSkillRegistryManager({
+                load: () => loadSkillRegistry({
+                  cwd: root, harnessHome: join(root, 'home'),
+                  onDiscoveryDecision: () => { decisions++; return fail(); },
+                  warn: () => { warnings++; return fail(); },
+                }),
+              });
+              const snapshot = await manager.refresh();
+              if (snapshot.generation !== 1 || snapshot.registry.skills.length !== 1 || !snapshot.registry.byName.has('safe'))
+                throw new Error('observer changed publication');
+              if (!warnings || !decisions || !snapshot.diagnostics.some(item => item.code === 'load-rejected'))
+                throw new Error('diagnostic delivery was lost');
+            }
+            await new Promise(resolve => setTimeout(resolve, 10));
+            console.log('published');
+          } finally { await rm(root, { recursive: true, force: true }); }
+        `,
+      ],
+      {
+        cwd: fileURLToPath(new URL('../../', import.meta.url)),
+        encoding: 'utf8',
+        timeout: 20_000,
+      },
+    );
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe('published');
+  });
+
   test('activation state replaces stale visibility hints after a pool narrows', async () => {
     const custom = skill('custom');
     custom.metadata.harness.requiresToolsets = ['research-profile'];

@@ -96,6 +96,11 @@ the shared default 1 MiB file limit before parsing or decoding, and the 16 MiB
 tree limit. Each skill retains its own revision; publishing a catalog does not
 create a transaction across multiple skill trees.
 
+Reference inspection applies the same 1 MiB per-file bound to filesystem links,
+memory resources and custom `readResource` adapters. Custom text is measured in
+UTF-8 bytes before it reaches `skill_view`; filesystem reads also stop at the
+byte bound. An approved resource root grants access without expanding this limit.
+
 `activate(name, {source, toolContext, state, args?})` uses the common permissioned
 activation path. Native tool restrictions only narrow the existing host pool.
 Portable pre-approval metadata grants no host permissions. Unsupported execution

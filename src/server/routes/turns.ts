@@ -511,7 +511,13 @@ async function runTurnInBackground(
       throw error;
     }
   }
-  const expandedText = await expandContextReferences(text, { cwd: runtime.cwd });
+  // Activated instructions, substituted arguments and command stdout are data.
+  // Rescanning them for @references would read files, fetch URLs or spawn git
+  // outside the skill's tool scope and host permission gate. Ordinary explicit
+  // user references retain their existing expansion behavior.
+  const expandedText = skillActivation
+    ? text
+    : await expandContextReferences(text, { cwd: runtime.cwd });
   const userMessage: Message = {
     role: 'user',
     content: [{ type: 'text', text: expandedText }],

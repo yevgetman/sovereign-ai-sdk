@@ -18,6 +18,7 @@ import {
   type SkillClassification,
   type SkillDiscoveryOptions,
   discoverSkills,
+  observeSkillDiagnostic,
 } from './discovery.js';
 import { splitCommaList, splitFrontmatter } from './frontmatter.js';
 import {
@@ -268,7 +269,7 @@ export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry
       trustTier: candidate.classification.trustTier,
     };
     if (!loaded) {
-      opts.onDiscoveryDecision?.({
+      observeSkillDiagnostic(opts.onDiscoveryDecision, {
         ...decision,
         code: 'load-rejected',
         message: 'skill validation, guard or read limit rejected the file',
@@ -276,8 +277,11 @@ export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry
       continue;
     }
     if (byName.has(loaded.name)) {
-      opts.warn?.(`skill skipped (${candidate.path}): duplicate skill name '${loaded.name}'`);
-      opts.onDiscoveryDecision?.({
+      observeSkillDiagnostic(
+        opts.warn,
+        `skill skipped (${candidate.path}): duplicate skill name '${loaded.name}'`,
+      );
+      observeSkillDiagnostic(opts.onDiscoveryDecision, {
         ...decision,
         code: 'duplicate-name',
         message: `duplicate skill name '${loaded.name}'`,
@@ -393,7 +397,7 @@ export async function loadSkillFromPath(
   try {
     return await loadSkillFile(path, await realpath(path), classification, warn, pluginRoot);
   } catch (err) {
-    warn?.(`skill skipped (${path}): ${errorMessage(err)}`);
+    observeSkillDiagnostic(warn, `skill skipped (${path}): ${errorMessage(err)}`);
     return null;
   }
 }
@@ -434,7 +438,7 @@ async function loadSkillFile(
           trustTier: classification.trustTier,
         });
     if (guard.action === 'block') {
-      warn?.(`skill skipped (${path}): ${formatGuardBlockMessage(guard)}`);
+      observeSkillDiagnostic(warn, `skill skipped (${path}): ${formatGuardBlockMessage(guard)}`);
       return null;
     }
     return loadSkillText(raw, {
@@ -447,7 +451,7 @@ async function loadSkillFile(
       ...(pluginRoot !== undefined ? { pluginRoot } : {}),
     });
   } catch (err) {
-    warn?.(`skill skipped (${path}): ${errorMessage(err)}`);
+    observeSkillDiagnostic(warn, `skill skipped (${path}): ${errorMessage(err)}`);
     return null;
   }
 }
@@ -472,9 +476,16 @@ export function loadSkillText(
   if (guard.action === 'block') throw new Error(formatGuardBlockMessage(guard));
   const descriptor = normalizeSkillDescriptor(frontmatter);
   for (const diagnostic of descriptor.execution.diagnostics)
-    options.warn?.(`skill '${frontmatter.name}' (${options.path}): ${diagnostic.message}`);
+    observeSkillDiagnostic(
+      options.warn,
+      `skill '${frontmatter.name}' (${options.path}): ${diagnostic.message}`,
+    );
   const rigor = validateWhenToUse(frontmatter.whenToUse);
-  if (!rigor.ok) options.warn?.(`skill '${frontmatter.name}' (${options.path}): ${rigor.reason}`);
+  if (!rigor.ok)
+    observeSkillDiagnostic(
+      options.warn,
+      `skill '${frontmatter.name}' (${options.path}): ${rigor.reason}`,
+    );
   const digest = createHash('sha256').update(raw).digest('hex');
   return {
     ...(options.metadataOnly

@@ -50,6 +50,146 @@ const record = (window: number): ModelRecord => ({
   metadata: { source: 'fixture', stale: false },
 });
 
+test('host input token accounting keeps catalogs reachable when the byte fallback overestimates history', async () => {
+  const registry = { skills: [skill], byName: new Map([[skill.name, skill]]) };
+  const manager = createSkillRegistryManager({
+    load: async () => ({ registry }),
+    initial: { registry },
+  });
+  const requests: ProviderRequest[] = [];
+  const pages: Awaited<ReturnType<typeof SkillsListTool.call>>['data'][] = [];
+  const list = {
+    ...SkillsListTool,
+    call: async (...args: Parameters<typeof SkillsListTool.call>) => {
+      const result = await SkillsListTool.call(...args);
+      pages.push(result.data);
+      return result;
+    },
+  };
+  const provider: LLMProvider = {
+    name: 'fixture',
+    async *stream(request) {
+      requests.push(request);
+      const message: AssistantMessage = {
+        role: 'assistant',
+        content:
+          requests.length === 1
+            ? [{ type: 'tool_use', id: 'host-accounted-list', name: 'skills_list', input: {} }]
+            : [{ type: 'text', text: 'done' }],
+      };
+      yield { type: 'assistant_message', message };
+      yield { type: 'message_stop', stop_reason: requests.length === 1 ? 'tool_use' : 'end_turn' };
+      return message;
+    },
+  };
+  const history: Message[] = [
+    { role: 'user', content: [{ type: 'text', text: 'x'.repeat(210_000) }] },
+  ];
+  let countedStanding = false;
+  const loop = query({
+    provider,
+    model: 'future',
+    modelMetadata: record(200_000),
+    maxTokens: 128,
+    messages: history,
+    systemPrompt: [{ text: 'Standing host guidance.', cacheable: true }],
+    tools: [list as unknown as Tool<unknown, unknown>],
+    toolContext: { cwd: '/', sessionId: 'host-counted-catalog', skillRegistryManager: manager },
+    inputTokenCounter: (request) => {
+      expect(request.modelMetadata?.contextWindow).toBe(200_000);
+      expect(request.tools?.[0]?.name).toBe('skills_list');
+      expect(request.system[0]?.text).toBe('Standing host guidance.');
+      if (!request.system.some((segment) => segment.kind === 'skill-catalog'))
+        countedStanding = true;
+      return Math.ceil(Buffer.byteLength(JSON.stringify(request.messages)) / 4) + 1_000;
+    },
+    canUseTool: async () => ({ behavior: 'allow' }),
+  });
+  for (;;) {
+    const next = await loop.next();
+    if (next.done) {
+      expect(next.value.reason).toBe('completed');
+      break;
+    }
+  }
+  expect(countedStanding).toBe(true);
+  expect(requests[0]?.system.find((segment) => segment.kind === 'skill-catalog')?.text).toContain(
+    '"name":"review"',
+  );
+  expect(pages[0]?.budgetExhausted).toBeUndefined();
+  expect(pages[0]?.skills.map((entry) => entry.name)).toEqual(['review']);
+
+  // Without an explicit counter the conservative byte bound still prevents
+  // provider work; catalog accounting must not weaken request admission.
+  const fallback = query({
+    provider,
+    model: 'future',
+    modelMetadata: record(200_000),
+    maxTokens: 128,
+    messages: history,
+    systemPrompt: [],
+    tools: [list as unknown as Tool<unknown, unknown>],
+    toolContext: { cwd: '/', sessionId: 'fallback-catalog', skillRegistryManager: manager },
+  });
+  for (;;) {
+    const next = await fallback.next();
+    if (next.done) {
+      expect(next.value.reason).toBe('error');
+      break;
+    }
+  }
+  expect(requests).toHaveLength(2);
+});
+
+test('invalid or failing host counters stop catalog-enabled requests before provider work', async () => {
+  const registry = { skills: [skill], byName: new Map([[skill.name, skill]]) };
+  const manager = createSkillRegistryManager({
+    load: async () => ({ registry }),
+    initial: { registry },
+  });
+  let providerCalls = 0;
+  const provider: LLMProvider = {
+    name: 'fixture',
+    async *stream() {
+      providerCalls++;
+      const message: AssistantMessage = {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'unexpected' }],
+      };
+      yield { type: 'assistant_message', message };
+      return message;
+    },
+  };
+  const counters = [
+    () => Number.NaN,
+    () => -1,
+    () => {
+      throw new Error('counter failed');
+    },
+  ];
+  for (const inputTokenCounter of counters) {
+    const loop = query({
+      provider,
+      model: 'future',
+      modelMetadata: record(200_000),
+      maxTokens: 128,
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'Review this patch.' }] }],
+      systemPrompt: [],
+      tools: [SkillsListTool as unknown as Tool<unknown, unknown>],
+      toolContext: { cwd: '/', sessionId: 'invalid-counter', skillRegistryManager: manager },
+      inputTokenCounter,
+    });
+    for (;;) {
+      const next = await loop.next();
+      if (next.done) {
+        expect(next.value.reason).toBe('error');
+        break;
+      }
+    }
+  }
+  expect(providerCalls).toBe(0);
+});
+
 test('successful history reduction restores catalog pages and later tool growth reduces their budget', async () => {
   const registry = { skills: [skill], byName: new Map([[skill.name, skill]]) };
   const manager = createSkillRegistryManager({
