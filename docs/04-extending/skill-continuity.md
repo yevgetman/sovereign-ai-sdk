@@ -111,6 +111,8 @@ This framing does not grant authority to imported tool data.
 
 Default storage limits are 16 records, 64 KiB per record, 32 references per record
 and 256 KiB aggregate private guidance. Host options are bounded by fixed ceilings.
+Slash-safe skill names use the catalog's identity rules. Identity bytes count
+toward the per-record and aggregate limits, so a long name cannot bypass them.
 Diagnostics retain at most 64 safe events. Record validation verifies hashes and
 strips unknown fields; store failures leave accepted in-memory state unchanged.
 

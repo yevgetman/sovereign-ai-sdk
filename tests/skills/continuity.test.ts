@@ -22,6 +22,21 @@ const envelope = {
 const budget = resolveSkillContextBudget({ contextWindowTokens: 1_000_000 });
 
 describe('bounded skill continuity', () => {
+  test('long skill identities consume the private record and aggregate byte limits', async () => {
+    const small = createSkillContinuity({
+      scope,
+      store: new InMemorySkillContinuityStore(),
+      maxGuidanceBytes: 512,
+    });
+    await small.activated({ ...envelope, name: 'a'.repeat(512) }, 'guidance', 'one');
+    expect(await small.exportRecords()).toEqual([]);
+    expect(small.diagnostics().some((event) => event.code === 'budget-dropped')).toBe(true);
+    const port = createSkillContinuity({ scope, store: new InMemorySkillContinuityStore() });
+    const names = Array.from({ length: 5 }, (_, i) => `workflow-${i}-${'x'.repeat(60_000)}`);
+    for (const name of names) await port.activated({ ...envelope, name }, 'guidance', 'one');
+    expect((await port.exportRecords()).map((record) => record.name)).toEqual(names.slice(1));
+    expect(JSON.stringify(port.diagnostics())).not.toContain('xxx');
+  });
   test('rejected asynchronous lifecycle diagnostics do not terminate a public Node host', () => {
     const result = spawnSync(
       'node',

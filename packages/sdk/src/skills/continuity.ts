@@ -119,7 +119,7 @@ function isRecord(record: SkillContinuityRecord, maximum: number): boolean {
       typeof record.id === 'string' &&
       record.id.length <= 128 &&
       typeof record.name === 'string' &&
-      /^[A-Za-z][A-Za-z0-9_-]{0,255}$/.test(record.name) &&
+      /^[A-Za-z][A-Za-z0-9_-]*$/.test(record.name) &&
       typeof record.revision === 'string' &&
       record.revision.length > 0 &&
       record.revision.length <= 256 &&
@@ -145,7 +145,8 @@ function isRecord(record: SkillContinuityRecord, maximum: number): boolean {
           bytes(resource.content) === resource.bytes &&
           digest(resource.content) === resource.hash,
       ) &&
-      bytes(record.guidance) +
+      bytes(record.name) +
+        bytes(record.guidance) +
         record.resources.reduce((sum, resource) => sum + resource.bytes, 0) <=
         maximum,
   );
@@ -200,6 +201,7 @@ export function createSkillContinuity(options: SkillContinuityOptions): SkillCon
         continue;
       }
       const length =
+        bytes(record.name) +
         bytes(record.guidance) +
         record.resources.reduce((sum, resource) => sum + resource.bytes, 0);
       if (valid.length >= maxRecords || total + length > MAX_PRIVATE_BYTES) {
@@ -391,6 +393,7 @@ export function createSkillContinuity(options: SkillContinuityOptions): SkillCon
         }
         if (!prior) {
           const total =
+            bytes(record.name) +
             bytes(record.guidance) +
             record.resources.reduce((sum, entry) => sum + entry.bytes, 0) +
             bytes(content);

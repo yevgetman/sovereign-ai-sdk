@@ -97,6 +97,38 @@ const latest: Message = {
 };
 
 describe('skill guidance in the real turn loop', () => {
+  test('valid catalog names longer than 256 bytes retain complete guidance after activation', async () => {
+    const f = await fixture();
+    const name = `release-${'x'.repeat(250)}`;
+    writeFileSync(f.path, `---\nname: ${name}\ndescription: Long identity fixture\n---\n${steps}`);
+    const skills = await loadSkills({ cwd: f.cwd, harnessHome: join(f.cwd, 'empty') });
+    const skill = skills.byName.get(name);
+    if (!skill) throw new Error('missing long identity fixture');
+    const context = { ...f.ctx, skills };
+    await activateSkill(skill, {
+      source: 'user',
+      toolContext: context,
+      state: f.state,
+    });
+    await f.continuity.complete('release');
+    const { p, requests } = provider();
+    await drain(
+      query({
+        provider: p,
+        model: 'custom',
+        messages: [latest],
+        systemPrompt: [],
+        tools: f.tools,
+        maxTokens: 128,
+        toolContext: context,
+      }),
+    );
+    const records = await f.continuity.exportRecords();
+    expect(records.map((record) => record.name)).toEqual([name]);
+    expect(records[0]?.guidance).toBe(steps);
+    expect(JSON.stringify(requests[0]?.messages)).toContain(steps);
+    expect(f.continuity.diagnostics().some((event) => event.code === 'budget-dropped')).toBe(false);
+  });
   test('forced compaction and fresh resume retain recorded steps while permissions expire', async () => {
     const f = await fixture();
     const first = provider();
