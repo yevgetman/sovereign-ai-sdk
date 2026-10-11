@@ -1,3 +1,9 @@
+## 2026-10-11 — PR54 review: proposal tree ownership
+
+**Scope:** review approval/revoke. Matching SKILL.md text does not prove a proposal owns an existing complete tree. Approval retries now require the proposal's already-recorded full revision and matching body. An unrelated same-body tree is refused, so later revoke cannot delete its resources.
+
+**Checks:** original-head standalone reproduction approves and revokes an unrelated tree, leaving no preexisting tree. New regressions cover refusal and recorded unchanged retry/revoke; the existing approval/revoke suite remains passing. The unchanged final source is covered by the configured `review54-source-final` complete gate immediately above: **5,828 pass / 19 existing skips / zero fail**, 24,194 assertions, all 557 discovered files. Final lint/boundary passes. Worktree-local fixtures only; no live review queue or installed host change.
+
 ## 2026-10-11 — PR54 review: stable source-capture identity
 
 **Scope:** both exported source-capture APIs. An approved resource ancestor can be replaced with an outside link for lstat/open/read and restored before realpath validation. The original tree and single-file APIs both return outside fixture bytes. Capture now checks canonical directory identities, opened metadata and the current post-read leaf; tree directory modes and timestamps must also remain stable. No host chdir or public API change.

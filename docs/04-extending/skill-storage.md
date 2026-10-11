@@ -120,8 +120,10 @@ helper before config, profiles or providers start. This helper needs no model ca
 Install, import, uninstall, `skill_manage`, skill auto-promotion and `/review`
 approval/revoke use this contract. Force replacement takes a current revision and
 commits conditionally, so a concurrent accepted edit cannot be silently lost.
-Review approvals record the applied tree revision. Revoke refuses a later changed
-revision. Pending review proposals remain separate queue artifacts.
+Review approvals record the applied tree revision. Approval retries require that
+recorded revision; an unrelated tree with the same SKILL.md body cannot be adopted.
+Revoke refuses a later changed revision. Pending review proposals remain separate
+queue artifacts.
 
 ## Read next
 
