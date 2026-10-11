@@ -10,6 +10,7 @@ import type { CanUseTool } from '../permissions/types.js';
 import { buildTool } from '../tool/buildTool.js';
 import { buildToolScope, filterParseableRules } from '../tool/toolScope.js';
 import type { Tool, ToolContext } from '../tool/types.js';
+import { assertSkillInvocable } from './descriptor.js';
 import { expandSkillPrompt, reloadSkill } from './loader.js';
 import type { Skill } from './types.js';
 
@@ -87,6 +88,7 @@ export async function activateSkill(
   },
 ): Promise<{ prompt: string; activation: SkillActivationEnvelope }> {
   const current = await (opts.resolveSkill ?? reloadSkill)(skill);
+  assertSkillInvocable(current, opts.source);
   if (current.guard.action === 'block') throw new Error(`skill '${current.name}' is blocked`);
   if (current.guard.action === 'ask') {
     if (!opts.state.hasHostPermission)

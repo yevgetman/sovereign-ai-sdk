@@ -2,6 +2,8 @@
 // and SkillTool. Phase 9 keeps skills as markdown files with frontmatter;
 // Phase 9.5 adds progressive disclosure and third-party guard rails.
 
+import type { SkillDescriptor } from './descriptor.js';
+
 export type SkillSource = 'project' | 'user' | 'bundle' | 'community' | 'agent-created' | 'plugin';
 
 export type SkillTrustTier = 'builtin' | 'trusted' | 'community' | 'agent-created';
@@ -21,6 +23,7 @@ export type SkillGuardDecision = {
 };
 
 export type SkillHarnessMetadata = {
+  [key: string]: unknown;
   requiresToolsets: string[];
   requiresTools: string[];
   fallbackForToolsets: string[];
@@ -30,6 +33,8 @@ export type SkillHarnessMetadata = {
 export type Skill = {
   /** Content digest recorded at load time. Optional for host-created descriptors. */
   revision?: string;
+  /** Present on all loader-produced skills; optional for legacy injected objects. */
+  descriptor?: SkillDescriptor;
   name: string;
   description: string;
   whenToUse: string;
@@ -54,6 +59,7 @@ export type Skill = {
   pluginRoot?: string;
   metadata: {
     harness: SkillHarnessMetadata;
+    [key: string]: unknown;
   };
   guard: SkillGuardDecision;
   body: string;

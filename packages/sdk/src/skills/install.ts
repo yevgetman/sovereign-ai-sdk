@@ -26,6 +26,7 @@ import { stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { z } from 'zod';
+import { normalizeSkillDescriptor } from './descriptor.js';
 import { splitFrontmatter } from './frontmatter.js';
 import {
   SkillFrontmatterSchema as LoaderSkillFrontmatterSchema,
@@ -135,33 +136,9 @@ export interface ImportSkillError {
 
 export type ImportResult = ImportSkillResult | ImportSkillError;
 
-/** Claude Code frontmatter keys that have no harness equivalent. They are
- *  dropped from the canonical output and reported as warnings so the user
- *  knows the harness ignores them. */
-const IGNORED_CC_KEYS = ['model', 'license', 'argument-hint'] as const;
-
-/**
- * Import a Claude Code (or harness) skill, NORMALIZING its frontmatter onto
- * the harness-native canonical shape on write — distinct from `installSkill`,
- * which copies byte-faithfully. The importer:
- *   1. resolves the source (file or directory) via the shared resolver;
- *   2. parses the SKILL.md frontmatter with the real YAML parser (a justified
- *      divergence from install's name-only regex — import rewrites the WHOLE
- *      frontmatter, so it needs every key, not just `name`);
- *   3. normalizes `allowed-tools` → `allowedTools` (+ comma-string split),
- *      synthesizes `whenToUse` from `description` when absent, and records
- *      ignored CC keys (model/license/argument-hint);
- *   4. validates the normalized frontmatter against the exported loader schema
- *      (fail loud rather than land a broken skill);
- *   5. copies the whole source tree (bundled references/, scripts/), then
- *      overwrites the target SKILL.md with the canonical normalized content.
- *
- * Lands in `<userSkillsRoot>/<name>/`. A `<root>/<name>/SKILL.md` directory
- * skill is classified `community` by `classifyUserSkill` (loader.ts) — the
- * SAFER tier (blocks medium+critical guard findings), which is the intended
- * stricter posture for an untrusted third-party import. The guard scanner at
- * load is the real safety boundary regardless of tier.
- */
+/** Import portable skills without changing the meaning of tool policy or
+ * dropping vendor fields. Unsupported execution controls remain visible and
+ * inert until activation, which refuses them with diagnostics. */
 export async function importSkill(opts: ImportSkillOptions): Promise<ImportResult> {
   const resolved = await resolveSkillSource(opts.source);
   if (!resolved.ok) {
@@ -186,7 +163,12 @@ export async function importSkill(opts: ImportSkillOptions): Promise<ImportResul
     };
   }
 
-  const normalized = normalizeImportedFrontmatter(rawFrontmatter);
+  let normalized: NormalizedFrontmatter;
+  try {
+    normalized = normalizeImportedFrontmatter(rawFrontmatter);
+  } catch (err) {
+    return { ok: false, reason: `invalid skill controls: ${errorMessage(err)}` };
+  }
 
   // Validate against the loader's schema BEFORE landing anything on disk —
   // fail loud so a broken import never produces an unloadable skill.
@@ -227,17 +209,8 @@ type NormalizedFrontmatter = {
   warnings: string[];
 };
 
-/** Apply the import normalizations to a parsed frontmatter object, collecting
- *  `converted`/`warnings` notes as it goes. Pure — returns a fresh object and
- *  never mutates the input.
- *
- *  F9 — the `allowed-tools` → `allowedTools` alias + comma-split is delegated to
- *  the SHARED `normalizeFrontmatterAliases` (loader.ts), the single source of
- *  that rule. This function adds ONLY the import-specific concerns on top:
- *  reporting the conversion (`converted`), dropping ignored CC keys, warning on
- *  `:`-glob Bash patterns, and synthesizing `whenToUse`.
- *
- *  Exported so tests can pin that both surfaces single-source the alias logic. */
+/** Shared loader normalization plus import diagnostics and trigger synthesis.
+ * Portable pre-approval requests remain requests; they do not bypass host policy. */
 export function normalizeImportedFrontmatter(raw: unknown): NormalizedFrontmatter {
   const converted: string[] = [];
   const warnings: string[] = [];
@@ -248,46 +221,20 @@ export function normalizeImportedFrontmatter(raw: unknown): NormalizedFrontmatte
   }
   const source = raw as Record<string, unknown>;
 
-  // 1. Apply the SHARED alias + comma-split transform (the single source of
-  //    that rule). Detect whether each conversion fired by comparing the input
-  //    to the transformed output so the import-specific `converted` notes stay
-  //    identical to the prior hand-rolled behavior.
-  const hadHyphenatedAlias =
-    !('allowedTools' in source) &&
-    (source as Record<string, unknown>)['allowed-tools'] !== undefined;
-  const aliased = normalizeFrontmatterAliases(source) as Record<string, unknown>;
-  if (hadHyphenatedAlias && 'allowedTools' in aliased) {
-    converted.push('aliased Claude Code `allowed-tools` → `allowedTools`');
-  }
-  // The shared transform splits a string value into an array; if the post-alias
-  // value is now an array where the pre-split value was a string, a split fired.
-  const preSplitValue = hadHyphenatedAlias
-    ? (source as Record<string, unknown>)['allowed-tools']
-    : source.allowedTools;
-  if (typeof preSplitValue === 'string' && Array.isArray(aliased.allowedTools)) {
-    converted.push('split comma-separated `allowedTools` string into a list');
-  }
-
-  // 2. Drop every ignored CC key by omission (immutable; no `delete`). The
-  //    shared transform already dropped the hyphenated `allowed-tools` key.
-  //    `ignored` collects the dropped CC keys for warning reporting.
-  const ignored = IGNORED_CC_KEYS.filter((key) => key in aliased);
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(aliased)) {
-    if ((IGNORED_CC_KEYS as readonly string[]).includes(key)) continue;
-    out[key] = value;
-  }
-
-  // Warn on CC `:`-globs in Bash(...) patterns — we do NOT auto-translate
-  // (translation is lossy/ambiguous); the harness matcher uses space + `*`/`**`.
-  if (Array.isArray(out.allowedTools)) {
-    for (const entry of out.allowedTools) {
-      if (typeof entry === 'string' && /^Bash\(.*:.*\)$/.test(entry.trim())) {
-        warnings.push(
-          `allowed-tools entry '${entry}' uses Claude Code ':'-glob syntax, which the harness matcher does not interpret; left verbatim — adjust to space + '*'/'**' if you want it enforced`,
-        );
-      }
-    }
+  const out = normalizeFrontmatterAliases(source) as Record<string, unknown>;
+  const descriptor = normalizeSkillDescriptor(out);
+  warnings.push(...descriptor.execution.diagnostics.map((entry) => entry.message));
+  if (typeof source['allowed-tools'] === 'string')
+    converted.push(
+      'parsed portable `allowed-tools` comma/whitespace list without changing its meaning',
+    );
+  if (typeof source.allowedTools === 'string')
+    converted.push('split native comma-separated `allowedTools` string into a list');
+  for (const entry of descriptor.toolPolicy.preapprovedTools) {
+    if (/^Bash\(.*:.*\)$/.test(entry))
+      warnings.push(
+        `portable allowed-tools entry '${entry}' uses Claude ':'-glob syntax; preserved without a SOV permission grant`,
+      );
   }
 
   // 2. synthesize whenToUse from description when absent so the import loads
@@ -302,11 +249,6 @@ export function normalizeImportedFrontmatter(raw: unknown): NormalizedFrontmatte
       ? desc
       : `User asks for help with ${lowerFirst(desc)}`;
     converted.push('synthesized `whenToUse` from `description`');
-  }
-
-  // 3. report the ignored CC keys dropped above.
-  for (const key of ignored) {
-    warnings.push(`ignored Claude Code key '${key}' (no harness equivalent)`);
   }
 
   return { frontmatter: out, converted, warnings };

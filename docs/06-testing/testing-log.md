@@ -1,3 +1,15 @@
+## 2026-10-11 — Integrated skill foundations (#44, #45, #47, #46)
+
+Combined the independently tested activation, bounded discovery, transactional store and portable descriptor commits. The central activation checks invocation controls before approvals, shell effects or scope changes. Argument templates expand only in original prose; shell stdout remains literal. Canonical reload rejects post-discovery link swaps while supporting legacy host objects that used platform path aliases.
+
+Configured lint/boundary, typecheck, strict SDK build and all discovered test files pass: **5,796 passed / 19 existing skips / zero failures**, 24,068 assertions across 555 files (`foundation46` serialized gate). Focused integrated checks passed 172 tests with zero failures. An initial merge check found a missing path import, a missing fixture cwd and a legacy non-canonical reload regression; corrected each and repeated the full gate. SDK/TUI builds are worktree-local. No installed update or publication.
+
+## 2026-10-11 — Issue46 portable metadata and invocation controls
+
+Implemented descriptor schemaVersion1, model/manual invocation filters and central denial helpers. Portable allowed-tools retains pre-approval semantics and does not become native allowedTools. Import/direct loading preserve vendor data and unsupported execution controls; unsupported fork/model/agent/hooks remain inspectable but cannot activate. Portable quoted arguments and directory/session aliases use the native inert substitution path. Writer schema rejects malformed boolean/tool policy before commit.
+
+Final configured lint/boundary, typecheck, strict SDK build and every discovered test file pass: **5746 passed / 19 existing skips / zero failed**, 23836 assertions across550files. The gate serialized full-suite work across worktrees, isolated the existing global compiler and footer fixtures and used a private TMPDIR. Focused new controls:5/0,28 assertions. Earlier attempts exposed the missing local TUI binary, import/API snapshot expectations and timing contention; the local binary and intentional API tests were corrected, then all files passed with unchanged timing assertions. Source is frozen after final control-schema and substitution fixes. Shared activation44 integration/enforcement will receive a separate final gate before this issue's PR is ready. No release or installed-host change.
+
 ## 2026-10-11 — Issue 47: explicit transactional skill stores
 
 **Scope:** SDK/SOV skill mutation safety. Node/Bun adapters, complete-tree revisions, paginated store enumeration, guarded replacement/recovery, stable in-flight catalogs and all committed SOV skill writers. No live learning/provider evaluation, global config change, publication or host upgrade.

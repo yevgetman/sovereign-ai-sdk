@@ -425,3 +425,11 @@ export {
 export type { CostEstimate, PricingSnapshot } from './providers/pricing.js';
 export type { OpenRouterPolicy } from './providers/openrouterPolicy.js';
 export { validateOpenRouterPolicy } from './providers/openrouterPolicy.js';
+
+export {
+  normalizeSkillDescriptor,
+  parseSkillToolList,
+  isSkillInvocable,
+  assertSkillInvocable,
+} from './skills/descriptor.js';
+export type { SkillDescriptor, SkillCompatibilityDiagnostic } from './skills/descriptor.js';

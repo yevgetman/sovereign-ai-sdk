@@ -3,11 +3,12 @@
 
 import type { PromptCommand } from '../commands/types.js';
 import type { ContentBlock } from '../core/types.js';
+import { assertSkillInvocable, isSkillInvocable } from './descriptor.js';
 import { expandSkillPrompt, reloadSkill } from './loader.js';
 import type { Skill, SkillRegistry } from './types.js';
 
 export function buildSkillCommands(registry: SkillRegistry): PromptCommand[] {
-  return registry.skills.map(skillToCommand);
+  return registry.skills.filter((skill) => isSkillInvocable(skill, 'user')).map(skillToCommand);
 }
 
 function skillToCommand(skill: Skill): PromptCommand {
@@ -17,19 +18,18 @@ function skillToCommand(skill: Skill): PromptCommand {
     description: skill.description,
     allowedTools: skill.allowedTools,
     skill: { name: skill.name, ...(skill.revision ? { revision: skill.revision } : {}) },
-    getPromptForCommand: async (args, ctx): Promise<ContentBlock[]> => [
-      {
-        type: 'text',
-        // Command discovery/preview has no execution or approval channel.
-        text: await expandSkillPrompt(
-          { ...(await reloadSkill(skill)), allowShellInterpolation: false },
-          {
-            args,
-            cwd: ctx.cwd,
-            sessionId: ctx.sessionId,
-          },
-        ),
-      },
-    ],
+    getPromptForCommand: async (args, ctx): Promise<ContentBlock[]> => {
+      const current = await reloadSkill(skill);
+      assertSkillInvocable(current, 'user');
+      return [
+        {
+          type: 'text',
+          text: await expandSkillPrompt(
+            { ...current, allowShellInterpolation: false },
+            { args, cwd: ctx.cwd, sessionId: ctx.sessionId },
+          ),
+        },
+      ];
+    },
   };
 }
