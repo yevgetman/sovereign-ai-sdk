@@ -482,9 +482,19 @@ export function createAgent(config: AgentConfig): Agent {
       learningObserver,
     );
     const skillRuntime = perTurn.skillRuntime ?? config.skillRuntime;
-    const toolContext = skillRuntime
+    let toolContext = skillRuntime
       ? skillRuntime.bindContext(baseToolContext ?? { cwd, sessionId })
       : baseToolContext;
+    if (
+      requestedToolset !== undefined &&
+      toolContext &&
+      (toolContext.skills || toolContext.skillRegistryManager || toolContext.skillActivation)
+    ) {
+      toolContext = {
+        ...toolContext,
+        activeToolsets: [...new Set([...(toolContext.activeToolsets ?? []), requestedToolset])],
+      };
+    }
 
     // 7. Merge the remaining ports for QueryParams (per-turn wins where allowed).
     const effort = perTurn.effort ?? config.effort;

@@ -246,7 +246,12 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
     },
     activate(name, activationOptions) {
       return run('activate', async () => {
-        const context = { ...activationOptions.toolContext, skillRegistryManager: manager };
+        const context = {
+          ...activationOptions.toolContext,
+          skillRegistryManager: manager,
+          skillActivation: activationOptions.state,
+          activeToolNames: activationOptions.state.tools.map((tool) => tool.name),
+        };
         const skill = getSkillRegistry(context).byName.get(name);
         if (!skill) throw new Error(`unknown or unavailable skill '${name}'`);
         const virtual = storeOnly && skill.path.startsWith('skill-store:/');

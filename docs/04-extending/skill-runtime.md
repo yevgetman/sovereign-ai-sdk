@@ -100,6 +100,17 @@ activation path. Native tool restrictions only narrow the existing host pool.
 Portable pre-approval metadata grants no host permissions. Unsupported execution
 controls and disabled invocation sources fail before effects.
 
+Catalog visibility follows the actual turn tools, including direct SDK agent
+calls. Skills with missing required tools are unavailable; fallback skills are
+visible when their primary tools are absent. Existing host visibility hints do
+not replace the effective turn pool. Direct `activate()` applies the same
+visibility rules using the supplied activation state's tools.
+Host-owned custom profile tags remain available. Built-in capability sets,
+such as `terminal`, are recomputed from the current tools.
+The selected `createAgent()` profile, including a per-turn override, is present
+in its skill context. Visibility also follows later activation restrictions,
+including turns with an abort signal.
+
 The host creates the turn's state with `createSkillActivationState()`. Inline
 shell and guarded skills require an explicit host approval callback. A headless
 host can return `deny` for every approval request. Memory inline shell uses the
