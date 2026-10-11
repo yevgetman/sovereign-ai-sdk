@@ -1,9 +1,10 @@
 // Skill guard scanner. Phase 9.5 blocks high-risk third-party skill content
 // before it reaches the prompt or gets written as an agent-created skill.
 
-import { existsSync } from 'node:fs';
-import { readFile, readdir } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { constants } from 'node:fs';
+import { open, opendir, realpath, stat } from 'node:fs/promises';
+import { basename, dirname, join, relative, sep } from 'node:path';
+import { DEFAULT_SKILL_DISCOVERY_LIMITS, isPathWithin } from './discovery.js';
 import type {
   SkillGuardDecision,
   SkillGuardFinding,
@@ -45,14 +46,39 @@ const GUARD_PATTERNS: GuardPattern[] = [
   },
 ];
 
+export type SkillGuardResourceBudget = {
+  bytesRemaining: number;
+  entriesRemaining: number;
+  fileBytesLimit: number;
+  depthLimit: number;
+};
+
 export async function guardSkillLoad(opts: {
   path: string;
   raw: string;
   trustTier: SkillTrustTier;
+  resourceBudget?: SkillGuardResourceBudget;
+  resourceRoot?: string;
 }): Promise<SkillGuardDecision> {
   const texts = [{ file: opts.path, text: opts.raw }];
-  if (isDirectorySkill(opts.path)) {
-    texts.push(...(await readSkillDirectoryTexts(opts.path)));
+  if (isDirectorySkill(opts.path) || opts.resourceRoot !== undefined) {
+    try {
+      texts.push(
+        ...(await readSkillDirectoryTexts(opts.path, opts.resourceBudget, opts.resourceRoot)),
+      );
+    } catch {
+      return {
+        action: 'block',
+        findings: [
+          {
+            level: 'critical',
+            category: 'resource-limit',
+            pattern: 'incomplete bounded skill resource scan',
+            file: opts.path,
+          },
+        ],
+      };
+    }
   }
   return decideGuard(scanTexts(texts), opts.trustTier);
 }
@@ -108,27 +134,92 @@ function isDirectorySkill(path: string): boolean {
 
 async function readSkillDirectoryTexts(
   skillPath: string,
+  resourceBudget?: SkillGuardResourceBudget,
+  resourceRoot?: string,
 ): Promise<{ file: string; text: string }[]> {
-  const dir = dirname(skillPath);
-  if (!existsSync(dir)) return [];
+  const dir = await realpath(resourceRoot ?? dirname(skillPath));
+  if (resourceRoot !== undefined && dir !== resourceRoot)
+    throw new Error('skill resource root changed');
+  const canonicalSkill = await realpath(skillPath);
+  const budget = resourceBudget ?? {
+    bytesRemaining: DEFAULT_SKILL_DISCOVERY_LIMITS.maxTotalBytes,
+    entriesRemaining: DEFAULT_SKILL_DISCOVERY_LIMITS.maxEntries,
+    fileBytesLimit: DEFAULT_SKILL_DISCOVERY_LIMITS.maxFileBytes,
+    depthLimit: DEFAULT_SKILL_DISCOVERY_LIMITS.maxDepth,
+  };
   const out: { file: string; text: string }[] = [];
-  await walkTextFiles(dir, out);
-  return out.filter((entry) => entry.file !== skillPath);
-}
-
-async function walkTextFiles(dir: string, out: { file: string; text: string }[]): Promise<void> {
-  const entries = await readdir(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await walkTextFiles(path, out);
-      continue;
+  const seen = new Set<string>();
+  const walk = async (path: string, depth: number): Promise<void> => {
+    if (depth > budget.depthLimit) throw new Error('skill resource depth limit exceeded');
+    const rp = await realpath(path);
+    if (
+      !isPathWithin(dir, rp) ||
+      relative(dir, rp)
+        .split(sep)
+        .some((part) => part.toLowerCase() === '.sov-skill-store')
+    )
+      throw new Error('skill resource escaped its directory');
+    if (seen.has(rp)) return;
+    seen.add(rp);
+    const entries: { name: string; directory: boolean; file: boolean }[] = [];
+    const handle = await opendir(rp);
+    for await (const entry of handle) {
+      if (budget.entriesRemaining <= 0) throw new Error('skill resource entry limit exceeded');
+      budget.entriesRemaining -= 1;
+      if (
+        ['.sov-skill-store', '.git', '.svn', '.hg', 'node_modules', 'vendor'].includes(
+          entry.name.toLowerCase(),
+        )
+      )
+        continue;
+      entries.push({ name: entry.name, directory: entry.isDirectory(), file: entry.isFile() });
     }
-    if (!entry.isFile()) continue;
-    try {
-      out.push({ file: path, text: await readFile(path, 'utf8') });
-    } catch {
-      // Binary/unreadable reference files are ignored by the scanner.
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const file = join(rp, entry.name);
+      if (file === canonicalSkill) continue;
+      if (entry.directory) {
+        await walk(file, depth + 1);
+        continue;
+      }
+      // Reference symlinks are not traversed by the guard. Activation/view
+      // checks their canonical containment separately before exposing them.
+      if (!entry.file) continue;
+      const canonical = await realpath(file);
+      if (canonical !== file || !isPathWithin(dir, canonical))
+        throw new Error('skill resource changed its real path');
+      const fd = await open(
+        canonical,
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      );
+      try {
+        const info = await fd.stat();
+        const maxBytes = Math.min(budget.fileBytesLimit, budget.bytesRemaining);
+        if (!info.isFile() || info.size > maxBytes)
+          throw new Error('skill resource exceeds its read limit');
+        const buffer = Buffer.alloc(maxBytes + 1);
+        let length = 0;
+        while (length < buffer.length) {
+          const { bytesRead } = await fd.read(buffer, length, buffer.length - length, null);
+          if (bytesRead === 0) break;
+          length += bytesRead;
+        }
+        budget.bytesRemaining -= Math.min(length, maxBytes);
+        if (length > maxBytes) throw new Error('skill resource grew past its read limit');
+        const current = await stat(canonical);
+        if (
+          (await realpath(file)) !== canonical ||
+          current.dev !== info.dev ||
+          current.ino !== info.ino
+        )
+          throw new Error('skill resource changed while reading');
+        out.push({ file: canonical, text: buffer.subarray(0, length).toString('utf8') });
+      } finally {
+        await fd.close();
+      }
     }
-  }
+  };
+  await walk(dir, 0);
+  if ((await realpath(dir)) !== dir) throw new Error('skill resource root changed during scan');
+  return out;
 }
