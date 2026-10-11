@@ -138,3 +138,57 @@ Native independent effect checks pass four resource/warning regressions, 51 coun
 | #59 | `debd77d6` | `47934dd76eb035d666e5a0dd99b13ee371c8101b` |
 
 The later report-only commit on PR59 changes no functional source. Current exact-head platform checks and the report commit are recorded in the PR descriptions and owner handoff. Earlier sections are historical receipts. Tests establish behavior under controlled faults and mock-provider effects; they do not certify physical power-loss durability or long-term live workflow success. The work changes no release version, public asset, consumer pin or installed host.
+
+## Owner-requested fifth review — 2026-10-11
+
+Three native subagents reviewed eight independent PR tasks against their actual incoming parent branches. They followed downstream SDK, SOV, registry, storage, catalog and continuity consumers. The coordinator checked the corrections, supplied an additional bounded pagination witness, reproduced the queued prerequisite finding and ran complete source gates in dependency order. Independent read-only peers rechecked the activation/discovery, storage and continuity corrections. This pass closes **thirteen confirmed findings above Low: five High and eight Medium**. The repeated ancestor-read mechanism affected separate readers introduced by PR52, PR53 and PR57; PR58 carries the loader correction into its later lazy reader.
+
+| Owning PR | Severity and concrete trigger | Correction and regression evidence |
+|---|---|---|
+| #52 | High — concurrent host activations snapshot one permission floor and later restore a tool removed by the earlier activation. | Per-state request queue covers resolution, guard approval and expansion. Native Write and inline Bash effects are zero after correction; rejected/cancelled slots release and independent states remain concurrent. `activationConcurrency.test.ts`. |
+| #52 | High — fallback reference reads accept bytes from a temporary outside ancestor restored before separate canonical checks. | Pin canonical directory and leaf metadata before open, compare the opened descriptor before reading, then recheck current leaf, handle and directories. Hidden-open and hidden-pre-snapshot fixtures reject. `skillsViewSecurity.test.ts`. |
+| #53 | High — eager/direct/reload skill loading and resource guards have the same split metadata/path check defect. | Shared bounded reader uses the parent identity pins and original byte limits; strict-Node direct/catalog/reload/resource fixtures fail on baseline and pass afterward. `discovery.identity.test.ts`. |
+| #53 | Medium — an ordinary link alias traverses excluded VCS/dependency/vendor descendants and advertises them as project workflows. | Canonical descendant exclusions apply relative to approved targets; explicitly approved package roots remain eligible without trust elevation. Five negative alias and positive approved-root controls in `discovery.test.ts`. |
+| #53 | Medium — the initial canonical exclusion correction hides an explicitly contributed package beneath its enclosing pluginRoot or an approved external container. | Preserve exact host-contributed canonical roots within an already approved scope. Keep inferred roots, excluded descendants, private stores and unapproved targets blocked. A final peer reproduced the regression; enclosing-plugin, external approval, classification and refusal controls pass. `discovery.test.ts`. |
+| #54 | High — a transaction stage changes before publication, but success returns the requested safe bytes/revision instead of the actual tree. | Verify stage directory identity and complete tree before moving the prior tree, then verify the actual published tree before commitment. Roll back owned uncommitted stages; retain unrelated replacement conflicts. Four packaged-Node create/edit body/reference fixtures retain old state and emit no false event. `storePublicationRace.test.ts`. |
+| #57 | High — the composed filesystem reference reader repeats the temporary-ancestor read defect. | Apply the parent identity pins while keeping the shared 1 MiB resource bound. Strict-Node composed reader fixtures reject changed ancestors. `runtimeReferenceIdentity.test.ts`. |
+| #57 | Medium — empty cursor cycles or ever-changing empty pages keep store discovery pending indefinitely without consuming entry limits. | Track all cursors and bound total pages by the explicit entry allowance plus one terminal/empty page. Keep prior catalog/generation on failure and allow a repaired refresh. `runtimePaginationBounds.test.ts`. |
+| #57 | Medium — eligibility is selected before a queued activation; earlier narrowing or newly resolved metadata removes required tools, but the workflow still activates. | Recheck resolved identity and actual current tool/profile prerequisites inside the activation queue before guard approval or expansion. Unavailable cases reject; matching profile/tool control passes. `runtimeQueuedVisibility.test.ts`. |
+| #58 | Medium — metadata reads use the full-body overflow byte and reject valid frontmatter in a partial final chunk despite a fitting header. | Metadata reads exactly its cap in chunks up to 256 bytes; full-body reads retain overflow detection. Exact/128/300-byte positive caps and undersized controls remain lazy. `metadata.test.ts`. |
+| #58 | Medium — original query echo exceeds serialized page bytes through unbounded whitespace or valid escaped control characters. | Check raw query length and base JSON response envelope against the active cap before adding entries. Preserve valid query echo/search behavior. `catalog.test.ts`. |
+| #59 | Medium — a new child with no profile row inherits parent guidance first activated after child creation. | Only actual pre-schema-7 sessions use legacy lineage fallback. Current children keep an empty creation-time profile snapshot; owner/cycle/depth checks and genuine legacy controls remain. `continuity-host.test.ts`. |
+| #59 | Medium — a query stopped by `max_turns` records guidance lifecycle success despite an unfinished task. | Treat the exhausted terminal as failed, retain pinned recovery guidance and emit failed diagnostics. Real capped query fixture checks terminal, record and diagnostics. `continuity.query.test.ts`. |
+
+Source locations: `packages/sdk/src/skills/activation.ts` and `tools/SkillsViewTool.ts` (PR52); `skills/discovery.ts`, `skills/loader.ts` and `skills/guard.ts` (PR53); `skills/storeWorker.ts` (PR54); `skills/runtime.ts` (PR57); `skills/loader.ts` and `skills/catalog.ts` (PR58); `packages/sdk/src/core/query.ts` and `src/skills/continuity.ts` (PR59). SDK-relative short paths in this list are under `packages/sdk/src/`.
+
+PR55 and PR56 have no new independent confirmed finding above Low. They were independently reviewed, retain focused checks and receive every corrected ancestor. No further confirmed above-Low finding remains in the bounded reviewed source. The earlier Low one-byte continuity separator excess remains under the requested severity threshold.
+
+### Fifth-review validation and publication
+
+Frozen functional source `1a9ac75b095d696c631c577b35bc09574f2b22fb` passes configured lint/boundary, root types, strict public SDK build and **every discovered test file**: **5,972 passed / 19 existing skips / zero failures**, 25,192 assertions across 580 files. Each published branch receives a complete source gate after owning changes and ordinary parent propagation. Compiler, shared-theme, redaction-timing and subprocess fixtures run separately without omitting files or weakening original assertions. Public protocol/SDK and TUI artifacts are built before fixtures. Strict Go, actual packed Node/Bun consumers/public types/artifact checks and unchanged release-plan validation also pass; the final testing-log receipt records commands/results.
+
+The final PR58 peer found the explicit-contributed-root compatibility regression introduced by the first exclusion correction. It is corrected on the owning PR53, then carried through every descendant with complete rerun gates; 19 focused discovery/compiled-identity checks pass with 83 assertions.
+
+The first PR52 type gate rejected an inferred fixture output generic. The fixture now declares its broad tool output type; effect assertions are unchanged. A complete clean gate passes afterward. Early PR57 focused checks filtered its compiled-Node fixture until artifacts existed; the coordinator's complete focused rerun includes it (42 passed, 178 assertions), and every publication gate includes every file. The coordinator keeps the lazy metadata reader and combines all original testing histories when resolving parent propagation. The functional source is frozen before this report-only receipt.
+
+Independent activation/discovery peer checks pass 28 tests / 95 assertions. Storage/continuity/session ownership peer checks pass 89 tests / 322 assertions. Integrated runtime peer checks pass 22 tests / 90 assertions, including compiled public-Node behavior. Final integration peer checks pass 39 tests / 255 assertions; exact current-head GitHub checks are recorded in the owner handoff and PR descriptions. Every original head and all seven updated parent edges remain ancestors. No force push or PR merge into master occurs.
+
+| PR | Incoming head | Final functional publication head |
+|---|---|---|
+| #52 | `634914c0` | `fa0e301b5c1d2fcdebf59a412266e97e9e0b9cd6` |
+| #53 | `a939f457` | `1c6162d7fb6243de993f57f1ca41e578429548b1` |
+| #54 | `827be897` | `c15a0fd69b945a6a24d7fc2ccca8481b846c3c49` |
+| #55 | `87a35120` | `088fbcef6305fc227162291d122c9c27a3b17ca0` |
+| #56 | `fa87169c` | `39619d23f092ec0be3b22b2c0920a7cd2f5fd044` |
+| #57 | `bfee8c12` | `8af26bb123a4e3d76ac9f95084d76b4ed02de0f8` |
+| #58 | `1f055954` | `40729fd0c5ee1d46753dd6131057e8c576e1d1cb` |
+| #59 | `b2e44595` | `1a9ac75b095d696c631c577b35bc09574f2b22fb` |
+
+Controlled filesystem boundaries, mock providers, temporary adapters and real Node/Bun/SQLite fixtures establish the specified effects. They do not certify arbitrary hostile filesystem scheduling, physical power-loss recovery or longitudinal model success. Cancellation refuses queued work before execution; an already-running trusted callback retains host-owned cancellation behavior. A catalog page bound cannot bound time spent inside a host callback. Explicit approved package roots stay deliberate host authority. Public versions, consumer pins and installed hosts remain unchanged. All eight PRs stay open in dependency order.
+
+### Read next
+
+- [Exact testing log](testing-log.md)
+- [Composed skill runtime](../04-extending/skill-runtime.md)
+- [Bounded catalog](../04-extending/skill-catalog.md)
+- [Private skill continuity](../04-extending/skill-continuity.md)
