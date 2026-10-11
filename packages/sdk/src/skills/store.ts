@@ -123,7 +123,9 @@ abstract class ObservableSkillStore implements SkillWritableStore {
   protected committed(event: SkillMutationEvent): void {
     for (const listener of this.listeners) {
       try {
-        listener({ ...event });
+        // A callback typed void can still be async in JavaScript/TypeScript.
+        // Contain rejected observers as well as synchronous exceptions.
+        void Promise.resolve(listener({ ...event })).catch(() => {});
       } catch {
         /* A committed write is not undone by an observer. */
       }

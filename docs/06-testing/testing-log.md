@@ -1,3 +1,9 @@
+## 2026-10-11 — PR54 review: asynchronous store observer containment
+
+**Scope:** committed store listeners. A callback typed void may return a rejected promise; the old synchronous try/catch lets Node terminate after a successful mutation. Store notification now contains promise rejections and synchronous exceptions.
+
+**Checks:** `tests/skills/storeObserverSafety.test.ts` launches packaged Node with `--unhandled-rejections=strict`, rejects an async listener and verifies the host survives with the committed tree readable. Original PR54 fails this regression. The unchanged final source is covered by configured `review54-source-final`: **5,828 pass / 19 existing skips / zero fail**, 24,194 assertions, all 557 discovered files. Final lint/boundary passes. No observer failure can reverse the accepted write; no live host or notification side effect was exercised.
+
 ## 2026-10-11 — PR54 review: proposal tree ownership
 
 **Scope:** review approval/revoke. Matching SKILL.md text does not prove a proposal owns an existing complete tree. Approval retries now require the proposal's already-recorded full revision and matching body. An unrelated same-body tree is refused, so later revoke cannot delete its resources.
