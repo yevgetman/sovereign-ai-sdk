@@ -281,6 +281,14 @@ export { expandSkillPrompt, expandSkillText, loadSkills } from './skills/loader.
 // `SkillRoot` is LoadSkillsOptions.extraRoots' element type;
 // `SkillClassification` is SkillRoot.classify's return type (Task 2.9).
 export type { LoadSkillsOptions, SkillClassification, SkillRoot } from './skills/loader.js';
+export { discoverSkills, DEFAULT_SKILL_DISCOVERY_LIMITS } from './skills/discovery.js';
+export type {
+  DiscoveredSkillFile,
+  SkillDiscoveryDecision,
+  SkillDiscoveryLimits,
+  SkillDiscoveryOptions,
+  SkillDiscoveryResult,
+} from './skills/discovery.js';
 export { buildSkillCommands } from './skills/commands.js';
 export type {
   Skill,

@@ -102,6 +102,7 @@ import type {
   DelegateInput,
   DelegateResult,
   DelegationLifecycleEvent,
+  DiscoveredSkillFile,
   EffectiveModelLimits,
   EstimateRequestBudget,
   HookCommandSpec,
@@ -189,6 +190,10 @@ import type {
   Settings,
   Skill,
   SkillClassification,
+  SkillDiscoveryDecision,
+  SkillDiscoveryLimits,
+  SkillDiscoveryOptions,
+  SkillDiscoveryResult,
   SkillExpansionOptions,
   SkillGuardDecision,
   SkillGuardFinding,
@@ -259,6 +264,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'ContextManagementError',
   'ContextOverflowError',
   'DEFAULT_CONDUCT_REFUSAL',
+  'DEFAULT_SKILL_DISCOVERY_LIMITS',
   'LaneSemaphores',
   'MODEL_CATALOG_VERSION',
   'PRICE_TABLE',
@@ -297,6 +303,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'createTurnLogRecorder',
   'createUsageAccumulator',
   'defaultMaxTurns',
+  'discoverSkills',
   'dropsFor',
   'estimateCostUsd',
   'estimateUsageCost',
@@ -460,6 +467,11 @@ type TypeSurfaceWitness = {
   learningSink?: LearningSink;
   llmProvider?: LLMProvider;
   loadSkillsOptions?: LoadSkillsOptions;
+  discoveredSkillFile?: DiscoveredSkillFile;
+  skillDiscoveryDecision?: SkillDiscoveryDecision;
+  skillDiscoveryLimits?: SkillDiscoveryLimits;
+  skillDiscoveryOptions?: SkillDiscoveryOptions;
+  skillDiscoveryResult?: SkillDiscoveryResult;
   loadSubscriptionOpts?: LoadSubscriptionOpts;
   loopDetectionInfo?: LoopDetectionInfo;
   mcpCallResult?: McpCallResult;

@@ -2,23 +2,22 @@
 // directories, parses markdown frontmatter, and lazily expands skill bodies
 // when a slash command or SkillTool invokes one.
 
-import { existsSync } from 'node:fs';
-import { readFile, readdir, realpath } from 'node:fs/promises';
-import { basename, dirname, extname, join, relative, sep } from 'node:path';
+import { constants } from 'node:fs';
+import { open, realpath, stat } from 'node:fs/promises';
+import { basename, dirname } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { shellCommand } from '../util/platform.js';
 import { spawnProc } from '../util/spawn.js';
+import {
+  DEFAULT_SKILL_DISCOVERY_LIMITS,
+  type SkillClassification,
+  type SkillDiscoveryOptions,
+  discoverSkills,
+} from './discovery.js';
 import { splitCommaList, splitFrontmatter } from './frontmatter.js';
-import { formatGuardBlockMessage, guardSkillLoad } from './guard.js';
-import type {
-  Skill,
-  SkillExpansionOptions,
-  SkillHarnessMetadata,
-  SkillRegistry,
-  SkillSource,
-  SkillTrustTier,
-} from './types.js';
+import { type SkillGuardResourceBudget, formatGuardBlockMessage, guardSkillLoad } from './guard.js';
+import type { Skill, SkillExpansionOptions, SkillHarnessMetadata, SkillRegistry } from './types.js';
 import { validateWhenToUse } from './whenToUse.js';
 
 const MetadataHarnessSchema = z
@@ -169,98 +168,57 @@ function substituteEnvCommand(command: string, env: SkillEnv): string {
   );
 }
 
-export type LoadSkillsOptions = {
-  harnessHome: string;
-  cwd: string;
-  /** When set, scans bundle-relative skill roots; absent in generic-agent mode. */
-  bundleRoot?: string;
-  /** Extra skill roots spliced in AFTER project+user, BEFORE bundle roots —
-   *  precedence `project > user > extraRoots > bundle`. T4/compose passes the
-   *  plugin SkillRoots here. Because dedupe is first-wins by name, an extraRoot
-   *  skill can override a bundle skill but can NEVER shadow a user/project skill
-   *  of the same name (the H2 no-shadow property). */
-  extraRoots?: SkillRoot[];
-  warn?: (message: string) => void;
-};
-
-/** The (source, trustTier) pair a skill root stamps on its skills. Exported
- *  (Task 2.9) because the public `SkillRoot.classify` signature references it —
- *  every type reachable from the SDK barrel surface must be nameable. */
-export type SkillClassification = {
-  source: SkillSource;
-  trustTier: SkillTrustTier;
-};
-
-export type SkillRoot = SkillClassification & {
-  path: string;
-  classify?: (file: string) => SkillClassification;
-  /** Plugin install dir for a `source:'plugin'` root. Propagated onto every
-   *  Skill loaded from this root so the body can resolve `${CLAUDE_PLUGIN_ROOT}`.
-   *  Absent for non-plugin roots — the substitution falls back to ''. */
-  pluginRoot?: string;
-};
+export type { SkillClassification, SkillRoot } from './discovery.js';
+export type LoadSkillsOptions = SkillDiscoveryOptions;
 
 export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry> {
-  const roots: SkillRoot[] = [
-    {
-      source: 'project',
-      trustTier: 'trusted',
-      path: join(opts.cwd, '.harness', 'skills'),
-    },
-    {
-      source: 'user',
-      trustTier: 'trusted',
-      path: join(opts.harnessHome, 'skills'),
-      classify: (file) => classifyUserSkill(file, join(opts.harnessHome, 'skills')),
-    },
-    // Plugin (and any caller-supplied) roots rank below user/project but above
-    // bundle. First-wins-by-name dedupe makes this the H2 no-shadow boundary.
-    ...(opts.extraRoots ?? []),
-  ];
-  if (opts.bundleRoot !== undefined) {
-    roots.push(
-      { source: 'bundle', trustTier: 'builtin', path: join(opts.bundleRoot, 'skills') },
-      {
-        source: 'bundle',
-        trustTier: 'trusted',
-        path: join(opts.bundleRoot, 'harness', 'skills-trusted'),
-      },
-      {
-        source: 'community',
-        trustTier: 'community',
-        path: join(opts.bundleRoot, 'skills-community'),
-      },
-    );
-  }
-
-  const seenRealpaths = new Set<string>();
+  const discovery = await discoverSkills(opts);
   const byName = new Map<string, Skill>();
   const skills: Skill[] = [];
-
-  for (const root of roots) {
-    for (const file of await listMarkdownFiles(root.path)) {
-      let rp: string;
-      try {
-        rp = await realpath(file);
-      } catch (err) {
-        opts.warn?.(`skill skipped (${file}): ${errorMessage(err)}`);
-        continue;
-      }
-      if (seenRealpaths.has(rp)) continue;
-      seenRealpaths.add(rp);
-
-      const classification = root.classify?.(file) ?? root;
-      const loaded = await loadSkillFile(file, rp, classification, opts.warn, root.pluginRoot);
-      if (!loaded) continue;
-      if (byName.has(loaded.name)) {
-        opts.warn?.(`skill skipped (${file}): duplicate skill name '${loaded.name}'`);
-        continue;
-      }
-      byName.set(loaded.name, loaded);
-      skills.push(loaded);
+  const readBudget: SkillGuardResourceBudget = {
+    bytesRemaining: discovery.limits.maxTotalBytes,
+    entriesRemaining: Math.max(0, discovery.limits.maxEntries - discovery.entriesVisited),
+    fileBytesLimit: discovery.limits.maxFileBytes,
+    depthLimit: discovery.limits.maxDepth,
+  };
+  for (const candidate of discovery.candidates) {
+    const budget = Math.min(discovery.limits.maxFileBytes, readBudget.bytesRemaining);
+    const loaded = await loadSkillFile(
+      candidate.path,
+      candidate.realpath,
+      candidate.classification,
+      opts.warn,
+      candidate.root.pluginRoot,
+      budget,
+      readBudget,
+    );
+    const decision = {
+      path: candidate.path,
+      realpath: candidate.realpath,
+      root: candidate.root.path,
+      source: candidate.classification.source,
+      trustTier: candidate.classification.trustTier,
+    };
+    if (!loaded) {
+      opts.onDiscoveryDecision?.({
+        ...decision,
+        code: 'load-rejected',
+        message: 'skill validation, guard or read limit rejected the file',
+      });
+      continue;
     }
+    if (byName.has(loaded.name)) {
+      opts.warn?.(`skill skipped (${candidate.path}): duplicate skill name '${loaded.name}'`);
+      opts.onDiscoveryDecision?.({
+        ...decision,
+        code: 'duplicate-name',
+        message: `duplicate skill name '${loaded.name}'`,
+      });
+      continue;
+    }
+    byName.set(loaded.name, loaded);
+    skills.push(loaded);
   }
-
   skills.sort((a, b) => a.name.localeCompare(b.name));
   return { skills, byName };
 }
@@ -360,12 +318,24 @@ async function loadSkillFile(
   classification: SkillClassification,
   warn?: (message: string) => void,
   pluginRoot?: string,
+  maxBytes = DEFAULT_SKILL_DISCOVERY_LIMITS.maxFileBytes,
+  resourceBudget?: SkillGuardResourceBudget,
 ): Promise<Skill | null> {
   try {
-    const raw = await readFile(path, 'utf8');
+    const budget = resourceBudget ?? {
+      bytesRemaining: DEFAULT_SKILL_DISCOVERY_LIMITS.maxTotalBytes,
+      entriesRemaining: DEFAULT_SKILL_DISCOVERY_LIMITS.maxEntries,
+      fileBytesLimit: maxBytes,
+      depthLimit: DEFAULT_SKILL_DISCOVERY_LIMITS.maxDepth,
+    };
+    const raw = await readBoundedSkillFile(path, rp, maxBytes, (bytes) => {
+      budget.bytesRemaining -= bytes;
+    });
     const guard = await guardSkillLoad({
-      path,
+      path: rp,
       raw,
+      resourceBudget: budget,
+      ...(basename(path).toLowerCase() === 'skill.md' ? { resourceRoot: dirname(rp) } : {}),
       trustTier: classification.trustTier,
     });
     if (guard.action === 'block') {
@@ -407,17 +377,6 @@ async function loadSkillFile(
   }
 }
 
-function classifyUserSkill(file: string, root: string): SkillClassification {
-  const firstSegment = relative(root, file).split(sep)[0];
-  if (firstSegment === 'agent-created') {
-    return { source: 'agent-created', trustTier: 'agent-created' };
-  }
-  if (firstSegment === 'trusted' || firstSegment === basename(file)) {
-    return { source: 'user', trustTier: 'trusted' };
-  }
-  return { source: 'community', trustTier: 'community' };
-}
-
 function normalizeHarnessMetadata(
   raw: z.infer<typeof MetadataHarnessSchema>,
 ): SkillHarnessMetadata {
@@ -437,31 +396,40 @@ function parseMarkdownFrontmatter(raw: string): { frontmatter: unknown; body: st
   return { frontmatter: parseYaml(frontmatter), body };
 }
 
-async function listMarkdownFiles(root: string): Promise<string[]> {
-  if (!existsSync(root)) return [];
-  const out: string[] = [];
-  await walk(root, out);
-  return out.sort();
-}
-
-async function walk(dir: string, out: string[]): Promise<void> {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const directorySkill = entries.find(
-    (entry) => entry.isFile() && entry.name.toLowerCase() === 'skill.md',
-  );
-  if (directorySkill) {
-    out.push(join(dir, directorySkill.name));
-    return;
-  }
-  for (const entry of entries) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await walk(path, out);
-      continue;
+async function readBoundedSkillFile(
+  path: string,
+  rp: string,
+  maxBytes: number,
+  onRead?: (bytes: number) => void,
+): Promise<string> {
+  if (maxBytes <= 0) throw new Error('skill discovery read budget exhausted');
+  if ((await realpath(path)) !== rp || (await realpath(rp)) !== rp)
+    throw new Error('skill real path changed before reading');
+  const handle = await open(rp, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const info = await handle.stat();
+    if (!info.isFile()) throw new Error('skill content must be a regular file');
+    if (info.size > maxBytes) throw new Error('skill file exceeds the bounded read limit');
+    const buffer = Buffer.alloc(maxBytes + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null);
+      if (bytesRead === 0) break;
+      length += bytesRead;
     }
-    if (entry.isFile() && extname(entry.name).toLowerCase() === '.md') {
-      out.push(path);
-    }
+    onRead?.(Math.min(length, maxBytes));
+    if (length > maxBytes) throw new Error('skill file exceeds the bounded read limit');
+    const current = await stat(rp);
+    if (
+      (await realpath(path)) !== rp ||
+      (await realpath(rp)) !== rp ||
+      current.dev !== info.dev ||
+      current.ino !== info.ino
+    )
+      throw new Error('skill real path or file identity changed while reading');
+    return buffer.subarray(0, length).toString('utf8');
+  } finally {
+    await handle.close();
   }
 }
 

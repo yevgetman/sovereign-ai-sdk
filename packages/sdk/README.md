@@ -159,8 +159,11 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
 - **MCP** — `buildMcpClientPool`, the `McpClientPoolFactory` port, and the
   server-config types (stdio / SSE / HTTP).
 - **Hooks** — `buildHookRunner` plus the hook event/config/consent types.
-- **Skills & slash commands** — `loadSkills`, `expandSkillPrompt`,
-  `buildSkillCommands`.
+- **Skills & slash commands** — `loadSkills`, `discoverSkills`, `expandSkillPrompt`,
+  `buildSkillCommands`. Discovery supports bounded native and portable project roots,
+  ancestor boundaries, managed directory/file links, explicit external link approval
+  and structured diagnostics. This optional filesystem API does not change the
+  no-disk `createAgent` default.
 - **Persistence & ports** — `createInMemorySessionStore` / the `SessionStore`
   port, the `TranscriptStore` port (+ no-op impl), and the injected port types
   for memory, recall, and observation (`MemoryRuntime`, `RecallResult`,
