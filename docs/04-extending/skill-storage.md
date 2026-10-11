@@ -89,6 +89,10 @@ The adapter retains the previous tree until publication. A journal records each
 replacement or delete. The next store operation recovers an interrupted change:
 an unpublished replacement restores its backup; an already published replacement
 keeps the new tree; a delete without its committed marker restores the backup.
+Before moving the previous tree, the worker checks the complete staged revision.
+After publication, it checks the published tree and stage directory identity
+before issuing a receipt. A changed uncommitted stage rolls back without an event.
+Recovery leaves an unrelated replacement directory and the backup for inspection.
 
 Destination directories and resources cannot be symlinks. Resource names reject
 absolute paths, parent segments and platform separators. A short-lived Node/Bun
