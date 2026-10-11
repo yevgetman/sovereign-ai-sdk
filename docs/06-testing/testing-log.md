@@ -8334,3 +8334,15 @@ Lint, type checking, strict SDK build and all discovered tests passed: 5703 pass
 No new independent finding above Low. Propagated the reviewed catalog metadata correction from PR #37.
 
 Lint, type checking, strict SDK build and all discovered tests passed: 5684 passed, 19 existing skips, zero failures, 23482 assertions across 540 files. The global compile fixture ran under a lock; the existing footer theme fixture ran in an isolated process after the sorted full run exposed shared theme state. All test files remained covered. No live inference or learning soak performed.
+
+
+## 2026-10-11 — Transactional skill store review follow-up (#47)
+
+Independent review found that extension-limited resource guarding and the store's per-file allowance differed from discovery. All regular resources now use the same text guard and the shared discovery file cap before publication. Both memory and filesystem fixtures confirm that a rejected script or oversized sidecar preserves the full accepted revision and emits no commit event. Strict SDK build and 22 focused store checks pass (96 assertions), including the packaged Node worker. The initial focused attempt required a local SDK build for its Node fixture; the corrected run includes every test. The complete combined batch receives the final full gate.
+## 2026-10-11 — Skill activation review corrections, issue #44
+
+Independent review of the combined foundations at `1d82acb5` confirmed that environment interpolation inside author double quotes could execute shell syntax embedded in a legal directory name. Quote-aware substitution now preserves exact data in ordinary bare/single/double quoted words. Nested expansions, ANSI-C/localized quotes and here-documents with placeholders refuse before approval. Actual activation fixtures cover quotes, newlines, dollar/backtick substitution payloads and backslash-bearing session data, without injected file effects.
+
+The same pass found that plugin command-only workflows lost their descriptor between `/commands` and `/turns`. The host now preserves a private command descriptor and resolves canonical command precedence before shared activation. HTTP transport fixtures verify plugin-only activation, a collision with a project skill, read-only provider schemas, inert plugin shell and refusal to shadow built-in `/help`. These descriptors remain outside the model catalog.
+
+Initial targeted failures were a fixture missing the plugin manifest description and a literal-backslash directory rejected by Bun realpath on macOS. Fixtures were corrected without reducing the effect assertions; backslash data is exercised through the session identifier. Lint and boundary checks, root type checking and the strict SDK build pass. The complete focused loader/activation/plugin/permission/orchestrator run passes 444 tests, zero failures, 1125 assertions across 16 files. The parent integration pass owns the final full-source gate before PR publication. No live provider requests, release or installed-runtime changes.

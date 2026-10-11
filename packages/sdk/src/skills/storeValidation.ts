@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { parse as parseYaml } from 'yaml';
+import { DEFAULT_SKILL_DISCOVERY_LIMITS } from './discovery.js';
 import { splitFrontmatter } from './frontmatter.js';
 import { formatGuardBlockMessage, guardSkillText } from './guard.js';
 import { SkillFrontmatterSchema } from './loader.js';
@@ -42,12 +43,14 @@ export function validateSkillStoreEntry(entry: SkillStoreWireEntry, tier: SkillT
     if (!Number.isInteger(file.mode) || file.mode < 0 || file.mode > 0o777)
       throw new Error('invalid skill file mode');
     const data = Buffer.from(file.data, 'base64');
+    if (data.byteLength > DEFAULT_SKILL_DISCOVERY_LIMITS.maxFileBytes)
+      throw new Error('skill resource exceeds discovery file byte limit');
     bytes += data.byteLength;
     if (bytes > SKILL_STORE_LIMITS.bytes) throw new Error('skill tree exceeds byte limit');
-    if (path.endsWith('.md') || path.endsWith('.txt')) {
-      const guard = guardSkillText(data.toString('utf8'), tier);
-      if (guard.action !== 'allow') throw new Error(formatGuardBlockMessage(guard));
-    }
+    // Discovery guards every regular sidecar, regardless of extension. Reject
+    // the same tree before publication so a later refresh cannot discard it.
+    const guard = guardSkillText(data.toString('utf8'), tier);
+    if (guard.action !== 'allow') throw new Error(formatGuardBlockMessage(guard));
   }
   if (Object.keys(entry.directoryModes).length > SKILL_STORE_LIMITS.files)
     throw new Error('skill tree exceeds directory limit');

@@ -132,6 +132,47 @@ for (const adapter of ['memory', 'filesystem'] as const) {
       expect(await store.read('note')).toBeUndefined();
       expect(events.map((event) => event.action)).toEqual(['create', 'edit', 'delete']);
     });
+    test('unsafe script sidecars reject before publication and preserve the accepted tree', async () => {
+      const events: SkillMutationEvent[] = [];
+      store.subscribe((event) => events.push(event));
+      const accepted = await store.mutate({
+        action: 'create',
+        name: 'note',
+        content: content(),
+        files: new Map([['scripts/run.sh', { data: Buffer.from('echo SAFE'), mode: 0o750 }]]),
+      });
+      if (!accepted.entry) throw new Error('missing fixture entry');
+      await expect(
+        store.mutate({
+          action: 'edit',
+          name: 'note',
+          content: content('Replacement'),
+          expectedRevision: accepted.entry.revision,
+          files: new Map([['scripts/run.sh', { data: Buffer.from('rm -rf /'), mode: 0o750 }]]),
+        }),
+      ).rejects.toThrow('[BLOCKED:');
+      const retained = await store.read('note');
+      expect(retained?.revision).toBe(accepted.entry.revision);
+      expect(retained?.content).toBe(accepted.entry.content);
+      expect(Buffer.from(retained?.files.get('scripts/run.sh')?.data ?? []).toString()).toBe(
+        'echo SAFE',
+      );
+      expect(events).toHaveLength(1);
+    });
+    test('oversized individual resources refuse before replacing a readable revision', async () => {
+      const accepted = await store.mutate({ action: 'create', name: 'note', content: content() });
+      if (!accepted.entry) throw new Error('missing fixture entry');
+      await expect(
+        store.mutate({
+          action: 'edit',
+          name: 'note',
+          content: content(),
+          expectedRevision: accepted.entry.revision,
+          files: new Map([['data.bin', { data: Buffer.alloc(1024 * 1024 + 1), mode: 0o600 }]]),
+        }),
+      ).rejects.toThrow('discovery file byte limit');
+      expect((await store.read('note'))?.revision).toBe(accepted.entry.revision);
+    });
     test('two accepted edits cannot silently overwrite the same revision', async () => {
       const first = await store.mutate({ action: 'create', name: 'note', content: content() });
       if (!first.entry) throw new Error('missing initial entry');
