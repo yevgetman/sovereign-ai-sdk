@@ -84,7 +84,7 @@ export type SkillDiscoveryResult = {
   entriesVisited: number;
 };
 
-type ScopedRoot = { root: SkillRoot; scope: string };
+type ScopedRoot = { root: SkillRoot; scope: string; explicitlyContributed?: boolean };
 
 /** Diagnostics are observers. Keep delivery synchronous, but contain both
  * synchronous exceptions and asynchronous rejection from host callbacks. */
@@ -236,7 +236,7 @@ export async function discoverSkills(opts: SkillDiscoveryOptions): Promise<Skill
   for (const root of (opts.extraRoots ?? []).slice(0, limits.maxRoots)) {
     // An extra root is an explicit host contribution; its canonical path is
     // approved, while links below it still must stay within that tree.
-    roots.push({ root, scope: root.pluginRoot ?? root.path });
+    roots.push({ root, scope: root.pluginRoot ?? root.path, explicitlyContributed: true });
   }
   if (opts.bundleRoot !== undefined) {
     const scope = resolve(opts.bundleRoot);
@@ -277,7 +277,7 @@ export async function discoverSkills(opts: SkillDiscoveryOptions): Promise<Skill
   let totalBytes = 0;
   let exhausted = false;
 
-  for (const [index, { root, scope }] of roots.entries()) {
+  for (const [index, { root, scope, explicitlyContributed }] of roots.entries()) {
     if (index >= limits.maxRoots) {
       emit({ code: 'limit', path: root.path, message: 'discovery reached maxRoots' });
       break;
@@ -312,6 +312,18 @@ export async function discoverSkills(opts: SkillDiscoveryOptions): Promise<Skill
         ...(rp === undefined ? {} : { realpath: rp }),
       });
     };
+    if (explicitlyContributed) {
+      try {
+        const canonicalRoot = await realpath(root.path);
+        // A host-selected package may itself be beneath an excluded ancestor.
+        // Approve its exact tree while retaining existing containment targets
+        // and exclusions for implicit descendants and private transactions.
+        if (targets.some((target) => isPathWithin(target, canonicalRoot)))
+          targets.push(canonicalRoot);
+      } catch {
+        // walk reports a missing/broken contributed root through inspect.
+      }
+    }
     const inspect = async (
       path: string,
     ): Promise<{ realpath: string; directory: boolean; size: number } | undefined> => {
