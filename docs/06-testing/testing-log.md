@@ -1,5 +1,11 @@
 # Testing log
 
+## 2026-10-11 — Compiled-worker CI prerequisite (#47)
+
+The initial GitHub runtime jobs for PR54–59 ran source tests without building the public SDK first. Both platform logs fail only the explicit packaged Node worker prerequisite; the public-package compatibility matrices already pass. Runtime CI now runs `bun run build` before the unchanged complete test suite. The correction originates in #47 and merges through each dependent PR without source changes. YAML ordering validation, lint/boundary, public package builds and all 22 store checks pass (96 assertions). Functional source remains identical to the 5,859-pass frozen gate. No assertions, test files or thresholds were removed.
+
+PR52's initial Mac run separately hit an existing first-shell 20-second timeout; its Linux and both package matrices pass. The unchanged failed Mac job is rerun. Current exact-head GitHub outcomes are recorded in the node handoff after the jobs finish. Initial integration/quoted framing fixtures and public provider limits remain documented below.
+
 ## 2026-10-11 — Final SDK/SOV skills hardening, issues #44–#51
 
 Implemented the dependency-ordered eight-issue batch in isolated branches. Final combined source covers permissioned activation, bounded portable discovery, transactional stores, invocation controls, live registry diagnostics, optional SDK composition, model-budgeted catalogs and private workflow continuity. Public versions remain SDK0.14.0 / SOV0.6.77; no release, consumer pin or installed host changed.
