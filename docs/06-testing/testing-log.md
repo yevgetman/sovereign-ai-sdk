@@ -8326,3 +8326,8 @@ Lint, type checking, strict SDK build and all discovered tests passed: 5703 pass
 No new independent finding above Low. Propagated the reviewed catalog metadata correction from PR #37.
 
 Lint, type checking, strict SDK build and all discovered tests passed: 5684 passed, 19 existing skips, zero failures, 23482 assertions across 540 files. The global compile fixture ran under a lock; the existing footer theme fixture ran in an isolated process after the sorted full run exposed shared theme state. All test files remained covered. No live inference or learning soak performed.
+
+
+## 2026-10-11 — Transactional skill store review follow-up (#47)
+
+Independent review found that extension-limited resource guarding and the store's per-file allowance differed from discovery. All regular resources now use the same text guard and the shared discovery file cap before publication. Both memory and filesystem fixtures confirm that a rejected script or oversized sidecar preserves the full accepted revision and emits no commit event. Strict SDK build and 22 focused store checks pass (96 assertions), including the packaged Node worker. The initial focused attempt required a local SDK build for its Node fixture; the corrected run includes every test. The complete combined batch receives the final full gate.
