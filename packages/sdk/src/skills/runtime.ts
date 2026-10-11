@@ -132,12 +132,12 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
     createSkillRegistryManager({ load, ...(options.initial ? { initial: options.initial } : {}) });
   const listeners = new Set<(event: SkillRuntimeEvent) => void>();
   const boundMutationHandlers = new WeakSet<NonNullable<ToolContext['onSkillMutation']>>();
-  const pendingMutations = new Map<string, number>();
+  const publishedMutations = new Set<string>();
   let disposed = false;
   const emit = (event: SkillRuntimeEvent) => {
     for (const listener of listeners) {
       try {
-        listener(event);
+        Promise.resolve(listener(event)).catch(() => undefined);
       } catch {
         /* Observers cannot roll back a commit. */
       }
@@ -177,24 +177,28 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
       event.previousRevision ?? null,
       event.path ?? null,
     ]);
+  const notifyMutation = (event: SkillMutationEvent) => {
+    const key = mutationKey(event);
+    // Register before notifying. Hosts can forward this event to onMutation()
+    // synchronously or asynchronously without re-emitting the same commit.
+    publishedMutations.delete(key);
+    publishedMutations.add(key);
+    if (publishedMutations.size > 64) {
+      const oldest = publishedMutations.values().next().value;
+      if (oldest !== undefined) publishedMutations.delete(oldest);
+    }
+    emit({ type: 'mutation', event: { ...event } });
+  };
   const publishMutation = (event: SkillMutationEvent) => {
     const key = mutationKey(event);
-    const pending = pendingMutations.get(key) ?? 0;
-    if (pending > 0) {
-      if (pending === 1) pendingMutations.delete(key);
-      else pendingMutations.set(key, pending - 1);
-    } else emit({ type: 'mutation', event: { ...event } });
+    if (!publishedMutations.has(key)) notifyMutation(event);
   };
   let stopStore: (() => void) | undefined;
   try {
     stopStore = options.store?.subscribe((event) => {
-      emit({ type: 'mutation', event: { ...event } });
-      const key = mutationKey(event);
-      pendingMutations.set(key, (pendingMutations.get(key) ?? 0) + 1);
-      if (pendingMutations.size > 64) {
-        const oldest = pendingMutations.keys().next().value;
-        if (oldest !== undefined) pendingMutations.delete(oldest);
-      }
+      // Independently observed commits must each notify, including recreation
+      // of an identical tree whose revision matches an earlier deleted skill.
+      notifyMutation(event);
     });
   } catch (error) {
     stopManager();
@@ -320,7 +324,7 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
       stopManager();
       stopStore?.();
       listeners.clear();
-      pendingMutations.clear();
+      publishedMutations.clear();
     },
   };
   return runtime;

@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { createAgent } from '@yevgetman/sov-sdk/agent/createAgent';
 import type { AgentDefinition } from '@yevgetman/sov-sdk/agents/types';
 import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
@@ -48,6 +50,86 @@ function providerWithCalls(calls: { name: string; input: unknown }[]): {
 }
 
 describe('optional composed skill runtime', () => {
+  test('independent recreation of the same tree still emits a new committed event', async () => {
+    const runtime = createSkillRuntime({ store: new InMemorySkillStore() });
+    const notifications: string[] = [];
+    runtime.subscribe((event) => {
+      if (event.type === 'mutation') notifications.push(event.event.action);
+    });
+    const create = { action: 'create', name: 'repeat', content: markdown('repeat') } as const;
+    const first = await runtime.mutate(create);
+    await runtime.mutate({
+      action: 'delete',
+      name: 'repeat',
+      expectedRevision: first.entry?.revision ?? '',
+    });
+    const second = await runtime.mutate(create);
+    expect(second.entry?.revision).toBe(first.entry?.revision);
+    expect(notifications).toEqual(['create', 'delete', 'create']);
+    runtime.dispose();
+  });
+  test.each([false, true])(
+    'a host can forward mutation events without recursion (async: %s)',
+    async (deferred) => {
+      const store = new InMemorySkillStore();
+      const runtime = createSkillRuntime({ store });
+      await runtime.discover();
+      const notifications: string[] = [];
+      const forwarded = new Set<string>();
+      const publications: Promise<void>[] = [];
+      runtime.subscribe((event) => {
+        if (event.type !== 'mutation') return;
+        notifications.push(event.event.name);
+        if (!forwarded.has(event.event.name)) {
+          forwarded.add(event.event.name);
+          publications.push(
+            deferred
+              ? Promise.resolve().then(() => runtime.onMutation({ ...event.event }))
+              : runtime.onMutation({ ...event.event }),
+          );
+        }
+      });
+      await store.mutate({ action: 'create', name: 'external', content: markdown('external') });
+      await Promise.all(publications);
+      await runtime.mutate({ action: 'create', name: 'owned', content: markdown('owned') });
+      await Promise.all(publications);
+      expect(notifications).toEqual(['external', 'owned']);
+      expect(runtime.snapshot().registry.byName.has('external')).toBe(true);
+      expect(runtime.snapshot().registry.byName.has('owned')).toBe(true);
+      runtime.dispose();
+    },
+  );
+  test('rejected async observers cannot terminate a public Node host after catalog or store publication', () => {
+    const script = `
+      import { createSkillRuntime, InMemorySkillStore } from '@yevgetman/sov-sdk';
+      const runtime = createSkillRuntime({ store: new InMemorySkillStore() });
+      const events = [];
+      runtime.subscribe(async (event) => {
+        events.push(event.type);
+        await Promise.resolve();
+        throw new Error('observer rejected');
+      });
+      await runtime.discover();
+      const committed = await runtime.mutate({
+        action: 'create', name: 'safe',
+        content: '---\\nname: safe\\ndescription: Safe workflow\\n---\\nKeep working.',
+      });
+      try { await runtime.inspect('missing'); } catch {}
+      await new Promise(resolve => setTimeout(resolve, 10));
+      if (!committed.entry || !runtime.snapshot().registry.byName.has('safe'))
+        throw new Error('publication lost');
+      runtime.dispose();
+      console.log(JSON.stringify(events));
+    `;
+    const result = spawnSync('node', ['--input-type=module', '-e', script], {
+      cwd: fileURLToPath(new URL('../../', import.meta.url)),
+      encoding: 'utf8',
+      timeout: 20_000,
+    });
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual(['refreshed', 'mutation', 'refreshed', 'error']);
+  });
   test('injected script resources are guarded and oversized bodies/resources fail before activation effects', async () => {
     const store = new InMemorySkillStore();
     await store.mutate({ action: 'create', name: 'injected', content: markdown('injected') });

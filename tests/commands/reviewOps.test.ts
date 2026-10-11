@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CommandContext } from '@yevgetman/sov-sdk/commands/types';
+import { InMemorySkillStore } from '@yevgetman/sov-sdk/skills/store';
 import chalk from 'chalk';
 import { REVIEW_OPS_COMMANDS } from '../../src/commands/reviewOps.js';
 import {
@@ -181,6 +182,53 @@ describe('/review approve', () => {
     expect(existsSync(join(home, 'skills', 'agent-created', 'my-skill', 'SKILL.md'))).toBe(true);
     expect(existsSync(join(home, 'review', 'pending', 'skills', '2026-05-06-eee'))).toBe(false);
     expect(existsSync(join(home, 'review', 'approved', 'skills', '2026-05-06-eee'))).toBe(true);
+  });
+
+  test('skill approval cannot adopt and later revoke an unrelated same-body tree', async () => {
+    const id = '2026-10-11-existing';
+    seedSkillProposal(home, id, 'my-skill');
+    const store = new InMemorySkillStore();
+    const existing = await store.mutate({
+      action: 'create',
+      name: 'my-skill',
+      content: readFileSync(join(home, 'review', 'pending', 'skills', id, 'SKILL.md'), 'utf8'),
+      files: new Map([['scripts/existing.txt', { data: Buffer.from('EXISTING_RESOURCE') }]]),
+    });
+    const out = strip(
+      await reviewCmd.call(`approve ${id}`, { ...makeCtx(home), skillStore: store }),
+    );
+    expect(out).toContain('already exists');
+    expect(existsSync(join(home, 'review', 'pending', 'skills', id))).toBe(true);
+    expect(existsSync(join(home, 'review', 'approved', 'skills', id))).toBe(false);
+    await reviewCmd.call(`revoke ${id}`, { ...makeCtx(home), skillStore: store });
+    expect((await store.read('my-skill'))?.revision).toBe(existing.entry?.revision);
+    expect((await store.read('my-skill'))?.files.has('scripts/existing.txt')).toBe(true);
+  });
+
+  test('skill approval retries only its recorded unchanged complete tree revision', async () => {
+    const id = '2026-10-11-recorded';
+    seedSkillProposal(home, id, 'my-skill');
+    const dir = join(home, 'review', 'pending', 'skills', id);
+    const store = new InMemorySkillStore();
+    const existing = await store.mutate({
+      action: 'create',
+      name: 'my-skill',
+      content: readFileSync(join(dir, 'SKILL.md'), 'utf8'),
+    });
+    const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8'));
+    writeFileSync(
+      join(dir, 'meta.json'),
+      JSON.stringify({ ...meta, appliedSkillRevision: existing.entry?.revision }),
+    );
+    const out = strip(
+      await reviewCmd.call(`approve ${id}`, { ...makeCtx(home), skillStore: store }),
+    );
+    expect(out.toLowerCase()).toContain('approved');
+    const revoked = strip(
+      await reviewCmd.call(`revoke ${id}`, { ...makeCtx(home), skillStore: store }),
+    );
+    expect(revoked.toLowerCase()).toContain('revoked');
+    expect(await store.read('my-skill')).toBeUndefined();
   });
 
   test('memory proposal: rejects when MEMORY.md cap would be exceeded', async () => {

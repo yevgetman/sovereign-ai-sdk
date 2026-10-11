@@ -75,8 +75,12 @@ catalog. Transaction stages, backups and locks do not appear in enumeration.
 
 ## Filesystem transactions and confinement
 
-The filesystem adapter stages complete validated trees under `.sov-skill-store`.
-Discovery excludes this directory. A process lock serializes cooperating writers.
+The filesystem adapter stores journals and locks in `.sov-skill-store`. Complete
+trees stage in private `.sov-skill-stage-<id>` leaf directories under the pinned
+root; backups use `.sov-skill-backup-<id>` leaves. Publication renames these leaves
+without traversing a mutable staging ancestor. Discovery excludes all three
+internal name families, including linked aliases. A process lock serializes
+cooperating writers.
 A written owner record is linked atomically to the lock, so an interrupted owner
 can be identified without an empty lock file. A live owner causes a clear busy
 error. Retry after its transaction completes.
@@ -95,11 +99,16 @@ cannot redirect the worker's writes. Store-internal state is private (0700).
 Each tree is bounded to 512 files, 512 directories, depth 16 and 16 MiB of data.
 Resource reads enforce those bounds before and during capture. Import accepts
 links to resources within the source tree by capturing their bytes. It refuses
-outside or dangling links and directory cycles. Installed aliases become ordinary
-files, so source locations are not retained as destination links.
+outside or dangling links and directory cycles. Capture checks canonical ancestor
+identities and compares the opened file with the current pathname after reading.
+An ancestor swapped away and restored during capture is refused. Installed aliases
+become ordinary files, so source locations are not retained as destination links.
 
-File data and transaction records are synced before publication. POSIX directory
-syncs preserve ordering. Windows supports process-interruption recovery; it does
+File data and modes, nested directories, new root ancestors and transaction
+records are synced before publication. POSIX directory syncs preserve ordering.
+Recovery also understands the previous nested transaction layout. A failed
+durability check before commit restores the accepted tree. Windows supports
+process-interruption recovery; it does
 not provide the same directory-fsync power-loss guarantee through Node.
 
 SDK Node/Bun hosts use the packaged worker module. A compiled host supplies an
@@ -111,8 +120,10 @@ helper before config, profiles or providers start. This helper needs no model ca
 Install, import, uninstall, `skill_manage`, skill auto-promotion and `/review`
 approval/revoke use this contract. Force replacement takes a current revision and
 commits conditionally, so a concurrent accepted edit cannot be silently lost.
-Review approvals record the applied tree revision. Revoke refuses a later changed
-revision. Pending review proposals remain separate queue artifacts.
+Review approvals record the applied tree revision. Approval retries require that
+recorded revision; an unrelated tree with the same SKILL.md body cannot be adopted.
+Revoke refuses a later changed revision. Pending review proposals remain separate
+queue artifacts.
 
 ## Read next
 

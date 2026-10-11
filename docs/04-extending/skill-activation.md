@@ -5,6 +5,9 @@ the raw body or reference text. It performs no argument substitution, inline
 shell execution or workflow activation. Reference paths are resolved to real
 filesystem paths and confined to the skill's real directory. A link to a file
 outside that directory is rejected.
+Reference reads use an opened regular-file handle and a one-megabyte byte limit.
+The tool rechecks canonical containment and file identity after reading, before
+it returns content. A replaced file or retargeted ancestor fails the read.
 
 ## One activation contract
 

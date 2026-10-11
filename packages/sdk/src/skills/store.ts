@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { constants, existsSync } from 'node:fs';
+import type { Stats } from 'node:fs';
 import { lstat, open, readdir, realpath, stat } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -82,6 +83,16 @@ function prepareEntry(change: SkillMutation, previous?: SkillStoreWireEntry): Sk
     ? Object.fromEntries(change.directoryModes)
     : structuredClone(previous?.directoryModes ?? { '': 0o700 });
   directoryModes[''] ??= previous?.directoryModes[''] ?? 0o700;
+  // Recursive mkdir creates these ancestors on disk. Include them in the
+  // accepted tree so the commit revision is the revision returned by read().
+  for (const path of Object.keys(directoryModes)) {
+    if (path) assertSkillStoreResource(path);
+    const parts = path.split('/');
+    for (let depth = 1; depth < parts.length; depth++) {
+      const directory = parts.slice(0, depth).join('/');
+      directoryModes[directory] ??= previous?.directoryModes[directory] ?? 0o700;
+    }
+  }
   for (const [path, file] of Object.entries(files)) {
     file.mode = previous?.files[path]?.mode ?? file.mode;
     const parts = path.split('/').slice(0, -1);
@@ -112,7 +123,9 @@ abstract class ObservableSkillStore implements SkillWritableStore {
   protected committed(event: SkillMutationEvent): void {
     for (const listener of this.listeners) {
       try {
-        listener({ ...event });
+        // A callback typed void can still be async in JavaScript/TypeScript.
+        // Contain rejected observers as well as synchronous exceptions.
+        void Promise.resolve(listener({ ...event })).catch(() => {});
       } catch {
         /* A committed write is not undone by an observer. */
       }
@@ -331,6 +344,55 @@ export class FilesystemSkillStore extends ObservableSkillStore {
   }
 }
 
+type SourceDirectoryIdentities = Map<string, Pick<Stats, 'dev' | 'ino'>>;
+
+async function checkSourceDirectoryChain(
+  path: string,
+  identities: SourceDirectoryIdentities,
+): Promise<void> {
+  const parents: string[] = [];
+  for (let parent = dirname(path); ; parent = dirname(parent)) {
+    parents.push(parent);
+    if (parent === dirname(parent)) break;
+  }
+  for (const parent of parents.reverse()) {
+    const info = await lstat(parent);
+    const expected = identities.get(parent);
+    if (
+      !info.isDirectory() ||
+      (expected && (info.dev !== expected.dev || info.ino !== expected.ino))
+    )
+      throw new Error('skill source changed during capture');
+    identities.set(parent, { dev: info.dev, ino: info.ino });
+  }
+}
+
+function sameSourceFile(left: Stats, right: Stats): boolean {
+  return (
+    left.isFile() &&
+    right.isFile() &&
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.mode === right.mode &&
+    left.size === right.size &&
+    left.mtimeMs === right.mtimeMs &&
+    left.ctimeMs === right.ctimeMs
+  );
+}
+
+async function checkCapturedSourceFile(
+  path: string,
+  file: FileHandle,
+  captured: Stats,
+  identities: SourceDirectoryIdentities,
+): Promise<void> {
+  // Realpath equality alone misses an ancestor swapped away for the read and
+  // restored afterward. Compare the captured handle to the current leaf too.
+  if (!sameSourceFile(captured, await file.stat()) || !sameSourceFile(captured, await lstat(path)))
+    throw new Error('skill source changed during capture');
+  await checkSourceDirectoryChain(path, identities);
+}
+
 /** Capture imported resources without copying links into the writable store.
  *  In-tree aliases retain their bytes and modes; outside/dangling links fail. */
 export async function readSkillSourceTree(source: string): Promise<{
@@ -338,6 +400,8 @@ export async function readSkillSourceTree(source: string): Promise<{
   directoryModes: ReadonlyMap<string, number>;
 }> {
   const root = await realpath(source);
+  const identities: SourceDirectoryIdentities = new Map();
+  await checkSourceDirectoryChain(root, identities);
   const files = new Map<string, SkillStoreFile>();
   const directories = new Map<string, number>();
   let bytes = 0;
@@ -346,6 +410,7 @@ export async function readSkillSourceTree(source: string): Promise<{
     const rel = relative(root, actual);
     if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`))
       throw new Error(`symlink escapes skill source: ${resource}`);
+    await checkSourceDirectoryChain(actual, identities);
     const info = await lstat(actual);
     if (info.isDirectory()) {
       if (ancestors.has(actual)) throw new Error('skill source contains a directory symlink cycle');
@@ -353,21 +418,39 @@ export async function readSkillSourceTree(source: string): Promise<{
         throw new Error('skill tree exceeds depth limit');
       if (directories.size >= SKILL_STORE_LIMITS.files)
         throw new Error('skill source exceeds directory limit');
+      const expected = identities.get(actual);
+      if (expected && (info.dev !== expected.dev || info.ino !== expected.ino))
+        throw new Error('skill source changed during capture');
+      identities.set(actual, { dev: info.dev, ino: info.ino });
       directories.set(resource, info.mode & 0o777);
       const next = new Set([...ancestors, actual]);
       for (const child of (await readdir(actual)).sort())
         await visit(join(actual, child), resource ? `${resource}/${child}` : child, next);
+      const current = await lstat(actual);
+      if (
+        !current.isDirectory() ||
+        current.dev !== info.dev ||
+        current.ino !== info.ino ||
+        current.mode !== info.mode ||
+        current.mtimeMs !== info.mtimeMs ||
+        current.ctimeMs !== info.ctimeMs
+      )
+        throw new Error('skill source changed during capture');
+      await checkSourceDirectoryChain(actual, identities);
       return;
     }
     assertSkillStoreResource(resource);
     if (!info.isFile()) throw new Error('skill source contains a special file');
     if (files.size >= SKILL_STORE_LIMITS.files || info.size + bytes > SKILL_STORE_LIMITS.bytes)
       throw new Error('skill source exceeds file or byte limit');
-    const file = await open(actual, constants.O_RDONLY | constants.O_NOFOLLOW);
+    await checkSourceDirectoryChain(actual, identities);
+    const file = await open(
+      actual,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
     try {
       const opened = await file.stat();
-      if (opened.dev !== info.dev || opened.ino !== info.ino)
-        throw new Error('skill source changed during capture');
+      if (!sameSourceFile(info, opened)) throw new Error('skill source changed during capture');
       const data = await readSourceData(file, SKILL_STORE_LIMITS.bytes - bytes);
       bytes += data.length;
       if (
@@ -376,12 +459,14 @@ export async function readSkillSourceTree(source: string): Promise<{
         (await realpath(path)) !== actual
       )
         throw new Error('skill source changed during capture or exceeded limits');
+      await checkCapturedSourceFile(actual, file, opened, identities);
       files.set(resource, { data: new Uint8Array(data), mode: info.mode & 0o777 });
     } finally {
       await file.close();
     }
   };
   await visit(root, '', new Set());
+  if ((await realpath(source)) !== root) throw new Error('skill source changed during capture');
   return { files, directoryModes: directories };
 }
 
@@ -401,16 +486,22 @@ async function readSourceData(file: FileHandle, maximum: number): Promise<Buffer
 
 export async function readSkillSourceFile(path: string): Promise<Uint8Array> {
   const selected = await realpath(path);
+  const identities: SourceDirectoryIdentities = new Map();
+  await checkSourceDirectoryChain(selected, identities);
   const info = await lstat(selected);
   if (!info.isFile() || info.size > SKILL_STORE_LIMITS.bytes)
     throw new Error('invalid skill source file or byte limit exceeded');
-  const file = await open(selected, constants.O_RDONLY | constants.O_NOFOLLOW);
+  await checkSourceDirectoryChain(selected, identities);
+  const file = await open(
+    selected,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
   try {
     const opened = await file.stat();
-    if (opened.dev !== info.dev || opened.ino !== info.ino)
-      throw new Error('skill source changed during capture');
+    if (!sameSourceFile(info, opened)) throw new Error('skill source changed during capture');
     const data = await readSourceData(file, SKILL_STORE_LIMITS.bytes);
     if ((await realpath(path)) !== selected) throw new Error('skill source changed during capture');
+    await checkCapturedSourceFile(selected, file, opened, identities);
     return new Uint8Array(data);
   } finally {
     await file.close();

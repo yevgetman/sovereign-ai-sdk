@@ -59,6 +59,20 @@ export function validateSkillStoreEntry(entry: SkillStoreWireEntry, tier: SkillT
     if (!Number.isInteger(mode) || (mode ?? -1) < 0 || (mode ?? 0o1000) > 0o777)
       throw new Error('invalid skill directory mode');
     if (path) assertSkillStoreResource(path);
+    if (path in entry.files) throw new Error('skill resource cannot be both file and directory');
+    const parts = path.split('/');
+    for (let depth = 1; depth < parts.length; depth++) {
+      if (!(parts.slice(0, depth).join('/') in entry.directoryModes))
+        throw new Error('skill directory parent is missing from the complete tree');
+    }
+  }
+  if (!('' in entry.directoryModes)) throw new Error('skill root directory mode is required');
+  for (const path of paths) {
+    const parts = path.split('/');
+    for (let depth = 1; depth < parts.length; depth++) {
+      if (!(parts.slice(0, depth).join('/') in entry.directoryModes))
+        throw new Error('skill resource parent is missing from the complete tree');
+    }
   }
   const skill = entry.files['SKILL.md'];
   if (!skill) throw new Error('skill tree must contain SKILL.md');
