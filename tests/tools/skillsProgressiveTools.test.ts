@@ -181,7 +181,9 @@ Body in \${HARNESS_SKILL_DIR}
       );
 
       expect(created.data.ok).toBe(true);
-      expect(ctx.skills?.byName.has('agent-note')).toBe(true);
+      expect(created.data.revision).toBeDefined();
+      expect(created.data.event?.action).toBe('create');
+      expect(ctx.skills?.byName.has('agent-note')).toBe(false); // In-flight snapshot remains stable.
       expect(rejected.data.ok).toBe(false);
       expect(rejected.data.message).toContain('[BLOCKED: exfiltration pattern]');
     });

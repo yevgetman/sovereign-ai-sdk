@@ -2289,6 +2289,8 @@ Skills are markdown files. They can live in:
 
 Install/import/uninstall touch only the user skills root (`$HARNESS_HOME/skills/`). Bundle skills, agent-created skills (nested under `agent-created/`), and default-bundle skills are not affected. After install/import the cache auto-refreshes so the new skill is immediately available in the autocomplete popup and as a `/<name>` dispatch.
 
+Install/import and agent skill writers validate before replacing a complete package. Failed validation leaves the prior package intact. Force replacement commits against a current tree revision. `skill_manage` edit/delete require `expectedRevision`; an embedded host must supply an explicit store or home. Scripts, references and matching destination file modes survive edits. See [explicit skill storage](../04-extending/skill-storage.md) for concurrency, committed events and recovery rules.
+
 #### Porting a Claude Code skill
 
 Claude Code skills are markdown + YAML frontmatter just like harness skills, but they use the hyphenated `allowed-tools` key (the harness uses camelCase `allowedTools`) and often write it as a single comma-separated string (`allowed-tools: Read, Grep, Bash(git status:*)`) rather than a YAML list. Two paths make them load and run faithfully:

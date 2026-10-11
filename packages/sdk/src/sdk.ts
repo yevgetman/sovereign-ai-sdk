@@ -282,6 +282,19 @@ export { expandSkillPrompt, expandSkillText, loadSkills } from './skills/loader.
 // `SkillClassification` is SkillRoot.classify's return type (Task 2.9).
 export type { LoadSkillsOptions, SkillClassification, SkillRoot } from './skills/loader.js';
 export { buildSkillCommands } from './skills/commands.js';
+export { FilesystemSkillStore, InMemorySkillStore } from './skills/store.js';
+export type {
+  FilesystemSkillStoreOptions,
+  SkillStoreOptions,
+  SkillMutation,
+  SkillMutationEvent,
+  SkillMutationResult,
+  SkillStoredEntry,
+  SkillStoreFile,
+  SkillStoreListOptions,
+  SkillStoreListPage,
+  SkillWritableStore,
+} from './skills/store.js';
 export type {
   Skill,
   SkillExpansionOptions,

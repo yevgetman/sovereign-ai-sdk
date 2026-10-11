@@ -34,6 +34,7 @@ import { importSkill, installSkill, uninstallSkill } from '@yevgetman/sov-sdk/sk
 import { filterSkillRegistry, inferActiveToolsets } from '@yevgetman/sov-sdk/skills/visibility';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { createSovSkillStore } from '../../skills/store.js';
 import type { AppVariables } from '../auth.js';
 import type { Runtime } from '../runtime.js';
 import { isValidSessionId } from '../sessionId.js';
@@ -107,6 +108,7 @@ export function skillsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
     const installArgs: Parameters<typeof installSkill>[0] = {
       source: parsed.data.source,
       userSkillsRoot,
+      store: createSovSkillStore(userSkillsRoot, 'community'),
     };
     if (parsed.data.force !== undefined) {
       installArgs.force = parsed.data.force;
@@ -150,6 +152,7 @@ export function skillsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
     const importArgs: Parameters<typeof importSkill>[0] = {
       source: parsed.data.source,
       userSkillsRoot,
+      store: createSovSkillStore(userSkillsRoot, 'community'),
     };
     if (parsed.data.force !== undefined) {
       importArgs.force = parsed.data.force;
@@ -183,7 +186,11 @@ export function skillsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
     }
     const name = c.req.param('name');
     const userSkillsRoot = join(runtime.harnessHome, 'skills');
-    const result = await uninstallSkill({ name, userSkillsRoot });
+    const result = await uninstallSkill({
+      name,
+      userSkillsRoot,
+      store: createSovSkillStore(userSkillsRoot, 'community'),
+    });
     if (!result.ok) {
       return c.json({ error: result.reason }, 400);
     }

@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { hashSource, newProposalId } from '../review/idHelpers.js';
 import { ensureReviewDirs, skillProposalDir } from '../review/paths.js';
 import { type SkillProposalMeta, serializeSkillProposalMeta } from '../review/proposal.js';
+import { createSovSkillStore } from '../skills/store.js';
 
 const SkillProposeInputSchema = z.object({
   skillName: z
@@ -104,14 +105,17 @@ export const SkillProposeTool = buildTool<SkillProposeInput, SkillProposeOutput>
 
     if (ctx.reviewAutoPromoteSkills === true) {
       const skillDir = join(home, 'skills', 'agent-created', input.skillName);
-      mkdirSync(skillDir, { recursive: true });
-      const skillPath = join(skillDir, 'SKILL.md');
-      // Phase 13.3 follow-up (C2) — embed full provenance comment so audit
-      // tooling can trace auto-promoted skills back to their origin.
-      writeFileSync(
-        skillPath,
-        buildSkillFileWithProvenance(input, proposalId, sourceHash, ctx.sessionId),
-      );
+      const store = ctx.skillStore ?? createSovSkillStore(join(home, 'skills', 'agent-created'));
+      const committed = await store.mutate({
+        action: 'create',
+        name: input.skillName,
+        content: buildSkillFileWithProvenance(input, proposalId, sourceHash, ctx.sessionId),
+      });
+      try {
+        await ctx.onSkillMutation?.(committed.event);
+      } catch {
+        /* Durable success; host handles refresh diagnostics. */
+      }
       return {
         data: { proposalId, path: skillDir },
         observation: {

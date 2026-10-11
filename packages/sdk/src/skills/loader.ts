@@ -445,6 +445,8 @@ async function listMarkdownFiles(root: string): Promise<string[]> {
 }
 
 async function walk(dir: string, out: string[]): Promise<void> {
+  // Transaction stages/backups are private storage state, never discoverable skills.
+  if (basename(dir) === '.sov-skill-store') return;
   const entries = await readdir(dir, { withFileTypes: true });
   const directorySkill = entries.find(
     (entry) => entry.isFile() && entry.name.toLowerCase() === 'skill.md',
