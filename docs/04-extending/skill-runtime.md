@@ -140,8 +140,10 @@ removes its subscriptions but leaves the injected composition open for its host.
 
 `subscribe()` reports refreshed generations, committed store mutations and
 operation errors. These are local host events. Errors can contain private paths;
-use the catalog's remote-safe diagnostics for client responses. Observer errors
-cannot roll back a published catalog or committed write.
+use the catalog's remote-safe diagnostics for client responses. Observer throws
+and rejected promises cannot roll back publication or terminate the host. A host
+may forward an external mutation event to `onMutation()` from its observer to
+refresh the catalog; that commit emits one mutation notification.
 
 A committed write can succeed while the catalog refresh fails. The mutation
 result still describes that committed write. The host receives an error event
