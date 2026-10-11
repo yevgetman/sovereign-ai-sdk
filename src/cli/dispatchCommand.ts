@@ -32,15 +32,13 @@ import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { resolveProvider } from '@yevgetman/sov-sdk/providers/resolver';
 import type { ApiMode } from '@yevgetman/sov-sdk/providers/types';
 import { buildSkillCommands } from '@yevgetman/sov-sdk/skills/commands';
-import {
-  createSkillRegistryManager,
-  getSkillRegistry,
-  loadSkillRegistry,
-} from '@yevgetman/sov-sdk/skills/registry';
+import { getSkillRegistry } from '@yevgetman/sov-sdk/skills/registry';
+import { createSkillRuntime } from '@yevgetman/sov-sdk/skills/runtime';
 import { filterSkillRegistry, inferActiveToolsets } from '@yevgetman/sov-sdk/skills/visibility';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { COMMANDS, buildCommandRegistry, dispatchSlashCommand } from '../commands/registry.js';
 import { loadPluginRuntime } from '../plugins/runtime.js';
+import { createSovSkillStore } from '../skills/store.js';
 import { assembleToolPool } from '../tool/registry.js';
 import { buildDispatchConfirm } from './dispatchConfirm.js';
 
@@ -79,28 +77,29 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
     warn: (msg) => process.stderr.write(`[plugins] ${msg}\n`),
   });
 
-  const skillRegistryManager = createSkillRegistryManager({
-    load: () =>
-      loadSkillRegistry({
-        ...(userSettings.skills?.discovery?.projectRoot !== undefined
-          ? { projectRoot: userSettings.skills.discovery.projectRoot }
-          : {}),
-        ...(userSettings.skills?.discovery?.allowedLinkRoots !== undefined
-          ? { allowedLinkRoots: userSettings.skills.discovery.allowedLinkRoots }
-          : {}),
-        harnessHome,
-        cwd: process.cwd(),
-        ...(bundle ? { bundleRoot: bundle.root } : {}),
-        extraRoots: pluginContributions.skillRoots,
-      }),
+  const skillRuntime = createSkillRuntime({
+    discovery: {
+      ...(userSettings.skills?.discovery?.projectRoot !== undefined
+        ? { projectRoot: userSettings.skills.discovery.projectRoot }
+        : {}),
+      ...(userSettings.skills?.discovery?.allowedLinkRoots !== undefined
+        ? { allowedLinkRoots: userSettings.skills.discovery.allowedLinkRoots }
+        : {}),
+      harnessHome,
+      cwd: process.cwd(),
+      ...(bundle ? { bundleRoot: bundle.root } : {}),
+      extraRoots: pluginContributions.skillRoots,
+    },
+    store: createSovSkillStore(`${harnessHome}/skills/agent-created`),
   });
-  await skillRegistryManager.refresh();
+  const skillRegistryManager = skillRuntime.manager;
+  await skillRuntime.discover();
   const loadedSkills = skillRegistryManager.snapshot().registry;
 
   const resolved = resolveProvider(userSettings.defaultProvider, userSettings.defaultModel);
   const sessionId = `dispatch-${process.pid}-${Date.now()}`;
 
-  const toolContext: ToolContext = {
+  const toolContext: ToolContext = skillRuntime.bindContext({
     cwd: process.cwd(),
     ...(bundle ? { bundleRoot: bundle.root } : {}),
     sessionId,
@@ -111,7 +110,7 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
     // Task 2.3 — WebSearchTool reads its config off `ctx.webSearch` (no ambient
     // readConfig); thread the slice from this surface's already-loaded settings.
     ...(userSettings.webSearch !== undefined ? { webSearch: userSettings.webSearch } : {}),
-  };
+  });
   const toolPool: Tool<unknown, unknown>[] = assembleToolPool(toolContext);
   const systemPrompt: SystemSegment[] = buildSystemSegments({
     ...(bundle ? { bundle } : {}),
@@ -252,9 +251,9 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
     activeToolNames,
     activeToolsets,
     skillRegistryManager,
-    onSkillMutation: async () => {
-      await skillRegistryManager.refresh();
-    },
+    skillRuntime,
+    ...(skillRuntime.store ? { skillStore: skillRuntime.store } : {}),
+    onSkillMutation: (event) => skillRuntime.onMutation(event),
     getLastAssistantText: () => null,
     getMessages: () => [],
     getPermissions: () => ({
@@ -327,6 +326,7 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
     return 0;
   } finally {
     rl.close();
+    skillRuntime.dispose();
     await memoryManager.shutdown();
   }
 }

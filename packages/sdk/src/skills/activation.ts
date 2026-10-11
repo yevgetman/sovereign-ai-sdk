@@ -85,6 +85,8 @@ export async function activateSkill(
     allowedResourceRoots?: readonly string[];
     /** Trusted host resolver; permits in-memory catalogs without disk reads. */
     resolveSkill?: (skill: Skill) => Promise<Skill>;
+    /** Trusted host directory for virtual stores; no implicit filesystem projection. */
+    executionDirectory?: string;
   },
 ): Promise<{ prompt: string; activation: SkillActivationEnvelope }> {
   const current = await (opts.resolveSkill ?? reloadSkill)(skill);
@@ -126,7 +128,7 @@ export async function activateSkill(
     (opts.allowedResourceRoots ?? [dirname(current.realpath)]).map((root) => realpath(root)),
   );
   const prompt = await expandSkillPrompt(
-    { ...current, dir: dirname(current.realpath) },
+    { ...current, dir: opts.executionDirectory ?? dirname(current.realpath) },
     {
       cwd: opts.toolContext.cwd,
       sessionId: opts.toolContext.sessionId,

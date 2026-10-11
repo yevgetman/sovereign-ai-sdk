@@ -62,11 +62,9 @@ import { LaneSemaphores, type LaneSemaphoresOpts } from '@yevgetman/sov-sdk/runt
 import { PathLockManager } from '@yevgetman/sov-sdk/runtime/pathLock';
 import { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
 import type { LoadSkillsOptions } from '@yevgetman/sov-sdk/skills/loader';
-import {
-  type SkillRegistryManager,
-  createSkillRegistryManager,
-  loadSkillRegistry,
-} from '@yevgetman/sov-sdk/skills/registry';
+import type { SkillRegistryManager } from '@yevgetman/sov-sdk/skills/registry';
+import { type SkillRuntime, createSkillRuntime } from '@yevgetman/sov-sdk/skills/runtime';
+import type { SkillWritableStore } from '@yevgetman/sov-sdk/skills/storeTypes';
 import type { SkillRegistry } from '@yevgetman/sov-sdk/skills/types';
 import {
   type AssayUsageRecorder,
@@ -104,6 +102,7 @@ import { TASK_ROUTING_ROLES } from '../router/lanes.js';
 import { runLanePreflight } from '../router/preflight.js';
 import { RouterProvider } from '../router/provider.js';
 import { runSubprocessExecutor } from '../runtime/subprocessExecutor.js';
+import { createSovSkillStore } from '../skills/store.js';
 import { TaskManager } from '../tasks/manager.js';
 import { TaskStore } from '../tasks/store.js';
 import { assembleToolPool } from '../tool/registry.js';
@@ -290,6 +289,8 @@ export type RuntimeOptions = {
     LoadSkillsOptions,
     'projectRoot' | 'allowedLinkRoots' | 'discoveryLimits' | 'onDiscoveryDecision'
   >;
+  /** Explicit host-owned composition for programmatic SOV profiles. */
+  skillRuntime?: SkillRuntime;
   /** Provider name override; mock for tests, otherwise resolveProvider's
    *  precedence applies (settings → env). */
   provider?: string;
@@ -611,6 +612,10 @@ export type Runtime = {
    * from their effective pool. In-flight activation records remain pinned. */
   skills: SkillRegistry;
   skillRegistryManager: SkillRegistryManager;
+  skillRuntime: SkillRuntime;
+  /** Default community installs use a separate explicit profile store. An
+   * injected composition supplies this port; absence means read-only. */
+  skillInstallationStore?: SkillWritableStore;
   /** Plugin System v1 (T8) — every DISCOVERED plugin under
    *  `<harnessHome>/plugins/*` with its load verdict (active / needs-consent /
    *  tampered / disabled). The disclosure surface (HarnessInfo, `/plugins`)
@@ -757,6 +762,9 @@ export function resolveLaneSemaphoresOpts(userSettings: Settings): LaneSemaphore
 }
 
 export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
+  if (opts.skillRuntime && opts.skillDiscovery) {
+    throw new Error('skillRuntime and skillDiscovery are mutually exclusive');
+  }
   // M8 T2 — capture and replay are mutually exclusive; they target the
   // same provider/tool wrapping seam and combining them would silently
   // produce a capture of a replay (i.e. the recorded fixture). Validate
@@ -815,9 +823,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
 
   // One profile-owned manager publishes complete generations. Contexts retain
   // the manager reference, so new calls observe successful mutations.
-  const skillRegistryManager = createSkillRegistryManager({
-    load: () =>
-      loadSkillRegistry({
+  const skillRuntime =
+    opts.skillRuntime ??
+    createSkillRuntime({
+      discovery: {
         ...(settings.skills?.discovery?.projectRoot !== undefined
           ? { projectRoot: settings.skills.discovery.projectRoot }
           : {}),
@@ -830,11 +839,13 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
         ...(bundle ? { bundleRoot: bundle.root } : {}),
         extraRoots: pluginContributions.skillRoots,
         warn: (msg) => process.stderr.write(`[skills] ${msg}\n`),
-      }),
-  });
-  await skillRegistryManager.refresh();
+      },
+      store: createSovSkillStore(join(harnessHome, 'skills', 'agent-created')),
+    });
+  const skillRegistryManager = skillRuntime.manager;
+  await skillRuntime.discover();
   let skills = skillRegistryManager.snapshot().registry;
-  skillRegistryManager.subscribe(() => {
+  const stopSkillCatalog = skillRegistryManager.subscribe(() => {
     skills = skillRegistryManager.snapshot().registry;
   });
 
@@ -2096,6 +2107,12 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       return skills;
     },
     skillRegistryManager,
+    skillRuntime,
+    ...(opts.skillRuntime
+      ? skillRuntime.store
+        ? { skillInstallationStore: skillRuntime.store }
+        : {}
+      : { skillInstallationStore: createSovSkillStore(join(harnessHome, 'skills'), 'community') }),
     plugins,
     pluginCommands: pluginContributions.commands,
     learningLayer,
@@ -2134,6 +2151,8 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       for (const liveId of liveSessionIds) {
         await disposeSession(liveId);
       }
+      stopSkillCatalog();
+      if (!opts.skillRuntime) skillRuntime.dispose();
       // 2026-06-15 — drain any transcript writers for sessions that persisted
       // messages WITHOUT a sessionContext (e.g. the stateless OpenAI API route),
       // which the disposeSession walk above never reached.

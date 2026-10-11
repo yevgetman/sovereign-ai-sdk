@@ -70,6 +70,8 @@ export type ToolContext = {
   memoryManager?: import('../memory/provider.js').MemoryRuntime;
   subdirectoryHintState?: import('../context/subdirectoryHints.js').SubdirectoryHintState;
   skills?: import('../skills/types.js').SkillRegistry;
+  /** Optional host-owned skill composition; never auto-discovers an ambient root. */
+  skillRuntime?: import('../skills/runtime.js').SkillRuntime;
   /** Fresh per-turn state. Model activation can only narrow this pool/gate. */
   skillActivation?: import('../skills/activation.js').SkillActivationState;
   /** Explicit writable skill store. Embedded contexts never choose a machine home. */

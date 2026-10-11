@@ -6,7 +6,7 @@
 // Excluded from SUBAGENT_EXCLUDED_TOOLS so review forks cannot recurse.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { stringify as stringifyYaml } from 'yaml';
@@ -104,8 +104,11 @@ export const SkillProposeTool = buildTool<SkillProposeInput, SkillProposeOutput>
     const sourceHash = hashSource(input.sourceExcerpt, input.sourceMessageRange);
 
     if (ctx.reviewAutoPromoteSkills === true) {
-      const skillDir = join(home, 'skills', 'agent-created', input.skillName);
-      const store = ctx.skillStore ?? createSovSkillStore(join(home, 'skills', 'agent-created'));
+      const store = ctx.skillRuntime
+        ? ctx.skillRuntime.store
+        : (ctx.skillStore ?? createSovSkillStore(join(home, 'skills', 'agent-created')));
+      if (!store)
+        throw new Error('skill_propose: the selected skill runtime has no writable store');
       const committed = await store.mutate({
         action: 'create',
         name: input.skillName,
@@ -117,7 +120,10 @@ export const SkillProposeTool = buildTool<SkillProposeInput, SkillProposeOutput>
         /* Durable success; host handles refresh diagnostics. */
       }
       return {
-        data: { proposalId, path: skillDir },
+        data: {
+          proposalId,
+          path: committed.entry?.path ? dirname(committed.entry.path) : `skill:${input.skillName}`,
+        },
         observation: {
           status: 'success',
           summary: `auto-promoted skill ${input.skillName}`,

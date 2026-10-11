@@ -63,6 +63,11 @@ export type BuildToolContextInput = {
   /** The UNFILTERED skill registry; filtered here against the effective pool. */
   skills: SkillRegistry;
   skillRegistryManager?: import('../skills/registry.js').SkillRegistryManager | undefined;
+  skillRuntime?: import('../skills/runtime.js').SkillRuntime | undefined;
+  skillStore?: import('../skills/storeTypes.js').SkillWritableStore | undefined;
+  onSkillMutation?:
+    | ((event: import('../skills/storeTypes.js').SkillMutationEvent) => void | Promise<void>)
+    | undefined;
   canUseTool: CanUseTool;
   subdirectoryHintState: SubdirectoryHintState;
   memoryManager: MemoryRuntime;
@@ -90,7 +95,7 @@ export function buildToolContext(input: BuildToolContextInput): ToolContext {
   const activeToolNames = input.effectivePool.map((t) => t.name);
   const activeToolsets = inferActiveToolsets(activeToolNames);
   const filteredSkills = filterSkillRegistry(input.skills, activeToolsets, activeToolNames);
-  return {
+  const context: ToolContext = {
     cwd: input.cwd,
     sessionId: input.sessionId,
     harnessHome: input.harnessHome,
@@ -107,6 +112,8 @@ export function buildToolContext(input: BuildToolContextInput): ToolContext {
     ...(input.skillRegistryManager !== undefined
       ? { skillRegistryManager: input.skillRegistryManager }
       : {}),
+    ...(input.skillStore !== undefined ? { skillStore: input.skillStore } : {}),
+    ...(input.onSkillMutation !== undefined ? { onSkillMutation: input.onSkillMutation } : {}),
     activeToolNames,
     activeToolsets,
     ...(input.webSearch !== undefined ? { webSearch: input.webSearch } : {}),
@@ -120,4 +127,5 @@ export function buildToolContext(input: BuildToolContextInput): ToolContext {
       ? { delegationLifecycleRecorder: input.delegationLifecycleRecorder }
       : {}),
   };
+  return input.skillRuntime ? input.skillRuntime.bindContext(context) : context;
 }

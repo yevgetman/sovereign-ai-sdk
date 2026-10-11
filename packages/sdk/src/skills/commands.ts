@@ -23,7 +23,13 @@ function skillToCommand(skill: Skill): PromptCommand {
       ...(skill.revision ? { revision: skill.revision } : {}),
     },
     getPromptForCommand: async (args, ctx): Promise<ContentBlock[]> => {
-      const current = await reloadSkill(skill);
+      // Plugin prompt commands have their own inspected descriptors. Resolve
+      // through the composition only when it owns this command's origin.
+      const registered = ctx.skillRuntime?.snapshot().registry.byName.get(skill.name);
+      const current =
+        ctx.skillRuntime && (skill.source !== 'plugin' || registered?.path === skill.path)
+          ? (await ctx.skillRuntime.inspect(skill.name)).skill
+          : await reloadSkill(skill);
       assertSkillInvocable(current, 'user');
       return [
         {

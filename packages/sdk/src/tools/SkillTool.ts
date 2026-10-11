@@ -42,12 +42,15 @@ export const SkillTool = buildTool<Input, Output>({
     }
     if (!ctx.skillActivation)
       throw new Error('SkillTool requires a turn-owned skill activation state');
-    const { prompt, activation } = await activateSkill(skill, {
+    const options = {
       source: 'model',
       args: input.args ?? '',
       toolContext: ctx,
       state: ctx.skillActivation,
-    });
+    } as const;
+    const { prompt, activation } = ctx.skillRuntime
+      ? await ctx.skillRuntime.activate(skill.name, options)
+      : await activateSkill(skill, options);
     return {
       data: {
         skill: activation.name,

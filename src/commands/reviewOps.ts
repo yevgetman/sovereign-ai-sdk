@@ -162,7 +162,10 @@ function applyMemoryApproval(home: string, raw: string): string | null {
 async function applySkillApproval(home: string, dir: string, ctx: CommandContext): Promise<void> {
   const metaPath = join(dir, 'meta.json');
   const meta = parseSkillProposalMeta(readFileSync(metaPath, 'utf-8'));
-  const store = ctx.skillStore ?? createSovSkillStore(join(home, 'skills', 'agent-created'));
+  const store = ctx.skillRuntime
+    ? ctx.skillRuntime.store
+    : (ctx.skillStore ?? createSovSkillStore(join(home, 'skills', 'agent-created')));
+  if (!store) throw new Error('this skill runtime has no writable store');
   const content = readFileSync(join(dir, 'SKILL.md'), 'utf-8');
   // Idempotent recovery if publication succeeded before queue bookkeeping.
   const current = await store.read(meta.skillName);
@@ -425,7 +428,10 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
 
     if (found.kind === 'skills') {
       const meta = parseSkillProposalMeta(readFileSync(join(found.path, 'meta.json'), 'utf-8'));
-      const store = ctx.skillStore ?? createSovSkillStore(join(home, 'skills', 'agent-created'));
+      const store = ctx.skillRuntime
+        ? ctx.skillRuntime.store
+        : (ctx.skillStore ?? createSovSkillStore(join(home, 'skills', 'agent-created')));
+      if (!store) return chalk.red('this skill runtime has no writable store');
       try {
         const current = await store.read(meta.skillName);
         if (current) {
