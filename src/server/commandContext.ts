@@ -421,6 +421,12 @@ export function buildServerCommandContext(
       };
     },
     skills: filteredSkills,
+    activeToolNames,
+    activeToolsets,
+    skillRegistryManager: runtime.skillRegistryManager,
+    onSkillMutation: async () => {
+      await runtime.skillRegistryManager.refresh();
+    },
     getLastAssistantText: (): string | null => {
       for (let i = messages.length - 1; i >= 0; i--) {
         const m = messages[i];

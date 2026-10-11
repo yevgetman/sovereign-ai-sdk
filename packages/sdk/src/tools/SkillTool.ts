@@ -1,3 +1,4 @@
+import { getSkillRegistry } from '../skills/registry.js';
 // SkillTool lets the model activate a markdown skill by name. It returns
 // the expanded skill body as a tool_result so the continuation turn can use
 // those instructions.
@@ -31,9 +32,12 @@ export const SkillTool = buildTool<Input, Output>({
   // Recheck guard against fresh content; shell separately uses the Bash gate.
   checkPermissions: async () => ({ behavior: 'allow' }),
   async call(input, ctx) {
-    const skill = ctx.skills?.byName.get(input.skill);
+    const skill = getSkillRegistry(ctx).byName.get(input.skill);
     if (!skill) {
-      const available = ctx.skills?.skills.map((s) => s.name).join(', ') || 'none';
+      const available =
+        getSkillRegistry(ctx)
+          .skills.map((s) => s.name)
+          .join(', ') || 'none';
       throw new Error(`unknown skill '${input.skill}'. Available skills: ${available}`);
     }
     if (!ctx.skillActivation)

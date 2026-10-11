@@ -209,6 +209,11 @@ import type {
   SkillMutationEvent,
   SkillMutationResult,
   SkillRegistry,
+  SkillRegistryDiagnostic,
+  SkillRegistryEvent,
+  SkillRegistryLoadResult,
+  SkillRegistryManager,
+  SkillRegistrySnapshot,
   SkillRoot,
   SkillSource,
   SkillStoreFile,
@@ -319,6 +324,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'createNoopTranscriptStore',
   'createOpenRouterModelSource',
   'createSkillActivationState',
+  'createSkillRegistryManager',
   'createSubscriptionModelSource',
   'createTurnLogRecorder',
   'createUsageAccumulator',
@@ -335,11 +341,14 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'findCapableModel',
   'findModel',
   'formatUsd',
+  'getSkillRegistry',
+  'getSkillRegistrySnapshot',
   'intersectCanUseTool',
   'intersectToolNames',
   'isRemoteMcpConfig',
   'isSkillInvocable',
   'isToolsetName',
+  'loadSkillRegistry',
   'loadSkills',
   'loadSubscriptionProvider',
   'normalizeDirectModel',
@@ -347,6 +356,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'normalizeSkillDescriptor',
   'parseSkillToolList',
   'query',
+  'remoteSkillDiagnostics',
   'renamesFor',
   'resolveModelAlias',
   'resolveProvider',
@@ -579,6 +589,11 @@ type TypeSurfaceWitness = {
   skillGuardLevel?: SkillGuardLevel;
   skillHarnessMetadata?: SkillHarnessMetadata;
   skillRegistry?: SkillRegistry;
+  skillRegistryManager?: SkillRegistryManager;
+  skillRegistrySnapshot?: SkillRegistrySnapshot;
+  skillRegistryLoadResult?: SkillRegistryLoadResult;
+  skillRegistryDiagnostic?: SkillRegistryDiagnostic;
+  skillRegistryEvent?: SkillRegistryEvent;
   skillRoot?: SkillRoot;
   skillSource?: SkillSource;
   skillTrustTier?: SkillTrustTier;

@@ -1806,6 +1806,14 @@ func TestApp_SlashSkillsReloadNoServerNoOps(t *testing.T) {
 func TestApp_SlashSkillsReloadWithServerFetchesSkills(t *testing.T) {
 	var requestCount int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/commands") {
+			if r.Method == http.MethodPost {
+				fmt.Fprint(w, `{"output":"catalog refreshed"}`)
+			} else {
+				fmt.Fprint(w, `{"commands":[]}`)
+			}
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/skills") {
 			atomic.AddInt32(&requestCount, 1)
 			fmt.Fprint(w, `{"skills":[{"name":"reloaded","description":"d","whenToUse":"w"}]}`)

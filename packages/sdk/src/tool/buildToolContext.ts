@@ -62,6 +62,7 @@ export type BuildToolContextInput = {
   effectivePool: Tool<any, any>[];
   /** The UNFILTERED skill registry; filtered here against the effective pool. */
   skills: SkillRegistry;
+  skillRegistryManager?: import('../skills/registry.js').SkillRegistryManager | undefined;
   canUseTool: CanUseTool;
   subdirectoryHintState: SubdirectoryHintState;
   memoryManager: MemoryRuntime;
@@ -103,6 +104,9 @@ export function buildToolContext(input: BuildToolContextInput): ToolContext {
     parentToolPool: input.effectivePool,
     canUseTool: input.canUseTool,
     skills: filteredSkills,
+    ...(input.skillRegistryManager !== undefined
+      ? { skillRegistryManager: input.skillRegistryManager }
+      : {}),
     activeToolNames,
     activeToolsets,
     ...(input.webSearch !== undefined ? { webSearch: input.webSearch } : {}),

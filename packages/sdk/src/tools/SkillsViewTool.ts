@@ -1,3 +1,4 @@
+import { getSkillRegistry } from '../skills/registry.js';
 // Progressive skill disclosure. Returns the full body for one visible skill,
 // or a specific reference file under that skill's directory.
 
@@ -34,9 +35,12 @@ export const SkillsViewTool = buildTool<Input, Output>({
   checkPermissions: async () => ({ behavior: 'allow' }),
   affectedPaths: (input) => (input.path ? [input.path] : []),
   async call(input, ctx) {
-    const skill = ctx.skills?.byName.get(input.name);
+    const skill = getSkillRegistry(ctx).byName.get(input.name);
     if (!skill) {
-      const available = ctx.skills?.skills.map((s) => s.name).join(', ') || 'none';
+      const available =
+        getSkillRegistry(ctx)
+          .skills.map((s) => s.name)
+          .join(', ') || 'none';
       throw new Error(`unknown skill '${input.name}'. Available skills: ${available}`);
     }
 

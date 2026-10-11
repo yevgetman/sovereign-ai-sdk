@@ -127,7 +127,7 @@ Preserve these invariants:
 Skills are markdown files loaded by `packages/sdk/src/skills/loader.ts`. Runtime-visible skill behavior is split across:
 
 - `packages/sdk/src/skills/discovery.ts` for shared portable roots, project boundaries, link confinement, limits and structured discovery decisions
-- `packages/sdk/src/skills/types.ts` for the registry shape
+- `packages/sdk/src/skills/types.ts` for skill values and `registry.ts` for live generations and diagnostics
 - `packages/sdk/src/skills/whenToUse.ts` for the trigger-rigor heuristic (Phase 9.6)
 - `packages/sdk/src/skills/visibility.ts` for active-tool and active-toolset gates
 - `packages/sdk/src/skills/guard.ts` for trust-tier scanning
@@ -148,6 +148,18 @@ Set `projectRoot` for a non-repository embedded project. It must contain `cwd` a
 A skill's native `allowedTools` narrows the current turn's tool pool and input-pattern gate through the shared `activateSkill` contract. This applies to user slash turns, command dispatch through the TUI/drive transport, and model `SkillTool` activation. Children inherit the narrowed pool and gate. The shared runtime tool pool remains unchanged; model-activated scopes expire at turn end. Empty native `allowedTools` keeps the existing host pool.
 
 `skill_view` is raw inspection and never executes inline shell. Dynamic context uses the ordinary scoped Bash permission and hook pipeline; a host denial remains effective. Command previews carry identity to activation rather than execute context early. See `docs/04-extending/skill-activation.md` for the SDK contract, resource confinement and migration requirements.
+
+### Publishing live skill views
+
+`createSkillRegistryManager({ load, initial? })` accepts a host-owned asynchronous loader. It has no implicit filesystem adapter. `loadSkillRegistry(options)` is the shared optional filesystem adapter; it collects discovery, validation, guard and descriptor decisions. `refresh()` serializes scans and publishes an entire generation only after loading succeeds. Failed scans leave the last valid generation available. Snapshots detach maps and values so a caller cannot mutate the canonical catalog or an earlier activation.
+
+Thread `skillRegistryManager` through `ToolContext`. `getSkillRegistrySnapshot(context)` returns the current generation and a view filtered by that call's active tools. `getSkillRegistry(context)` returns only the filtered registry. Read these helpers at call time; an object getter can become a stale value when contexts are spread. Subscribe to publication events for derived host views. Observer failures cannot undo a publication.
+
+Committed writer callbacks (`onSkillMutation`) must await catalog refresh before returning successful mutation output. SOV uses the same manager for tool, command and server views. The SDK does not turn on storage or discovery for a host that does not supply them. In-flight expansion stays pinned; future invocation resolves the newly committed generation.
+
+For approved managed links across repository boundaries, SOV accepts `RuntimeOptions.skillDiscovery` or the selected profile's `skills.discovery` settings. `allowedLinkRoots` grants discovery access only; it never changes source trust. No machine configuration or node file is inferred as approval.
+
+Local manager diagnostics can contain private paths and parser text. Use `remoteSkillDiagnostics(snapshot)` for remote clients: it strips paths and raw messages. Check principal/session ownership before obtaining the report. The local `sov skills doctor --json` is intended for operators; the server doctor route and slash command provide the redacted projection.
 
 ### Importing Claude Code skills
 

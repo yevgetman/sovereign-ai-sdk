@@ -30,7 +30,9 @@
 // response for no rendering benefit).
 
 import { join } from 'node:path';
+import { isSkillInvocable } from '@yevgetman/sov-sdk/skills/descriptor';
 import { importSkill, installSkill, uninstallSkill } from '@yevgetman/sov-sdk/skills/install';
+import { remoteSkillDiagnostics } from '@yevgetman/sov-sdk/skills/registry';
 import { filterSkillRegistry, inferActiveToolsets } from '@yevgetman/sov-sdk/skills/visibility';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -67,14 +69,27 @@ export function skillsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
     // `search`, `memory`, `skills`) that skill frontmatter gates against.
     const activeToolNames = runtime.toolPool.map((t) => t.name);
     const activeToolsets = inferActiveToolsets(activeToolNames);
-    const filtered = filterSkillRegistry(runtime.skills, activeToolsets, activeToolNames);
+    const snapshot = runtime.skillRegistryManager.snapshot();
+    const filtered = filterSkillRegistry(snapshot.registry, activeToolsets, activeToolNames);
     return c.json({
-      skills: filtered.skills.map((s) => ({
-        name: s.name,
-        whenToUse: s.whenToUse,
-        description: s.description,
-      })),
+      generation: snapshot.generation,
+      skills: filtered.skills
+        .filter((s) => isSkillInvocable(s, 'user'))
+        .map((s) => ({
+          name: s.name,
+          whenToUse: s.whenToUse,
+          description: s.description,
+        })),
     });
+  });
+
+  // Owner checks precede catalog access. This response contains no filesystem
+  // path, source body, guard pattern or raw loader message.
+  r.get('/sessions/:id/skills/doctor', (c) => {
+    const id = c.req.param('id');
+    if (!isValidSessionId(id)) return c.json({ error: 'invalid session id' }, 400);
+    if (loadOwnedSession(runtime, c, id) === null) return c.json({ error: 'not found' }, 404);
+    return c.json(remoteSkillDiagnostics(runtime.skillRegistryManager.snapshot()));
   });
 
   // M11.17 — POST /sessions/:id/skills/install
@@ -117,7 +132,8 @@ export function skillsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
     if (!result.ok) {
       return c.json({ error: result.reason }, 400);
     }
-    return c.json({ ok: true, name: result.name, installedAt: result.installedAt });
+    const catalog = await refreshAfterMutation(runtime);
+    return c.json({ ok: true, name: result.name, installedAt: result.installedAt, catalog });
   });
 
   // Feature A2 — POST /sessions/:id/skills/import
@@ -161,8 +177,10 @@ export function skillsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
     if (!result.ok) {
       return c.json({ error: result.reason }, 400);
     }
+    const catalog = await refreshAfterMutation(runtime);
     return c.json({
       ok: true,
+      catalog,
       name: result.name,
       installedAt: result.installedAt,
       converted: result.converted,
@@ -194,8 +212,24 @@ export function skillsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
     if (!result.ok) {
       return c.json({ error: result.reason }, 400);
     }
-    return c.json({ ok: true, name: result.name, removedFrom: result.removedFrom });
+    const catalog = await refreshAfterMutation(runtime);
+    return c.json({ ok: true, name: result.name, removedFrom: result.removedFrom, catalog });
   });
 
   return r;
+}
+
+async function refreshAfterMutation(runtime: Runtime) {
+  try {
+    const snapshot = await runtime.skillRegistryManager.refresh();
+    return { generation: snapshot.generation, refreshed: true };
+  } catch {
+    // The store already committed. Report catalog failure without misreporting
+    // rollback or leaking the loader's private error to a remote caller.
+    return {
+      generation: runtime.skillRegistryManager.snapshot().generation,
+      refreshed: false,
+      warning: 'skill committed; catalog refresh failed; retry skills doctor refresh',
+    };
+  }
 }

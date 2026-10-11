@@ -1019,7 +1019,8 @@ The gateway serves the existing native session routes. Auth (when a token is con
 | POST | `/sessions/:id/compact` | Bearer | 200 | Compact the session's history (manual microcompaction). |
 | GET | `/sessions/:id/commands` | Bearer | 200 | List available slash commands. |
 | POST | `/sessions/:id/commands` | Bearer | 200 | Dispatch a slash command. |
-| GET | `/sessions/:id/skills` | Bearer | 200 | List installed skills. |
+| GET | `/sessions/:id/skills` | Bearer | 200 | List manually invocable skills from the current catalog generation. |
+| GET | `/sessions/:id/skills/doctor` | Bearer | 200 | Return content-free discovery/compatibility reason codes for the owning session. No private paths or loader messages. |
 | POST | `/sessions/:id/skills/install` | Bearer | 200 | Install a skill (byte-faithful) into the session. |
 | POST | `/sessions/:id/skills/import` | Bearer | 200 | Import a skill, normalizing its frontmatter (Claude Code porting). Returns `{ ok, name, installedAt, converted, warnings }`. |
 
@@ -2280,9 +2281,17 @@ Skills are markdown files. They can live in:
 
 Discovery order is nearest project directory first, native `.harness/skills` before portable `.agents/skills` at each level, then user, explicit plugin/extra roots, and bundle roots. Duplicate names keep the first valid skill. A real file or directory linked into multiple roots loads once. Directory skills stop at `SKILL.md`, so reference files do not become separate skills.
 
-Links may target files inside their owning project, home, plugin or bundle scope. A managed project projection such as `.harness/skills/release -> ../../org-skill/release` works from the repository root and subfolders. External link targets require the SDK host to supply `allowedLinkRoots`; a link retains its root's trust classification. Discovery does not follow an unrelated parent catalog outside the nearest `.git` or `.kernel/node.yml` boundary. Without a project marker, only the current directory is eligible unless the host supplies `projectRoot`.
+Links may target files inside their owning project, home, plugin or bundle scope. A managed project projection such as `.harness/skills/release -> ../../org-skill/release` works from the repository root and subfolders. External link targets require the SDK host to supply `allowedLinkRoots`, the SOV host to supply `RuntimeOptions.skillDiscovery.allowedLinkRoots`, or the selected profile to set `skills.discovery.allowedLinkRoots`; a link retains its root's trust classification. Discovery does not follow an unrelated parent catalog outside the nearest `.git` or `.kernel/node.yml` boundary. Without a project marker, only the current directory is eligible unless the host supplies `projectRoot`.
 
 The shared SDK scanner bounds ancestors (64), roots (128), depth (16), directory entries (20,000), skill files (2,000), each file (1 MiB), and total loaded bytes (16 MiB). Hosts may set `discoveryLimits`. Files that exceed a limit, broken links, cycles and denied targets produce structured discovery decisions and warnings. Reads recheck the byte limit and canonical file identity, including when a file grows or a parent directory changes after scanning. Directory reference scans share the byte and entry budget and reject incomplete scans. Internal `.sov-skill-store` transactions, VCS directories, `node_modules` and `vendor` are excluded.
+
+### Live catalogs and diagnostics
+
+SOV publishes a complete catalog generation after successful install, import, create, edit, delete, uninstall or review promotion/revocation. New tool calls and command requests use the current generation. Skill and command GET envelopes carry the generation so clients can detect an intervening publication. The TUI refreshes both catalogs after writes and reload; `/skills reload` asks the server to rescan before fetching its views. An activation already in progress retains its expanded revision and turn permission scope. A failed mutation publishes nothing. A failed catalog refresh retains the previous generation and reports `refresh-failed`; a durable mutation is not misreported as rolled back.
+
+`sov skills doctor --json` runs a local scan without starting a provider. Its local report includes searched paths, precedence ranks, duplicate identities, link/limit/guard decisions and unsupported controls. Use `--harness-home <path>` for an explicit profile and `--allowed-link-roots <paths...>` to approve managed external targets for that scan. Treat local JSON as private diagnostic data.
+
+`/skills doctor [refresh] [--json]` and `GET /sessions/:id/skills/doctor` return content-free reason codes, source/trust classifications and generation counts. They omit paths, guard patterns, malformed YAML and raw loader messages. The native server checks bearer/principal session ownership before catalog access. `refresh` retries a scan after a manual file change; it does not execute a skill.
 
 ### Managing skills from the TUI (M11.17)
 
@@ -2302,8 +2311,8 @@ Install/import and agent skill writers validate before replacing a complete pack
 
 Claude Code skills are markdown + YAML frontmatter just like harness skills, but they use the hyphenated `allowed-tools` key (the harness uses camelCase `allowedTools`) and often write it as a single comma-separated string (`allowed-tools: Read, Grep, Bash(git status:*)`) rather than a YAML list. Two paths make them load and run faithfully:
 
-- **`/skills import <path>`** rewrites the frontmatter to canonical form on write: aliases `allowed-tools` → `allowedTools` (splitting a comma-string into a list), synthesizes a `whenToUse` from the `description` when one is absent, and drops Claude Code keys with no harness equivalent (`model`, `license`, `argument-hint`) — reporting each change. It validates the result against the loader schema before landing anything (a skill missing `description`, say, is refused rather than installed broken).
-- The **loader also accepts the hyphenated key directly**, so a Claude-Code `SKILL.md` dropped straight into `$HARNESS_HOME/skills/<name>/` (or installed byte-faithfully) still loads with its tool list populated — import is the way to get a clean, canonical, validated copy.
+- **`/skills import <path>`** rewrites the frontmatter to canonical form on write: normalizes portable tool lists, synthesizes a `whenToUse` from the `description` when absent, and preserves vendor fields such as `model`, `license` and `argument-hint`. Portable `allowed-tools` remains a pre-approval request. Native `allowedTools` restricts the turn. Unsupported execution controls are retained for inspection and refused at activation with a compatibility diagnostic. It validates the result against the loader schema before landing anything (a skill missing `description`, say, is refused rather than installed broken).
+- The **loader also accepts the hyphenated key directly**, so a Claude-Code `SKILL.md` dropped straight into `$HARNESS_HOME/skills/<name>/` (or installed byte-faithfully) still loads with portable policy preserved. Host permission checks remain in force. See `docs/04-extending/skill-compatibility.md` for invocation controls and supported argument aliases.
 
 **Claude Code `:`-glob caveat:** Claude Code writes Bash argument matchers as `Bash(git status:*)` (a `:` glob). The harness matcher uses a space plus `*`/`**` instead (`Bash(git status **)`). Import does **not** auto-translate these (the translation is lossy) — it keeps the entry verbatim and prints a `warning:` so you can adjust it by hand if you want it enforced. Most Claude Code skills list bare tool names (`Read`, `Grep`), where this delta does not apply (and the harness's `Read`/`Write`/`Edit` aliases for `FileRead`/`FileWrite`/`FileEdit` resolve automatically).
 

@@ -77,6 +77,7 @@ export function commandsRoute(runtime: Runtime): Hono<{ Variables: AppVariables 
       return c.json({ error: 'not found' }, 404);
     }
     return c.json({
+      generation: runtime.skillRegistryManager.snapshot().generation,
       commands: COMMANDS.map((cmd) => ({
         name: cmd.name,
         description: cmd.description,
