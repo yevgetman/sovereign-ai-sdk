@@ -1,3 +1,23 @@
+## 2026-10-11 — Fourth-review parent propagation to PR53
+
+Scope: carry reviewed parent `634914c0dff402d661fde2c4a3019d39223f026c` into PR53, preserving its original head and both testing histories. The owner requested dependency-aware review and fixes. No PR is merged into master.
+
+Commands: `bun install --frozen-lockfile --ignore-scripts`, `bun run build`, `bun run tui:build`, and the serialized full gate (`bun run lint`, `bun run typecheck`, strict SDK build, and all discovered `bun run test` files with global compiler/theme and timing/subprocess fixtures isolated). Result: 5,781 passed / 19 existing skips / zero failures; 24,005 assertions across 554 files. Every file ran. This validates the inherited source, not a public release or live host.
+
+## 2026-10-11 — PR53 parent propagation: isolate unchanged timing fixtures
+
+The first merged-source complete gate passed lint/boundary, types, strict SDK
+build, compiler and footer checks, but the remaining suite reported **5,745
+pass / 19 skips / 4 failures**. Three unchanged secret-redactor performance
+checks exceeded their existing 100ms ceiling (118ms, 200ms and 122ms). The
+unchanged first spawn stdout fixture timed out at 20 seconds. Neither the
+reviewed source nor parent correction edits these implementations or tests.
+`bun run test tests/permissions/secretRedactor.test.ts tests/util/spawn.test.ts`
+passes **54/0**, 133 assertions in isolation (143ms total). The complete gate
+reruns every discovered file with these timing/process fixtures isolated;
+assertions and time limits remain unchanged. The final complete result is
+recorded in the adjacent parent-propagation entry after it passes.
+
 ## 2026-10-11 — Fourth review: contain discovery diagnostic failures
 
 Confirmed a Medium defect in portable discovery diagnostics. A host `onDiscoveryDecision` or `warn` callback that throws can abort discovery or discard a valid skill; a rejected callback promise terminates public Node hosts under strict unhandled-rejection mode. Observer delivery remains synchronous while synchronous exceptions and asynchronous rejections are contained. Coverage includes direct discovery, full loading, malformed-file rejection and duplicate-name decisions, with both callback failure forms. The regression failed against the unchanged compiled PR53 package before the fix. Rebuilt public packages and targeted discovery/guard/loader checks pass: **63 passed / zero failed**, 140 assertions across three files. Complete configured gate: **5,779 passed / 19 existing skips / zero failed**, 23,979 assertions across all 554 discovered files. Configured lint/boundary, root typecheck and strict SDK build pass. Public protocol/SDK and local TUI artifacts were rebuilt first. Global compile and footer theme fixtures ran separately; all remaining files used a unique temporary root. No assertion was weakened or test omitted. No release or installed-host update.
@@ -5,6 +25,41 @@ Confirmed a Medium defect in portable discovery diagnostics. A host `onDiscovery
 ## 2026-10-11 — PR53 reviewed parent integration
 
 Merged reviewed PR52 reference confinement and bounded-read fix into the discovery branch. Preserved discovery canonical-path reload checks and both testing histories. Final integrated source passes configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,778 passed / 19 existing skips / zero failed**, 23,976 assertions across 554 files. Public protocol/SDK and local TUI artifacts were rebuilt first. Global compiler and footer fixtures were isolated; all remaining files used a unique temporary root. No assertion was weakened or test omitted. No release or installed host change.
+## 2026-10-11 — Fourth review PR52: keep activated context references inert
+
+Confirmed High: the HTTP skill path rescanned activated text through
+`expandContextReferences`, so author body text, substituted arguments or
+approved inline stdout could read a file denied by host Read policy, list
+folders, fetch URLs or launch git outside the skill gate. A real HTTP fixture
+with Read/Bash/WebFetch denial persisted private fixture bytes and delivered
+them to the mock provider. A second fixture reproduced the same second-pass
+read from approved Bash stdout. Both regressions fail on original PR52 source:
+**0 pass / 2 fail / 4 assertions**. The initial public reserved-address URL
+fixture timed out; the final hermetic URL uses a blocked loopback address.
+An initial stdout fixture's blanket Read deny also correctly denied printf
+through Bash's virtual Read classification; its corrected FileRead deny and
+Bash-only scope isolate the intended second-pass regression.
+
+The route now uses the validated activation envelope to keep activated body,
+arguments and stdout literal. Ordinary explicit non-skill user references keep
+the existing expansion behavior. The same route covers direct HTTP, command
+transport, drive and TUI; model and cron activation already keep these spans
+inert. The documentation explains that workflows obtain context through their
+permitted tools and host gate.
+
+Darwin arm64, Bun 1.3.13, isolated worktree and fake host with mock provider.
+Prepared with `bun install --ignore-scripts --frozen-lockfile`, `bun run build`
+and `bun run tui:build`. Focused `bun test
+ tests/server/skillActivationClients.test.ts tests/server/turns.references.test.ts
+ tests/skills/activation.test.ts tests/cron/skillActivation.test.ts
+ tests/tools/skillsViewSecurity.test.ts`: **29 pass / 0 fail / 155 assertions**.
+Complete configured gate: `PYTHONDONTWRITEBYTECODE=1 python3
+/private/tmp/sdk-skills-round2-20261011/gate.py
+/private/tmp/sdk-skills-round4-20261011/52 fourth-52`:
+**5,768 pass / 19 existing skips / 0 fail / 23,953 assertions across 553 files**.
+Lint/boundary, types and strict SDK build pass. All discovered files are covered;
+compiler fixture serialized, footer theme fixture isolated, remaining files use
+a unique TMPDIR. No paid inference, release, installation or live restart.
 
 ## 2026-10-11 — Review PR52 legacy reference bounds and file identity
 
