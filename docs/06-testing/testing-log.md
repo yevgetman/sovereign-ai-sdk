@@ -1,3 +1,13 @@
+## 2026-10-11 — PR54 review: confined and durable complete-tree storage
+
+**Scope:** original PR54 head `abb73963`, with PR52/53 contracts and PR59 consumers checked. Fixed nested snapshot/staging/cleanup confinement, POSIX parent/nested-directory flush ordering, failed-delete/publication conservation, complete directory-parent revisions and file-directory representability. Stages/backups now use hidden root leaves; journals/locks stay in the pinned private directory. Discovery and resource guards exclude both new families and aliases. Legacy nested journals retain recovery support. Regular capture uses nonblocking opens before descriptor validation.
+
+**Environment:** isolated `/private/tmp/sdk-pr-review-20261011/storage`, worktree-local dependencies and generated protocol/SDK/TUI artifacts; Bun 1.3.13, Node 25.9.0, Darwin. No live inference or learning setting change.
+
+**Evidence:** original-head negative fixtures reproduce outside resource capture, internal staging redirection, inconsistent tree revisions, missing root/directory fsyncs, destructive delete-marker EIO and the 20-second FIFO timeout. Twenty-two safety fixtures cover full-tree CAS, both swaps, outside cleanup sentinels, dead-owner reopen, six actual SIGKILL/reopen boundaries, restrictive modes, create/edit/delete journal EIO before/after markers and malformed legacy records. Discovery checks cover hidden names/aliases and resource guard exclusion. Physical power loss and Windows were not tested; POSIX ordering is checked by syscall traces.
+
+**Gate:** `bun run build`, `bun run tui:build`; `python3 /private/tmp/sdk-skills-hardening-gate.py /private/tmp/sdk-pr-review-20261011/storage review54-storage-frozen` runs configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,823 passed / 19 existing skips / zero failures**, 24,167 assertions across 556 files. Compiler/theme fixtures are serialized and isolated; no file omitted. The frozen review source also includes the separately committed proposal-ownership and observer corrections. Focused store/review/Node checks pass 78/0; discovery checks pass 13/0. Initial fixture-only failures from Darwin realpath spelling, URL-valued module-loader opens, and readonly-fixture teardown were corrected. No assertion was weakened.
+
 ## 2026-10-11 — Issue 47: explicit transactional skill stores
 
 **Scope:** SDK/SOV skill mutation safety. Node/Bun adapters, complete-tree revisions, paginated store enumeration, guarded replacement/recovery, stable in-flight catalogs and all committed SOV skill writers. No live learning/provider evaluation, global config change, publication or host upgrade.

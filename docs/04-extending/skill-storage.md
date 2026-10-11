@@ -75,8 +75,12 @@ catalog. Transaction stages, backups and locks do not appear in enumeration.
 
 ## Filesystem transactions and confinement
 
-The filesystem adapter stages complete validated trees under `.sov-skill-store`.
-Discovery excludes this directory. A process lock serializes cooperating writers.
+The filesystem adapter stores journals and locks in `.sov-skill-store`. Complete
+trees stage in private `.sov-skill-stage-<id>` leaf directories under the pinned
+root; backups use `.sov-skill-backup-<id>` leaves. Publication renames these leaves
+without traversing a mutable staging ancestor. Discovery excludes all three
+internal name families, including linked aliases. A process lock serializes
+cooperating writers.
 A written owner record is linked atomically to the lock, so an interrupted owner
 can be identified without an empty lock file. A live owner causes a clear busy
 error. Retry after its transaction completes.
@@ -98,8 +102,11 @@ links to resources within the source tree by capturing their bytes. It refuses
 outside or dangling links and directory cycles. Installed aliases become ordinary
 files, so source locations are not retained as destination links.
 
-File data and transaction records are synced before publication. POSIX directory
-syncs preserve ordering. Windows supports process-interruption recovery; it does
+File data and modes, nested directories, new root ancestors and transaction
+records are synced before publication. POSIX directory syncs preserve ordering.
+Recovery also understands the previous nested transaction layout. A failed
+durability check before commit restores the accepted tree. Windows supports
+process-interruption recovery; it does
 not provide the same directory-fsync power-loss guarantee through Node.
 
 SDK Node/Bun hosts use the packaged worker module. A compiled host supplies an

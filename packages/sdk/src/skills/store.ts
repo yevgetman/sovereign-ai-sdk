@@ -82,6 +82,16 @@ function prepareEntry(change: SkillMutation, previous?: SkillStoreWireEntry): Sk
     ? Object.fromEntries(change.directoryModes)
     : structuredClone(previous?.directoryModes ?? { '': 0o700 });
   directoryModes[''] ??= previous?.directoryModes[''] ?? 0o700;
+  // Recursive mkdir creates these ancestors on disk. Include them in the
+  // accepted tree so the commit revision is the revision returned by read().
+  for (const path of Object.keys(directoryModes)) {
+    if (path) assertSkillStoreResource(path);
+    const parts = path.split('/');
+    for (let depth = 1; depth < parts.length; depth++) {
+      const directory = parts.slice(0, depth).join('/');
+      directoryModes[directory] ??= previous?.directoryModes[directory] ?? 0o700;
+    }
+  }
   for (const [path, file] of Object.entries(files)) {
     file.mode = previous?.files[path]?.mode ?? file.mode;
     const parts = path.split('/').slice(0, -1);
@@ -363,10 +373,13 @@ export async function readSkillSourceTree(source: string): Promise<{
     if (!info.isFile()) throw new Error('skill source contains a special file');
     if (files.size >= SKILL_STORE_LIMITS.files || info.size + bytes > SKILL_STORE_LIMITS.bytes)
       throw new Error('skill source exceeds file or byte limit');
-    const file = await open(actual, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const file = await open(
+      actual,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
     try {
       const opened = await file.stat();
-      if (opened.dev !== info.dev || opened.ino !== info.ino)
+      if (!opened.isFile() || opened.dev !== info.dev || opened.ino !== info.ino)
         throw new Error('skill source changed during capture');
       const data = await readSourceData(file, SKILL_STORE_LIMITS.bytes - bytes);
       bytes += data.length;
@@ -404,10 +417,13 @@ export async function readSkillSourceFile(path: string): Promise<Uint8Array> {
   const info = await lstat(selected);
   if (!info.isFile() || info.size > SKILL_STORE_LIMITS.bytes)
     throw new Error('invalid skill source file or byte limit exceeded');
-  const file = await open(selected, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const file = await open(
+    selected,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
   try {
     const opened = await file.stat();
-    if (opened.dev !== info.dev || opened.ino !== info.ino)
+    if (!opened.isFile() || opened.dev !== info.dev || opened.ino !== info.ino)
       throw new Error('skill source changed during capture');
     const data = await readSourceData(file, SKILL_STORE_LIMITS.bytes);
     if ((await realpath(path)) !== selected) throw new Error('skill source changed during capture');
