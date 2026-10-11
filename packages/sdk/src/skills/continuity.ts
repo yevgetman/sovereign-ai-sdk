@@ -186,7 +186,7 @@ export function createSkillContinuity(options: SkillContinuityOptions): SkillCon
     events.push(safe);
     if (events.length > MAX_DIAGNOSTICS) events.shift();
     try {
-      options.observe?.({ ...safe });
+      Promise.resolve(options.observe?.({ ...safe })).catch(() => undefined);
     } catch {
       /* telemetry cannot change authority */
     }

@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import {
   resolveSkillContextBudget,
   skillTextTokenBound,
@@ -20,6 +22,51 @@ const envelope = {
 const budget = resolveSkillContextBudget({ contextWindowTokens: 1_000_000 });
 
 describe('bounded skill continuity', () => {
+  test('rejected asynchronous lifecycle diagnostics do not terminate a public Node host', () => {
+    const result = spawnSync(
+      'node',
+      [
+        '--unhandled-rejections=strict',
+        '--input-type=module',
+        '-e',
+        `
+          import { createSkillContinuity, InMemorySkillContinuityStore, resolveSkillContextBudget } from '@yevgetman/sov-sdk';
+          const store = new InMemorySkillContinuityStore();
+          const scope = { profile: 'fixture', owner: 'owner', session: 'session' };
+          const events = [];
+          const port = createSkillContinuity({
+            scope, store,
+            observe: async event => {
+              events.push(event.code);
+              await Promise.resolve();
+              throw new Error('private observer failure');
+            },
+          });
+          await port.activated({
+            name: 'release', revision: 'a'.repeat(64), source: 'user', args: '',
+            allowedTools: [], allowedResourceRoots: [],
+          }, 'Keep the accepted workflow.', 'turn');
+          await port.finish('turn', 'succeeded');
+          const retained = await port.guidance({
+            budget: resolveSkillContextBudget({ contextWindowTokens: 1_000_000 }),
+            turnId: 'next',
+          });
+          await new Promise(resolve => setTimeout(resolve, 10));
+          if (!retained.text.includes('Keep the accepted workflow.') || (await store.load(scope))[0]?.outcome !== 'succeeded')
+            throw new Error('accepted workflow lost');
+          console.log(JSON.stringify(events));
+        `,
+      ],
+      {
+        cwd: fileURLToPath(new URL('../../', import.meta.url)),
+        encoding: 'utf8',
+        timeout: 20_000,
+      },
+    );
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual(['activated', 'succeeded', 'retained']);
+  });
   test('resume retains pinned workflow steps and reports edits without copying permissions', async () => {
     const store = new InMemorySkillContinuityStore();
     const first = createSkillContinuity({ scope, store });

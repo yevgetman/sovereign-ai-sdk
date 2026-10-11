@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ContentBlock, Message } from '@yevgetman/sov-sdk/core/types';
 import { createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
 import { resolveSkillContextBudget } from '@yevgetman/sov-sdk/skills/budget';
@@ -58,6 +60,43 @@ afterEach(() => {
 });
 
 describe('SOV private skill continuity adapter', () => {
+  test('rejected asynchronous invalid-lineage diagnostics preserve the empty snapshot', () => {
+    const result = spawnSync(
+      'bun',
+      [
+        '--eval',
+        `
+          import { SessionDb } from './src/agent/sessionDb.ts';
+          import { SessionSkillContinuityStore } from './src/skills/continuity.ts';
+          const db = SessionDb.open({ path: ':memory:' });
+          try {
+            const parent = db.createSession({ provider: 'mock', model: 'mock', owner: 'other' });
+            const child = db.createSession({ provider: 'mock', model: 'mock', owner: 'owner', parentSessionId: parent });
+            let observed = 0;
+            const store = new SessionSkillContinuityStore(db, 'fixture', async () => {
+              observed++;
+              await Promise.resolve();
+              throw new Error('private lineage observer failure');
+            });
+            const scope = { profile: 'fixture', owner: 'user:owner', session: child };
+            const records = await store.load(scope);
+            await new Promise(resolve => setTimeout(resolve, 10));
+            if (observed !== 1 || records.length !== 0 || db.loadSkillContinuity(scope.profile, scope.owner, child) !== '[]')
+              throw new Error('empty snapshot lost');
+            console.log('isolated');
+          } finally { db.close(); }
+        `,
+      ],
+      {
+        cwd: fileURLToPath(new URL('../../', import.meta.url)),
+        encoding: 'utf8',
+        timeout: 20_000,
+      },
+    );
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe('isolated');
+  });
   test('guidance survives a real database reopen without public session metadata or authority', async () => {
     const home = mkdtempSync(join(tmpdir(), 'sov-skill-continuity-'));
     homes.push(home);

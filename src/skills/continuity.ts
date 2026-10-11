@@ -113,7 +113,7 @@ export class SessionSkillContinuityStore implements SkillContinuityStore {
 
   private emitInvalidLineage(): void {
     try {
-      this.observe?.({ code: 'invalid-record' });
+      Promise.resolve(this.observe?.({ code: 'invalid-record' })).catch(() => undefined);
     } catch {
       /* diagnostics are advisory */
     }
