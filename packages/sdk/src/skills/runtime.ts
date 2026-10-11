@@ -98,6 +98,14 @@ const MEMORY_CLASSIFICATION: SkillClassification = {
   trustTier: 'agent-created',
 };
 
+// Enumerable symbol metadata survives a host's shallow event copy without
+// adding public JSON fields. Weak origins do not retain disposed runtimes.
+const MUTATION_PROVENANCE = Symbol('skill runtime mutation provenance');
+type ForwardedMutation = SkillMutationEvent & {
+  [MUTATION_PROVENANCE]?: WeakSet<object>;
+};
+const storeMutationOrigins = new WeakMap<SkillWritableStore, object>();
+
 /** Pure composition over the shared registry, descriptor, activation and store
  * contracts. createAgent opts into it; the minimal agent stays disk-free. */
 export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
@@ -132,6 +140,15 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
   const listeners = new Set<(event: SkillRuntimeEvent) => void>();
   const boundMutationHandlers = new WeakSet<NonNullable<ToolContext['onSkillMutation']>>();
   const publishedMutations = new Set<string>();
+  const mutationOrigin = {};
+  let storeMutationOrigin: object | undefined;
+  if (store) {
+    storeMutationOrigin = storeMutationOrigins.get(store);
+    if (!storeMutationOrigin) {
+      storeMutationOrigin = {};
+      storeMutationOrigins.set(store, storeMutationOrigin);
+    }
+  }
   let disposed = false;
   const emit = (event: SkillRuntimeEvent) => {
     for (const listener of listeners) {
@@ -176,7 +193,7 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
       event.previousRevision ?? null,
       event.path ?? null,
     ]);
-  const notifyMutation = (event: SkillMutationEvent) => {
+  const notifyMutation = (event: SkillMutationEvent, provenance = new WeakSet<object>()) => {
     const key = mutationKey(event);
     // Register before notifying. Hosts can forward this event to onMutation()
     // synchronously or asynchronously without re-emitting the same commit.
@@ -186,9 +203,25 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
       const oldest = publishedMutations.values().next().value;
       if (oldest !== undefined) publishedMutations.delete(oldest);
     }
-    emit({ type: 'mutation', event: { ...event } });
+    provenance.add(mutationOrigin);
+    const forwarded: ForwardedMutation = { ...event, [MUTATION_PROVENANCE]: provenance };
+    emit({ type: 'mutation', event: forwarded });
   };
   const publishMutation = (event: SkillMutationEvent) => {
+    const provenance = (event as ForwardedMutation)[MUTATION_PROVENANCE];
+    // A delayed copied observer event is still this commit even after newer
+    // commits evict its recent key. Preserve origins across runtime forwarding.
+    if (provenance) {
+      if (
+        provenance.has(mutationOrigin) ||
+        (storeMutationOrigin && provenance.has(storeMutationOrigin))
+      )
+        return;
+      // A genuinely new forwarded commit may recreate identical content.
+      // Its provenance, rather than its repeated revision, is authoritative.
+      notifyMutation(event, provenance);
+      return;
+    }
     const key = mutationKey(event);
     if (!publishedMutations.has(key)) notifyMutation(event);
   };
@@ -197,7 +230,9 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
     stopStore = options.store?.subscribe((event) => {
       // Independently observed commits must each notify, including recreation
       // of an identical tree whose revision matches an earlier deleted skill.
-      notifyMutation(event);
+      const provenance = new WeakSet([mutationOrigin]);
+      if (storeMutationOrigin) provenance.add(storeMutationOrigin);
+      notifyMutation(event, provenance);
     });
   } catch (error) {
     stopManager();
@@ -248,7 +283,12 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
     },
     activate(name, activationOptions) {
       return run('activate', async () => {
-        const context = { ...activationOptions.toolContext, skillRegistryManager: manager };
+        const context = {
+          ...activationOptions.toolContext,
+          skillRegistryManager: manager,
+          skillActivation: activationOptions.state,
+          activeToolNames: activationOptions.state.tools.map((tool) => tool.name),
+        };
         const skill = getSkillRegistry(context).byName.get(name);
         if (!skill) throw new Error(`unknown or unavailable skill '${name}'`);
         const virtual = storeOnly && skill.path.startsWith('skill-store:/');

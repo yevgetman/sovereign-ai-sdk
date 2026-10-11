@@ -45,6 +45,7 @@ import { resolveSkillContextBudget } from '../skills/budget.js';
 import { buildSkillCatalogIndex } from '../skills/catalog.js';
 import { isSkillInvocable } from '../skills/descriptor.js';
 import { getSkillRegistrySnapshot } from '../skills/registry.js';
+import { inferActiveToolsets } from '../skills/visibility.js';
 import { intersectCanUseTool } from '../tool/capabilityProfiles.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
@@ -205,6 +206,10 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   activationState.hasHostPermission =
     params.canUseTool !== undefined || inheritedActivation?.hasHostPermission === true;
   if (toolCtx && skillsEnabled) {
+    // The actual turn pool is authoritative, including SDK-only contexts and
+    // host contexts whose visibility hints were created for a broader pool.
+    toolCtx.activeToolNames = toolPool.map((tool) => tool.name);
+    toolCtx.activeToolsets = inferActiveToolsets(toolCtx.activeToolNames, toolCtx.activeToolsets);
     activationState.activations = toolCtx.skillActivation?.activations.slice() ?? [];
     if (toolCtx.skillActivation)
       activationState.restrictionCanUseTool = toolCtx.skillActivation.restrictionCanUseTool;
@@ -889,6 +894,8 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     // Ctrl-C. Phase 2 omitted this — latent until Phase 3 made it observable.
     const turnCtx: ToolContext = signal ? { ...toolCtx, signal } : toolCtx;
     if (skillsEnabled) {
+      turnCtx.activeToolNames = activationState.tools.map((tool) => tool.name);
+      turnCtx.activeToolsets = inferActiveToolsets(turnCtx.activeToolNames, turnCtx.activeToolsets);
       const effectiveNames = new Set(activationState.tools.map((tool) => tool.name));
       turnCtx.parentToolPool = (turnCtx.parentToolPool ?? activationState.tools).filter((tool) =>
         effectiveNames.has(tool.name),

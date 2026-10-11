@@ -100,6 +100,17 @@ activation path. Native tool restrictions only narrow the existing host pool.
 Portable pre-approval metadata grants no host permissions. Unsupported execution
 controls and disabled invocation sources fail before effects.
 
+Catalog visibility follows the actual turn tools, including direct SDK agent
+calls. Skills with missing required tools are unavailable; fallback skills are
+visible when their primary tools are absent. Existing host visibility hints do
+not replace the effective turn pool. Direct `activate()` applies the same
+visibility rules using the supplied activation state's tools.
+Host-owned custom profile tags remain available. Built-in capability sets,
+such as `terminal`, are recomputed from the current tools.
+The selected `createAgent()` profile, including a per-turn override, is present
+in its skill context. Visibility also follows later activation restrictions,
+including turns with an abort signal.
+
 The host creates the turn's state with `createSkillActivationState()`. Inline
 shell and guarded skills require an explicit host approval callback. A headless
 host can return `deny` for every approval request. Memory inline shell uses the
@@ -143,7 +154,13 @@ operation errors. These are local host events. Errors can contain private paths;
 use the catalog's remote-safe diagnostics for client responses. Observer throws
 and rejected promises cannot roll back publication or terminate the host. A host
 may forward an external mutation event to `onMutation()` from its observer to
-refresh the catalog; that commit emits one mutation notification.
+refresh the catalog; that commit emits one mutation notification. Runtime
+observer events carry local provenance that survives object-spread copies and
+arbitrary forwarding delays. JSON serialization or reconstructing only the
+public fields removes that provenance; reconstructed events use a bounded
+64-key recent-commit fallback. Use `refresh()` for a serialized notification
+whose commit is already represented by this runtime, rather than echoing its
+observer event back through serialization.
 
 A committed write can succeed while the catalog refresh fails. The mutation
 result still describes that committed write. The host receives an error event
