@@ -64,6 +64,12 @@ Dynamic context runs in the skill directory with a ten-second timeout and a
 bounded output. User arguments are merged last and never rescanned as shell.
 Permission failure stops activation and produces no activation record.
 
+Environment placeholders in inline shell preserve their exact data in ordinary
+bare, single-quoted and double-quoted words. Shell metacharacters in a directory
+or session id cannot become new substitutions. ANSI-C/localized quotes, nested
+expansions and here-documents with environment placeholders fail closed. Use an
+ordinary quoted word or an explicit host adapter for those contexts.
+
 Direct callers that previously relied on ambient loader execution must use
 `activateSkill` with a host gate, or explicitly supply a controlled runner.
 No invocation path should use a read-only preview to perform activation.
@@ -80,6 +86,12 @@ arguments. Unknown slash names and file paths remain ordinary text; explicit
 `kind: "skill"` requests reject unknown names. The server resolves the
 descriptor and permissions from its own registry at activation time. A client
 does not supply permission rules or trusted resource roots.
+
+Plugin `commands/` workflows keep a host-owned descriptor in the canonical
+command registry. They use the same activation gate while remaining outside
+the model's skill catalog. Command-origin requests preserve the normal
+built-in → plugin command → catalog skill precedence. A plugin cannot use
+this path to shadow a built-in command or execute inline shell.
 
 The protocol's optional `skillSource` records `user` or `command` origin; it
 does not grant authority. Existing non-skill prompt commands retain their

@@ -16,7 +16,11 @@ function skillToCommand(skill: Skill): PromptCommand {
     name: skill.name,
     description: skill.description,
     allowedTools: skill.allowedTools,
-    skill: { name: skill.name, ...(skill.revision ? { revision: skill.revision } : {}) },
+    skill: {
+      name: skill.name,
+      ...(skill.revision ? { revision: skill.revision } : {}),
+      descriptor: skill,
+    },
     getPromptForCommand: async (args, ctx): Promise<ContentBlock[]> => [
       {
         type: 'text',
