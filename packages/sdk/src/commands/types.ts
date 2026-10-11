@@ -207,6 +207,10 @@ export type CommandContext = {
   /** Phase 13.3 — harness-home root for review/* paths. /review reads this
    *  to locate $HARNESS_HOME/review/pending|approved|rejected/. */
   harnessHome?: string;
+  skillStore?: import('../skills/storeTypes.js').SkillWritableStore;
+  onSkillMutation?: (
+    event: import('../skills/storeTypes.js').SkillMutationEvent,
+  ) => void | Promise<void>;
   /** Plugin System v1 (T7) — injected TTY yes/no consent prompt, used by
    *  `/plugins install` for the disclose-and-consent flow (S3, TTY-only). The
    *  CLI / `sov drive` dispatch path provides a real terminal prompt (T8); it is

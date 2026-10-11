@@ -5,7 +5,6 @@
 
 import {
   appendFileSync,
-  copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -27,6 +26,7 @@ import {
   serializeMemoryProposal,
   serializeSkillProposalMeta,
 } from '../review/proposal.js';
+import { createSovSkillStore } from '../skills/store.js';
 
 const STATE_COLORS = {
   pending: chalk.yellow,
@@ -159,11 +159,30 @@ function applyMemoryApproval(home: string, raw: string): string | null {
   return null;
 }
 
-function applySkillApproval(home: string, dir: string): void {
-  const meta = parseSkillProposalMeta(readFileSync(join(dir, 'meta.json'), 'utf-8'));
-  const skillDir = join(home, 'skills', 'agent-created', meta.skillName);
-  mkdirSync(skillDir, { recursive: true });
-  copyFileSync(join(dir, 'SKILL.md'), join(skillDir, 'SKILL.md'));
+async function applySkillApproval(home: string, dir: string, ctx: CommandContext): Promise<void> {
+  const metaPath = join(dir, 'meta.json');
+  const meta = parseSkillProposalMeta(readFileSync(metaPath, 'utf-8'));
+  const store = ctx.skillStore ?? createSovSkillStore(join(home, 'skills', 'agent-created'));
+  const content = readFileSync(join(dir, 'SKILL.md'), 'utf-8');
+  // Idempotent recovery if publication succeeded before queue bookkeeping.
+  const current = await store.read(meta.skillName);
+  if (current && current.content !== content)
+    throw new Error(
+      `skill '${meta.skillName}' already exists; approval does not overwrite another revision`,
+    );
+  const committed = current
+    ? undefined
+    : await store.mutate({ action: 'create', name: meta.skillName, content });
+  const revision = current?.revision ?? committed?.entry?.revision;
+  if (!revision) throw new Error('skill approval returned no committed revision');
+  writeFileSync(metaPath, serializeSkillProposalMeta({ ...meta, appliedSkillRevision: revision }));
+  if (committed) {
+    try {
+      await ctx.onSkillMutation?.(committed.event);
+    } catch {
+      /* Durable success. */
+    }
+  }
 }
 
 type ConsolidationResult = { ok: true; removed: string[] } | { ok: false; error: string };
@@ -340,7 +359,11 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
         return chalk.red(err);
       }
     } else if (found.kind === 'skills') {
-      applySkillApproval(home, found.path);
+      try {
+        await applySkillApproval(home, found.path, ctx);
+      } catch (error) {
+        return chalk.red(error instanceof Error ? error.message : String(error));
+      }
     } else {
       const result = applyConsolidationApproval(home, readFileSync(found.path, 'utf-8'));
       if (!result.ok) {
@@ -402,9 +425,27 @@ async function handleReview(rawArgs: string, ctx: CommandContext): Promise<strin
 
     if (found.kind === 'skills') {
       const meta = parseSkillProposalMeta(readFileSync(join(found.path, 'meta.json'), 'utf-8'));
-      const skillDir = join(home, 'skills', 'agent-created', meta.skillName);
-      if (existsSync(skillDir)) {
-        rmSync(skillDir, { recursive: true, force: true });
+      const store = ctx.skillStore ?? createSovSkillStore(join(home, 'skills', 'agent-created'));
+      try {
+        const current = await store.read(meta.skillName);
+        if (current) {
+          if (!meta.appliedSkillRevision)
+            return chalk.red(
+              'approved skill has no stored revision; inspect it before manual removal',
+            );
+          const committed = await store.mutate({
+            action: 'delete',
+            name: meta.skillName,
+            expectedRevision: meta.appliedSkillRevision,
+          });
+          try {
+            await ctx.onSkillMutation?.(committed.event);
+          } catch {
+            /* Durable success. */
+          }
+        }
+      } catch (error) {
+        return chalk.red(error instanceof Error ? error.message : String(error));
       }
       moveTo('rejected', home, found);
       return chalk.green(`revoked skill ${meta.skillName} (${rest})`);

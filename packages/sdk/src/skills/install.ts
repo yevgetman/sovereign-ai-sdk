@@ -22,8 +22,8 @@
 // `agent-created/` skills, bundle skills, or default-bundle skills.
 
 import { existsSync } from 'node:fs';
-import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, join, resolve } from 'node:path';
+import { stat } from 'node:fs/promises';
+import { basename, join, resolve } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { z } from 'zod';
 import { splitFrontmatter } from './frontmatter.js';
@@ -31,19 +31,13 @@ import {
   SkillFrontmatterSchema as LoaderSkillFrontmatterSchema,
   normalizeFrontmatterAliases,
 } from './loader.js';
-import { copySkillTree } from './symlinkGuard.js';
+import { FilesystemSkillStore, readSkillSourceFile, readSkillSourceTree } from './store.js';
+import type { SkillMutationEvent, SkillStoreFile, SkillWritableStore } from './store.js';
 import { validateWhenToUse } from './whenToUse.js';
 
 const SkillNameSchema = z
   .string()
   .regex(/^[A-Za-z][A-Za-z0-9_-]*$/, 'skill name must be slash-command-safe');
-
-const SkillFrontmatterSchema = z
-  .object({
-    name: SkillNameSchema,
-    description: z.string().min(1),
-  })
-  .passthrough();
 
 export interface InstallSkillOptions {
   /** Path to a SKILL.md file OR a directory containing one. */
@@ -52,12 +46,18 @@ export interface InstallSkillOptions {
   userSkillsRoot: string;
   /** When true, overwrite an existing skill with the same name. */
   force?: boolean;
+  /** Optional injected store; the default is the explicit userSkillsRoot. */
+  store?: SkillWritableStore;
+  /** When supplied, force replacement must match this tree revision. */
+  expectedRevision?: string;
 }
 
 export interface InstallSkillResult {
   ok: true;
   name: string;
   installedAt: string;
+  revision: string;
+  event: SkillMutationEvent;
 }
 
 export interface InstallSkillError {
@@ -79,48 +79,24 @@ export async function installSkill(opts: InstallSkillOptions): Promise<InstallRe
   }
   const { sourceAbs, skillMdPath, isDirectory } = resolved;
 
-  let frontmatterName: string;
   try {
-    const raw = await readFile(skillMdPath, 'utf8');
-    const fm = parseFrontmatter(raw);
-    const validated = SkillFrontmatterSchema.parse(fm);
-    frontmatterName = validated.name;
+    const raw = Buffer.from(await readSkillSourceFile(skillMdPath)).toString('utf8');
+    const validated = LoaderSkillFrontmatterSchema.parse(parseFrontmatter(raw));
+    const tree = await captureSource(sourceAbs, skillMdPath, isDirectory);
+    const committed = await publishTree(opts, validated.name, tree);
+    return {
+      ok: true,
+      name: validated.name,
+      installedAt: join(opts.userSkillsRoot, validated.name),
+      revision: committed.revision,
+      event: committed.event,
+    };
   } catch (err) {
     return {
       ok: false,
-      reason: `invalid SKILL.md frontmatter (${skillMdPath}): ${errorMessage(err)}`,
+      reason: `invalid SKILL.md frontmatter or failed install (${skillMdPath}): ${errorMessage(err)}`,
     };
   }
-
-  const targetDir = join(opts.userSkillsRoot, frontmatterName);
-  if (existsSync(targetDir) && opts.force !== true) {
-    return {
-      ok: false,
-      reason: `skill '${frontmatterName}' already installed at ${targetDir}. Use force:true to overwrite, or run \`/skills uninstall ${frontmatterName}\` first.`,
-    };
-  }
-
-  try {
-    await mkdir(opts.userSkillsRoot, { recursive: true });
-    if (isDirectory) {
-      // Copy the whole source directory (including reference files
-      // like template.txt, examples/, etc.) into the target. copySkillTree
-      // rejects out-of-tree symlinks before anything lands on disk.
-      await rm(targetDir, { recursive: true, force: true });
-      await copySkillTree(sourceAbs, targetDir);
-    } else {
-      // Single SKILL.md — wrap it in a directory of the same name.
-      await mkdir(targetDir, { recursive: true });
-      await cp(skillMdPath, join(targetDir, 'SKILL.md'));
-    }
-  } catch (err) {
-    return {
-      ok: false,
-      reason: `failed to install to ${targetDir}: ${errorMessage(err)}`,
-    };
-  }
-
-  return { ok: true, name: frontmatterName, installedAt: targetDir };
 }
 
 // ----- import (Feature A2) -----
@@ -132,12 +108,18 @@ export interface ImportSkillOptions {
   userSkillsRoot: string;
   /** When true, overwrite an existing skill with the same name. */
   force?: boolean;
+  /** Optional injected store; the default is the explicit userSkillsRoot. */
+  store?: SkillWritableStore;
+  /** When supplied, force replacement must match this tree revision. */
+  expectedRevision?: string;
 }
 
 export interface ImportSkillResult {
   ok: true;
   name: string;
   installedAt: string;
+  revision: string;
+  event: SkillMutationEvent;
   /** Human-readable notes about each normalization the importer applied
    *  (e.g. the `allowed-tools` → `allowedTools` rewrite). */
   converted: string[];
@@ -193,7 +175,7 @@ export async function importSkill(opts: ImportSkillOptions): Promise<ImportResul
   let rawFrontmatter: unknown;
   let body: string;
   try {
-    const raw = await readFile(skillMdPath, 'utf8');
+    const raw = Buffer.from(await readSkillSourceFile(skillMdPath)).toString('utf8');
     const parts = splitFrontmatter(raw);
     rawFrontmatter = parseYaml(parts.frontmatter);
     body = parts.body;
@@ -217,44 +199,26 @@ export async function importSkill(opts: ImportSkillOptions): Promise<ImportResul
   }
   const name = (validated.data as { name: string }).name;
 
-  const targetDir = join(opts.userSkillsRoot, name);
-  if (existsSync(targetDir) && opts.force !== true) {
-    return {
-      ok: false,
-      reason: `skill '${name}' already installed at ${targetDir}. Use force:true to overwrite, or run \`/skills uninstall ${name}\` first.`,
-    };
-  }
-
   try {
-    await mkdir(opts.userSkillsRoot, { recursive: true });
-    // Stage the whole source tree first so bundled references/, scripts/,
-    // and any other sidecar files come along, then overwrite the target
-    // SKILL.md with the canonical normalized content.
-    await rm(targetDir, { recursive: true, force: true });
-    if (isDirectory) {
-      // copySkillTree rejects out-of-tree symlinks before anything lands on disk.
-      await copySkillTree(sourceAbs, targetDir);
-    } else {
-      await mkdir(targetDir, { recursive: true });
-    }
-    await writeFile(
-      join(targetDir, 'SKILL.md'),
-      buildCanonicalSkillFile(normalized.frontmatter, body),
-    );
-  } catch (err) {
+    const tree = await captureSource(sourceAbs, skillMdPath, isDirectory);
+    const files = new Map(tree.files);
+    files.set('SKILL.md', {
+      data: Buffer.from(buildCanonicalSkillFile(normalized.frontmatter, body)),
+      mode: files.get('SKILL.md')?.mode ?? 0o600,
+    });
+    const committed = await publishTree(opts, name, { ...tree, files });
     return {
-      ok: false,
-      reason: `failed to import to ${targetDir}: ${errorMessage(err)}`,
+      ok: true,
+      name,
+      installedAt: join(opts.userSkillsRoot, name),
+      revision: committed.revision,
+      event: committed.event,
+      converted: normalized.converted,
+      warnings: normalized.warnings,
     };
+  } catch (err) {
+    return { ok: false, reason: `failed to import skill '${name}': ${errorMessage(err)}` };
   }
-
-  return {
-    ok: true,
-    name,
-    installedAt: targetDir,
-    converted: normalized.converted,
-    warnings: normalized.warnings,
-  };
 }
 
 type NormalizedFrontmatter = {
@@ -398,12 +362,15 @@ export interface UninstallSkillOptions {
   name: string;
   /** User's `<harnessHome>/skills/` root. Uninstall only touches this. */
   userSkillsRoot: string;
+  store?: SkillWritableStore;
+  expectedRevision?: string;
 }
 
 export interface UninstallSkillResult {
   ok: true;
   name: string;
   removedFrom: string;
+  event: SkillMutationEvent;
 }
 
 export interface UninstallSkillError {
@@ -426,39 +393,24 @@ export async function uninstallSkill(opts: UninstallSkillOptions): Promise<Unins
   const name = parsed.data;
 
   const targetDir = join(opts.userSkillsRoot, name);
-  if (!existsSync(targetDir)) {
-    return {
-      ok: false,
-      reason: `skill '${name}' is not installed at ${targetDir} (only user-scoped skills can be uninstalled — bundle and default-bundle skills are read-only).`,
-    };
-  }
-
-  // Defense in depth: confirm targetDir is actually under userSkillsRoot.
-  // Prevents path-traversal exploits via crafted names like '../bin'.
-  const userRootAbs = resolve(opts.userSkillsRoot);
-  const targetAbs = resolve(targetDir);
-  if (!targetAbs.startsWith(`${userRootAbs}/`) && targetAbs !== userRootAbs) {
-    return {
-      ok: false,
-      reason: `refusing to remove path outside user skills root: ${targetAbs}`,
-    };
-  }
-  if (dirname(targetAbs) !== userRootAbs) {
-    return {
-      ok: false,
-      reason: `refusing to remove nested path (uninstall operates one level under the user skills root): ${targetAbs}`,
-    };
-  }
-
   try {
-    await rm(targetDir, { recursive: true, force: true });
+    const store =
+      opts.store ?? new FilesystemSkillStore({ root: opts.userSkillsRoot, trustTier: 'community' });
+    const previous = await store.read(name);
+    if (!previous)
+      return {
+        ok: false,
+        reason: `skill '${name}' is not installed at ${targetDir} (only user-scoped skills can be uninstalled)`,
+      };
+    const result = await store.mutate({
+      action: 'delete',
+      name,
+      expectedRevision: opts.expectedRevision ?? previous.revision,
+    });
+    return { ok: true, name, removedFrom: targetDir, event: result.event };
   } catch (err) {
-    return {
-      ok: false,
-      reason: `failed to remove ${targetDir}: ${errorMessage(err)}`,
-    };
+    return { ok: false, reason: `failed to remove ${targetDir}: ${errorMessage(err)}` };
   }
-  return { ok: true, name, removedFrom: targetDir };
 }
 
 // ----- internal helpers -----
@@ -490,5 +442,43 @@ function parseFrontmatter(raw: string): unknown {
   if (typeof obj.description !== 'string' || obj.description.trim().length === 0) {
     throw new Error('missing required field: description');
   }
-  return { name: obj.name.trim(), description: obj.description.trim() };
+  return obj;
+}
+
+async function captureSource(
+  source: string,
+  skillPath: string,
+  directory: boolean,
+): Promise<{
+  files: ReadonlyMap<string, SkillStoreFile>;
+  directoryModes: ReadonlyMap<string, number>;
+}> {
+  if (directory) return await readSkillSourceTree(source);
+  const info = await stat(skillPath);
+  return {
+    files: new Map([
+      ['SKILL.md', { data: await readSkillSourceFile(skillPath), mode: info.mode & 0o777 }],
+    ]),
+    directoryModes: new Map([['', 0o700]]),
+  };
+}
+
+async function publishTree(
+  opts: InstallSkillOptions,
+  name: string,
+  tree: { files: ReadonlyMap<string, SkillStoreFile>; directoryModes: ReadonlyMap<string, number> },
+): Promise<{ revision: string; event: SkillMutationEvent }> {
+  const store =
+    opts.store ?? new FilesystemSkillStore({ root: opts.userSkillsRoot, trustTier: 'community' });
+  const previous = await store.read(name);
+  if (previous && !opts.force)
+    throw new Error(`skill '${name}' already installed. Use force:true to overwrite.`);
+  const result = await store.mutate({
+    action: previous ? 'edit' : 'create',
+    name,
+    ...tree,
+    ...(previous ? { expectedRevision: opts.expectedRevision ?? previous.revision } : {}),
+  });
+  if (!result.entry) throw new Error('skill transaction returned no committed entry');
+  return { revision: result.entry.revision, event: result.event };
 }

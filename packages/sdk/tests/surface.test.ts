@@ -105,6 +105,7 @@ import type {
   DiscoveredSkillFile,
   EffectiveModelLimits,
   EstimateRequestBudget,
+  FilesystemSkillStoreOptions,
   HookCommandSpec,
   HookConfig,
   HookConsentChecker,
@@ -202,10 +203,19 @@ import type {
   SkillGuardFinding,
   SkillGuardLevel,
   SkillHarnessMetadata,
+  SkillMutation,
+  SkillMutationEvent,
+  SkillMutationResult,
   SkillRegistry,
   SkillRoot,
   SkillSource,
+  SkillStoreFile,
+  SkillStoreListOptions,
+  SkillStoreListPage,
+  SkillStoreOptions,
+  SkillStoredEntry,
   SkillTrustTier,
+  SkillWritableStore,
   SpawnFn,
   SpawnOpts,
   SpawnedProc,
@@ -268,6 +278,8 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'ContextOverflowError',
   'DEFAULT_CONDUCT_REFUSAL',
   'DEFAULT_SKILL_DISCOVERY_LIMITS',
+  'FilesystemSkillStore',
+  'InMemorySkillStore',
   'LaneSemaphores',
   'MODEL_CATALOG_VERSION',
   'PRICE_TABLE',
@@ -403,6 +415,16 @@ describe('sdk barrel — the 0.1.0 semver-contract surface snapshot', () => {
  *  compilation here — the type-surface half of the 0.1.0 contract (values are
  *  erased at runtime; types are not, so they need a compile-time pin). */
 type TypeSurfaceWitness = {
+  filesystemSkillStoreOptions?: FilesystemSkillStoreOptions;
+  skillStoreOptions?: SkillStoreOptions;
+  skillMutation?: SkillMutation;
+  skillMutationEvent?: SkillMutationEvent;
+  skillMutationResult?: SkillMutationResult;
+  skillStoredEntry?: SkillStoredEntry;
+  skillStoreFile?: SkillStoreFile;
+  skillStoreListOptions?: SkillStoreListOptions;
+  skillStoreListPage?: SkillStoreListPage;
+  skillWritableStore?: SkillWritableStore;
   costEstimate?: CostEstimate;
   pricingSnapshot?: PricingSnapshot;
   childPolicy?: ChildPolicy;
