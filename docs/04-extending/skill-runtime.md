@@ -154,7 +154,13 @@ operation errors. These are local host events. Errors can contain private paths;
 use the catalog's remote-safe diagnostics for client responses. Observer throws
 and rejected promises cannot roll back publication or terminate the host. A host
 may forward an external mutation event to `onMutation()` from its observer to
-refresh the catalog; that commit emits one mutation notification.
+refresh the catalog; that commit emits one mutation notification. Runtime
+observer events carry local provenance that survives object-spread copies and
+arbitrary forwarding delays. JSON serialization or reconstructing only the
+public fields removes that provenance; reconstructed events use a bounded
+64-key recent-commit fallback. Use `refresh()` for a serialized notification
+whose commit is already represented by this runtime, rather than echoing its
+observer event back through serialization.
 
 A committed write can succeed while the catalog refresh fails. The mutation
 result still describes that committed write. The host receives an error event
