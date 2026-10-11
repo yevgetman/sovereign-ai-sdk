@@ -42,6 +42,7 @@ import { wrapCanUseToolWithWriteScope } from '../permissions/writeScope.js';
 import { PRICE_TABLE } from '../providers/pricing.js';
 import type { ResolvedProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
+import { createSkillActivationState } from '../skills/activation.js';
 import { CapabilityProfileRegistry, intersectCanUseTool } from '../tool/capabilityProfiles.js';
 import type { DelegationLifecycleEvent } from '../tool/ports.js';
 import { buildToolScope } from '../tool/toolScope.js';
@@ -456,8 +457,35 @@ export class SubagentScheduler implements Scheduler {
         // child itself tries to delegate, and enforces the child's
         // `allowedSubagents` policy as a recursion guard. Top-level harness
         // calls leave parentAgentName undefined (no scheduler hop).
+        const {
+          skillContinuity: parentContinuity,
+          skillActivation: parentActivation,
+          ...inheritedContext
+        } = input.parentToolContext;
+        const childContinuity = await input.parentToolContext.forkSkillContinuity?.(
+          childSessionId,
+          input.parentSessionId,
+        );
+        if (
+          childContinuity &&
+          (childContinuity.scope.session !== childSessionId ||
+            (parentContinuity &&
+              (childContinuity.scope.owner !== parentContinuity.scope.owner ||
+                childContinuity.scope.profile !== parentContinuity.scope.profile)))
+        )
+          throw new Error('child skill continuity scope does not match the authorized lineage');
+        const childActivation = parentActivation
+          ? createSkillActivationState({
+              tools,
+              ...(scopedPermission ? { canUseTool: scopedPermission } : {}),
+            })
+          : undefined;
+        if (childActivation && parentActivation)
+          childActivation.restrictionCanUseTool = parentActivation.restrictionCanUseTool;
         const childToolContext: ToolContext = {
-          ...input.parentToolContext,
+          ...inheritedContext,
+          ...(childContinuity ? { skillContinuity: childContinuity } : {}),
+          ...(childActivation ? { skillActivation: childActivation } : {}),
           sessionId: childSessionId,
           parentAgentName: agent.name,
           parentToolPool: tools,

@@ -68,6 +68,8 @@ export type BuildToolContextInput = {
   onSkillMutation?:
     | ((event: import('../skills/storeTypes.js').SkillMutationEvent) => void | Promise<void>)
     | undefined;
+  skillContinuity?: import('../skills/continuity.js').SkillContinuityPort | undefined;
+  forkSkillContinuity?: ToolContext['forkSkillContinuity'] | undefined;
   canUseTool: CanUseTool;
   subdirectoryHintState: SubdirectoryHintState;
   memoryManager: MemoryRuntime;
@@ -109,6 +111,10 @@ export function buildToolContext(input: BuildToolContextInput): ToolContext {
     parentToolPool: input.effectivePool,
     canUseTool: input.canUseTool,
     skills: filteredSkills,
+    ...(input.skillContinuity !== undefined ? { skillContinuity: input.skillContinuity } : {}),
+    ...(input.forkSkillContinuity !== undefined
+      ? { forkSkillContinuity: input.forkSkillContinuity }
+      : {}),
     ...(input.skillRegistryManager !== undefined
       ? { skillRegistryManager: input.skillRegistryManager }
       : {}),

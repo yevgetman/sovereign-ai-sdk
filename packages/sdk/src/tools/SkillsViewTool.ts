@@ -3,7 +3,7 @@ import { getSkillRegistry } from '../skills/registry.js';
 // or a specific reference file under that skill's directory.
 
 import { readFile, stat } from 'node:fs/promises';
-import { dirname, relative } from 'node:path';
+import { dirname, normalize, relative } from 'node:path';
 import { z } from 'zod';
 import { resolveSkillResource } from '../skills/activation.js';
 import { reloadSkill } from '../skills/loader.js';
@@ -46,6 +46,15 @@ export const SkillsViewTool = buildTool<Input, Output>({
 
     if (ctx.skillRuntime) {
       const inspected = await ctx.skillRuntime.inspect(skill.name, input.path);
+      if (ctx.skillContinuity && ctx.skillContinuity.scope.session !== ctx.sessionId)
+        throw new Error('skill continuity scope does not match the current session');
+      if (inspected.resourceIdentity !== undefined)
+        await ctx.skillContinuity?.resource(
+          inspected.skill.name,
+          inspected.content,
+          normalize(input.path ?? inspected.path),
+          inspected.resourceIdentity,
+        );
       return {
         data: { skill: inspected.skill.name, path: inspected.path, content: inspected.content },
         observation: {
@@ -76,6 +85,10 @@ export const SkillsViewTool = buildTool<Input, Output>({
       throw new Error(`skill reference path is not a file: ${input.path}`);
     }
     const content = await readFile(target, 'utf8');
+    if (ctx.skillContinuity && ctx.skillContinuity.scope.session !== ctx.sessionId)
+      throw new Error('skill continuity scope does not match the current session');
+    if (target !== current.realpath)
+      await ctx.skillContinuity?.resource(current.name, content, normalize(input.path), target);
     return {
       data: {
         skill: current.name,

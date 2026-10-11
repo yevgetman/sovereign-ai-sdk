@@ -2293,6 +2293,12 @@ SOV publishes a complete catalog generation after successful install, import, cr
 
 `/skills doctor [refresh] [--json]` and `GET /sessions/:id/skills/doctor` return content-free reason codes, source/trust classifications and generation counts. They omit paths, guard patterns, malformed YAML and raw loader messages. The native server checks bearer/principal session ownership before catalog access. `refresh` retries a scan after a manual file change; it does not execute a skill.
 
+### Workflow continuity
+
+SOV records activated guidance and its revision in a private `skill_continuity` table in the selected profile's `sessions.db`. Guidance can survive context reduction, session resume and a same-owner compaction or delegation child. Child creation freezes the parent's guidance snapshot. Turn lifetimes are excluded. The child starts with a fresh permission state; retained instructions do not grant tools or resource access.
+
+The current model's effective context budget controls how much guidance is reattached. An edited or missing installed revision produces a redacted diagnostic and keeps the recorded guidance. Explicit reactivation selects a new revision. A reference that changes during the workflow requires reactivation. Cancellation and failure remain visible as outcomes. Private records are absent from session metadata, session lists, transcript search and remote doctor reports. They can contain expanded instructions and reference contents, so protect `sessions.db` like a conversation transcript.
+
 ### Managing skills from the TUI (M11.17)
 
 | Command | Behavior |
@@ -2478,6 +2484,7 @@ Compaction creates a child session with:
 - a guarded handoff summary
 - a preserved recent tail
 - parent-child lineage in SQLite
+- a private snapshot of the same owner's active skill guidance, excluding turn lifetimes and permission grants
 
 Use `/rollback` to switch the active session back to the parent:
 

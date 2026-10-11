@@ -74,6 +74,13 @@ export type ToolContext = {
   skillRuntime?: import('../skills/runtime.js').SkillRuntime;
   /** Fresh per-turn state. Model activation can only narrow this pool/gate. */
   skillActivation?: import('../skills/activation.js').SkillActivationState;
+  /** Private workflow guidance; scope must match this trusted session. No tool authority. */
+  skillContinuity?: import('../skills/continuity.js').SkillContinuityPort;
+  /** Trusted host binds guidance to an already-authorized child session. */
+  forkSkillContinuity?: (
+    childSessionId: string,
+    parentSessionId?: string,
+  ) => Promise<import('../skills/continuity.js').SkillContinuityPort | undefined>;
   /** Explicit writable skill store. Embedded contexts never choose a machine home. */
   skillStore?: import('../skills/storeTypes.js').SkillWritableStore;
   /** Notify the host after a commit; active registry snapshots remain stable. */

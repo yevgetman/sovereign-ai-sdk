@@ -521,3 +521,13 @@ instructions and request history are not truncated. Input that fills the window
 still needs an authorized context reducer or fails before inference. A
 reasoning adapter that requires a larger minimum reservation still refuses an
 insufficient cap before contacting the provider.
+
+## Skills hardening review APIs
+
+The skills-hardening source branches add explicit discovery, transactional stores,
+permissioned activation, live registries, composed runtimes, complete catalogs and
+optional `createSkillContinuity()` / `InMemorySkillContinuityStore` lifecycle ports.
+These additions are not yet in the public 0.14.0 tarball. Retained workflow text
+uses current model budgets and never restores expired tool permissions. See
+[`skill-continuity.md`](../../docs/04-extending/skill-continuity.md) and the related
+composition recipes for host scope, privacy, outcomes and evaluation limits.

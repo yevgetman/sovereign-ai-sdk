@@ -7,9 +7,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   FilesystemSkillStore,
+  InMemorySkillContinuityStore,
   InMemorySkillStore,
   createAgent,
   createSkillActivationState,
+  createSkillContinuity,
   createSkillRuntime,
 } from '@yevgetman/sov-sdk';
 import { SkillTool } from '@yevgetman/sov-sdk/tools/SkillTool';
@@ -50,6 +52,12 @@ try {
     cwd: '/missing-memory-catalog',
     sessionId: 'packed-memory',
   });
+  const continuityStore = new InMemorySkillContinuityStore();
+  const continuityScope = { profile: 'packed', owner: 'fixture', session: context.sessionId };
+  context.skillContinuity = createSkillContinuity({
+    scope: continuityScope,
+    store: continuityStore,
+  });
   context.skillActivation = createSkillActivationState({ tools: [SkillTool] });
   const result = await SkillTool.call({ skill: 'packed', args: 'works' }, context);
   assert.equal(result.data.prompt, 'Packed works');
@@ -87,11 +95,24 @@ try {
     tools: [SkillTool],
     skillRuntime: runtime,
   });
-  const run = agent.run('Activate packed');
+  const { skillActivation: _expired, ...resumedContext } = context;
+  resumedContext.skillContinuity = createSkillContinuity({
+    scope: continuityScope,
+    store: continuityStore,
+  });
+  const run = agent.run('Activate packed', {
+    sessionId: context.sessionId,
+    toolContext: resumedContext,
+  });
   let end = await run.next();
   while (!end.done) end = await run.next();
   assert.equal(end.value.terminal.reason, 'completed');
+  assert.match(JSON.stringify(requests[0].messages), /Packed works/);
   assert.match(JSON.stringify(requests[1].messages), /Packed agent/);
+  assert.doesNotMatch(JSON.stringify(requests[1].system), /Packed agent/);
+  const records = await resumedContext.skillContinuity.exportRecords();
+  assert.equal(records[0].outcome, 'succeeded');
+  assert.equal(Object.hasOwn(records[0], 'allowedTools'), false);
   assert.equal(diskCalls, 0);
   runtime.dispose();
 } finally {

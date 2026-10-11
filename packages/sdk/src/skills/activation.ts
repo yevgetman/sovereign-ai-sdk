@@ -1,6 +1,6 @@
 // One activation contract for library hosts, model tools and SOV clients.
 // State is owned by a single turn. It can narrow capabilities, never grant them.
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { z } from 'zod';
@@ -27,6 +27,8 @@ export type SkillActivationEnvelope = {
 };
 
 export type SkillActivationState = {
+  /** Fresh activation lifetime identity, distinct from a durable session. */
+  turnId: string;
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool pool
   tools: Tool<any, any>[];
   canUseTool: CanUseTool;
@@ -55,6 +57,7 @@ export function createSkillActivationState(opts: {
   hookRunner?: HookRunner;
 }): SkillActivationState {
   return {
+    turnId: randomUUID(),
     tools: opts.tools.slice(),
     canUseTool: opts.canUseTool ?? (async () => ({ behavior: 'allow' })),
     restrictionCanUseTool: async () => ({ behavior: 'allow' }),
@@ -89,6 +92,11 @@ export async function activateSkill(
     executionDirectory?: string;
   },
 ): Promise<{ prompt: string; activation: SkillActivationEnvelope }> {
+  if (
+    opts.toolContext.skillContinuity &&
+    opts.toolContext.skillContinuity.scope.session !== opts.toolContext.sessionId
+  )
+    throw new Error('skill continuity scope does not match the current session');
   const current = await (opts.resolveSkill ?? reloadSkill)(skill);
   assertSkillContentLoaded(current);
   assertSkillInvocable(current, opts.source);
@@ -197,6 +205,7 @@ export async function activateSkill(
     allowedTools: rules ?? [],
     allowedResourceRoots: roots,
   };
+  await opts.toolContext.skillContinuity?.activated(activation, prompt, opts.state.turnId);
   opts.state.tools = scope.tools;
   opts.state.canUseTool = scope.canUseTool;
   opts.state.restrictionCanUseTool = restrictionScope.canUseTool;

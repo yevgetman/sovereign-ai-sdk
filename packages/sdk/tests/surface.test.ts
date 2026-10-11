@@ -191,6 +191,7 @@ import type {
   Settings,
   Skill,
   SkillActivationEnvelope,
+  SkillActivationOutcome,
   SkillActivationSource,
   SkillActivationState,
   SkillCatalogEntry,
@@ -198,6 +199,12 @@ import type {
   SkillClassification,
   SkillCompatibilityDiagnostic,
   SkillContextBudget,
+  SkillContinuityDiagnostic,
+  SkillContinuityOptions,
+  SkillContinuityPort,
+  SkillContinuityRecord,
+  SkillContinuityScope,
+  SkillContinuityStore,
   SkillDescriptor,
   SkillDiscoveryDecision,
   SkillDiscoveryLimits,
@@ -207,6 +214,7 @@ import type {
   SkillGuardDecision,
   SkillGuardFinding,
   SkillGuardLevel,
+  SkillGuidanceLifetime,
   SkillHarnessMetadata,
   SkillMutation,
   SkillMutationEvent,
@@ -294,6 +302,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'DEFAULT_CONDUCT_REFUSAL',
   'DEFAULT_SKILL_DISCOVERY_LIMITS',
   'FilesystemSkillStore',
+  'InMemorySkillContinuityStore',
   'InMemorySkillStore',
   'LaneSemaphores',
   'MODEL_CATALOG_VERSION',
@@ -334,6 +343,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'createNoopTranscriptStore',
   'createOpenRouterModelSource',
   'createSkillActivationState',
+  'createSkillContinuity',
   'createSkillRegistryManager',
   'createSkillRuntime',
   'createSubscriptionModelSource',
@@ -603,6 +613,14 @@ type TypeSurfaceWitness = {
   skillActivationState?: SkillActivationState;
   skillClassification?: SkillClassification;
   skillContextBudget?: SkillContextBudget;
+  skillContinuityScope?: SkillContinuityScope;
+  skillGuidanceLifetime?: SkillGuidanceLifetime;
+  skillActivationOutcome?: SkillActivationOutcome;
+  skillContinuityRecord?: SkillContinuityRecord;
+  skillContinuityDiagnostic?: SkillContinuityDiagnostic;
+  skillContinuityStore?: SkillContinuityStore;
+  skillContinuityPort?: SkillContinuityPort;
+  skillContinuityOptions?: SkillContinuityOptions;
   skillCatalogEntry?: SkillCatalogEntry;
   skillCatalogPage?: SkillCatalogPage;
   skillDescriptor?: SkillDescriptor;
