@@ -259,7 +259,7 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
         else if (storeOnly) {
           const file = entry?.files.get(path);
           if (!file) throw new Error(`skill resource '${path}' does not exist`);
-          if (file.data.byteLength > SKILL_STORE_LIMITS.bytes)
+          if (file.data.byteLength > DEFAULT_SKILL_DISCOVERY_LIMITS.maxFileBytes)
             throw new Error('skill resource exceeds byte limit');
           content = new TextDecoder().decode(file.data);
         } else {
@@ -276,6 +276,11 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
             await options.allowedResourceRoots?.(skill),
           );
         }
+        // Adapter-backed and linked references need the same per-file bound
+        // as store discovery and the standalone view tool. The tree cap is
+        // not a permission to expose one oversized resource to the model.
+        if (Buffer.byteLength(content, 'utf8') > DEFAULT_SKILL_DISCOVERY_LIMITS.maxFileBytes)
+          throw new Error('skill resource exceeds its bounded file byte limit');
         return { skill, path, content, resourceIdentity };
       });
     },
@@ -459,16 +464,17 @@ async function readBoundedResource(
   );
   try {
     const info = await handle.stat();
-    if (!info.isFile() || info.size > SKILL_STORE_LIMITS.bytes)
+    const maxBytes = DEFAULT_SKILL_DISCOVERY_LIMITS.maxFileBytes;
+    if (!info.isFile() || info.size > maxBytes)
       throw new Error('skill resource is not a bounded regular file');
-    const buffer = Buffer.alloc(SKILL_STORE_LIMITS.bytes + 1);
+    const buffer = Buffer.alloc(maxBytes + 1);
     let length = 0;
     while (length < buffer.length) {
       const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null);
       if (bytesRead === 0) break;
       length += bytesRead;
     }
-    if (length > SKILL_STORE_LIMITS.bytes) throw new Error('skill resource exceeds byte limit');
+    if (length > maxBytes) throw new Error('skill resource exceeds byte limit');
     const current = await stat(target);
     if (
       (await realpath(target)) !== target ||

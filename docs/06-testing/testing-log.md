@@ -1,3 +1,31 @@
+## 2026-10-11 — Fourth review PR57: bound every reference adapter
+
+Confirmed Medium: custom resource readers exposed unbounded text; the composed
+filesystem reader allowed one reference up to the 16 MiB tree cap. A real
+`SkillsViewTool.call()` disclosed a 2 MiB approved linked reference because
+directory guarding skips symlinks. Both paths now use the shared 1 MiB per-file
+bound, including UTF-8 bytes returned by custom readers. Approved roots retain
+their access policy; exact-limit resources remain readable.
+
+The two new `runtimeResourceLimits.test.ts` checks fail against exact PR57
+`fd9b2ae0` (zero pass / two fail). Corrected boundary checks pass for exact-limit
+multibyte text, character-short but byte-oversized text, approved linked files
+and rejected tool disclosure. An independent compiled public Node consumer
+also retains exactly 1 MiB and rejects oversized UTF-8.
+
+Commands: `bun run build`, `bun run tui:build`, then `bun run test
+tests/skills/runtimeLoaderObserverSafety.test.ts
+tests/skills/runtimeResourceLimits.test.ts tests/skills/runtime.test.ts
+tests/skills/runtimeVisibility.test.ts tests/server/skills.composedRuntime.test.ts`.
+The final focused review worktree (including the separately committed warning
+correction) passes **35 tests / zero failures / 155 assertions** across five
+files. Full final-source configured gate: **5,886 pass / 19 existing skips /
+zero failures / 24,476 assertions**, all 567 discovered files. Lint/boundary,
+root types and strict SDK build pass. Compiler and shared-theme fixtures run
+separately; all test files remain covered. Local environment: macOS, Bun
+1.3.13, Node 25.9.0. Root propagates parent fixes and rechecks the final stack.
+No live data, release or installed-host change.
+
 ## 2026-10-11 — Third review PR57 dependency integration
 
 Merged the corrected parent without rewriting PR history. Complete source gate: **5,882 passed / 19 existing skips / zero failures**, 24,458 assertions across all 565 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
