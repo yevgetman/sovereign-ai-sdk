@@ -1,3 +1,37 @@
+## 2026-10-11 — Fifth review PR52: serialize host activation and pin reference reads
+
+Confirmed High: parallel `activateSkill` calls on one turn state snapshot the
+same initial scope and overwrite each other's completed restrictions. A
+Read-only and Write-only pair returned both activation records while permitting
+an actual subsequent Write effect. The same race permitted inline Bash after
+the earlier Read-only request. Both effect regressions fail on incoming
+`634914c0`: **2 passed / 2 failed / 10 assertions**. Activation now runs in
+request order per state. Rejection releases the next slot. A queued cancelled
+request performs no resolver lookup. Separate turn states remain independent,
+even when they share a session ID.
+
+Confirmed High: the fallback `skill_view` opened a temporarily redirected
+ancestor, obtained an outside file's post-read metadata and then accepted
+restored canonical paths. An isolated open/stat swap reproduced exposure of
+`outside-private-reference`: **3 passed / 1 failed / 6 assertions** before
+correction. The shared file-identity helper captures canonical ancestor and
+pre-open leaf identities, compares opened metadata before reading, and checks
+handle/current leaf and ancestors again afterward. The new tests cover the
+concealed open swap and a concealed swap during the initial leaf snapshot.
+Existing oversize, canonical-retarget and metadata-boundary fixtures remain.
+
+Darwin arm64, Bun 1.3.13, isolated worktree and in-memory activation descriptors;
+reference tests use temporary filesystem roots and controlled metadata hooks.
+`bun install --offline --ignore-scripts --frozen-lockfile` prepares local
+dependencies. `bun test tests/tools/skillsViewSecurity.test.ts
+tests/skills/activationConcurrency.test.ts tests/skills/activation.test.ts`:
+**25 passed / zero failed / 95 assertions**. Focused Biome checks pass. The
+coordinator owns complete lint/type/build/test gates and PR publication. These
+checks establish the tested interleavings; they do not establish arbitrary
+filesystem-race immunity or live longitudinal workflow success.
+
+Coordinator full gate: lint/boundary, root types, strict SDK build and all 554 discovered test files pass: **5,775 passed / 19 existing skips / zero failures**, 23,977 assertions. Public protocol/SDK and TUI artifacts were built first. Compiler, theme, redaction timing and subprocess fixtures ran separately with no omitted files or changed assertions. The first type pass rejected a fixture tool output generic; the fixture now declares the correct broad output contract. This changed no effect or assertion. The complete clean rerun is the evidence used for publication.
+
 ## 2026-10-11 — Fourth review PR52: keep activated context references inert
 
 Confirmed High: the HTTP skill path rescanned activated text through
