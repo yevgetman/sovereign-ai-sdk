@@ -32,7 +32,7 @@ import { validateModelRequest } from '@yevgetman/sov-sdk/providers/models/valida
 import { estimateUsageCost } from '@yevgetman/sov-sdk/providers/pricing';
 import { listRoutes } from '@yevgetman/sov-sdk/providers/routes/catalog';
 import { validateRouteSelection } from '@yevgetman/sov-sdk/providers/routes/validate';
-import { createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
+import { activateSkill, createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
 import type { SkillActivationEnvelope } from '@yevgetman/sov-sdk/skills/activation';
 import { buildToolScope, filterParseableRules } from '@yevgetman/sov-sdk/tool/toolScope';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
@@ -491,12 +491,17 @@ async function runTurnInBackground(
       context.signal = turnSignal;
       context.traceRecorder = traceRecorder;
       context.skillActivation = state;
-      const result = await runtime.skillRuntime.activate(skill.name, {
+      const activationOptions = {
         source: skillInvocation.source,
         args: skillInvocation.args,
         toolContext: context,
         state,
-      });
+      };
+      const canonical = runtime.skills.byName.get(skill.name);
+      const result =
+        canonical?.path === skill.path && canonical.realpath === skill.realpath
+          ? await runtime.skillRuntime.activate(skill.name, activationOptions)
+          : await activateSkill(skill, activationOptions);
       text = result.prompt;
       skillActivation = result.activation;
       skillScope =

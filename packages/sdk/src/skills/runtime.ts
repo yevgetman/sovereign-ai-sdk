@@ -1,5 +1,6 @@
 // Optional, host-owned skill composition. Importing or constructing this
 // interface never chooses a home directory, opens a store or reads disk.
+import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open, realpath, stat } from 'node:fs/promises';
 import type { ToolContext } from '../tool/types.js';
@@ -41,7 +42,13 @@ export type SkillRuntimeEvent =
   | { type: 'mutation'; event: SkillMutationEvent }
   | { type: 'error'; operation: 'refresh' | 'inspect' | 'activate' | 'mutate'; error: unknown };
 
-export type SkillRuntimeInspection = { skill: Skill; path: string; content: string };
+export type SkillRuntimeInspection = {
+  skill: Skill;
+  path: string;
+  content: string;
+  /** Trusted opaque resource target identity. No disk lookup required by consumers. */
+  resourceIdentity?: string;
+};
 export type SkillRuntimeActivationOptions = {
   source: SkillActivationSource;
   args?: string;
@@ -206,6 +213,9 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
         if (!path || path === 'SKILL.md') return { skill, path: 'SKILL.md', content: skill.body };
         assertSkillStoreResource(path);
         let content: string;
+        let resourceIdentity = createHash('sha256')
+          .update(JSON.stringify([skill.realpath, path]))
+          .digest('hex');
         if (options.readResource) content = await options.readResource(skill, path);
         else if (storeOnly) {
           const file = entry?.files.get(path);
@@ -219,6 +229,7 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
             path,
             await options.allowedResourceRoots?.(skill),
           );
+          resourceIdentity = createHash('sha256').update(target).digest('hex');
           content = await readBoundedResource(
             skill,
             path,
@@ -226,7 +237,7 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
             await options.allowedResourceRoots?.(skill),
           );
         }
-        return { skill, path, content };
+        return { skill, path, content, resourceIdentity };
       });
     },
     activate(name, activationOptions) {
