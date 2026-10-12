@@ -164,6 +164,9 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
   Activation owns a turn-local tool scope and routes inline shell through
   the host permission callback. Inspection stays raw. See the
   [activation contract](../../docs/04-extending/skill-activation.md).
+  Discovery also supports bounded native/portable roots, managed links, explicit
+  external link approval and structured diagnostics via `discoverSkills`.
+  Filesystem discovery is optional; `createAgent` remains disk-free by default.
 - **Persistence & ports** — `createInMemorySessionStore` / the `SessionStore`
   port, the `TranscriptStore` port (+ no-op impl), and the injected port types
   for memory, recall, and observation (`MemoryRuntime`, `RecallResult`,

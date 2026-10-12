@@ -211,7 +211,7 @@ See [`CLAUDE.md`](CLAUDE.md) for the session boot sequence, doc index, and stand
 | `packages/sdk/src/permissions/` | Permission middleware (layered rules, ask/default/bypass modes, project-local always rules, shell AST analysis for virtual tool mapping) | 3, 7, Qwen-B |
 | `src/agent/` | `createAgent.ts` — the open-core SDK assembler (the turn driver every surface runs on); plus the closed Session DB impl (`sessionDb.ts`) — SQLite + WAL + FTS5, migrations, retry wrapper, compaction lineage | 3.5, 10, SDK extraction |
 | `src/commands/` | Slash commands (local / local-jsx / prompt) | 8, 10 |
-| `packages/sdk/src/skills/` | Markdown-plus-frontmatter skill loader, prompt expansion, visibility gates, guard scanner, slash-command adapter | 9/9.5 |
+| `packages/sdk/src/skills/` | Bounded portable/native discovery and managed links, markdown-plus-frontmatter loading, prompt expansion, visibility gates, guard scanner, slash-command adapter | 9/9.5 |
 | `src/compact/` | Context-window compaction + microcompaction (per-part tool-result clearing) | 10, Qwen-A |
 | `packages/sdk/src/hooks/` | Shell-out lifecycle hooks | 11 |
 | `packages/sdk/src/mcp/` | MCP client | 12 |
