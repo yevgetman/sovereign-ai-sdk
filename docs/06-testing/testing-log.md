@@ -1,3 +1,9 @@
+## 2026-10-11 — Current parallel review: PR58 model context budgets
+
+Fresh parent-relative review of incoming `5e86c6eb` against PR57 followed catalog generation, UTF-8 fragments, serialized paging/query limits, frozen effective windows, custom counters, lazy file identity and rebudgeting after reduction. No new independently confirmed finding above Low. Combined catalog/continuity witnesses at incoming PR59 pass 64 tests / 924 assertions across nine files. No paid provider evaluation was run.
+
+PR58 prepared frozen dependencies and built worktree-local protocol, SDK and TUI artifacts. Complete gate: `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review8-20261011/pr58 review8-pr58`. Configured lint/boundary, root typecheck and strict SDK build pass. Every discovered test file runs: **5,963 passed / 19 existing skips / zero failures**, 25,388 assertions across 578 files. Existing global compiler/theme/timing/subprocess fixtures run separately with unchanged assertions. Environment: macOS arm64, Bun 1.3.13. Parent integration will receive a separate complete gate before publication.
+
 ## 2026-10-11 — Sixth-review corrected parent integration for PR58
 
 Carried the independently reviewed parent `030925a7bb7c9271a794055b6908a8624fb3df2d` by ordinary merge, preserving incoming head `40729fd0c5ee1d46753dd6131057e8c576e1d1cb` and all prior testing-log sections. Configured lint/boundary, root types, strict SDK build and all discovered tests pass: **5,963 passed / 19 existing skips / zero failures**, 25,388 assertions across 578 files. Local protocol/SDK/TUI artifacts built first. Complete runner: `/private/tmp/sdk-skills-round5-20261011/gate.py <seat> sixth-publish-58`. Existing compiler/theme/timing/subprocess fixtures are isolated without omissions or assertion changes. This checks review source; PRs remain open.
