@@ -1,5 +1,6 @@
 // One activation contract for library hosts, model tools and SOV clients.
-// State is owned by a single turn. It can narrow capabilities, never grant them.
+// State is owned by one turn attempt; retries retain its restrictions only.
+// It can narrow capabilities, never grant them.
 import { createHash } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
@@ -36,6 +37,12 @@ export type SkillActivationState = {
   hookRunner?: HookRunner;
   activations: SkillActivationEnvelope[];
 };
+
+/** Restriction-only state a logical run may retain across provider attempts. */
+export type SkillRestrictionState = Pick<
+  SkillActivationState,
+  'tools' | 'restrictionCanUseTool' | 'activations'
+>;
 
 // Remember only callbacks we own. A query-owned child gate already wraps
 // this state's host gate; carry its independent ceiling into a new scope

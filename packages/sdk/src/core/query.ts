@@ -197,9 +197,27 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     params.canUseTool !== undefined || inheritedActivation?.hasHostPermission === true;
   if (toolCtx && skillsEnabled) {
     activationState.activations = toolCtx.skillActivation?.activations.slice() ?? [];
-    if (toolCtx.skillActivation)
+    if (toolCtx.skillActivation) {
       activationState.restrictionCanUseTool = toolCtx.skillActivation.restrictionCanUseTool;
+      // A fresh attempt retains the input floor with its fresh host callback.
+      // Delegated calls need this gate as well as the final dispatch check.
+      activationState.canUseTool = intersectCanUseTool(
+        activationState.canUseTool,
+        activationState.restrictionCanUseTool,
+      );
+    }
     toolCtx.skillActivation = activationState;
+    params.onSkillRestrictionState?.({
+      get tools() {
+        return activationState.tools;
+      },
+      get restrictionCanUseTool() {
+        return activationState.restrictionCanUseTool;
+      },
+      get activations() {
+        return activationState.activations;
+      },
+    });
   }
   // Resolve dynamically: serial calls after SkillTool in the same batch must
   // obey its new floor as well as continuation requests on the next iteration.

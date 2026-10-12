@@ -1,3 +1,17 @@
+## 2026-10-11 — Seventh review recovery: retain activation restrictions during Conduct retries
+
+Confirmed High incoming PR52 defect: model skill activation removed FileWrite from a completed attempt, but Conduct regeneration rebuilt the full original pool and executed a forbidden write. The saved independent before-fix witness records the actual filesystem effect. The driver now captures restriction-only state per logical run and reconstructs each attempt from the original host permission path. Tool membership, input-pattern floors and activation metadata survive retries; ordinary next runs renew their original scope.
+
+Recovery review also reproduced two defects in the unfinished local patch, distinct from incoming PR52: an explicit activation with no host approval callback became approved on retry and executed actual inline Bash (High); an explicit activation's delegated transforming host callback ran twice after retry (Medium). New negative-effect and delegated-write regressions failed before these corrections. Retry state now preserves absent approval authority and rebinds the caller-owned child gate without duplicating its host.
+
+Darwin arm64, Bun 1.3.13, isolated worktree; scripted fake providers, temporary filesystem roots, native scheduler and mock subscription executor. No paid inference, release or installed-runtime update.
+
+- `bun test tests/skills/regenerationToolFloor.test.ts tests/skills/activationChildPermissions.test.ts tests/skills/activation.test.ts tests/skills/activationConcurrency.test.ts tests/server/skillActivationClients.test.ts tests/cron/skillActivation.test.ts`: **48 passed / 0 failed / 245 assertions**. Covers actual Write/Bash effects, host and hook rewrites, fresh host denials, native/subprocess child ceilings, bounded retry, explicit activation, absent approval authority and renewal after success, error, cancellation or abandonment.
+- `bun run tui:build`: local ignored TUI prerequisite built before the suite. Protocol and SDK build prerequisites were present.
+- `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review7-20261011/review-52-regen recovery7-pr52`: lint/boundary, typecheck, strict SDK build and all **556** discovered files pass: **5,794 passed / 19 existing skips / 0 failures / 24,059 assertions**. Compiler, footer-theme, timing and subprocess fixtures are isolated and serialized without omitted files or weaker assertions. Receipt: `/private/tmp/sdk-skills-recovery7-pr52-gate.json`.
+
+Limit: this branch validates Conduct retries inside one `agent.run()`. The separate SOV overflow-recovery lifetime and continuity settlement belong to PR59 and require the final integrated host fixture. No claim is made here about that still-separate integration.
+
 ## 2026-10-11 — Seventh review: preserve parent authorization in skill children
 
 Confirmed High child authorization defect in PR52. Query delegation discarded host input transformations and accepted child rewrites; direct activation could replace the host denial callback. Shared dynamic permission composition now preserves approved input and independent child ceilings. Weak callback ownership prevents duplicate host transformations on repeated activation. Six concrete filesystem/native-scheduler/repeated-activation checks pass, 11 assertions; broader activation/HTTP/concurrency/scheduler checks pass49tests/251assertions. Root independently reproduces four failures on incoming combined PR59, including actual native-child secret-redaction loss (synthetic data only).

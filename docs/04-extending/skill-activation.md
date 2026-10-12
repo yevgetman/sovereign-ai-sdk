@@ -36,6 +36,16 @@ the same tool batch. A model-activated scope does not mutate the host's shared
 tool pool or survive into its next ordinary turn. Model activation is serial
 because it changes the effective capability floor.
 
+Conduct regeneration is another attempt within the same logical run. It keeps
+all tool and input-pattern restrictions activated by earlier attempts. Each
+attempt rebuilds its host permission path, so a prior approval cannot suppress a
+new host denial. An absent host approval callback remains absent on retries.
+Caller-owned child gates retain their independent ceiling without repeating the
+host transformer. Activation metadata keeps native child and subprocess ceilings
+in force. Restrictions expire when that run ends, including failure, cancellation
+and consumer abandonment. A later `agent.run()` begins from the original host
+context and tool pool.
+
 Parallel host activations on the same state also run in request order. The next
 activation observes the prior activation's complete restriction before it
 checks permissions or expands inline shell. Failed or cancelled requests release
@@ -135,6 +145,10 @@ native tool effects, inline shell, failure recovery and independent states.
 `tests/skills/activationChildPermissions.test.ts` checks real delegated writes,
 parent redaction and denial, forbidden child rewrites, the native scheduler and
 repeated activation with an always-transforming host callback.
+`tests/skills/regenerationToolFloor.test.ts` checks Conduct retries with actual
+Write and Bash effects, rewritten inputs, host denials, native child/subprocess
+ceilings, explicit host activation, absent approval callbacks, bounded regeneration
+and next-run renewal after success or interruption.
 `tests/server/skillActivationClients.test.ts` drives the actual command/HTTP
 and line-driver paths. TUI tests check that the command activation POST keeps
 the skill identity. Existing skill scope tests retain the legacy native rule
