@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -257,6 +258,40 @@ describe('portable bounded skill discovery', () => {
       mkdirSync(cwd);
       const registry = await loadSkills({ cwd, harnessHome: join(root, 'home') });
       expect(registry.skills).toEqual([]);
+    });
+  });
+
+  test('an unreadable node marker never inherits an enclosing repository catalog', async () => {
+    await fixture(async (root) => {
+      repository(root);
+      skill(join(root, '.agents', 'skills', 'outer.md'), 'outer');
+      const node = join(root, 'node');
+      const markerDirectory = join(node, '.kernel');
+      skill(join(node, '.agents', 'skills', 'local.md'), 'local');
+      mkdirSync(join(node, 'src'), { recursive: true });
+      mkdirSync(markerDirectory);
+      writeFileSync(join(markerDirectory, 'node.yml'), 'node: local\n');
+      chmodSync(markerDirectory, 0);
+      try {
+        for (const cwd of [node, join(node, 'src')]) {
+          const decisions: SkillDiscoveryDecision[] = [];
+          const registry = await loadSkills({
+            cwd,
+            harnessHome: join(root, 'home'),
+            projectRoot: root,
+            onDiscoveryDecision: (decision) => decisions.push(decision),
+          });
+          expect(registry.skills.map((entry) => entry.name)).toEqual(['local']);
+          expect(
+            decisions.some(
+              (entry) =>
+                entry.code === 'unreadable' && entry.path === join(markerDirectory, 'node.yml'),
+            ),
+          ).toBe(true);
+        }
+      } finally {
+        chmodSync(markerDirectory, 0o700);
+      }
     });
   });
 
