@@ -60,6 +60,8 @@ export interface CreateSessionResponse {
 // the locked prefix ({ text, kind }) is preserved for older clients.
 
 export interface PostTurnRequest {
+  /** Origin hint only; server resolves all skill policy from its own registry. */
+  skillSource?: 'user' | 'command';
   text?: string;
   kind?: string;
   model?: string;

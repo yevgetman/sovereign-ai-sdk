@@ -23,6 +23,7 @@ import type { PostTurnRequest, PostTurnResponse } from '@yevgetman/sov-protocol'
 import { accumulateUsage, createUsageAccumulator, finalizeUsage } from '@yevgetman/sov-sdk';
 import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
 import { expandContextReferences } from '@yevgetman/sov-sdk/context/references';
+import { composeConductCanUseTool } from '@yevgetman/sov-sdk/core/conductToolPolicy';
 import type { Message, Terminal } from '@yevgetman/sov-sdk/core/types';
 import { toToolSchemas } from '@yevgetman/sov-sdk/mcp/schemaSerialization';
 import { REASONING_EFFORTS, type ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
@@ -31,7 +32,8 @@ import { validateModelRequest } from '@yevgetman/sov-sdk/providers/models/valida
 import { estimateUsageCost } from '@yevgetman/sov-sdk/providers/pricing';
 import { listRoutes } from '@yevgetman/sov-sdk/providers/routes/catalog';
 import { validateRouteSelection } from '@yevgetman/sov-sdk/providers/routes/validate';
-import { expandSkillPrompt } from '@yevgetman/sov-sdk/skills/loader';
+import { activateSkill, createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
+import type { SkillActivationEnvelope } from '@yevgetman/sov-sdk/skills/activation';
 import { buildToolScope, filterParseableRules } from '@yevgetman/sov-sdk/tool/toolScope';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { Hono } from 'hono';
@@ -46,6 +48,8 @@ import {
 } from '../modelMetadata.js';
 import { type Runtime, createServerAsk } from '../runtime.js';
 import { isValidSessionId } from '../sessionId.js';
+import { buildSessionToolContext } from '../sessionToolContext.js';
+import { resolveSkillInvocation } from '../skillInvocation.js';
 import {
   type TurnPersistence,
   appendInstructions,
@@ -176,33 +180,29 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
       return c.json({ error: `effort must be one of ${REASONING_EFFORTS.join('|')}` }, 400);
     }
 
-    // M8 T5 — skill-as-slash dispatch. When the client (Go TUI) recognises
-    // the leading slash as a known skill name, it POSTs with `kind: 'skill'`
-    // to opt into server-side expansion. We parse `/name args…`, resolve
-    // `name` against `runtime.skills.byName` (T4-populated), and replace
-    // `text` with the expanded body BEFORE the rest of the turn runs.
-    // Downstream @file expansion (T3) then sees the expanded prompt and
-    // composes naturally — a skill body containing `@file:foo.md` gets the
-    // file inlined the same way a hand-typed prompt would. The `kind` is
-    // intentionally NOT forwarded; `runTurnInBackground` treats the post-
-    // expansion text as plain user input. Unknown-skill names short-circuit
-    // with a 400 so the TUI surfaces the mistake immediately rather than
-    // letting a raw `/foo` slash leak into the model's context.
-    let text = rawText;
+    // Resolve known skill slash requests at the shared server boundary. This
+    // covers plain HTTP and SOV run callers that do not attach a kind hint.
+    // Explicit skill requests reject unknown names; ordinary text containing
+    // an unrelated path or unknown slash name remains ordinary text.
+    const text = rawText;
     // Feature B — the resolved skill's allowedTools, retained across the
     // expansion so runTurnInBackground can scope the live tool pool to it for
     // THIS turn only. Passed only for kind:'skill' turns with a non-empty
     // allow-list; undefined (no restriction) otherwise.
     let skillScope: readonly string[] | undefined;
-    if (body.kind === 'skill') {
-      const trimmed = rawText.trim();
-      if (!trimmed.startsWith('/')) {
+    let skillInvocation: { name: string; args: string; source: 'user' | 'command' } | undefined;
+    const slash = /^\/([^\s/]+)(?:\s+([\s\S]*))?$/.exec(rawText.trim());
+    const skillSource = body.skillSource === 'command' ? 'command' : 'user';
+    const namedSkill = slash
+      ? resolveSkillInvocation(runtime, slash[1] ?? '', skillSource)
+      : undefined;
+    if (body.kind === 'skill' || namedSkill) {
+      if (!slash) {
         return c.json({ error: 'kind: skill requires text to start with /' }, 400);
       }
-      const space = trimmed.indexOf(' ');
-      const skillName = space === -1 ? trimmed.slice(1) : trimmed.slice(1, space);
-      const args = space === -1 ? '' : trimmed.slice(space + 1).trim();
-      const skill = runtime.skills.byName.get(skillName);
+      const skillName = slash[1] ?? '';
+      const args = (slash[2] ?? '').trim();
+      const skill = namedSkill;
       if (!skill) {
         return c.json({ error: `unknown skill: ${skillName}` }, 400);
       }
@@ -257,7 +257,11 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
       if (parseableTools.length > 0) {
         skillScope = parseableTools;
       }
-      text = await expandSkillPrompt(skill, { args, cwd: runtime.cwd, sessionId });
+      skillInvocation = {
+        name: skillName,
+        args,
+        source: skillSource,
+      };
     }
 
     // Per-turn model override (PostTurnRequest.model) — additive + optional.
@@ -312,6 +316,7 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
       perTurnModel,
       gatedPerTurnInstructions,
       perTurnEffort,
+      skillInvocation,
     ).catch((err) => {
       // Defense in depth: runTurnInBackground catches errors inside its try and
       // publishes turn_error, but a throw in its pre-try setup would otherwise
@@ -334,7 +339,7 @@ export function turnsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }> 
 async function runTurnInBackground(
   runtime: Runtime,
   sessionIdInitial: string,
-  text: string,
+  textInitial: string,
   bus: ServerEventBus,
   // Feature B — when this turn consumes a skill body whose frontmatter
   // declares `allowedTools`, the route passes that allow-list here. It scopes
@@ -342,7 +347,7 @@ async function runTurnInBackground(
   // the restriction lives entirely in a turn-local const and evaporates at
   // turn end (no persistence, no clearing, no resume hazard). Undefined/empty
   // → identity (no narrowing), byte-identical to a non-skill turn.
-  skillScope?: readonly string[],
+  skillScopeInitial?: readonly string[],
   // Per-turn model override (PostTurnRequest.model). A non-empty string set by
   // the route runs THIS turn on that model via the PerTurn slice below
   // (createAgent: `perTurn.model ?? config.model`); undefined → the turn falls
@@ -365,7 +370,10 @@ async function runTurnInBackground(
   // byte-identical to today. Turn-local: `sessionCtx.effort` is never mutated,
   // so the next turn without an `effort` field is back on the session level.
   perTurnEffort?: ReasoningEffort,
+  skillInvocation?: { name: string; args: string; source: 'user' | 'command' },
 ): Promise<void> {
+  let text = textInitial;
+  let skillScope = skillScopeInitial;
   // Phase B T3 — mark the turn boundary on the bus BEFORE this turn stamps
   // its first event (the status_update{streaming:true} below is the first
   // bus.nextSeq() / bus.publish() of the turn). markTurnStart records
@@ -454,7 +462,69 @@ async function runTurnInBackground(
   // turn. The expanded text is what lands in `sessionDb` AND what the
   // model sees, so resume reconstructs the exact same context the
   // original turn ran against.
-  const expandedText = await expandContextReferences(text, { cwd: runtime.cwd });
+  let skillActivation: SkillActivationEnvelope | undefined;
+  if (skillInvocation) {
+    // Inline context can emit conduct policy records before a provider drive
+    // exists. Give those records their own host identity in this session.
+    // Later compaction/provider drives keep their separate post-pivot ids.
+    const activationTurnId = runtime.attestationEvidence?.beginTurn(sessionId, {
+      surface: 'user',
+      model: perTurnModel ?? runtime.model,
+    });
+    try {
+      const skill = resolveSkillInvocation(runtime, skillInvocation.name, skillInvocation.source);
+      if (!skill) throw new Error(`unknown skill: ${skillInvocation.name}`);
+      const hostGate = buildTurnCanUseTool(runtime, {
+        ask: createServerAsk(runtime.approvalQueue, bus, sessionId),
+      });
+      const gate =
+        composeConductCanUseTool(
+          runtime.conduct,
+          {
+            sessionId,
+            surface: 'user',
+            model: perTurnModel ?? runtime.model,
+            providerName: runtime.resolvedProvider.transport.name,
+            cwd: runtime.cwd,
+            ...(activationTurnId !== undefined ? { turnId: activationTurnId } : {}),
+          },
+          hostGate,
+        ) ?? hostGate;
+      const state = createSkillActivationState({
+        tools: runtime.toolPool,
+        canUseTool: gate,
+        hookRunner: runtime.hookRunner,
+      });
+      const context = buildSessionToolContext(runtime, sessionId, gate);
+      context.signal = turnSignal;
+      context.traceRecorder = traceRecorder;
+      context.skillActivation = state;
+      const result = await activateSkill(skill, {
+        source: skillInvocation.source,
+        args: skillInvocation.args,
+        toolContext: context,
+        state,
+      });
+      text = result.prompt;
+      skillActivation = result.activation;
+      skillScope =
+        result.activation.allowedTools.length > 0 ? result.activation.allowedTools : undefined;
+    } catch (error) {
+      bus.clearCurrentTurnAbort();
+      throw error;
+    } finally {
+      // This segment performs context expansion only. Its backfill row has
+      // no delivered text, including when approval or expansion rejects.
+      if (activationTurnId !== undefined) runtime.attestationEvidence?.endTurn(activationTurnId);
+    }
+  }
+  // Activated instructions, substituted arguments and command stdout are data.
+  // Rescanning them for @references would read files, fetch URLs or spawn git
+  // outside the skill's tool scope and host permission gate. Ordinary explicit
+  // user references retain their existing expansion behavior.
+  const expandedText = skillActivation
+    ? text
+    : await expandContextReferences(text, { cwd: runtime.cwd });
   const userMessage: Message = {
     role: 'user',
     content: [{ type: 'text', text: expandedText }],
@@ -735,6 +805,7 @@ async function runTurnInBackground(
       persistence,
       ...(modelSnapshot ? { modelMetadata: modelSnapshot.metadata } : {}),
       ...(skillScope !== undefined ? { skillScope } : {}),
+      ...(skillActivation !== undefined ? { skillActivation } : {}),
       ...(perTurnModel !== undefined ? { model: perTurnModel } : {}),
       ...(perTurnEffort !== undefined ? { effort: perTurnEffort } : {}),
       ...(perTurnInstructions !== undefined ? { instructions: perTurnInstructions } : {}),

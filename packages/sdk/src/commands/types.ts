@@ -12,7 +12,7 @@ import type { ContentBlock, Message } from '../core/types.js';
 import type { WorkflowCommandCapability } from '../core/workflowPort.js';
 import type { ReasoningEffort } from '../providers/effort.js';
 import type { ApiMode } from '../providers/types.js';
-import type { SkillRegistry } from '../skills/types.js';
+import type { Skill, SkillRegistry } from '../skills/types.js';
 import type { ReviewManagerCommandPort, TaskManagerPort } from '../tool/ports.js';
 import type { Tool } from '../tool/types.js';
 
@@ -299,6 +299,14 @@ export type PromptCommand = {
   description: string;
   usage?: string;
   allowedTools?: string[];
+  /** Skill commands preserve identity; preview text is never an activation. */
+  skill?: {
+    name: string;
+    revision?: string;
+    /** Host-owned descriptor for slash-only skills, including plugin commands.
+     * It is an in-process contract and must never be accepted from a client. */
+    descriptor?: Skill;
+  };
   getPromptForCommand: (args: string, ctx: CommandContext) => Promise<ContentBlock[]>;
 };
 

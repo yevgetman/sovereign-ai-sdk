@@ -141,8 +141,8 @@ Body in \${HARNESS_SKILL_DIR}
         ctx,
       );
 
-      expect(body.data.content).toContain(join(bundleRoot, 'skills/research'));
-      expect(reference.data.content).toBe('Reference for session-view');
+      expect(body.data.content).toContain('${HARNESS_SKILL_DIR}');
+      expect(reference.data.content).toBe('Reference for ${HARNESS_SESSION_ID}');
       await expect(
         SkillsViewTool.call({ name: 'research', path: '../escape.md' }, ctx),
       ).rejects.toThrow('escapes skill directory');

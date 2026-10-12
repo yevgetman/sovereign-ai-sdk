@@ -19,9 +19,9 @@ import {
 //     lands the ratified microcompaction + transcript parity-fixes (see
 //     `buildCronAgentConfig`). The session is disposed in a finally block so
 //     trace writers and learning observers flush even on agent error.
-//   - expandSkills: walks `job.skills`, looks each up in `runtime.skills.byName`,
-//     expands the body via `expandSkillPrompt`, and joins on `\n\n---\n\n`.
-//     Throws on unknown skill name (caught by the executor's try/catch).
+//   - skillActivation: defers job.skills to runAgent so activation runs
+//     inside the actual scoped turn. Dynamic context shares the Bash policy.
+//     Unknown skills and denied operations fail the job without widening tools.
 //   - runScript: spawns the resolved interpreter under `cwd` with a timeout,
 //     throws on non-zero exit, returns stdout capped at MAX_SCRIPT_STDOUT.
 //     Uses async `spawn` (NOT `spawnSync`) so a slow script never blocks the
@@ -37,6 +37,7 @@ import { SUBAGENT_EXCLUDED_TOOLS } from '@yevgetman/sov-sdk/agents/exclusions';
 import type { MicrocompactConfig } from '@yevgetman/sov-sdk/compact/microcompact';
 import { loadPermissionSettings } from '@yevgetman/sov-sdk/config/settings';
 import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
+import { composeConductCanUseTool } from '@yevgetman/sov-sdk/core/conductToolPolicy';
 import type { AssistantMessage, RecallTurn, SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import type { MemoryRuntime } from '@yevgetman/sov-sdk/memory/provider';
 import { buildCanUseTool } from '@yevgetman/sov-sdk/permissions/canUseTool';
@@ -44,6 +45,7 @@ import type { AskResponse } from '@yevgetman/sov-sdk/permissions/types';
 import type { TranscriptStore } from '@yevgetman/sov-sdk/persistence/transcriptStore';
 import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
+import { activateSkill, createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
 import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { bashPath } from '@yevgetman/sov-sdk/util/platform';
 import { buildSessionToolContext } from '../server/routes/turns.js';
@@ -281,7 +283,8 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
   const executor = buildCronJobExecutor({
     harnessHome,
     cwd: runtime.cwd,
-    runAgent: async ({ prompt, cronJobId }) => {
+    skillActivation: 'in-agent',
+    runAgent: async ({ prompt, cronJobId, skills = [] }) => {
       // Each cron run gets a fresh session so the model has no carry-over
       // context from prior runs (matches the spec's "Hermes-style
       // short-lived fire-and-forget" framing). The session row is tagged
@@ -344,7 +347,9 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
         // turn — minus the SSE bus + serverAsk (cron auto-denies any
         // fall-through ask, so no bus is needed). It also builds (and caches)
         // the SessionContext we read memoryManager + recall off of below.
-        const toolContext = buildSessionToolContext(runtime, sessionId, canUseTool);
+        const toolContext = buildSessionToolContext(runtime, sessionId, canUseTool, {
+          effectivePool: cronToolPool,
+        });
         // Learning-loop participation — the SAME per-session context the
         // ToolContext above was built from (getSessionContext caches by
         // sessionId). It carries the memory manager (always present) and the
@@ -357,6 +362,40 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
         // never ran recall, and never wrote memory back (the same omission the
         // Phase-F channel fix closed for channels).
         const sessionCtx = runtime.getSessionContext(sessionId);
+        turnId = runtime.attestationEvidence?.beginTurn(sessionId, {
+          surface: 'user',
+          model: runtime.model,
+        });
+        const gate =
+          composeConductCanUseTool(
+            runtime.conduct,
+            {
+              sessionId,
+              surface: 'user',
+              model: runtime.model,
+              providerName: runtime.resolvedProvider.transport.name,
+              cwd: runtime.cwd,
+              ...(turnId !== undefined ? { turnId } : {}),
+            },
+            canUseTool,
+          ) ?? canUseTool;
+        const activationState = createSkillActivationState({
+          tools: cronToolPool,
+          canUseTool: gate,
+          hookRunner: runtime.hookRunner,
+        });
+        toolContext.skillActivation = activationState;
+        const expansions: string[] = [];
+        for (const name of skills) {
+          const skill = runtime.skills.byName.get(name);
+          if (!skill) throw new Error(`unknown skill: ${name}`);
+          expansions.push(
+            (await activateSkill(skill, { source: 'command', toolContext, state: activationState }))
+              .prompt,
+          );
+        }
+        const effectivePrompt = [...expansions, prompt].join('\n\n---\n\n');
+        const effectiveTools = activationState.tools;
 
         // The cron turn runs through the open SDK's `createAgent().run()`.
         // The agent loop is IDENTICAL — every prior native turn-loop opt maps 1:1 to
@@ -398,12 +437,12 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
             effort: runtime.effort,
             systemPrompt: modelSystemPrompt(
               runtime.systemSegments,
-              cronToolPool,
+              effectiveTools,
               modelSnapshot?.metadata,
             ),
             maxTokens: runtime.maxTokens,
             cwd: runtime.cwd,
-            tools: cronToolPool,
+            tools: effectiveTools,
             memoryManager: sessionCtx.memoryManager,
             ...(sessionCtx.recall !== undefined ? { recall: sessionCtx.recall } : {}),
             microcompactConfig: runtime.microcompactConfig,
@@ -427,14 +466,10 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
         // 'host') and the coordinator can settle exactly one io row for it.
         // `vars` mirror the ConductContext the hooks see (cron agents run the
         // default 'user' surface on the runtime boot model).
-        turnId = runtime.attestationEvidence?.beginTurn(sessionId, {
-          surface: 'user',
-          model: runtime.model,
-        });
-        const gen = agent.run(prompt, {
+        const gen = agent.run(effectivePrompt, {
           sessionId,
           toolContext,
-          canUseTool,
+          canUseTool: activationState.canUseTool,
           ...(turnId !== undefined ? { turnId } : {}),
         });
         let final: Awaited<ReturnType<typeof gen.next>>;
@@ -477,31 +512,8 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
         await runtime.disposeSession(sessionId);
       }
     },
-    expandSkills: async (skills, _cwd) => {
-      // Skills compose into a single user-message body, separated by the
-      // canonical `---` horizontal-rule fence the rest of the harness
-      // uses (matches expandSkillPrompt's own composition style). Unknown
-      // skill name throws; the executor's outer try/catch surfaces it as
-      // a job-level failure with a clear error string.
-      // The `_cwd` arg is the executor's resolved cwd, but skills source
-      // their dir from the registry entry — we pass through the runtime
-      // cwd via the SkillExpansionOptions below for consistency with the
-      // turn-time expansion path.
-      const { expandSkillPrompt } = await import('@yevgetman/sov-sdk/skills/loader');
-      const expansions: string[] = [];
-      for (const name of skills) {
-        const skill = runtime.skills.byName.get(name);
-        if (!skill) {
-          throw new Error(`unknown skill: ${name}`);
-        }
-        const expanded = await expandSkillPrompt(skill, {
-          args: '',
-          cwd: runtime.cwd,
-          sessionId: 'cron',
-        });
-        expansions.push(expanded);
-      }
-      return expansions.join('\n\n---\n\n');
+    expandSkills: async () => {
+      throw new Error('cron skills must activate inside the scoped agent turn');
     },
     runScript: (scriptPath, cwd, timeoutMs) =>
       // Async spawn — never blocks the long-lived process's event loop.

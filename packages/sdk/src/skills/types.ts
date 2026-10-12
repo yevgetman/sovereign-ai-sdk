@@ -28,6 +28,8 @@ export type SkillHarnessMetadata = {
 };
 
 export type Skill = {
+  /** Content digest recorded at load time. Optional for host-created descriptors. */
+  revision?: string;
   name: string;
   description: string;
   whenToUse: string;
@@ -39,8 +41,8 @@ export type Skill = {
   trustTier: SkillTrustTier;
   /** Whether the body's inline-shell interpolation (`` `!cmd` `` / `` !`cmd` ``)
    *  is allowed to execute on expand. Forced FALSE for `source:'plugin'` skills
-   *  at the loader chokepoint (NOT manifest-controlled) — inline shell runs
-   *  OUTSIDE the permission layer, so a plugin must never reach it. TRUE for
+   *  at the loader chokepoint (NOT manifest-controlled). A host permissioned
+   *  runner is additionally required for execution. TRUE for
    *  every other (trusted/user/bundle/project) source. Variable substitution is
    *  unaffected either way; only the shell-command expansion is gated. */
   allowShellInterpolation: boolean;
@@ -66,4 +68,6 @@ export type SkillExpansionOptions = {
   args?: string;
   cwd: string;
   sessionId?: string;
+  /** Explicit host execution port. Absence fails closed for inline shell. */
+  runShellCommand?: (command: string, cwd: string) => Promise<string>;
 };

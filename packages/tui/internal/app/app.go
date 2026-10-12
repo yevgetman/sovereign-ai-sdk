@@ -2015,7 +2015,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			spinCmd := m.startSpinner("thinking")
 			return m, m.wrapClearScrollback(
 				clearScrollbackPending,
-				m.respond(tea.Batch(m.submitTurn(msg.resp.PromptToSend), spinCmd, sseReconnect)),
+				m.respond(tea.Batch(m.submitCommandTurn(msg.resp), spinCmd, sseReconnect)),
 			)
 		}
 		return m, m.wrapClearScrollback(
@@ -2904,6 +2904,18 @@ func (m Model) submitTurn(text string) tea.Cmd {
 		// Successful 202 — events will arrive via the SSE consumer.
 		return nil
 	}
+}
+
+func (m Model) submitCommandTurn(resp *transport.CommandResponse) tea.Cmd {
+	if resp.TurnKind == "skill" {
+		return func() tea.Msg {
+			if err := transport.PostSkillCommandTurn(m.ctx, m.baseURL, m.sessionID, resp.PromptToSend); err != nil {
+				return turnSubmitErrMsg{err: err}
+			}
+			return nil
+		}
+	}
+	return m.submitTurn(resp.PromptToSend)
 }
 
 // submitSkillTurn POSTs the raw /skillname slash text to

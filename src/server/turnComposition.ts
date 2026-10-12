@@ -42,6 +42,7 @@ import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { UnknownToolsetError } from '@yevgetman/sov-sdk/providers/errors';
 import type { ModelRecord } from '@yevgetman/sov-sdk/providers/models/index';
 import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
+import { createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
 import { buildToolScope } from '@yevgetman/sov-sdk/tool/toolScope';
 import {
   type ToolsetName,
@@ -269,6 +270,7 @@ export type ComposeTurnOptions = {
   persistence: TurnPersistence;
   /** `/skill` allowedTools for THIS turn (already parse-filtered). Narrows only. */
   skillScope?: readonly string[];
+  skillActivation?: import('@yevgetman/sov-sdk/skills/activation').SkillActivationEnvelope;
   /** `chat` | `web` | `ops` | `coding`. Narrows the pool sent to the model,
    *  executed, and inherited by sub-agents. Unknown → UnknownToolsetError. */
   toolset?: string;
@@ -409,12 +411,23 @@ export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
     ...(opts.pollSteering !== undefined ? { pollSteering: opts.pollSteering } : {}),
     // Rebuilt per hop: re-reads the (possibly pivoted) SessionContext, and
     // sub-agents forked mid-turn inherit the narrowed pool.
-    toolContext: buildSessionToolContext(runtime, hop.sessionId, scope.canUseTool, {
-      ...(opts.delegationLifecycleRecorder !== undefined
-        ? { delegationLifecycleRecorder: opts.delegationLifecycleRecorder }
-        : {}),
-      effectivePool: tools,
-    }),
+    toolContext: (() => {
+      const context = buildSessionToolContext(runtime, hop.sessionId, scope.canUseTool, {
+        ...(opts.delegationLifecycleRecorder !== undefined
+          ? { delegationLifecycleRecorder: opts.delegationLifecycleRecorder }
+          : {}),
+        effectivePool: tools,
+      });
+      const state = createSkillActivationState({ tools, canUseTool: scope.canUseTool });
+      state.restrictionCanUseTool = buildToolScope({
+        tools,
+        allowedTools: opts.skillScope,
+        canUseTool: async () => ({ behavior: 'allow' }),
+      }).canUseTool;
+      if (opts.skillActivation) state.activations.push(opts.skillActivation);
+      context.skillActivation = state;
+      return context;
+    })(),
     canUseTool: scope.canUseTool,
     ...(opts.traceRecorder !== undefined ? { traceRecorder: opts.traceRecorder } : {}),
     ...(opts.signal !== undefined ? { signal: opts.signal } : {}),

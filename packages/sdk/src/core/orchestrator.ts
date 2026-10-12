@@ -556,6 +556,7 @@ async function executeOneUnchecked(
   // PreToolUse: runs after permissions resolve to allow, before tool.call().
   // The hook can deny (returning is_error) or rewrite the input (re-validated
   // through the same schema before reaching the tool).
+  let hookUpdatedInput = false;
   if (hookRunner) {
     const pre = await hookRunner(
       'PreToolUse',
@@ -585,6 +586,7 @@ async function executeOneUnchecked(
       };
     }
     if (pre.updatedInput !== undefined) {
+      hookUpdatedInput = true;
       if (tool.inputJSONSchema) {
         callInput = pre.updatedInput;
       } else {
@@ -609,6 +611,62 @@ async function executeOneUnchecked(
         }
         callInput = updated.data;
       }
+    }
+  }
+
+  // Hooks may transform a permitted command into a host-denied command.
+  // An active skill never grants that transformation additional authority.
+  if (ctx.skillActivation && hookUpdatedInput && canUseTool) {
+    const permission = await canUseTool(tool, callInput, ctx);
+    recordTrace({
+      type: 'permission_check',
+      tool: tool.name,
+      decision: permission.behavior === 'allow' ? 'allow' : 'deny',
+      ...(permission.reason !== undefined ? { reason: permission.reason } : {}),
+      transformed: permission.updatedInput !== undefined,
+      iso: nowIso(),
+    });
+    if (permission.behavior === 'deny') {
+      notifyLearningObserver(ctx, tool.name, callInput, 'denied', Date.now() - dispatchStart, {
+        traceId: block.id,
+      });
+      return {
+        block: {
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: `permission denied: ${permission.reason ?? 'hook rewrite denied by host'}`,
+          is_error: true,
+        },
+      };
+    }
+    if (permission.updatedInput !== undefined) {
+      const updated = tool.inputJSONSchema
+        ? { success: true as const, data: permission.updatedInput }
+        : tool.inputSchema.safeParse(permission.updatedInput);
+      if (!updated.success)
+        return {
+          block: {
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: 'permission-updated input validation failed after hook rewrite',
+            is_error: true,
+          },
+        };
+      callInput = updated.data;
+    }
+  }
+
+  if (ctx.skillActivation) {
+    const floor = await ctx.skillActivation.restrictionCanUseTool(tool, callInput, ctx);
+    if (floor.behavior === 'deny') {
+      return {
+        block: {
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: `permission denied: ${floor.reason ?? 'outside skill scope'}`,
+          is_error: true,
+        },
+      };
     }
   }
 
