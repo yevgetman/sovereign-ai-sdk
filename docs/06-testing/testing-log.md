@@ -1,6 +1,23 @@
+## 2026-10-11 — Recovered seventh-review parent integration for PR53
+
+Recovered the interrupted review's owning corrections and carried the current parent by ordinary merge. The configured gate passes **5,822 tests / 19 existing skips / zero failures**, 24,172 assertions across all 558 discovered files. Frozen dependency installation, protocol/strict SDK and local TUI build, lint/boundary and root types pass. Runner: `/private/tmp/sdk-skills-round5-20261011/gate.py <seat> seventh-recovered-publish53`. Existing compiler/theme/timing/subprocess groups run separately; every original file and assertion remains. This validates PR source; public versions and installed hosts remain unchanged.
+
 ## 2026-10-11 — Seventh review parent integration for PR53
 
 Ordinary merge carries PR52's High child-authorization correction into the Discovery branch while retaining PR53's unavailable-marker correction and both immutable testing histories. Complete merged-source gate: **5,810 passed / 19 existing skips / zero failures**, 24,117 assertions across557files. Configured lint/boundary/types, strict SDK/protocol/local TUI builds pass. Runner label `seventh-publish53-final`; every discovered test file is covered. Initial helper invocation refused an unresolved merge-index marker before running tests; the resolved log was staged and the full unchanged-source rerun passes. No assertion is weakened, prior entry changed, master merged or installed host updated.
+## 2026-10-11 — Seventh review recovery: retain activation restrictions during Conduct retries
+
+Confirmed High incoming PR52 defect: model skill activation removed FileWrite from a completed attempt, but Conduct regeneration rebuilt the full original pool and executed a forbidden write. The saved independent before-fix witness records the actual filesystem effect. The driver now captures restriction-only state per logical run and reconstructs each attempt from the original host permission path. Tool membership, input-pattern floors and activation metadata survive retries; ordinary next runs renew their original scope.
+
+Recovery review also reproduced two defects in the unfinished local patch, distinct from incoming PR52: an explicit activation with no host approval callback became approved on retry and executed actual inline Bash (High); an explicit activation's delegated transforming host callback ran twice after retry (Medium). New negative-effect and delegated-write regressions failed before these corrections. Retry state now preserves absent approval authority and rebinds the caller-owned child gate without duplicating its host.
+
+Darwin arm64, Bun 1.3.13, isolated worktree; scripted fake providers, temporary filesystem roots, native scheduler and mock subscription executor. No paid inference, release or installed-runtime update.
+
+- `bun test tests/skills/regenerationToolFloor.test.ts tests/skills/activationChildPermissions.test.ts tests/skills/activation.test.ts tests/skills/activationConcurrency.test.ts tests/server/skillActivationClients.test.ts tests/cron/skillActivation.test.ts`: **48 passed / 0 failed / 245 assertions**. Covers actual Write/Bash effects, host and hook rewrites, fresh host denials, native/subprocess child ceilings, bounded retry, explicit activation, absent approval authority and renewal after success, error, cancellation or abandonment.
+- `bun run tui:build`: local ignored TUI prerequisite built before the suite. Protocol and SDK build prerequisites were present.
+- `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review7-20261011/review-52-regen recovery7-pr52`: lint/boundary, typecheck, strict SDK build and all **556** discovered files pass: **5,794 passed / 19 existing skips / 0 failures / 24,059 assertions**. Compiler, footer-theme, timing and subprocess fixtures are isolated and serialized without omitted files or weaker assertions. Receipt: `/private/tmp/sdk-skills-recovery7-pr52-gate.json`.
+
+Limit: this branch validates Conduct retries inside one `agent.run()`. The separate SOV overflow-recovery lifetime and continuity settlement belong to PR59 and require the final integrated host fixture. No claim is made here about that still-separate integration.
 
 ## 2026-10-11 — Seventh review: preserve parent authorization in skill children
 
