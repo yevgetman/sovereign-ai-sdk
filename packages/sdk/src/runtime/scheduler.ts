@@ -485,6 +485,8 @@ export class SubagentScheduler implements Scheduler {
           childActivation.hasInheritedRestrictions = true;
         const childToolContext: ToolContext = {
           ...inheritedContext,
+          // The child's query owns its lifetime; it is not a gateway retry hop.
+          skillContinuityManagedByHost: false,
           ...(childContinuity ? { skillContinuity: childContinuity } : {}),
           ...(childActivation ? { skillActivation: childActivation } : {}),
           sessionId: childSessionId,

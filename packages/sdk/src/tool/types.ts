@@ -76,6 +76,8 @@ export type ToolContext = {
   skillActivation?: import('../skills/activation.js').SkillActivationState;
   /** Private workflow guidance; scope must match this trusted session. No tool authority. */
   skillContinuity?: import('../skills/continuity.js').SkillContinuityPort;
+  /** Trusted host settles the entire user turn, including setup and retry hops. */
+  skillContinuityManagedByHost?: boolean;
   /** Trusted host binds guidance to an already-authorized child session. */
   forkSkillContinuity?: (
     childSessionId: string,

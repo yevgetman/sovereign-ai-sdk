@@ -164,17 +164,18 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     failed = true;
     throw error;
   } finally {
-    await continuity.finish(
-      state.turnId,
-      failed ||
-        terminal?.reason === 'error' ||
-        terminal?.reason === 'max_tokens' ||
-        terminal?.reason === 'max_turns'
-        ? 'failed'
-        : !terminal || terminal.reason === 'interrupted'
-          ? 'cancelled'
-          : 'succeeded',
-    );
+    if (!context.skillContinuityManagedByHost)
+      await continuity.finish(
+        state.turnId,
+        failed ||
+          terminal?.reason === 'error' ||
+          terminal?.reason === 'max_tokens' ||
+          terminal?.reason === 'max_turns'
+          ? 'failed'
+          : !terminal || terminal.reason === 'interrupted'
+            ? 'cancelled'
+            : 'succeeded',
+      );
   }
 }
 

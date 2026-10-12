@@ -62,6 +62,20 @@ Approved shell effects and continuity persistence are not one transaction.
 - `workflow`: persists through authorized host resume/delegation. The host calls
   `complete(name)` when the workflow ends.
 
+SOV owns one private continuity lifetime across activation, setup and all retry
+hops of a user turn. Its fresh composition state keeps that lifetime identity.
+It defers per-hop query settlement until the outer route chooses the final
+outcome, then settles reached session snapshots before publishing terminal
+events. Pre-query failure or cancellation settles the activated record too.
+Successful overflow recovery records success instead of the first failed attempt.
+Matching lifetime IDs and active-only updates preserve older accepted outcomes.
+The lifetime identity carries no permission grant.
+
+An SDK query normally finishes its own continuity lifetime. A trusted host can
+set `ToolContext.skillContinuityManagedByHost` when it owns a wider lifecycle;
+it must call `finish` on every terminal path. Native children clear this flag and
+finish their own query lifetimes.
+
 Query records successful, failed and cancelled turn outcomes. A successful turn
 is not proof that an entire workflow finished. Session/workflow records can
 retain the outcome for a later recovery turn. Completion is explicit.

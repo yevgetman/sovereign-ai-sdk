@@ -19,6 +19,7 @@
 // use the AsyncGenerator's return value (`Terminal`) — emitted exactly
 // once when the generator returns — as the turn boundary.
 
+import { randomUUID } from 'node:crypto';
 import type { PostTurnRequest, PostTurnResponse } from '@yevgetman/sov-protocol';
 import { accumulateUsage, createUsageAccumulator, finalizeUsage } from '@yevgetman/sov-sdk';
 import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
@@ -34,6 +35,10 @@ import { listRoutes } from '@yevgetman/sov-sdk/providers/routes/catalog';
 import { validateRouteSelection } from '@yevgetman/sov-sdk/providers/routes/validate';
 import { activateSkill, createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
 import type { SkillActivationEnvelope } from '@yevgetman/sov-sdk/skills/activation';
+import type {
+  SkillActivationOutcome,
+  SkillContinuityPort,
+} from '@yevgetman/sov-sdk/skills/continuity';
 import { buildToolScope, filterParseableRules } from '@yevgetman/sov-sdk/tool/toolScope';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { Hono } from 'hono';
@@ -416,6 +421,17 @@ async function runTurnInBackground(
   // single bound function survives both compaction sites without needing
   // to re-thread itself into the query() call.
   let sessionCtx = runtime.getSessionContext(sessionId);
+  const skillActivationTurnId = randomUUID();
+  const continuityPorts = new Set<SkillContinuityPort>();
+  if (sessionCtx.skillContinuity) continuityPorts.add(sessionCtx.skillContinuity);
+  let continuitySettled = false;
+  const finishContinuity = async (
+    outcome: Exclude<SkillActivationOutcome, 'active'>,
+  ): Promise<void> => {
+    if (continuitySettled) return;
+    for (const port of continuityPorts) await port.finish(skillActivationTurnId, outcome);
+    continuitySettled = true;
+  };
   const traceRecorder = (event: TraceEvent): void => {
     sessionCtx.traceWriter.record(event);
     // SOV-ASSAY WIRE v1 (config.assay) — fold every TraceEvent into the boot-
@@ -462,165 +478,166 @@ async function runTurnInBackground(
   // turn. The expanded text is what lands in `sessionDb` AND what the
   // model sees, so resume reconstructs the exact same context the
   // original turn ran against.
-  let skillActivation: SkillActivationEnvelope | undefined;
-  if (skillInvocation) {
-    try {
-      const skill = resolveSkillInvocation(runtime, skillInvocation.name, skillInvocation.source);
-      if (!skill) throw new Error(`unknown skill: ${skillInvocation.name}`);
-      const hostGate = buildTurnCanUseTool(runtime, {
-        ask: createServerAsk(runtime.approvalQueue, bus, sessionId),
-      });
-      const gate =
-        composeConductCanUseTool(
-          runtime.conduct,
-          {
-            sessionId,
-            surface: 'user',
-            model: perTurnModel ?? runtime.model,
-            providerName: runtime.resolvedProvider.transport.name,
-            cwd: runtime.cwd,
-          },
-          hostGate,
-        ) ?? hostGate;
-      const state = createSkillActivationState({
-        tools: runtime.toolPool,
-        canUseTool: gate,
-        hookRunner: runtime.hookRunner,
-      });
-      const context = buildSessionToolContext(runtime, sessionId, gate);
-      context.signal = turnSignal;
-      context.traceRecorder = traceRecorder;
-      context.skillActivation = state;
-      const activationOptions = {
-        source: skillInvocation.source,
-        args: skillInvocation.args,
-        toolContext: context,
-        state,
-      };
-      const canonical = runtime.skills.byName.get(skill.name);
-      const result =
-        canonical?.path === skill.path && canonical.realpath === skill.realpath
-          ? await runtime.skillRuntime.activate(skill.name, activationOptions)
-          : await activateSkill(skill, activationOptions);
-      text = result.prompt;
-      skillActivation = result.activation;
-      skillScope =
-        result.activation.allowedTools.length > 0 ? result.activation.allowedTools : undefined;
-    } catch (error) {
-      bus.clearCurrentTurnAbort();
-      throw error;
-    }
-  }
-  // Activated instructions, substituted arguments and command stdout are data.
-  // Rescanning them for @references would read files, fetch URLs or spawn git
-  // outside the skill's tool scope and host permission gate. Ordinary explicit
-  // user references retain their existing expansion behavior.
-  const expandedText = skillActivation
-    ? text
-    : await expandContextReferences(text, { cwd: runtime.cwd });
-  const userMessage: Message = {
-    role: 'user',
-    content: [{ type: 'text', text: expandedText }],
-  };
-  const persistence: TurnPersistence = { mode: 'gateway-callbacks', host: runtime };
-  // Persist before the try block so a query() failure still preserves the user's prompt in the transcript.
-  persistTurnMessage(persistence, sessionId, userMessage);
-  // M9 T10 — kick off the live status indicator. The TUI's statusline
-  // consumes status_update events to drive the streaming spinner and the
-  // live cost field; firing one with streaming:true at turn start is the
-  // explicit start-of-stream marker the spinner pivots on. A matching
-  // streaming:false event lands right before turn_complete below.
-  bus.publish({
-    type: 'status_update',
-    seq: bus.nextSeq(),
-    sessionId,
-    streaming: true,
-  });
-  // M7 T6 follow-up (review I1) — fire the review/synthesizer user-turn
-  // trigger exactly once per user prompt: right after persisting the
-  // user's message, before the model run. This is the only call site
-  // that increments userTurnsSince / synthesizerSince — without it, the
-  // user-tunable `review.userTurnsForMemoryReview` and
-  // `learning.synthesizerEveryN` settings would be silently inert. The
-  // optional-chain handles the review-disabled case (reviewManager
-  // undefined → no-op).
-  sessionCtx.reviewManager?.onUserTurn(sessionId);
-  // Hydrate the model's context with the full conversation history
-  // (including the user message we just persisted). T9 hydrates the TUI
-  // transcript visually on resume; this is the model-side companion.
-  // Without it, the LLM sees only the new turn and responds as if every
-  // resume is a fresh session, defeating the persistence work entirely.
-  // Local closure binds the helper to the current sessionId — the value
-  // changes when the proactive / recovery hops reassign it below, so each
-  // hydrate() call picks up the post-hop child id automatically.
-  //
-  // M10 audit fix (slice 2 HIGH): wire `repairMissingToolResults` into
-  // the resume path so the runtime synthesizes missing tool_result
-  // blocks for any orphaned tool_use in the persisted history. Without
-  // it, a session whose last persisted assistant turn had an unfulfilled
-  // tool_use (e.g., process crash mid-turn) would 400 on the next
-  // /turns call because Anthropic rejects the messages array as
-  // invalid. The repair is purely additive and idempotent — no orphan
-  // tool_use → no synthesized result → identical messages array.
-  const hydrate = (): Message[] =>
-    hydrateSessionHistory(loadStoredMessages(persistence, sessionId), sessionId);
-  let messages: Message[] = hydrate();
-
-  // Usage telemetry (T5 / F1). A tool-loop turn makes N provider calls; the
-  // pre-T5 wiring tracked only the LAST call's `usage_delta` (last-writer-wins),
-  // so every multi-call turn under-recorded and under-reported its tokens/cost.
-  // We now fold the provider's usage stream through the SDK's PUBLIC accumulator
-  // (`createUsageAccumulator`/`accumulateUsage`/`finalizeUsage`) — the exact
-  // summed per-call semantics `createAgent` uses (W1). Two accumulators, both
-  // fed from the SAME StreamEvent stream the loop already consumes:
-  //
-  //   - `hopUsageAcc` — RESET before each runOnce. Its per-hop final drives
-  //     `sessionDb.recordTokenUsage` under the sessionId THAT hop ran as, so
-  //     the parent/child compaction-hop attribution is preserved exactly as the
-  //     old recordUsageIfPresent did (hop1 → parent id, hop2 → child id). This
-  //     is the only wiring that populates the sessionDb cost table (read at
-  //     disposal by disposeSessionContext); without it every trajectory ships
-  //     estimatedCostUsd: 0 — caught by the autonomous smoke against real Haiku.
-  //   - `turnUsageAcc` — NOT reset across hops. It yields the TURN TOTAL
-  //     (hop1 + hop2 when overflow recovery fires) for the wire fields
-  //     (status_update tokens/cost/cacheHitRate + turn_complete.usage).
-  //
-  // Declared OUTSIDE runOnce because the recovery branch creates a SECOND
-  // runOnce invocation (after the overflow-driven compaction hop) — the outer
-  // lets keep both accumulators stable across the two calls. `accumulateUsage`
-  // folds message_start/message_stop/usage_delta and ignores everything else,
-  // so feeding it the whole stream is safe; `finalizeUsage` returns undefined
-  // when no usage_delta ever arrived, so `recordTokenUsage` stays skipped and
-  // the wire fields stay absent exactly as before on a no-usage turn.
-  let hopUsageAcc = createUsageAccumulator();
-  let turnUsageAcc = createUsageAccumulator();
-  let hopResult: RunResult | undefined;
-  let knownTurnCost = 0;
-  let turnCostComplete = true;
-  // Item 3 — turn-level "did any text stream?" flag. Set at the text_delta
-  // publish site below; read by handleAssistantMessage to decide whether the
-  // final message's text needs projecting onto the wire. Declared OUTSIDE
-  // runOnce so it spans both the initial hop and the overflow-recovery retry:
-  // once ANY delta has streamed this turn, the buffered-delivery branch stays
-  // skipped for every subsequent assistant_message (streaming byte-identical).
-  let sawTextDelta = false;
-  const recordHopUsage = (currentSessionId: string): void => {
-    if (!hopResult) return;
-    const usage = hopResult.usage ?? finalizeUsage(hopUsageAcc) ?? {};
-    const receipt =
-      hopResult.costEstimate ??
-      estimateUsageCost(
-        runtime.resolvedProvider.transport.name,
-        perTurnModel ?? runtime.model,
-        usage,
-        { state: 'unknown', source: 'usage-unavailable' },
-      );
-    runtime.sessionDb.recordUsageEstimate(currentSessionId, usage, receipt);
-    if (hopResult.estimatedCostUsd === undefined) turnCostComplete = false;
-    else knownTurnCost += hopResult.estimatedCostUsd;
-  };
-
   try {
+    let skillActivation: SkillActivationEnvelope | undefined;
+    if (skillInvocation) {
+      try {
+        const skill = resolveSkillInvocation(runtime, skillInvocation.name, skillInvocation.source);
+        if (!skill) throw new Error(`unknown skill: ${skillInvocation.name}`);
+        const hostGate = buildTurnCanUseTool(runtime, {
+          ask: createServerAsk(runtime.approvalQueue, bus, sessionId),
+        });
+        const gate =
+          composeConductCanUseTool(
+            runtime.conduct,
+            {
+              sessionId,
+              surface: 'user',
+              model: perTurnModel ?? runtime.model,
+              providerName: runtime.resolvedProvider.transport.name,
+              cwd: runtime.cwd,
+            },
+            hostGate,
+          ) ?? hostGate;
+        const state = createSkillActivationState({
+          tools: runtime.toolPool,
+          canUseTool: gate,
+          hookRunner: runtime.hookRunner,
+        });
+        state.turnId = skillActivationTurnId;
+        const context = buildSessionToolContext(runtime, sessionId, gate);
+        context.signal = turnSignal;
+        context.traceRecorder = traceRecorder;
+        context.skillActivation = state;
+        const activationOptions = {
+          source: skillInvocation.source,
+          args: skillInvocation.args,
+          toolContext: context,
+          state,
+        };
+        const canonical = runtime.skills.byName.get(skill.name);
+        const result =
+          canonical?.path === skill.path && canonical.realpath === skill.realpath
+            ? await runtime.skillRuntime.activate(skill.name, activationOptions)
+            : await activateSkill(skill, activationOptions);
+        text = result.prompt;
+        skillActivation = result.activation;
+        skillScope =
+          result.activation.allowedTools.length > 0 ? result.activation.allowedTools : undefined;
+      } catch (error) {
+        bus.clearCurrentTurnAbort();
+        throw error;
+      }
+    }
+    // Activated instructions, substituted arguments and command stdout are data.
+    // Rescanning them for @references would read files, fetch URLs or spawn git
+    // outside the skill's tool scope and host permission gate. Ordinary explicit
+    // user references retain their existing expansion behavior.
+    const expandedText = skillActivation
+      ? text
+      : await expandContextReferences(text, { cwd: runtime.cwd });
+    const userMessage: Message = {
+      role: 'user',
+      content: [{ type: 'text', text: expandedText }],
+    };
+    const persistence: TurnPersistence = { mode: 'gateway-callbacks', host: runtime };
+    // Persist before the try block so a query() failure still preserves the user's prompt in the transcript.
+    persistTurnMessage(persistence, sessionId, userMessage);
+    // M9 T10 — kick off the live status indicator. The TUI's statusline
+    // consumes status_update events to drive the streaming spinner and the
+    // live cost field; firing one with streaming:true at turn start is the
+    // explicit start-of-stream marker the spinner pivots on. A matching
+    // streaming:false event lands right before turn_complete below.
+    bus.publish({
+      type: 'status_update',
+      seq: bus.nextSeq(),
+      sessionId,
+      streaming: true,
+    });
+    // M7 T6 follow-up (review I1) — fire the review/synthesizer user-turn
+    // trigger exactly once per user prompt: right after persisting the
+    // user's message, before the model run. This is the only call site
+    // that increments userTurnsSince / synthesizerSince — without it, the
+    // user-tunable `review.userTurnsForMemoryReview` and
+    // `learning.synthesizerEveryN` settings would be silently inert. The
+    // optional-chain handles the review-disabled case (reviewManager
+    // undefined → no-op).
+    sessionCtx.reviewManager?.onUserTurn(sessionId);
+    // Hydrate the model's context with the full conversation history
+    // (including the user message we just persisted). T9 hydrates the TUI
+    // transcript visually on resume; this is the model-side companion.
+    // Without it, the LLM sees only the new turn and responds as if every
+    // resume is a fresh session, defeating the persistence work entirely.
+    // Local closure binds the helper to the current sessionId — the value
+    // changes when the proactive / recovery hops reassign it below, so each
+    // hydrate() call picks up the post-hop child id automatically.
+    //
+    // M10 audit fix (slice 2 HIGH): wire `repairMissingToolResults` into
+    // the resume path so the runtime synthesizes missing tool_result
+    // blocks for any orphaned tool_use in the persisted history. Without
+    // it, a session whose last persisted assistant turn had an unfulfilled
+    // tool_use (e.g., process crash mid-turn) would 400 on the next
+    // /turns call because Anthropic rejects the messages array as
+    // invalid. The repair is purely additive and idempotent — no orphan
+    // tool_use → no synthesized result → identical messages array.
+    const hydrate = (): Message[] =>
+      hydrateSessionHistory(loadStoredMessages(persistence, sessionId), sessionId);
+    let messages: Message[] = hydrate();
+
+    // Usage telemetry (T5 / F1). A tool-loop turn makes N provider calls; the
+    // pre-T5 wiring tracked only the LAST call's `usage_delta` (last-writer-wins),
+    // so every multi-call turn under-recorded and under-reported its tokens/cost.
+    // We now fold the provider's usage stream through the SDK's PUBLIC accumulator
+    // (`createUsageAccumulator`/`accumulateUsage`/`finalizeUsage`) — the exact
+    // summed per-call semantics `createAgent` uses (W1). Two accumulators, both
+    // fed from the SAME StreamEvent stream the loop already consumes:
+    //
+    //   - `hopUsageAcc` — RESET before each runOnce. Its per-hop final drives
+    //     `sessionDb.recordTokenUsage` under the sessionId THAT hop ran as, so
+    //     the parent/child compaction-hop attribution is preserved exactly as the
+    //     old recordUsageIfPresent did (hop1 → parent id, hop2 → child id). This
+    //     is the only wiring that populates the sessionDb cost table (read at
+    //     disposal by disposeSessionContext); without it every trajectory ships
+    //     estimatedCostUsd: 0 — caught by the autonomous smoke against real Haiku.
+    //   - `turnUsageAcc` — NOT reset across hops. It yields the TURN TOTAL
+    //     (hop1 + hop2 when overflow recovery fires) for the wire fields
+    //     (status_update tokens/cost/cacheHitRate + turn_complete.usage).
+    //
+    // Declared OUTSIDE runOnce because the recovery branch creates a SECOND
+    // runOnce invocation (after the overflow-driven compaction hop) — the outer
+    // lets keep both accumulators stable across the two calls. `accumulateUsage`
+    // folds message_start/message_stop/usage_delta and ignores everything else,
+    // so feeding it the whole stream is safe; `finalizeUsage` returns undefined
+    // when no usage_delta ever arrived, so `recordTokenUsage` stays skipped and
+    // the wire fields stay absent exactly as before on a no-usage turn.
+    let hopUsageAcc = createUsageAccumulator();
+    let turnUsageAcc = createUsageAccumulator();
+    let hopResult: RunResult | undefined;
+    let knownTurnCost = 0;
+    let turnCostComplete = true;
+    // Item 3 — turn-level "did any text stream?" flag. Set at the text_delta
+    // publish site below; read by handleAssistantMessage to decide whether the
+    // final message's text needs projecting onto the wire. Declared OUTSIDE
+    // runOnce so it spans both the initial hop and the overflow-recovery retry:
+    // once ANY delta has streamed this turn, the buffered-delivery branch stays
+    // skipped for every subsequent assistant_message (streaming byte-identical).
+    let sawTextDelta = false;
+    const recordHopUsage = (currentSessionId: string): void => {
+      if (!hopResult) return;
+      const usage = hopResult.usage ?? finalizeUsage(hopUsageAcc) ?? {};
+      const receipt =
+        hopResult.costEstimate ??
+        estimateUsageCost(
+          runtime.resolvedProvider.transport.name,
+          perTurnModel ?? runtime.model,
+          usage,
+          { state: 'unknown', source: 'usage-unavailable' },
+        );
+      runtime.sessionDb.recordUsageEstimate(currentSessionId, usage, receipt);
+      if (hopResult.estimatedCostUsd === undefined) turnCostComplete = false;
+      else knownTurnCost += hopResult.estimatedCostUsd;
+    };
+
     const modelSnapshot = selectedTurnModel(
       runtime.resolvedProvider.transport.name,
       perTurnModel ?? runtime.model,
@@ -730,6 +747,7 @@ async function runTurnInBackground(
         // The `traceRecorder` closure picks up the new ref on its next call
         // because it dereferences `sessionCtx` dynamically.
         sessionCtx = runtime.getSessionContext(sessionId);
+        if (sessionCtx.skillContinuity) continuityPorts.add(sessionCtx.skillContinuity);
         if (modelSnapshot)
           sessionCtx.modelBudget = {
             provider: modelSnapshot.metadata.provider,
@@ -799,6 +817,8 @@ async function runTurnInBackground(
       ...(modelSnapshot ? { modelMetadata: modelSnapshot.metadata } : {}),
       ...(skillScope !== undefined ? { skillScope } : {}),
       ...(skillActivation !== undefined ? { skillActivation } : {}),
+      skillActivationTurnId,
+      manageSkillContinuity: true,
       ...(perTurnModel !== undefined ? { model: perTurnModel } : {}),
       ...(perTurnEffort !== undefined ? { effort: perTurnEffort } : {}),
       ...(perTurnInstructions !== undefined ? { instructions: perTurnInstructions } : {}),
@@ -918,6 +938,7 @@ async function runTurnInBackground(
         // error-terminal sessions silently bucket into samples.jsonl and
         // corrupt the corpus consumer's success/failure split.
         sessionCtx.trajectoryMetadata.terminalReason = 'error';
+        await finishContinuity('failed');
         bus.publish({
           type: 'turn_error',
           seq: bus.nextSeq(),
@@ -933,6 +954,7 @@ async function runTurnInBackground(
       // M7 T3 — re-fetch the SessionContext so the retried run's trace
       // events land in the child's trace file rather than the parent's.
       sessionCtx = runtime.getSessionContext(sessionId);
+      if (sessionCtx.skillContinuity) continuityPorts.add(sessionCtx.skillContinuity);
       if (modelSnapshot)
         sessionCtx.modelBudget = {
           provider: modelSnapshot.metadata.provider,
@@ -959,6 +981,7 @@ async function runTurnInBackground(
         // terminal error: bucket the trajectory into failed.jsonl on
         // disposal (see compactResult.noOp branch above for the same fix).
         sessionCtx.trajectoryMetadata.terminalReason = 'error';
+        await finishContinuity('failed');
         bus.publish({
           type: 'turn_error',
           seq: bus.nextSeq(),
@@ -986,6 +1009,15 @@ async function runTurnInBackground(
     if (terminal && terminal.reason !== 'completed' && terminal.reason !== 'max_turns') {
       sessionCtx.trajectoryMetadata.terminalReason = terminal.reason;
     }
+    await finishContinuity(
+      terminal?.reason === 'interrupted' || !terminal
+        ? 'cancelled'
+        : terminal.reason === 'error' ||
+            terminal.reason === 'max_tokens' ||
+            terminal.reason === 'max_turns'
+          ? 'failed'
+          : 'succeeded',
+    );
     // M9 T10 + T5 — final status_update flushes the spinner off, plus a live
     // cost/tokens snapshot of the TURN TOTAL. The TUI reads `streaming: false`
     // as the stop signal. `turnUsageAcc` summed EVERY provider call across the
@@ -1073,6 +1105,11 @@ async function runTurnInBackground(
     }
     bus.publish(turnCompleteEvent);
   } catch (err) {
+    try {
+      await finishContinuity(turnSignal.aborted ? 'cancelled' : 'failed');
+    } catch {
+      /* The private port already reports persistence failure; keep the original error. */
+    }
     // Whole-branch review I2 — record terminal reason on the SessionContext
     // so disposal routes this trajectory into failed.jsonl (the trajectory
     // writer's COMPLETED_REASONS set at src/trajectory/writer.ts:68 excludes
@@ -1098,6 +1135,11 @@ async function runTurnInBackground(
       recoverable: false,
     });
   } finally {
+    try {
+      await finishContinuity(turnSignal.aborted ? 'cancelled' : 'failed');
+    } catch {
+      /* A failed private store reports its own diagnostic without masking teardown. */
+    }
     // Attestation §3.4 — settle EVERY minted turnId on every exit path. A
     // drive that reached terminal already wrote its io row through the
     // provider-mounted evidenceSink (endTurn is then a no-op); an abandoned /

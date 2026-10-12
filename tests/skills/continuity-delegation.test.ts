@@ -8,6 +8,11 @@ import { LaneSemaphores } from '@yevgetman/sov-sdk/runtime/laneSemaphores';
 import { PathLockManager } from '@yevgetman/sov-sdk/runtime/pathLock';
 import { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
 import { createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
+import {
+  InMemorySkillContinuityStore,
+  type SkillContinuityPort,
+  createSkillContinuity,
+} from '@yevgetman/sov-sdk/skills/continuity';
 import { createSkillRuntime } from '@yevgetman/sov-sdk/skills/runtime';
 import { InMemorySkillStore } from '@yevgetman/sov-sdk/skills/store';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
@@ -42,6 +47,9 @@ for (const restricted of [true, false]) {
       let nativeCalls = 0;
       let nestedError: string | undefined;
       let childContext: ToolContext | undefined;
+      const continuityStore = new InMemorySkillContinuityStore();
+      const childPorts = new Map<string, SkillContinuityPort>();
+      const activatedChildren = new Set<string>();
       const delegate = buildTool({
         name: 'Delegate',
         description: () => 'Delegate the task',
@@ -49,6 +57,21 @@ for (const restricted of [true, false]) {
         checkPermissions: async () => ({ behavior: 'allow' }),
         call: async (_input, context) => {
           childContext = context;
+          if (!context.skillContinuity || !context.skillActivation)
+            throw new Error('missing child continuity lifetime');
+          await context.skillContinuity.activated(
+            {
+              name: 'child-note',
+              revision: 'a'.repeat(64),
+              source: 'model',
+              args: '',
+              allowedTools: [],
+              allowedResourceRoots: [],
+            },
+            'Keep the child workflow.',
+            context.skillActivation.turnId,
+          );
+          activatedChildren.add(context.sessionId);
           try {
             await scheduler.delegate({
               agentName:
@@ -72,6 +95,19 @@ for (const restricted of [true, false]) {
         cwd: tmpdir(),
         sessionId: 'parent',
         skillActivation: state,
+        skillContinuityManagedByHost: true,
+        skillContinuity: createSkillContinuity({
+          scope: { profile: 'fixture', owner: 'owner', session: 'parent' },
+          store: continuityStore,
+        }),
+        forkSkillContinuity: async (childSessionId) => {
+          const child = createSkillContinuity({
+            scope: { profile: 'fixture', owner: 'owner', session: childSessionId },
+            store: continuityStore,
+          });
+          childPorts.set(childSessionId, child);
+          return child;
+        },
       };
       const runtime = createSkillRuntime({ store: new InMemorySkillStore() });
       await runtime.mutate({
@@ -140,6 +176,14 @@ for (const restricted of [true, false]) {
       // The child has fresh activation records. The ancestor's restriction must
       // still prevent delegating to an executor that cannot enforce that floor.
       expect(childContext?.skillActivation?.activations).toEqual([]);
+      expect(childContext?.skillContinuityManagedByHost).toBe(false);
+      expect(activatedChildren.size).toBe(nativeHops);
+      for (const childId of activatedChildren)
+        expect(
+          (await childPorts.get(childId)?.exportRecords())?.find(
+            (record) => record.name === 'child-note',
+          )?.outcome,
+        ).toBe('succeeded');
       expect(subprocessCalls).toBe(restricted ? 0 : 1);
       if (restricted) expect(nestedError).toContain('cannot be enforced');
       else expect(nestedError).toBeUndefined();

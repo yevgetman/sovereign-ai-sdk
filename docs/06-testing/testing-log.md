@@ -1,3 +1,36 @@
+## 2026-10-11 — Sixth review PR59: settle the complete SOV continuity lifetime
+
+Confirmed Medium triggers: (1) host composition discarded the activation turn ID,
+leaving every slash activation active after its query; (2) successful activation
+followed by pre-query failure/cancellation never reached query settlement;
+(3) first-attempt overflow recorded failure before compaction copied its snapshot,
+so successful child recovery retained the failed outcome. These share one SOV
+lifecycle correction. The gateway owns one private ID across setup and retries,
+defers per-query settlement, and settles reached main-session snapshots before
+terminal bus events, with a finally fallback. SDK query keeps its default per-call
+contract. Native children clear the host-owned flag and finish their own lifetimes.
+Matching IDs and active-only transitions keep older accepted records unchanged.
+
+Seven real HTTP route regressions fail on original source (**zero passed / seven
+failed**) and pass after correction. They cover completed/error/max_tokens/cancel,
+pre-query compaction failure/cancellation and a real successful overflow recovery
+(two main calls, one summary call, one child). Controls preserve prior succeeded
+and failed guidance and verify one final matching diagnostic. One/two-hop native
+child controls retain the permission floor and finish newly activated child records.
+Focused query, SOV lineage, delegation, accounting and proactive/overflow routes
+pass **51 tests / zero failures / 408 assertions** across eight files.
+Environment: macOS arm64, Bun 1.3.13, Node 25.9.0; isolated temporary runtimes and
+mock transports, learning/review disabled only in owned fixtures.
+Commands: local protocol/SDK/TUI builds,
+`bun test tests/skills/continuityRouteLifecycle.test.ts tests/skills/continuity.query.test.ts tests/skills/continuity-host.test.ts tests/skills/continuity-delegation.test.ts tests/skills/continuity.test.ts tests/skills/continuityTokenAccounting.test.ts tests/server/turns.overflowRecovery.test.ts tests/server/turns.proactiveCompact.test.ts --timeout 20000`.
+Full configured lint/boundary, root typecheck, strict SDK build and all 581
+discovered test files pass: **5,979 passed / 19 existing skips / zero failures**,
+25,259 assertions. Compiler/theme/timing/subprocess fixture isolation preserves
+every file and assertion. Independent peer inspection and both original lifecycle
+witnesses pass; peer focused coverage passes 46 tests / 346 assertions.
+No live provider, installed
+host, release or master change.
+
 ## 2026-10-11 — Fifth review final combined validation
 
 Scope: thirteen corrected findings on eight review PRs, complete dependency propagation and frozen functional source `1a9ac75b095d696c631c577b35bc09574f2b22fb`. Complete local source gate: **5,972 passed / 19 existing skips / zero failures**, 25,192 assertions across all 580 discovered files. Compiler, theme, redaction timing and subprocess fixtures run separately; every file and original assertion remains. Additional strict `go build -o ../../bin/sov-tui ./cmd/sov-tui` and `go test ./...` in packages/tui, `bun run canary` actual packed Node/Bun/public-type/artifact checks, and `bun run release:validate` all pass. Reports appended after the gate change no functional source. Original heads and parent ancestry are preserved. No master merge, release, consumer pin, live upgrade or restart.
