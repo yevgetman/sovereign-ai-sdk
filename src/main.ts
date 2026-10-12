@@ -276,6 +276,29 @@ async function main(argv: string[]): Promise<void> {
     });
 
   program
+    .command('skills')
+    .description('Inspect local skill discovery.')
+    .command('doctor')
+    .description('Report searched roots and skill compatibility without starting a provider.')
+    .option('--json', 'machine-readable local diagnostics (includes paths)')
+    .option('--harness-home <path>', 'explicit profile state root')
+    .option('-b, --bundle <path>', 'explicit harness bundle root')
+    .option(
+      '--allowed-link-roots <paths...>',
+      'approve external managed targets for this scan only',
+    )
+    .action(async (opts) => {
+      const { runSkillsDoctor } = await import('./cli/skillsDoctorCommand.js');
+      const code = await runSkillsDoctor({
+        ...(opts.json !== undefined ? { json: opts.json } : {}),
+        ...(opts.harnessHome !== undefined ? { harnessHome: opts.harnessHome } : {}),
+        ...(opts.bundle !== undefined ? { bundleRoot: opts.bundle } : {}),
+        ...(opts.allowedLinkRoots !== undefined ? { allowedLinkRoots: opts.allowedLinkRoots } : {}),
+      });
+      process.exit(code);
+    });
+
+  program
     .command('dispatch')
     .description(
       'Headless slash-command dispatch — boots a minimum context, reads slash commands from stdin (one per line), prints output to stdout, exits on EOF or /quit. Used for mechanical testing of read-only commands; commands that need the session DB, compactor, task manager, or review manager error informatively.',

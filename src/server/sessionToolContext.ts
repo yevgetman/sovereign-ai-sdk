@@ -98,6 +98,7 @@ export function buildSessionToolContext(
     // pool. Keeping the runtime registry unfiltered preserves the T5
     // `/skillname` dispatch + the GET /skills route's own per-request view.
     skills: runtime.skills,
+    skillRegistryManager: runtime.skillRegistryManager,
     canUseTool: sessionCanUseTool,
     // M8 T3 — per-session subdirectory-hint dedup state (passed by reference so
     // the dedup Set persists across the session's turn loop).
@@ -120,5 +121,8 @@ export function buildSessionToolContext(
   return {
     ...context,
     skillStore: createSovSkillStore(join(runtime.harnessHome, 'skills', 'agent-created')),
+    onSkillMutation: async () => {
+      await runtime.skillRegistryManager.refresh();
+    },
   };
 }

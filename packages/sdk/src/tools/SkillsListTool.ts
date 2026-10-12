@@ -1,3 +1,4 @@
+import { getSkillRegistry } from '../skills/registry.js';
 // Progressive skills discovery. The system prompt carries only a reminder;
 // models call this tool to see the current visible skill index on demand.
 
@@ -40,7 +41,7 @@ export const SkillsListTool = buildTool<Input, Output>({
   checkPermissions: async () => ({ behavior: 'allow' }),
   async call(input, ctx) {
     const needle = input.query?.trim().toLowerCase();
-    const candidates = (ctx.skills?.skills ?? [])
+    const candidates = (getSkillRegistry(ctx).skills ?? [])
       .filter((skill) => isSkillInvocable(skill, 'model'))
       .filter((skill) => {
         if (!needle) return true;

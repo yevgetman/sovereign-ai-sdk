@@ -32,7 +32,11 @@ import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { resolveProvider } from '@yevgetman/sov-sdk/providers/resolver';
 import type { ApiMode } from '@yevgetman/sov-sdk/providers/types';
 import { buildSkillCommands } from '@yevgetman/sov-sdk/skills/commands';
-import { loadSkills } from '@yevgetman/sov-sdk/skills/loader';
+import {
+  createSkillRegistryManager,
+  getSkillRegistry,
+  loadSkillRegistry,
+} from '@yevgetman/sov-sdk/skills/registry';
 import { filterSkillRegistry, inferActiveToolsets } from '@yevgetman/sov-sdk/skills/visibility';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { COMMANDS, buildCommandRegistry, dispatchSlashCommand } from '../commands/registry.js';
@@ -75,12 +79,23 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
     warn: (msg) => process.stderr.write(`[plugins] ${msg}\n`),
   });
 
-  const loadedSkills = await loadSkills({
-    harnessHome,
-    cwd: process.cwd(),
-    ...(bundle ? { bundleRoot: bundle.root } : {}),
-    extraRoots: pluginContributions.skillRoots,
+  const skillRegistryManager = createSkillRegistryManager({
+    load: () =>
+      loadSkillRegistry({
+        ...(userSettings.skills?.discovery?.projectRoot !== undefined
+          ? { projectRoot: userSettings.skills.discovery.projectRoot }
+          : {}),
+        ...(userSettings.skills?.discovery?.allowedLinkRoots !== undefined
+          ? { allowedLinkRoots: userSettings.skills.discovery.allowedLinkRoots }
+          : {}),
+        harnessHome,
+        cwd: process.cwd(),
+        ...(bundle ? { bundleRoot: bundle.root } : {}),
+        extraRoots: pluginContributions.skillRoots,
+      }),
   });
+  await skillRegistryManager.refresh();
+  const loadedSkills = skillRegistryManager.snapshot().registry;
 
   const resolved = resolveProvider(userSettings.defaultProvider, userSettings.defaultModel);
   const sessionId = `dispatch-${process.pid}-${Date.now()}`;
@@ -234,6 +249,12 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
       toolErr: 0,
     }),
     skills: skillRegistry,
+    activeToolNames,
+    activeToolsets,
+    skillRegistryManager,
+    onSkillMutation: async () => {
+      await skillRegistryManager.refresh();
+    },
     getLastAssistantText: () => null,
     getMessages: () => [],
     getPermissions: () => ({
@@ -248,7 +269,7 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
       auditContextBudget({
         systemSegments: systemPrompt,
         tools: toolPool,
-        skills: skillRegistry.skills,
+        skills: getSkillRegistry(commandContext).skills,
         ...(bundle ? { bundle } : {}),
         activeToolNames: toolPool.map((t) => t.name),
       }),
@@ -281,6 +302,13 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
         continue;
       }
       try {
+        const currentSkills = getSkillRegistry(commandContext);
+        commandContext.skills = currentSkills;
+        commandContext.registry = buildCommandRegistry([
+          ...COMMANDS,
+          ...pluginContributions.commands,
+          ...buildSkillCommands(currentSkills),
+        ]);
         const result = await dispatchSlashCommand(trimmed, commandContext);
         if (result.kind === 'prompt') {
           process.stdout.write(

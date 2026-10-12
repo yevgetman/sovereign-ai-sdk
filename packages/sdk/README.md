@@ -172,6 +172,11 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
   checks, paginated enumeration and committed events. See
   [skill storage](../../docs/04-extending/skill-storage.md). No writable store or
   machine home is selected for an embedded context by default.
+  `createSkillRegistryManager` accepts an injected async loader and publishes
+  atomic generations through `snapshot`, `refresh` and `subscribe`.
+  `loadSkillRegistry` supplies the optional filesystem loader.
+  `getSkillRegistrySnapshot` / `getSkillRegistry` read current per-call tool views;
+  `remoteSkillDiagnostics` removes private paths and raw validation text.
 - **Persistence & ports** — `createInMemorySessionStore` / the `SessionStore`
   port, the `TranscriptStore` port (+ no-op impl), and the injected port types
   for memory, recall, and observation (`MemoryRuntime`, `RecallResult`,

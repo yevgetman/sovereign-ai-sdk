@@ -433,3 +433,19 @@ export {
   assertSkillInvocable,
 } from './skills/descriptor.js';
 export type { SkillDescriptor, SkillCompatibilityDiagnostic } from './skills/descriptor.js';
+
+// Live catalogs are optional host-owned ports; no adapter is started implicitly.
+export {
+  createSkillRegistryManager,
+  loadSkillRegistry,
+  getSkillRegistry,
+  getSkillRegistrySnapshot,
+  remoteSkillDiagnostics,
+} from './skills/registry.js';
+export type {
+  SkillRegistryManager,
+  SkillRegistrySnapshot,
+  SkillRegistryLoadResult,
+  SkillRegistryDiagnostic,
+  SkillRegistryEvent,
+} from './skills/registry.js';
