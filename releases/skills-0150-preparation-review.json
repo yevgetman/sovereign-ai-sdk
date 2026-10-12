@@ -1,0 +1,17 @@
+{
+  "stage": "reviewed source version preparation before commit",
+  "reviewer": "runtime_pin native peer",
+  "source_parent": "e01f7e2be55b5b810ef6fb41a63713d03695fe73",
+  "source_worktree": "/private/tmp/sdk-skills-release-20261011",
+  "checks": {
+    "SDK_version": "0.15.0",
+    "CLI_version": "0.6.78",
+    "engine_floor": "unchanged",
+    "public_API": "additive; minor consistent with STABILITY",
+    "license_boundary": "unchanged",
+    "git_diff_check": "pass",
+    "functional_source_changes": "none in preparation"
+  },
+  "findings": [],
+  "remaining_above_low": 0
+}
