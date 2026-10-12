@@ -1,0 +1,1 @@
+$ tsc --noEmit && cd packages/debug-console && tsc -p tsconfig.json --noEmit

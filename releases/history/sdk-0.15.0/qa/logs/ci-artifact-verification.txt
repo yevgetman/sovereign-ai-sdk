@@ -1,0 +1,6 @@
+{"target": "darwin-arm64", "sha256": "316974f08314f68f78a7436d9d07dd8f61d00e5310c19e3b8f7ec035e6d8c322", "size": 31638855, "native_version": "0.6.78"}
+{"target": "darwin-x64", "sha256": "168f470db75dcd688c20ac42ea79c6551ab89b57654027051a862b4ed69da05d", "size": 34707107, "native_version": "0.6.78"}
+{"target": "linux-arm64", "sha256": "8e3798d799149444e1763a581504549771f878077656e27331aed32801ff56da", "size": 42259630, "native_version": null}
+{"target": "linux-x64", "sha256": "e45d8b1b0b7b8628ceec5a867b9c7cd9c45f5b082d5ed6cf93b067416c73f89e", "size": 42703171, "native_version": null}
+{"target": "windows-x64", "sha256": "26e742b347a577d43d5d52ac32dff7c835948778ecd2c5cde8589296d12a8046", "size": 45825476, "native_version": null}
+all five immutable CI archives verified

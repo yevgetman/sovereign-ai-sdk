@@ -1,0 +1,50 @@
+{
+  "reviewer": "runtime_pin independent native peer",
+  "checked_at": "2026-10-12T04:50:54.303704+00:00",
+  "decision": "Freeze approved; no finding above Low",
+  "remaining_above_low": 0,
+  "findings": [],
+  "build_commit": "486c58f5d2fee5478c9f7c5088f9f8bbdc859c11",
+  "manifest_sha256": "d631325f42c4bd556679811724df109aff6e55b3e3cd82a030a859dd1d6775d0",
+  "SDK_version": "0.15.0",
+  "CLI_version": "0.6.78",
+  "items": 12,
+  "artifacts_verified": 6,
+  "checks": {
+    "manifest_plan_versions_mapping_preparation": "pass",
+    "exact_manifest_bytes_sha256": "pass",
+    "validation_build_and_evidence_consistency": "pass",
+    "artifact_local_bytes_sha256": "pass for all6",
+    "architecture_package_coverage": "pass",
+    "owner_authorization_exact_build": "pass",
+    "successful_exact_CI": "38204740090 all6jobs success; artifacts match build",
+    "source_tests": "6060product+6072planning;19existing skips;zero failures"
+  },
+  "publication_conditions": [
+    "Commit exact frozen snapshot and retain snapshotSHA before outward upload.",
+    "Add snapshotSHA in later evidence; do not alter frozen manifest bytes.",
+    "Upload retained exact frozen hashes and independently verify all public downloads before rollover."
+  ],
+  "validation_evidence": [
+    {
+      "check": "complete source lint/boundary/types/strict builds/tests",
+      "evidence": "releases/skills-0150-cut/source-qa.json"
+    },
+    {
+      "check": "independent exact assembly and preparation code review",
+      "evidence": "releases/skills-0150-cut/assembly-review-final.json"
+    },
+    {
+      "check": "packed current and floor Node/Bun strict consumers/purity/Go/advisory gates",
+      "evidence": "releases/skills-0150-cut/packed-qa-final.json"
+    },
+    {
+      "check": "all5platform builds/scans/native Mac Linux Windows and exact CI artifacts",
+      "evidence": "releases/skills-0150-cut/ci-artifact-verification.json"
+    }
+  ],
+  "limitations": [
+    "Linux arm64 crosscompiled without native hardware smoke; receipts disclose this.",
+    "No npm publication, consumer release, local installation or restart authorized here."
+  ]
+}

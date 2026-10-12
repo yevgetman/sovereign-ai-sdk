@@ -1,0 +1,1 @@
+fresh-install leak scan: clean; 33 files; 0 file/rule pairs; 0 coverage errors

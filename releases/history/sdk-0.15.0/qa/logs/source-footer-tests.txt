@@ -1,0 +1,19 @@
+$ bun test --timeout 20000 ./tests/ui/footer.test.ts
+bun test v1.3.13 (bf2e2cec)
+
+tests/ui/footer.test.ts:
+(pass) renderFooter > shows provider, model, cost, perms, tools by default [0.28ms]
+(pass) renderFooter > includes a context segment when a meter is provided
+(pass) renderFooter > omits context segment when meter is absent
+(pass) renderFooter > shows bundle label when set
+(pass) renderFooter > formats small costs as <$0.01 and sub-dollar costs at three decimals [0.48ms]
+(pass) renderFooter > returns empty string when disabled
+(pass) renderFooter > context segment is yellow at warn, red at danger [0.06ms]
+(pass) printPrePromptFooter > writes the rendered line + newline to the sink when TTY
+(pass) printPrePromptFooter > no-op when disabled
+(pass) printPrePromptFooter > no-op when not a TTY [0.01ms]
+
+ 10 pass
+ 0 fail
+ 18 expect() calls
+Ran 10 tests across 1 file. [15.00ms]

@@ -1,0 +1,36 @@
+
+> @yevgetman/sov-protocol@0.1.0 prepack
+> rm -rf dist && bun run build
+
+$ tsc -p tsconfig.build.json
+npm notice
+npm notice 📦  @yevgetman/sov-protocol@0.1.0
+npm notice Tarball Contents
+npm notice 1.1kB LICENSE
+npm notice 3.3kB README.md
+npm notice 2.6kB dist/client.d.ts
+npm notice 8.5kB dist/client.js
+npm notice 1.6kB dist/endpoints.d.ts
+npm notice 1.6kB dist/endpoints.js
+npm notice 5.4kB dist/events.d.ts
+npm notice 1.2kB dist/events.js
+npm notice 90B dist/index.d.ts
+npm notice 1.3kB dist/index.js
+npm notice 1.2kB package.json
+npm notice 9.3kB src/client.ts
+npm notice 5.8kB src/endpoints.ts
+npm notice 6.8kB src/events.ts
+npm notice 1.3kB src/index.ts
+npm notice Tarball Details
+npm notice name: @yevgetman/sov-protocol
+npm notice version: 0.1.0
+npm notice filename: yevgetman-sov-protocol-0.1.0.tgz
+npm notice package size: 12.7 kB
+npm notice unpacked size: 51.2 kB
+npm notice shasum: 8d73d3c3d02f078aeb99196948f1d68c0b0e454b
+npm notice integrity: sha512-isyJfSDtCh1QN[...]oh47Mjg44XPjw==
+npm notice total files: 15
+npm notice
+npm warn This command requires you to be logged in to https://registry.npmjs.org/ (dry-run)
+npm notice Publishing to https://registry.npmjs.org/ with tag latest and default access (dry-run)
++ @yevgetman/sov-protocol@0.1.0

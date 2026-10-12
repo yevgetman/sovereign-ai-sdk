@@ -1,0 +1,7 @@
+?   	github.com/yevgetman/sovereign-ai-sdk/packages/tui/cmd/sov-tui	[no test files]
+ok  	github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/app	2.173s
+ok  	github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/components	1.186s
+ok  	github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/render	0.833s
+ok  	github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/style	0.612s
+ok  	github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/theme	0.958s
+ok  	github.com/yevgetman/sovereign-ai-sdk/packages/tui/internal/transport	0.270s

@@ -1,0 +1,41 @@
+[
+  {
+    "unit": "55d6d76dbd8ffa2f0e77e014bd2ae5c1662946dd",
+    "paths": [
+      "README.md",
+      "docs/Documentation_Table_Of_Contents.md",
+      "packages/sdk/README.md"
+    ],
+    "resolution": "Selected incoming reviewed document; release preparation will align version pointers."
+  },
+  {
+    "unit": "59813dec67b6caa3ea6838229ce2aaedf9030a07",
+    "paths": [
+      "AGENTS.md",
+      "PUBLISHING.md",
+      "docs/06-testing/testing-log.md"
+    ],
+    "resolution": "Selected incoming reviewed document; release preparation will align version pointers."
+  },
+  {
+    "unit": "3904fcc655bfbf7f9a586ea57948a807bd4e0da8",
+    "paths": [
+      "docs/06-testing/testing-log.md"
+    ],
+    "resolution": "Selected incoming reviewed document; release preparation will align version pointers."
+  },
+  {
+    "unit": "1cc7e8aae18ed97ba4314a26965e969166d2f421",
+    "paths": [
+      "docs/04-extending/extending.md"
+    ],
+    "resolution": "Selected incoming reviewed document; release preparation will align version pointers."
+  },
+  {
+    "unit": "6959514eaaa92794ab7792a9b27d5f5afb9ee802",
+    "paths": [
+      "docs/05-conventions/release-manifest.md"
+    ],
+    "resolution": "Added explicitly selected release preparation guide absent from prior assembled baseline."
+  }
+]

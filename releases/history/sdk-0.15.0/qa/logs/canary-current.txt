@@ -1,0 +1,69 @@
+$ bun scripts/canary/run-consumer-canary.ts
+  ✔ FORBIDDEN_SPECIFIERS self-test passed (matches known-bad, spares known-good)
+External-consumer canary:
+
+> @yevgetman/sov-protocol@0.1.0 prepack
+> rm -rf dist && bun run build
+
+$ tsc -p tsconfig.build.json
+  ✔ @yevgetman/sov-protocol installed artifact is pure (no bun:sqlite, no wrapper imports)
+  ✔ @yevgetman/sov-protocol consumable under node
+  ✔ @yevgetman/sov-protocol consumable under bun
+
+> @yevgetman/sov-sdk@0.15.0 prepack
+> rm -rf dist && bun run build
+
+$ tsc -p tsconfig.build.json
+  ✔ @yevgetman/sov-sdk installed artifact is pure (no bun:sqlite, no wrapper imports)
+  ✔ @yevgetman/sov-sdk consumable under node
+  ✔ @yevgetman/sov-sdk consumable under bun
+
+> @yevgetman/sov-sdk@0.15.0 prepack
+> rm -rf dist && bun run build
+
+rm: dist/providers: Directory not empty
+rm: dist/tool: Directory not empty
+rm: dist: Directory not empty
+npm error code 1
+npm error path /private/tmp/sdk-skills-cut-0150-20261011/packages/sdk
+npm error command failed
+npm error command sh -c rm -rf dist && bun run build
+npm error A complete log of this run can be found in: /Users/julie/.npm/_logs/2026-10-12T04_32_13_309Z-debug-0.log
+126 |   console.log(`  ✔ ${pkgName} installed artifact is pure (no bun:sqlite, no wrapper imports)`);
+127 | }
+128 | 
+129 | function packTarball(pkgDir: string): string {
+130 |   // `npm pack --json` runs `prepack` (→ build) and emits the tarball + a JSON manifest.
+131 |   const out = execFileSync('npm', ['pack', '--json'], { cwd: pkgDir }).toString();
+                    ^
+error: Command failed: npm pack --json
+
+> @yevgetman/sov-sdk@0.15.0 prepack
+> rm -rf dist && bun run build
+
+rm: dist/providers: Directory not empty
+rm: dist/tool: Directory not empty
+rm: dist: Directory not empty
+npm error code 1
+npm error path /private/tmp/sdk-skills-cut-0150-20261011/packages/sdk
+npm error command failed
+npm error command sh -c rm -rf dist && bun run build
+npm error A complete log of this run can be found in: /Users/julie/.npm/_logs/2026-10-12T04_32_13_309Z-debug-0.log
+
+ signal: null,
+ status: 1,
+ output: [ null, "{\n  \"error\": {\n    \"code\": 1,\n    \"summary\": \"command failed\",\n    \"detail\": \"sh -c rm -rf dist && bun run build\"\n  }\n}\n", "\n> @yevgetman/sov-sdk@0.15.0 prepack\n> rm -rf dist && bun run build\n\nrm: dist/providers: Directory not empty\nrm: dist/tool: Directory not empty\nrm: dist: Directory not empty\nnpm error code 1\nnpm error path /private/tmp/sdk-skills-cut-0150-20261011/packages/sdk\nnpm error command failed\nnpm error command sh -c rm -rf dist && bun run build\nnpm error A complete log of this run can be found in: /Users/julie/.npm/_logs/2026-10-12T04_32_13_309Z-debug-0.log\n" ],
+    pid: 7218,
+ stdout: "{\n  \"error\": {\n    \"code\": 1,\n    \"summary\": \"command failed\",\n    \"detail\": \"sh -c rm -rf dist && bun run build\"\n  }\n}\n",
+ stderr: "\n> @yevgetman/sov-sdk@0.15.0 prepack\n> rm -rf dist && bun run build\n\nrm: dist/providers: Directory not empty\nrm: dist/tool: Directory not empty\nrm: dist: Directory not empty\nnpm error code 1\nnpm error path /private/tmp/sdk-skills-cut-0150-20261011/packages/sdk\nnpm error command failed\nnpm error command sh -c rm -rf dist && bun run build\nnpm error A complete log of this run can be found in: /Users/julie/.npm/_logs/2026-10-12T04_32_13_309Z-debug-0.log\n",
+
+      at genericNodeError (node:child_process:998:13)
+      at checkExecSyncError (node:child_process:458:27)
+      at execFileSync (node:child_process:269:31)
+      at packTarball (/private/tmp/sdk-skills-cut-0150-20261011/scripts/canary/run-consumer-canary.ts:131:15)
+      at runCanary (/private/tmp/sdk-skills-cut-0150-20261011/scripts/canary/run-consumer-canary.ts:172:21)
+      at /private/tmp/sdk-skills-cut-0150-20261011/scripts/canary/run-consumer-canary.ts:237:1
+      at loadAndEvaluateModule (2:1)
+
+Bun v1.3.13 (macOS arm64)
+error: script "canary" exited with code 1

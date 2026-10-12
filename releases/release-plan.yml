@@ -1,7 +1,7 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: 2026-10-12T04:48:51.451Z
+updated_at: 2026-10-12T04:58:35.271Z
 checkout: .
 last_release: &a1
   version: 0.14.0
@@ -18,7 +18,7 @@ release:
   product: sovereign-ai-sdk
   version: 0.15.0
   cli_version: 0.6.78
-  status: frozen
+  status: released
   base: *a1
   applied_commits:
     - item_id: sdk-public-docs-014
@@ -67,7 +67,7 @@ release:
       reason: Explicit reviewed version/docs or release-preflight preparation.
       review: releases/skills-0150-cut/assembly-review-final.json
   build_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
-  frozen_manifest_commit: null
+  frozen_manifest_commit: b82f22bb2faff91390b488f12f773903c91d1407
   authorization:
     kind: owner-approval
     reference: "Authenticated Owner Telegram request2026-10-11: merge reviewed PRs,
@@ -93,6 +93,11 @@ release:
       result: pass
       build_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
       evidence: releases/skills-0150-cut/ci-artifact-verification.json
+    - check: independent every public download checksum and exact source/version plus
+        native downloaded Mac smokes
+      result: pass
+      build_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
+      evidence: releases/history/sdk-0.15.0/publication.json
   artifacts:
     - arch: darwin-arm64
       filename: sov-darwin-arm64.tar.gz
@@ -118,6 +123,6 @@ release:
       filename: yevgetman-sov-sdk-0.15.0.tgz
       sha256: c3551af08671b730c301f8406b3764ff1df64b2aeaa9c42d70b805515750316b
       location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.78/yevgetman-sov-sdk-0.15.0.tgz
-  published_at: null
-  publication_evidence: null
+  published_at: 2026-10-12T04:55:52.387999Z
+  publication_evidence: releases/history/sdk-0.15.0/publication.json
   manifest_sha256: d631325f42c4bd556679811724df109aff6e55b3e3cd82a030a859dd1d6775d0

@@ -1,0 +1,97 @@
+
+> @yevgetman/sov-protocol@0.1.0 prepack
+> rm -rf dist && bun run build
+
+$ tsc -p tsconfig.build.json
+
+[
+  {
+    "id": "@yevgetman/sov-protocol@0.1.0",
+    "name": "@yevgetman/sov-protocol",
+    "version": "0.1.0",
+    "size": 12665,
+    "unpackedSize": 51180,
+    "shasum": "8d73d3c3d02f078aeb99196948f1d68c0b0e454b",
+    "integrity": "sha512-isyJfSDtCh1QNq42elzUrZc8JzH+3u6VCPLL8fY4b4PPkQxEvFUwsByyrFxgJnXTKibQJhBTUoh47Mjg44XPjw==",
+    "filename": "yevgetman-sov-protocol-0.1.0.tgz",
+    "files": [
+      {
+        "path": "LICENSE",
+        "size": 1068,
+        "mode": 420
+      },
+      {
+        "path": "README.md",
+        "size": 3279,
+        "mode": 420
+      },
+      {
+        "path": "dist/client.d.ts",
+        "size": 2558,
+        "mode": 420
+      },
+      {
+        "path": "dist/client.js",
+        "size": 8506,
+        "mode": 420
+      },
+      {
+        "path": "dist/endpoints.d.ts",
+        "size": 1624,
+        "mode": 420
+      },
+      {
+        "path": "dist/endpoints.js",
+        "size": 1604,
+        "mode": 420
+      },
+      {
+        "path": "dist/events.d.ts",
+        "size": 5414,
+        "mode": 420
+      },
+      {
+        "path": "dist/events.js",
+        "size": 1209,
+        "mode": 420
+      },
+      {
+        "path": "dist/index.d.ts",
+        "size": 90,
+        "mode": 420
+      },
+      {
+        "path": "dist/index.js",
+        "size": 1346,
+        "mode": 420
+      },
+      {
+        "path": "package.json",
+        "size": 1230,
+        "mode": 420
+      },
+      {
+        "path": "src/client.ts",
+        "size": 9311,
+        "mode": 420
+      },
+      {
+        "path": "src/endpoints.ts",
+        "size": 5751,
+        "mode": 420
+      },
+      {
+        "path": "src/events.ts",
+        "size": 6843,
+        "mode": 420
+      },
+      {
+        "path": "src/index.ts",
+        "size": 1347,
+        "mode": 420
+      }
+    ],
+    "entryCount": 15,
+    "bundled": []
+  }
+]

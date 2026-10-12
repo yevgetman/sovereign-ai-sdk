@@ -1,0 +1,39 @@
+$ bun test --timeout 20000 ./tests/scripts/release-build-target.test.ts
+bun test v1.3.13 (bf2e2cec)
+
+tests/scripts/release-build-target.test.ts:
+(pass) release-build-target — resolveTarget > returns the target spec for a known name [0.12ms]
+(pass) release-build-target — resolveTarget > resolves windows-x64 (Telekit for Windows)
+(pass) release-build-target — resolveTarget > returns null for an unknown target
+(pass) release-build-target — stagedBinaryPaths > windows binaries are sov.exe + sov-tui.exe under bin/
+(pass) release-build-target — stagedBinaryPaths > darwin + linux binaries stay extension-less
+(pass) release-build-target — archivePathFor > windows lands as sov-windows-x64.zip, others as .tar.gz [0.19ms]
+(pass) release-build-target — packageStage (windows zip) > zips a staged tree with the tarball layout rooted at the archive top [2.68ms]
+(pass) release-build-target — validateBuildInputs > returns ok when both target + version look valid and LICENSE.txt exists [0.28ms]
+(pass) release-build-target — validateBuildInputs > returns error for an unknown target [0.02ms]
+(pass) release-build-target — validateBuildInputs > returns error for a bad version format
+(pass) release-build-target — validateBuildInputs > returns error when publicRepoPath has no LICENSE.txt [0.17ms]
+(pass) release-build-target — shouldStageBundlePath (audit C1: no state leak) > stages content outside state/ [0.04ms]
+(pass) release-build-target — shouldStageBundlePath (audit C1: no state leak) > keeps the state/ dir shell and its tracked .gitkeep
+(pass) release-build-target — shouldStageBundlePath (audit C1: no state leak) > DROPS captured runtime state (the leak vector)
+(pass) release-build-target — shouldStageBundlePath (audit C1: no state leak) > end-to-end: cpSync with the filter excludes state trajectories but keeps .gitkeep [2.18ms]
+(pass) release-build-target — bun compile dir must be under /tmp > rejects $HOME and /var/folders, accepts /tmp and /private/tmp [0.09ms]
+release: [darwin-arm64] bun build --compile...
+fresh-install leak scan: clean; 1 files; 0 file/rule pairs; 0 coverage errors
+release: [darwin-arm64] go build sov-tui (darwin/arm64)...
+(pass) release-build-target — compileBinaries cwd and post-scan > bun cwd is a 0700 /tmp copy with symlinks dereferenced, then the dir is removed [138.38ms]
+release: [linux-x64] bun build --compile...
+sov: builder-home
+fresh-install leak scan: findings; 1 files; 1 file/rule pairs; 0 coverage errors
+(pass) release-build-target — compileBinaries cwd and post-scan > fails the build when bin/sov contains the home prefix, and still removes the copy [140.11ms]
+release: [darwin-arm64] copying bundle-default/ (excluding runtime state/)...
+(pass) release-build-target — compileBinaries cwd and post-scan > consumer staging copies the tracked installed contract while excluding captured state [89.58ms]
+(pass) release-build-target — compileBinaries cwd and post-scan > cleans the private scratch tree when source/dependency copying fails [90.52ms]
+release: [darwin-arm64] bun build --compile...
+(pass) release-build-target — compileBinaries cwd and post-scan > removes the /tmp copy when bun fails [86.04ms]
+(pass) tar packaging clears ownership and extended metadata after final packing [46.45ms]
+
+ 22 pass
+ 0 fail
+ 115 expect() calls
+Ran 22 tests across 1 file. [613.00ms]

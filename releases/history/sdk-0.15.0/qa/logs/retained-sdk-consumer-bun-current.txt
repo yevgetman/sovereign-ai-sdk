@@ -1,0 +1,2 @@
+resolved entry (bun): file:///private/tmp/sdk-skills-release-control-20261011/sov-retained-sdk-e55n9_0c/node_modules/@yevgetman/sov-sdk/src/sdk.ts
+SDK_OK

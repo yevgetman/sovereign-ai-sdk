@@ -1,0 +1,45 @@
+$ bun scripts/canary/run-consumer-canary.ts
+  ✔ FORBIDDEN_SPECIFIERS self-test passed (matches known-bad, spares known-good)
+External-consumer canary:
+
+> @yevgetman/sov-protocol@0.1.0 prepack
+> rm -rf dist && bun run build
+
+$ tsc -p tsconfig.build.json
+  ✔ @yevgetman/sov-protocol installed artifact is pure (no bun:sqlite, no wrapper imports)
+  ✔ @yevgetman/sov-protocol consumable under node
+  ✔ @yevgetman/sov-protocol consumable under bun
+
+> @yevgetman/sov-sdk@0.15.0 prepack
+> rm -rf dist && bun run build
+
+$ tsc -p tsconfig.build.json
+  ✔ @yevgetman/sov-sdk installed artifact is pure (no bun:sqlite, no wrapper imports)
+  ✔ @yevgetman/sov-sdk consumable under node
+  ✔ @yevgetman/sov-sdk consumable under bun
+
+> @yevgetman/sov-sdk@0.15.0 prepack
+> rm -rf dist && bun run build
+
+$ tsc -p tsconfig.build.json
+  ✔ @yevgetman/sov-sdk installed artifact is pure (no bun:sqlite, no wrapper imports)
+  ✔ @yevgetman/sov-sdk consumer type shapes compile
+  ✔ @yevgetman/sov-sdk consumable under node
+  ✔ @yevgetman/sov-sdk consumable under bun
+
+> @yevgetman/sov-sdk@0.15.0 prepack
+> rm -rf dist && bun run build
+
+$ tsc -p tsconfig.build.json
+  ✔ @yevgetman/sov-sdk installed artifact is pure (no bun:sqlite, no wrapper imports)
+  ✔ @yevgetman/sov-sdk consumable under node
+  ✔ @yevgetman/sov-sdk consumable under bun
+
+> @yevgetman/sov-sdk@0.15.0 prepack
+> rm -rf dist && bun run build
+
+$ tsc -p tsconfig.build.json
+  ✔ @yevgetman/sov-sdk installed artifact is pure (no bun:sqlite, no wrapper imports)
+  ✔ @yevgetman/sov-sdk consumable under node
+  ✔ @yevgetman/sov-sdk consumable under bun
+All consumer canaries passed.

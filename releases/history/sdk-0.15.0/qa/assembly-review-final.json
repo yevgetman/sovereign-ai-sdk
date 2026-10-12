@@ -1,0 +1,110 @@
+{
+  "reviewer": "runtime_pin native independent peer",
+  "checked_at": "2026-10-12T04:40:59.958720+00:00",
+  "build_commit": "486c58f5d2fee5478c9f7c5088f9f8bbdc859c11",
+  "baseline_commit": "dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823",
+  "manifest_version": "0.15.0",
+  "CLI_version": "0.6.78",
+  "items": 12,
+  "findings": [],
+  "remaining_above_low": 0,
+  "checks": {
+    "exact_baseline_to_build_mapping": "pass (all12 and only12 application results)",
+    "mapping_matches_manifest_items": "pass",
+    "source_application_reachability": "pass",
+    "dependency_order_and_closure": "pass",
+    "prepared_product_source_equivalence_remote_master": "pass (SDK/protocol/wrapper/TUI and all modified release docs)",
+    "version_lock_and_engine_compatibility": "pass",
+    "SDK_API_semver": "additive root exports; minor0.15.0 required",
+    "packed_README_install_and_source_links": "pass (source-only links absolute; remaining source path shipped)",
+    "document_conflict_resolutions": "reviewed; incoming selected units; final modified docs equal reviewed source",
+    "unchanged_product_source_since_prior_review": "pass (only release.yml changed)",
+    "workflow_build_order_fix": "pass (protocol+SDK build before unchanged tests)",
+    "preflight_source_unit": "actualPR62merge with verified two-parent mainline1"
+  },
+  "resolved_findings": [
+    {
+      "severity": "Medium",
+      "finding": "Packed README used old version and source-only relative links",
+      "resolution": "Install now SDK0.15.0/SOV0.6.78; six source-only guide links absolute."
+    }
+  ],
+  "scope_limits": [
+    "No fresh public publication or platform smoke claim; those gates remain separate.",
+    "Assembly intentionally excludes unlisted planning infrastructure and12validator fixture tests; release relationships validated in source-control worktree.",
+    "Failed preflight38204175430 retained; successful corrected exact-build preflight and all platform/public gates required before freeze."
+  ],
+  "reviewed_document_sha256": {
+    "package.json": "8893f66a8b67832778ee9dde8cd7978f21788d4cfb4ada0b1e0f43ef0773434f",
+    "packages/sdk/package.json": "0ecc3bc3b7cda0a20cc773dac7dd95d6f6126b4e5f34e4e23c699644cd36eec5",
+    "bun.lock": "2bf1f7b39fccf36cd2f7e7d507c14889af9c0af9a96888e96cc3bc198c003e3b",
+    "README.md": "1699066e6bee7af6c776f2c4cb9126480e744a819eebce818b08444aaf7684c9",
+    "packages/sdk/README.md": "25e7a49af75861f3c69efe8bdcfb1e5102f8616394b8543dbc2f2fa6e691d3fd",
+    "PUBLISHING.md": "52059b296321ee6774c3bbebf175e3fb99011dd2311a88b983d18a619737ca9c",
+    "CHANGELOG.md": "964ca80d0d032f1fb09df11342cc3fb3de3d61fb3c6cae37260e1fc762d225c4",
+    "docs/05-conventions/release-manifest.md": "a49d0ddcfdd9dc30651376fc6baacc6acdce5f047bbcc6a31530be2e36f5b656"
+  },
+  "mappings": [
+    {
+      "item_id": "sdk-public-docs-014",
+      "source_commit": "55d6d76dbd8ffa2f0e77e014bd2ae5c1662946dd",
+      "release_commit": "0a91d587227e184172d40ef09484b0b4732db34e"
+    },
+    {
+      "item_id": "sdk-install-docs-correction",
+      "source_commit": "59813dec67b6caa3ea6838229ce2aaedf9030a07",
+      "release_commit": "880913e25bce5d4968558c9daaaabb6fc2ce928b"
+    },
+    {
+      "item_id": "sdk-pr-52",
+      "source_commit": "3904fcc655bfbf7f9a586ea57948a807bd4e0da8",
+      "release_commit": "3e68823fc65a941bc64d2dd045e2874e550948c1"
+    },
+    {
+      "item_id": "sdk-pr-53",
+      "source_commit": "1cc7e8aae18ed97ba4314a26965e969166d2f421",
+      "release_commit": "fce8cc1b87fdf483bb5aca3fb95fd9e475793ba9"
+    },
+    {
+      "item_id": "sdk-pr-54",
+      "source_commit": "559383045ef1d2099c3d311772766f53d120e089",
+      "release_commit": "b8303af4f759f7c23c54b2dcc952673b07482b16"
+    },
+    {
+      "item_id": "sdk-pr-55",
+      "source_commit": "e2bd6fb44faaa7b42457a97c1355cd0e7b2a2978",
+      "release_commit": "34ba7c7d7b4c587d6b1c9bb606bf093eb8b0f4a1"
+    },
+    {
+      "item_id": "sdk-pr-56",
+      "source_commit": "20bf9fe1ad3f2d453dc75be384e0c218ab868dce",
+      "release_commit": "d18312115d918e9b98ff5efe6852e6ec024c7287"
+    },
+    {
+      "item_id": "sdk-pr-57",
+      "source_commit": "bff9ae6c36db3a59b0d18c4d7b83caa8d22e7c75",
+      "release_commit": "e040bef85fe67d8e27d6d44bfac7428c67092689"
+    },
+    {
+      "item_id": "sdk-pr-58",
+      "source_commit": "8a4f2e75fefb5e3759d03737b7d21b6c9ab5f1fb",
+      "release_commit": "f06bd88f7d0ae85c7e917170d4ed5350b66376a9"
+    },
+    {
+      "item_id": "sdk-pr-59",
+      "source_commit": "e01f7e2be55b5b810ef6fb41a63713d03695fe73",
+      "release_commit": "5f4b893a7569b53afd26815e59abc865c0422fed"
+    },
+    {
+      "item_id": "sdk-prep-0150",
+      "source_commit": "6959514eaaa92794ab7792a9b27d5f5afb9ee802",
+      "release_commit": "18d361bc932221eb14184e8fb5ba0606a48a20e1"
+    },
+    {
+      "item_id": "sdk-prep-build-preflight",
+      "source_commit": "3d4486dd442226f1597eba12bd9eb6958d9f001d",
+      "release_commit": "486c58f5d2fee5478c9f7c5088f9f8bbdc859c11"
+    }
+  ],
+  "previous_reviewed_build_commit": "18d361bc932221eb14184e8fb5ba0606a48a20e1"
+}

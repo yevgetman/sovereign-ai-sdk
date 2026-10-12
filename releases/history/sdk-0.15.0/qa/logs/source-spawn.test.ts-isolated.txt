@@ -1,0 +1,21 @@
+$ bun test --timeout 20000 ./tests/util/spawn.test.ts
+bun test v1.3.13 (bf2e2cec)
+
+tests/util/spawn.test.ts:
+(pass) spawnProc > captures stdout via Web-stream Response and resolves exit 0 [4.99ms]
+(pass) spawnProc > non-zero exit code resolves (does not reject) [1.75ms]
+(pass) spawnProc > stderr is captured [1.39ms]
+(pass) spawnProc > cwd is honored [1.79ms]
+(pass) spawnProc > stdin round-trip: write + end echoes through cat [1.14ms]
+(pass) spawnProc > stdin defaults to ignored (EOF), not an open pipe [1.04ms]
+(pass) spawnProc > KILLED_EXIT_CODE is 143 (POSIX 128+SIGTERM), never colliding with rg 0/1/2
+(pass) spawnProc > AbortSignal kills the child; exited resolves 143 and signalCode is exposed [52.92ms]
+(pass) spawnProc > nonexistent binary resolves exited non-zero (no crash, no reject) [1.59ms]
+(pass) spawnProc > pre-aborted signal short-circuits: no spawn, exited resolves KILLED_EXIT_CODE [0.34ms]
+(pass) toolSubprocessEnv — credential scrub (SECURITY) > scrubs provider auth vars, the gateway token, and MCP secrets; keeps everything else
+(pass) toolSubprocessEnv — credential scrub (SECURITY) > a spawned child cannot read the provider key from its environment [1.97ms]
+
+ 12 pass
+ 0 fail
+ 34 expect() calls
+Ran 12 tests across 1 file. [81.00ms]

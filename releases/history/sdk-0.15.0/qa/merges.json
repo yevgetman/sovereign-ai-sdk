@@ -1,0 +1,98 @@
+[
+  {
+    "baseRefName": "master",
+    "headRefOid": "bc3b2b255e70d690fe0cfef1c96f8432249f594b",
+    "mergeCommit": {
+      "oid": "3904fcc655bfbf7f9a586ea57948a807bd4e0da8"
+    },
+    "mergedAt": "2026-10-12T04:20:43Z",
+    "number": 52,
+    "state": "MERGED",
+    "title": "Unify permissioned skill activation across SDK and SOV",
+    "url": "https://github.com/yevgetman/sovereign-ai-sdk/pull/52"
+  },
+  {
+    "baseRefName": "master",
+    "headRefOid": "8f387078e6d391c37df999770fa3befd88279abf",
+    "mergeCommit": {
+      "oid": "1cc7e8aae18ed97ba4314a26965e969166d2f421"
+    },
+    "mergedAt": "2026-10-12T04:20:49Z",
+    "number": 53,
+    "state": "MERGED",
+    "title": "Discover portable skills within explicit bounded scopes",
+    "url": "https://github.com/yevgetman/sovereign-ai-sdk/pull/53"
+  },
+  {
+    "baseRefName": "master",
+    "headRefOid": "000c6b18da37fbfe67614ee896913dd7d95ee11d",
+    "mergeCommit": {
+      "oid": "559383045ef1d2099c3d311772766f53d120e089"
+    },
+    "mergedAt": "2026-10-12T04:20:54Z",
+    "number": 54,
+    "state": "MERGED",
+    "title": "Confine skill writes to transactional explicit stores",
+    "url": "https://github.com/yevgetman/sovereign-ai-sdk/pull/54"
+  },
+  {
+    "baseRefName": "master",
+    "headRefOid": "0f02943209c70e9c31a4c55d5dd1a2cf59051548",
+    "mergeCommit": {
+      "oid": "e2bd6fb44faaa7b42457a97c1355cd0e7b2a2978"
+    },
+    "mergedAt": "2026-10-12T04:21:00Z",
+    "number": 55,
+    "state": "MERGED",
+    "title": "Preserve portable skill metadata and enforce invocation controls",
+    "url": "https://github.com/yevgetman/sovereign-ai-sdk/pull/55"
+  },
+  {
+    "baseRefName": "master",
+    "headRefOid": "bd8ad744f861c8838c75aa77891274029157a83e",
+    "mergeCommit": {
+      "oid": "20bf9fe1ad3f2d453dc75be384e0c218ab868dce"
+    },
+    "mergedAt": "2026-10-12T04:21:06Z",
+    "number": 56,
+    "state": "MERGED",
+    "title": "Refresh live skill registries and expose safe diagnostics",
+    "url": "https://github.com/yevgetman/sovereign-ai-sdk/pull/56"
+  },
+  {
+    "baseRefName": "master",
+    "headRefOid": "109b9bd8c51d2d1d7d457726690233e371d45b37",
+    "mergeCommit": {
+      "oid": "bff9ae6c36db3a59b0d18c4d7b83caa8d22e7c75"
+    },
+    "mergedAt": "2026-10-12T04:21:11Z",
+    "number": 57,
+    "state": "MERGED",
+    "title": "Compose optional SDK skill runtimes for embedded and SOV hosts",
+    "url": "https://github.com/yevgetman/sovereign-ai-sdk/pull/57"
+  },
+  {
+    "baseRefName": "master",
+    "headRefOid": "ed77ad47e7d1ae85eb310fe54401c69c724634f4",
+    "mergeCommit": {
+      "oid": "8a4f2e75fefb5e3759d03737b7d21b6c9ab5f1fb"
+    },
+    "mergedAt": "2026-10-12T04:21:16Z",
+    "number": 58,
+    "state": "MERGED",
+    "title": "Bound complete skill catalogs by effective model context limits",
+    "url": "https://github.com/yevgetman/sovereign-ai-sdk/pull/58"
+  },
+  {
+    "baseRefName": "master",
+    "headRefOid": "8b1df4d33e65af66b914d1ccc65af3b86e276ec9",
+    "mergeCommit": {
+      "oid": "e01f7e2be55b5b810ef6fb41a63713d03695fe73"
+    },
+    "mergedAt": "2026-10-12T04:21:22Z",
+    "number": 59,
+    "state": "MERGED",
+    "title": "Retain bounded private skill guidance across SOV session lineage",
+    "url": "https://github.com/yevgetman/sovereign-ai-sdk/pull/59"
+  }
+]

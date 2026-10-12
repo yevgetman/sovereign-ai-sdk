@@ -1,0 +1,8 @@
+{
+  "pass": 6072,
+  "skip": 19,
+  "fail": 0,
+  "assertions": 25988,
+  "files": 593,
+  "coverage": "All discovered test files; global compile fixture serialized; footer theme, redaction timing and subprocess fixtures isolated; all remaining files use unique TMPDIR."
+}

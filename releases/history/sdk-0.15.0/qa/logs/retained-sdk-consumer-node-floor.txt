@@ -1,0 +1,2 @@
+resolved entry (node): file:///private/tmp/sdk-skills-release-control-20261011/sov-retained-sdk-e55n9_0c/node_modules/@yevgetman/sov-sdk/dist/sdk.js
+SDK_OK

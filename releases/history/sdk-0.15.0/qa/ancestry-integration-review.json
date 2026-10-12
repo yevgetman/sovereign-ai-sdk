@@ -1,0 +1,50 @@
+{
+  "reviewer": "runtime_pin independent native peer",
+  "checked_at": "2026-10-12T04:44:37.905211+00:00",
+  "operation": "ancestry-only integration merge staged review",
+  "first_parent": "3d4486dd442226f1597eba12bd9eb6958d9f001d",
+  "second_parent_build": "486c58f5d2fee5478c9f7c5088f9f8bbdc859c11",
+  "index_tree": "3ef5d3243bea82df924204dfb0d088fd0da6311b",
+  "first_parent_tree": "3ef5d3243bea82df924204dfb0d088fd0da6311b",
+  "findings": [],
+  "remaining_above_low": 0,
+  "checks": {
+    "index_tree_equals_first_parent": "pass",
+    "staged_diff": "empty",
+    "unmerged_entries": "none",
+    "second_parent_exact_release_build": "pass",
+    "reason": "Records exact assembled build ancestry for future release baseline reachability without changing source bytes."
+  },
+  "new_packed_README_source_urls": [
+    {
+      "url": "https://github.com/yevgetman/sovereign-ai-sdk/blob/master/PUBLISHING.md",
+      "status": 200,
+      "unauthenticated": true
+    },
+    {
+      "url": "https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-activation.md",
+      "status": 200,
+      "unauthenticated": true
+    },
+    {
+      "url": "https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-catalog.md",
+      "status": 200,
+      "unauthenticated": true
+    },
+    {
+      "url": "https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-storage.md",
+      "status": 200,
+      "unauthenticated": true
+    },
+    {
+      "url": "https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-runtime.md",
+      "status": 200,
+      "unauthenticated": true
+    },
+    {
+      "url": "https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-continuity.md",
+      "status": 200,
+      "unauthenticated": true
+    }
+  ]
+}

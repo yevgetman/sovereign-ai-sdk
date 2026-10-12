@@ -1,0 +1,65 @@
+{
+  "total_count": 3,
+  "artifacts": [
+    {
+      "id": 11727216038,
+      "node_id": "MDg6QXJ0aWZhY3QxMTcyNzIxNjAzOA==",
+      "name": "tarballs-windows",
+      "size_in_bytes": 45696021,
+      "url": "https://api.github.com/repos/yevgetman/sovereign-ai-sdk/actions/artifacts/11727216038",
+      "archive_download_url": "https://api.github.com/repos/yevgetman/sovereign-ai-sdk/actions/artifacts/11727216038/zip",
+      "expired": false,
+      "digest": "sha256:1b503cf7f72d89bcc24f548bf10d42e61c5c192ec9c25bcacdf3342cfa950701",
+      "created_at": "2026-10-12T04:44:57Z",
+      "updated_at": "2026-10-12T04:44:57Z",
+      "expires_at": "2027-01-10T04:40:27Z",
+      "workflow_run": {
+        "id": 38204740090,
+        "repository_id": 1218338312,
+        "head_repository_id": 1218338312,
+        "head_branch": "release/assembled-sdk-0150-20261011",
+        "head_sha": "486c58f5d2fee5478c9f7c5088f9f8bbdc859c11"
+      }
+    },
+    {
+      "id": 11726798185,
+      "node_id": "MDg6QXJ0aWZhY3QxMTcyNjc5ODE4NQ==",
+      "name": "tarballs-linux",
+      "size_in_bytes": 84697475,
+      "url": "https://api.github.com/repos/yevgetman/sovereign-ai-sdk/actions/artifacts/11726798185",
+      "archive_download_url": "https://api.github.com/repos/yevgetman/sovereign-ai-sdk/actions/artifacts/11726798185/zip",
+      "expired": false,
+      "digest": "sha256:4cb867350da63b7987744fa50f040212625c17acf1612ec151df87afc9473b36",
+      "created_at": "2026-10-12T04:45:42Z",
+      "updated_at": "2026-10-12T04:45:42Z",
+      "expires_at": "2027-01-10T04:40:27Z",
+      "workflow_run": {
+        "id": 38204740090,
+        "repository_id": 1218338312,
+        "head_repository_id": 1218338312,
+        "head_branch": "release/assembled-sdk-0150-20261011",
+        "head_sha": "486c58f5d2fee5478c9f7c5088f9f8bbdc859c11"
+      }
+    },
+    {
+      "id": 11726693364,
+      "node_id": "MDg6QXJ0aWZhY3QxMTcyNjY5MzM2NA==",
+      "name": "tarballs-darwin",
+      "size_in_bytes": 66219922,
+      "url": "https://api.github.com/repos/yevgetman/sovereign-ai-sdk/actions/artifacts/11726693364",
+      "archive_download_url": "https://api.github.com/repos/yevgetman/sovereign-ai-sdk/actions/artifacts/11726693364/zip",
+      "expired": false,
+      "digest": "sha256:c7a66429105496366bc4290982525b5ed5c2b12eae14a71e90e1e394a776583f",
+      "created_at": "2026-10-12T04:45:18Z",
+      "updated_at": "2026-10-12T04:45:18Z",
+      "expires_at": "2027-01-10T04:40:27Z",
+      "workflow_run": {
+        "id": 38204740090,
+        "repository_id": 1218338312,
+        "head_repository_id": 1218338312,
+        "head_branch": "release/assembled-sdk-0150-20261011",
+        "head_sha": "486c58f5d2fee5478c9f7c5088f9f8bbdc859c11"
+      }
+    }
+  ]
+}

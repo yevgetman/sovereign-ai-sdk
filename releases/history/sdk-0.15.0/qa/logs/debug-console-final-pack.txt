@@ -1,0 +1,153 @@
+
+> @yevgetman/sov-debug-console@0.3.0 prepack
+> rm -rf dist && bun run build
+
+$ tsc -p tsconfig.build.json && bun run scripts/build-iife.mjs
+
+built dist/sov-debug-console.iife.js
+[
+  {
+    "id": "@yevgetman/sov-debug-console@0.3.0",
+    "name": "@yevgetman/sov-debug-console",
+    "version": "0.3.0",
+    "size": 28719,
+    "unpackedSize": 107739,
+    "shasum": "1b4f1410a607e6d87cfe52b3373556dc118dd9e2",
+    "integrity": "sha512-1hfV5hJd+4vWkoweaaxvTs5ER1gE1F8utPtSGekP6ziV3NNDb3ghHalRYQaXc64QDGsi90MZ36GcbpB/HyC43A==",
+    "filename": "yevgetman-sov-debug-console-0.3.0.tgz",
+    "files": [
+      {
+        "path": "README.md",
+        "size": 3832,
+        "mode": 420
+      },
+      {
+        "path": "dist/element.d.ts",
+        "size": 1338,
+        "mode": 420
+      },
+      {
+        "path": "dist/element.js",
+        "size": 17279,
+        "mode": 420
+      },
+      {
+        "path": "dist/iife-entry.d.ts",
+        "size": 28,
+        "mode": 420
+      },
+      {
+        "path": "dist/iife-entry.js",
+        "size": 378,
+        "mode": 420
+      },
+      {
+        "path": "dist/index.d.ts",
+        "size": 433,
+        "mode": 420
+      },
+      {
+        "path": "dist/index.js",
+        "size": 564,
+        "mode": 420
+      },
+      {
+        "path": "dist/register.d.ts",
+        "size": 144,
+        "mode": 420
+      },
+      {
+        "path": "dist/register.js",
+        "size": 624,
+        "mode": 420
+      },
+      {
+        "path": "dist/restAdapter.d.ts",
+        "size": 642,
+        "mode": 420
+      },
+      {
+        "path": "dist/restAdapter.js",
+        "size": 2142,
+        "mode": 420
+      },
+      {
+        "path": "dist/sov-debug-console.iife.js",
+        "size": 15131,
+        "mode": 420
+      },
+      {
+        "path": "dist/styles.d.ts",
+        "size": 5853,
+        "mode": 420
+      },
+      {
+        "path": "dist/styles.js",
+        "size": 6079,
+        "mode": 420
+      },
+      {
+        "path": "dist/types.d.ts",
+        "size": 4040,
+        "mode": 420
+      },
+      {
+        "path": "dist/types.js",
+        "size": 828,
+        "mode": 420
+      },
+      {
+        "path": "package.json",
+        "size": 1511,
+        "mode": 420
+      },
+      {
+        "path": "src/element.test.ts",
+        "size": 11156,
+        "mode": 420
+      },
+      {
+        "path": "src/element.ts",
+        "size": 17109,
+        "mode": 420
+      },
+      {
+        "path": "src/iife-entry.ts",
+        "size": 381,
+        "mode": 420
+      },
+      {
+        "path": "src/index.ts",
+        "size": 776,
+        "mode": 420
+      },
+      {
+        "path": "src/register.ts",
+        "size": 672,
+        "mode": 420
+      },
+      {
+        "path": "src/restAdapter.test.ts",
+        "size": 3218,
+        "mode": 420
+      },
+      {
+        "path": "src/restAdapter.ts",
+        "size": 2708,
+        "mode": 420
+      },
+      {
+        "path": "src/styles.ts",
+        "size": 6080,
+        "mode": 420
+      },
+      {
+        "path": "src/types.ts",
+        "size": 4793,
+        "mode": 420
+      }
+    ],
+    "entryCount": 26,
+    "bundled": []
+  }
+]

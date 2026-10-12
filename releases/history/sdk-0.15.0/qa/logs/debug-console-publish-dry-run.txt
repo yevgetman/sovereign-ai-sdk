@@ -1,0 +1,48 @@
+
+> @yevgetman/sov-debug-console@0.3.0 prepack
+> rm -rf dist && bun run build
+
+$ tsc -p tsconfig.build.json && bun run scripts/build-iife.mjs
+built dist/sov-debug-console.iife.js
+npm notice
+npm notice 📦  @yevgetman/sov-debug-console@0.3.0
+npm notice Tarball Contents
+npm notice 3.8kB README.md
+npm notice 1.3kB dist/element.d.ts
+npm notice 17.3kB dist/element.js
+npm notice 28B dist/iife-entry.d.ts
+npm notice 378B dist/iife-entry.js
+npm notice 433B dist/index.d.ts
+npm notice 564B dist/index.js
+npm notice 144B dist/register.d.ts
+npm notice 624B dist/register.js
+npm notice 642B dist/restAdapter.d.ts
+npm notice 2.1kB dist/restAdapter.js
+npm notice 15.1kB dist/sov-debug-console.iife.js
+npm notice 5.9kB dist/styles.d.ts
+npm notice 6.1kB dist/styles.js
+npm notice 4.0kB dist/types.d.ts
+npm notice 828B dist/types.js
+npm notice 1.5kB package.json
+npm notice 11.2kB src/element.test.ts
+npm notice 17.1kB src/element.ts
+npm notice 381B src/iife-entry.ts
+npm notice 776B src/index.ts
+npm notice 672B src/register.ts
+npm notice 3.2kB src/restAdapter.test.ts
+npm notice 2.7kB src/restAdapter.ts
+npm notice 6.1kB src/styles.ts
+npm notice 4.8kB src/types.ts
+npm notice Tarball Details
+npm notice name: @yevgetman/sov-debug-console
+npm notice version: 0.3.0
+npm notice filename: yevgetman-sov-debug-console-0.3.0.tgz
+npm notice package size: 28.7 kB
+npm notice unpacked size: 107.7 kB
+npm notice shasum: 1b4f1410a607e6d87cfe52b3373556dc118dd9e2
+npm notice integrity: sha512-1hfV5hJd+4vWk[...]6GcbpB/HyC43A==
+npm notice total files: 26
+npm notice
+npm warn This command requires you to be logged in to https://registry.npmjs.org/ (dry-run)
+npm notice Publishing to https://registry.npmjs.org/ with tag latest and default access (dry-run)
++ @yevgetman/sov-debug-console@0.3.0

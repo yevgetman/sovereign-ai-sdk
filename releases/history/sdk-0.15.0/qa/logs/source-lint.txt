@@ -1,0 +1,6 @@
+$ biome check src tests packages && bun run boundary
+Checked 1107 files in 375ms. No fixes applied.
+$ bun --bun depcruise packages/sdk/src packages/protocol/src --config .dependency-cruiser.cjs
+
+[32m✔[39m no dependency violations found (243 modules, 957 dependencies cruised)
+

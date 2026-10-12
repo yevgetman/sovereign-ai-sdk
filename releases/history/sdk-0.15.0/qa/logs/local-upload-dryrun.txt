@@ -1,0 +1,9 @@
+Python 3.9.6
+fresh-install leak scan: clean; 34 files; 0 file/rule pairs; 0 coverage errors
+fresh-install leak scan: clean; 34 files; 0 file/rule pairs; 0 coverage errors
+fresh-install leak scan: clean; 34 files; 0 file/rule pairs; 0 coverage errors
+fresh-install leak scan: clean; 34 files; 0 file/rule pairs; 0 coverage errors
+fresh-install leak scan: clean; 33 files; 0 file/rule pairs; 0 coverage errors
+release: wrote /private/tmp/sdk-skills-cut-0150-20261011/build/release/v0.6.78/SHA256SUMS
+release: dry-run — would invoke:
+release:   gh release create v0.6.78 --repo yevgetman/sov-releases --title Sovereign AI SDK v0.6.78 --notes-file /private/tmp/sov-public-release-notes-20261011/CHANGELOG.md /private/tmp/sdk-skills-cut-0150-20261011/build/release/v0.6.78/sov-darwin-arm64.tar.gz /private/tmp/sdk-skills-cut-0150-20261011/build/release/v0.6.78/sov-darwin-x64.tar.gz /private/tmp/sdk-skills-cut-0150-20261011/build/release/v0.6.78/sov-linux-x64.tar.gz /private/tmp/sdk-skills-cut-0150-20261011/build/release/v0.6.78/sov-linux-arm64.tar.gz /private/tmp/sdk-skills-cut-0150-20261011/build/release/v0.6.78/sov-windows-x64.zip /private/tmp/sdk-skills-cut-0150-20261011/build/release/v0.6.78/SHA256SUMS
