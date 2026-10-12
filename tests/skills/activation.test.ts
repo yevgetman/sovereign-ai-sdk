@@ -14,6 +14,7 @@ import { query } from '@yevgetman/sov-sdk/core/query';
 import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 import { activateSkill, createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
+import { normalizeSkillDescriptor } from '@yevgetman/sov-sdk/skills/descriptor';
 import { expandSkillPrompt, loadSkills } from '@yevgetman/sov-sdk/skills/loader';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
@@ -141,6 +142,51 @@ describe('skill activation permission floors', () => {
     expect(result.prompt).toBe('Memory works');
     expect(result.activation.revision).toBe('memory-v1');
     expect(result.activation.allowedResourceRoots).toEqual([]);
+  });
+  test('invocation controls fail before guard approval, inline effects or state changes', async () => {
+    const f = await fixture('!`touch NEVER`', ['Bash']);
+    let approvals = 0;
+    const state = createSkillActivationState({
+      tools: [BashTool],
+      canUseTool: async () => {
+        approvals++;
+        return { behavior: 'allow' };
+      },
+    });
+    for (const [flags, source] of [
+      [{ 'disable-model-invocation': true }, 'model'],
+      [{ 'user-invocable': false }, 'user'],
+      [{ context: 'fork' }, 'user'],
+    ] as const) {
+      const controlled = {
+        ...f.skill,
+        descriptor: normalizeSkillDescriptor(flags),
+        guard: { ...f.skill.guard, action: 'ask' as const },
+      };
+      await expect(
+        activateSkill(controlled, {
+          source,
+          state,
+          toolContext: f.context,
+          resolveSkill: async () => controlled,
+          allowedResourceRoots: [],
+        }),
+      ).rejects.toThrow('skill');
+    }
+    expect(approvals).toBe(0);
+    expect(state.activations).toEqual([]);
+    expect(existsSync(join(f.dir, 'NEVER'))).toBe(false);
+  });
+  test('inline output remains literal while original portable argument templates expand', async () => {
+    const f = await fixture('!`printf fixture` prose:$0', []);
+    const output = '$ARGUMENTS $1 {{args}} !`touch NEVER`';
+    const prompt = await expandSkillPrompt(f.skill, {
+      args: 'first second',
+      cwd: f.cwd,
+      runShellCommand: async () => output,
+    });
+    expect(prompt).toBe(`${output} prose:first`);
+    expect(existsSync(join(f.dir, 'NEVER'))).toBe(false);
   });
   test('raw inspection leaves body and references inert; outside reference links fail', async () => {
     const f = await fixture('Shell !`touch body-marker` ${HARNESS_SESSION_ID}');

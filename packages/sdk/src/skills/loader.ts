@@ -8,6 +8,11 @@ import { basename, dirname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import {
+  normalizeSkillDescriptor,
+  parseSkillToolList,
+  substituteSkillArguments,
+} from './descriptor.js';
+import {
   DEFAULT_SKILL_DISCOVERY_LIMITS,
   type SkillClassification,
   type SkillDiscoveryOptions,
@@ -27,45 +32,30 @@ const MetadataHarnessSchema = z
     fallback_for_toolsets: z.array(z.string()).default([]),
     fallback_for_tools: z.array(z.string()).default([]),
   })
+  .passthrough()
   .default({});
 
 const MetadataSchema = z
   .object({
     harness: MetadataHarnessSchema,
   })
+  .passthrough()
   .default({});
 
-/** Normalize Claude Code frontmatter into the harness-native shape before
- *  validation. CC uses the hyphenated `allowed-tools` key (this harness uses
- *  camelCase `allowedTools`) and frequently writes it as a single
- *  comma-separated STRING (e.g. `allowed-tools: Read, Grep, Bash(git status:*)`)
- *  rather than a YAML list — which `z.array(z.string())` would reject outright.
- *
- *  Two transforms, both no-ops for harness-native files:
- *    1. alias `allowed-tools` → `allowedTools` ONLY when `allowedTools` is
- *       absent (a file carrying both keeps its harness-native value — no clobber);
- *    2. when the resulting `allowedTools` value is a string, split on commas
- *       into a trimmed, non-empty array.
- *
- *  Runs in front of SkillFrontmatterSchema so any CC SKILL.md loads natively
- *  with its tool list populated.
- *
- *  Exported so the import write path (`normalizeImportedFrontmatter` in
- *  install.ts) applies the EXACT same field transform — the alias + comma-split
- *  rule must live in ONE place (F9), never re-implemented. */
+/** Preserve portable controls and vendor fields. Native allowedTools strings
+ * use comma lists; portable allowed-tools supports comma/whitespace lists.
+ * Portable pre-approval requests never become native restrictions. */
 export function normalizeFrontmatterAliases(raw: unknown): unknown {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return raw;
-  const obj = raw as Record<string, unknown>;
-  // Drop the hyphenated CC key by omission (immutable; no `delete`), aliasing
-  // it onto `allowedTools` only when the harness-native key is absent.
-  const { 'allowed-tools': hyphenated, ...rest } = obj;
-  const next: Record<string, unknown> = { ...rest };
-  if (!('allowedTools' in next) && hyphenated !== undefined) {
-    next.allowedTools = hyphenated;
-  }
-  if (typeof next.allowedTools === 'string') {
-    next.allowedTools = splitCommaList(next.allowedTools);
-  }
+  const next: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+  // Portable pre-approval requests never become SOV tool restrictions.
+  if (typeof next.allowedTools === 'string') next.allowedTools = splitCommaList(next.allowedTools);
+  if (
+    typeof next['allowed-tools'] === 'string' ||
+    (Array.isArray(next['allowed-tools']) &&
+      next['allowed-tools'].every((entry) => typeof entry === 'string'))
+  )
+    next['allowed-tools'] = parseSkillToolList(next['allowed-tools']);
   return next;
 }
 
@@ -76,6 +66,9 @@ export const SkillFrontmatterSchema = z.preprocess(
       name: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]*$/, 'must be a slash-command-safe name'),
       description: z.string().min(1),
       allowedTools: z.array(z.string()).default([]),
+      'allowed-tools': z.array(z.string()).optional(),
+      'user-invocable': z.boolean().optional(),
+      'disable-model-invocation': z.boolean().optional(),
       whenToUse: z.string().default(''),
       metadata: MetadataSchema,
     })
@@ -84,6 +77,21 @@ export const SkillFrontmatterSchema = z.preprocess(
 
 const SHELL_INTERPOLATION_RE = /(?:`!([^`]+)`|!`([^`]+)`)/g;
 const SHELL_OUTPUT_CAP = 16 * 1024;
+const ARGUMENT_PLACEHOLDER_RE = /\{\{\s*args\s*\}\}|\$ARGUMENTS\b(?:\[\d+\])?|\$\d+\b/;
+
+/** Shell command templates do not consume arguments; only original prose does. */
+function hasProseArguments(text: string, shellAllowed: boolean): boolean {
+  if (!shellAllowed) return ARGUMENT_PLACEHOLDER_RE.test(text);
+  let lastIndex = 0;
+  for (const match of text.matchAll(SHELL_INTERPOLATION_RE)) {
+    const start = match.index ?? 0;
+    if (ARGUMENT_PLACEHOLDER_RE.test(text.slice(lastIndex, start))) return true;
+    // Empty shell sigils remain prose in interpolateShellCommands.
+    if (!(match[1] ?? match[2])?.trim() && ARGUMENT_PLACEHOLDER_RE.test(match[0])) return true;
+    lastIndex = start + match[0].length;
+  }
+  return ARGUMENT_PLACEHOLDER_RE.test(text.slice(lastIndex));
+}
 
 /** The trusted environment placeholders a skill body may reference. Every value
  *  is caller/filesystem-derived DATA (a session id, a skill directory, a plugin
@@ -93,9 +101,13 @@ type SkillEnv = {
   HARNESS_SKILL_DIR: string;
   HARNESS_SESSION_ID: string;
   CLAUDE_PLUGIN_ROOT: string;
+  CLAUDE_SKILL_DIR: string;
+  SKILL_DIR: string;
+  CLAUDE_SESSION_ID: string;
 };
 
-const ENV_PLACEHOLDER_RE = /\$\{(HARNESS_SKILL_DIR|HARNESS_SESSION_ID|CLAUDE_PLUGIN_ROOT)\}/g;
+const ENV_PLACEHOLDER_RE =
+  /\$\{(HARNESS_SKILL_DIR|HARNESS_SESSION_ID|CLAUDE_PLUGIN_ROOT|CLAUDE_SKILL_DIR|SKILL_DIR|CLAUDE_SESSION_ID)\}/g;
 
 /** Neutralize the backtick / `$` / backslash class in a SUBSTITUTED env value
  *  before it is inserted into skill PROSE (F27 + R1).
@@ -124,26 +136,15 @@ function substituteEnvProse(text: string, env: SkillEnv): string {
   );
 }
 
-/** Expand only authored prose; inserted args, environment values and stdout are data. */
+/** Only original prose templates are expanded; inserted args/output are data. */
 function substituteSkillProse(text: string, env: SkillEnv, args: string): string {
-  const pattern = new RegExp(`${ENV_PLACEHOLDER_RE.source}|\\{\\{\\s*args\\s*\\}\\}`, 'g');
-  return text.replace(pattern, (match) =>
-    match.startsWith('${') ? substituteEnvProse(match, env) : args,
+  const pattern = new RegExp(
+    `${ENV_PLACEHOLDER_RE.source}|\\{\\{\\s*args\\s*\\}\\}|\\$ARGUMENTS\\b(?:\\[\\d+\\])?|\\$\\d+\\b`,
+    'g',
   );
-}
-
-/** Shell command templates do not consume arguments; only original prose does. */
-function hasProseArguments(text: string, shellAllowed: boolean): boolean {
-  const marker = /\{\{\s*args\s*\}\}/;
-  if (!shellAllowed) return marker.test(text);
-  let lastIndex = 0;
-  for (const match of text.matchAll(SHELL_INTERPOLATION_RE)) {
-    const start = match.index ?? 0;
-    if (marker.test(text.slice(lastIndex, start))) return true;
-    if (!(match[1] ?? match[2])?.trim() && marker.test(match[0])) return true;
-    lastIndex = start + match[0].length;
-  }
-  return marker.test(text.slice(lastIndex));
+  return text.replace(pattern, (match) =>
+    match.startsWith('${') ? substituteEnvProse(match, env) : substituteSkillArguments(match, args),
+  );
 }
 
 /** Substitute only in ordinary shell words. The author supplies the quote
@@ -300,6 +301,9 @@ export async function expandSkillText(
     // ${CLAUDE_PLUGIN_ROOT}. Resolves to the plugin install dir for
     // plugin-sourced skills; '' otherwise (so the var never renders literally).
     CLAUDE_PLUGIN_ROOT: skill.pluginRoot ?? '',
+    CLAUDE_SKILL_DIR: skill.dir,
+    SKILL_DIR: skill.dir,
+    CLAUDE_SESSION_ID: opts.sessionId ?? '',
   };
 
   // Defense in depth: gate on the field AND re-check the source. Even a
@@ -389,12 +393,17 @@ async function loadSkillFile(
     }
     const parsed = parseMarkdownFrontmatter(raw);
     const frontmatter = SkillFrontmatterSchema.parse(parsed.frontmatter);
+    const descriptor = normalizeSkillDescriptor(frontmatter);
+    for (const diagnostic of descriptor.execution.diagnostics) {
+      observeSkillDiagnostic(warn, `skill '${frontmatter.name}' (${path}): ${diagnostic.message}`);
+    }
     const rigor = validateWhenToUse(frontmatter.whenToUse);
     if (!rigor.ok) {
       observeSkillDiagnostic(warn, `skill '${frontmatter.name}' (${path}): ${rigor.reason}`);
     }
     return {
       revision: createHash('sha256').update(raw).digest('hex'),
+      descriptor,
       name: frontmatter.name,
       description: frontmatter.description,
       whenToUse: frontmatter.whenToUse,
@@ -412,6 +421,7 @@ async function loadSkillFile(
       // non-plugin skills — required under exactOptionalPropertyTypes.
       ...(pluginRoot !== undefined ? { pluginRoot } : {}),
       metadata: {
+        ...frontmatter.metadata,
         harness: normalizeHarnessMetadata(frontmatter.metadata.harness),
       },
       guard,
@@ -426,11 +436,19 @@ async function loadSkillFile(
 function normalizeHarnessMetadata(
   raw: z.infer<typeof MetadataHarnessSchema>,
 ): SkillHarnessMetadata {
+  const {
+    requires_toolsets,
+    requires_tools,
+    fallback_for_toolsets,
+    fallback_for_tools,
+    ...extensions
+  } = raw;
   return {
-    requiresToolsets: raw.requires_toolsets,
-    requiresTools: raw.requires_tools,
-    fallbackForToolsets: raw.fallback_for_toolsets,
-    fallbackForTools: raw.fallback_for_tools,
+    ...extensions,
+    requiresToolsets: requires_toolsets,
+    requiresTools: requires_tools,
+    fallbackForToolsets: fallback_for_toolsets,
+    fallbackForTools: fallback_for_tools,
   };
 }
 

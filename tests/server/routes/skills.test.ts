@@ -159,8 +159,8 @@ Body.
       // The landed SKILL.md carries canonical `allowedTools:` and no
       // hyphenated CC key.
       const written = readFileSync(join(tmpHome, 'skills', 'ported', 'SKILL.md'), 'utf8');
-      expect(written).toContain('allowedTools:');
-      expect(written).not.toContain('allowed-tools:');
+      expect(written).toContain('allowed-tools:');
+      expect(written).toContain('model:');
     } finally {
       await runtime.dispose();
     }

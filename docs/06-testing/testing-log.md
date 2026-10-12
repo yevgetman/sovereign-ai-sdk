@@ -1,16 +1,22 @@
-## 2026-10-11 — Current review: corrected parent integration for PR54
+## 2026-10-11 — Current review: corrected parent integration for PR55
 
-Ordinary merge carries reviewed parent `8f387078e6d391c37df999770fa3befd88279abf` into local review head `eeb80dc978007a3efd63c7c6f2858c0a049a1744`, preserving incoming PR head `e3aa9771ece9b11d4ae242c675af20eb5b9a7e17` and both complete testing histories. Configured lint/boundary, root typecheck, strict SDK build and every discovered test file pass: **5,924 passed / 19 existing skips / zero failures**, 24,682 assertions across 568 files. Public protocol/SDK and worktree-local TUI built first. Complete runner: `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review8-20261011/publish54 review8-publish54`. Existing global compiler/theme/timing/subprocess fixtures run separately without exclusions or assertion changes. This is review source; publication changes the PR branch only.
+Ordinary merge carries reviewed parent `000c6b18da37fbfe67614ee896913dd7d95ee11d` into local review head `9bc3afa96ab8dd73e758e299b82ed81f634a48d7`, preserving incoming PR head `75219612807f760866f5b2e89f96eb641250e47f` and both complete testing histories. Configured lint/boundary, root typecheck, strict SDK build and every discovered test file pass: **5,937 passed / 19 existing skips / zero failures**, 24,734 assertions across 570 files. Public protocol/SDK and worktree-local TUI built first. Complete runner: `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review8-20261011/publish55 review8-publish55`. Existing global compiler/theme/timing/subprocess fixtures run separately without exclusions or assertion changes. This is review source; publication changes the PR branch only.
 
-## 2026-10-11 — Eighth review PR54: complete configured gate
+Loader conflict resolution preserves the portable original-prose placeholder superset, the shell-only argument-consumption correction and the earlier literal-output correction. Both owning regression sets run in this complete gate.
 
-The freshly reviewed current-remote source passes configured lint/boundary, root types, strict SDK build and every discovered test file: **5,920 passed / 19 existing skips / zero failures**, 24,678 assertions across all 567 files. Complete runner: `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review8-20261011/pr54 review8-pr54`; receipt `/private/tmp/sdk-skills-review8-pr54-gate.json`. Protocol/SDK and local TUI prerequisites were built first. Existing compiler/theme/timing/subprocess fixtures run separately without omitted files or changed assertions. `git diff --check` passes. This review adds evidence only; the coordinator carries newly reviewed parent corrections before publishing the stack. No PR merge into master, release, version change or installed-host update.
+## 2026-10-11 — Eighth review PR55: complete configured gate
 
-## 2026-10-11 — Eighth review PR54: current transactional-storage boundaries
+Frozen current-remote source plus the argument-consumption correction passes configured lint/boundary, root types, strict SDK build and every discovered test file: **5,933 passed / 19 existing skips / zero failures**, 24,730 assertions across all 569 files. Complete runner: `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review8-20261011/pr55 review8-pr55`; receipt `/private/tmp/sdk-skills-review8-pr55-gate.json`. Protocol/SDK and local TUI prerequisites were built first. Existing compiler/theme/timing/subprocess fixtures run separately without omitted files or changed assertions. `git diff --check` passes. This validates PR55's owning correction before the coordinator carries new parent review changes. No PR merge into master, release, version change or installed-host update.
 
-Fresh review of remote head `e3aa9771ece9b11d4ae242c675af20eb5b9a7e17` against its declared discovery parent. Followed memory/filesystem store validation, complete-tree CAS, pinned worker paths, source import/install capture, journal recovery, publication receipts, failed durability checks, observers, proposal approval/revoke, and later descriptor/runtime consumers. No new confirmed finding above Low in these reviewed paths.
+## 2026-10-11 — Eighth review PR55: preserve arguments outside prose templates
 
-Environment: isolated macOS worktree, Bun 1.3.13, Node v25.9.0, worktree-local dependency links, disposable filesystem fixtures and actual compiled Node workers. `bun run build` and `bun run tui:build` pass. `bun test tests/skills/store.test.ts tests/skills/storeCaptureRace.test.ts tests/skills/storeEntryValidation.test.ts tests/skills/storeObserverSafety.test.ts tests/skills/storePortablePaths.test.ts tests/skills/storePublicationRace.test.ts tests/skills/storeSafetyReview.test.ts tests/skills/storeSourceConsistency.test.ts tests/skills/storeSourceSafety.test.ts tests/skills/install.test.ts tests/skills/import.test.ts tests/commands/reviewOps.test.ts`: **180 passed / zero failed / 724 assertions** across 12 files. Complete gate evidence follows separately. Controlled race/recovery tests do not certify arbitrary hostile schedules or native Windows power-loss behavior. No installed host, release, model call or learning setting changes.
+Confirmed Medium: argument-shaped tokens inside inline shell commands suppressed the fallback argument suffix even though command templates do not receive user arguments. A common `awk '{print $1}'` context command therefore silently lost the caller's requested target. The unsupported longer variable `$ARGUMENTS_EXTRA` also suppressed the suffix without consuming arguments. Placeholder detection now follows the same original prose spans and exact supported tokens as expansion. Inserted command output and user arguments remain data; separate prose spans cannot form a new placeholder across a shell result.
+
+Environment: isolated macOS worktree, Bun 1.3.13, Node v25.9.0, worktree-local dependency links and mock host shell runner. `bun test tests/skills/argumentConsumption.test.ts` before correction: **2 passed / 4 failed / 9 assertions**, confirming the three command forms and unsupported longer variable. After correction, `bun test tests/skills/argumentConsumption.test.ts tests/skills/descriptor.test.ts tests/skills/loader.test.ts tests/skills/activation.test.ts tests/skills/import.test.ts tests/skills/normalizeAliases.test.ts tests/server/skillActivationClients.test.ts`: **87 passed / zero failed / 319 assertions**. Independent native peer read confirms the correction preserves shell-disabled behavior, exact argument boundaries and literal output. `bun run build` and `bun run tui:build` pass. Complete configured gate evidence follows separately. No installed host, release, model call or learning setting changes.
+
+## 2026-10-11 — Recovered seventh-review parent integration for PR55
+
+Recovered the interrupted review's owning corrections and carried the current parent by ordinary merge. The configured gate passes **5,927 tests / 19 existing skips / zero failures**, 24,721 assertions across all 568 discovered files. Frozen dependency installation, protocol/strict SDK and local TUI build, lint/boundary and root types pass. Runner: `/private/tmp/sdk-skills-round5-20261011/gate.py <seat> seventh-recovered-publish55`. Existing compiler/theme/timing/subprocess groups run separately; every original file and assertion remains. This validates PR source; public versions and installed hosts remain unchanged.
 
 ## 2026-10-11 — Recovered seventh-review parent integration for PR54
 
@@ -19,6 +25,7 @@ Recovered the interrupted review's owning corrections and carried the current pa
 ## 2026-10-11 — Seventh review first parent integration for PR54
 
 Ordinary parent merge carries reviewed child-authorization and unavailable-marker corrections into coherent-source/portable-path storage fixes. Complete gate: **5,908 passed / 19 existing skips / zero failures**, 24,623 assertions across all566files; lint/boundary/types and strict SDK/protocol/local TUI builds pass. Existing compiler/theme/timing/subprocess fixtures are isolated without omissions or weaker assertions. Every parent and leaf testing-log section was checked intact. Root's independent storage peer passes65tests/355assertions at60c6a77d. This local integration was tested before a later SDK Conduct-regeneration permission finding; a second parent correction must be carried before this PR is published. No master merge, release or installed-host change.
+
 ## 2026-10-11 — Recovered seventh-review parent integration for PR53
 
 Recovered the interrupted review's owning corrections and carried the current parent by ordinary merge. The configured gate passes **5,822 tests / 19 existing skips / zero failures**, 24,172 assertions across all 558 discovered files. Frozen dependency installation, protocol/strict SDK and local TUI build, lint/boundary and root types pass. Runner: `/private/tmp/sdk-skills-round5-20261011/gate.py <seat> seventh-recovered-publish53`. Existing compiler/theme/timing/subprocess groups run separately; every original file and assertion remains. This validates PR source; public versions and installed hosts remain unchanged.
@@ -26,6 +33,7 @@ Recovered the interrupted review's owning corrections and carried the current pa
 ## 2026-10-11 — Seventh review parent integration for PR53
 
 Ordinary merge carries PR52's High child-authorization correction into the Discovery branch while retaining PR53's unavailable-marker correction and both immutable testing histories. Complete merged-source gate: **5,810 passed / 19 existing skips / zero failures**, 24,117 assertions across557files. Configured lint/boundary/types, strict SDK/protocol/local TUI builds pass. Runner label `seventh-publish53-final`; every discovered test file is covered. Initial helper invocation refused an unresolved merge-index marker before running tests; the resolved log was staged and the full unchanged-source rerun passes. No assertion is weakened, prior entry changed, master merged or installed host updated.
+
 ## 2026-10-11 — Seventh review recovery: retain activation restrictions during Conduct retries
 
 Confirmed High incoming PR52 defect: model skill activation removed FileWrite from a completed attempt, but Conduct regeneration rebuilt the full original pool and executed a forbidden write. The saved independent before-fix witness records the actual filesystem effect. The driver now captures restriction-only state per logical run and reconstructs each attempt from the original host permission path. Tool membership, input-pattern floors and activation metadata survive retries; ordinary next runs renew their original scope.
@@ -76,39 +84,59 @@ Environment: macOS, Bun 1.3.13, Node v25.9.0; isolated temporary source/store ro
 
 Commands: `bun run build`; `bun run tui:build`; `bun test tests/skills/storeSourceConsistency.test.ts`; the ten-file focused store/install/import/recovery run; `/private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review5-20261011/review-54 seventh-review54`. Complete configured gate: **5,888 passed / 19 existing skips / zero failures**, 24,532 assertions across all 564 discovered files. Lint/boundary, root types and strict SDK build pass. Compiler/theme/timing/subprocess fixtures run separately without omitted files or weaker assertions. No paid provider, live installation or release change. Controlled source-race fixtures do not certify arbitrary adversarial scheduling or physical storage failure.
 
-## 2026-10-11 — Sixth-review corrected parent integration for PR54
+## 2026-10-11 — Sixth-review corrected parent integration for PR55
 
-Carried the independently reviewed parent `29e03bc94383fbba00d4db74823e90f5d82c9edd` by ordinary merge, preserving incoming head `c15a0fd69b945a6a24d7fc2ccca8481b846c3c49` and all prior testing-log sections. Configured lint/boundary, root types, strict SDK build and all discovered tests pass: **5,882 passed / 19 existing skips / zero failures**, 24,495 assertions across 563 files. Local protocol/SDK/TUI artifacts built first. Complete runner: `/private/tmp/sdk-skills-round5-20261011/gate.py <seat> sixth-publish-54`. Existing compiler/theme/timing/subprocess fixtures are isolated without omissions or assertion changes. This checks review source; PRs remain open.
+Carried the independently reviewed parent `41b27f0cf3ea859994ae65bf6bd9a0f9730c816f` by ordinary merge, preserving incoming head `088fbcef6305fc227162291d122c9c27a3b17ca0` and all prior testing-log sections. Configured lint/boundary, root types, strict SDK build and all discovered tests pass: **5,889 passed / 19 existing skips / zero failures**, 24,538 assertions across 564 files. Local protocol/SDK/TUI artifacts built first. Complete runner: `/private/tmp/sdk-skills-round5-20261011/gate.py <seat> sixth-publish-55`. Existing compiler/theme/timing/subprocess fixtures are isolated without omissions or assertion changes. This checks review source; PRs remain open.
 
-## 2026-10-11 — Sixth review PR54: close races during complete-tree capture
+## 2026-10-11 — Fifth-review complete source gate for PR55 compatibility
 
-Confirmed High: replacing SKILL.md after the final snapshot opened it returned a
-successful mutation receipt for the old bytes while the stored revision and body
-differed. The same capture accepted a changed file mode, an edit to an earlier
-captured leaf and a resource added after enumeration. Snapshot now checks the
-opened handle against both pre-open and current leaf metadata, verifies directory
-stability, and rechecks all captured files and directories before returning.
+Scope: owning review changes and ordinary parent correction carry in dependency order. Commands: frozen dependency install without scripts, public protocol/SDK build, TUI build, then configured lint/boundary, root types, strict SDK build and every discovered test file. Result: **5,861 passed / 19 existing skips / zero failures**, 24,366 assertions across all 562 files. Compiler, shared-theme, redaction-timing and subprocess fixtures run separately; no file or assertion is omitted. Prior testing histories remain intact. This validates review source; no master merge, release or installed-host change is performed.
 
-Eight isolated packaged-Node regression cases cover create/edit across these four
-triggers. Before rebuilding the corrected worker, all eight failed because the
-mutation resolved with a false receipt. After correction, the focused publication,
-capture and storage-safety suite passes 37 tests. Assertions cover no emitted event,
-retained previous revision, complete rollback and cleaned transaction leaves.
-Environment: macOS arm64, Bun 1.3.13, Node 25.9.0. Commands: local SDK/TUI builds,
-`bun test tests/skills/storeCaptureRace.test.ts tests/skills/storePublicationRace.test.ts tests/skills/storeSafetyReview.test.ts --timeout 20000`.
-Additional confirmed Medium: accepting an owner-nontraversable directory mode
-left an unremovable stage and blocked every later operation with EACCES. Both
-adapters now reject unreadable file modes and nontraversable directory modes
-before staging. Seven mode regressions failed before correction. Three further
-regressions pin complete implicit directory maps for legal JavaScript prototype
-names; these failed before correction because inherited keys hid real parents.
-One control preserves read-only 0440 files / 0550 directories and immediate CAS.
-Full configured lint/boundary, root typecheck, strict SDK build and all 563
-discovered test files pass: **5,873 passed / 19 existing skips / zero failures**,
-24,455 assertions. Compiler/theme/timing/subprocess fixture isolation preserves
-every file and assertion. No live inference,
-installed-host upgrade, release or master merge.
+## 2026-10-11 — Fifth-review complete source gate for PR55
 
+Scope: owning review changes and ordinary parent correction carry in dependency order. Commands: frozen dependency install without scripts, public protocol/SDK build, TUI build, then configured lint/boundary, root types, strict SDK build and every discovered test file. Result: **5,860 passed / 19 existing skips / zero failures**, 24,349 assertions across all 562 files. Compiler, shared-theme, redaction-timing and subprocess fixtures run separately; no file or assertion is omitted. Prior testing histories remain intact. This validates review source; no master merge, release or installed-host change is performed.
+
+## 2026-10-11 — Fifth review PR55: invocation and portable-control checks
+
+No new independent confirmed finding above Low in the parent-relative change
+from PR54 `827be897` to PR55 `87a35120`. Reviewed descriptor/control validation,
+portable versus native tool policy, command and model visibility, current
+activation checks, import normalization, unknown-field retention, positional
+argument data and inert shell-output handling. Followed registry/runtime
+consumers on PR59. PR55 inherits the owning fixes identified on PR52 and PR53;
+this result does not certify the uncorrected incoming parents.
+
+Darwin arm64, Bun 1.3.13, isolated worktree with offline frozen dependencies;
+temporary filesystem fixtures and mock HTTP/providers only. `bun test
+tests/skills/descriptor.test.ts tests/skills/activation.test.ts
+tests/skills/import.test.ts tests/skills/normalizeAliases.test.ts
+tests/server/skillActivationClients.test.ts`: **44 passed / zero failed /
+226 assertions**. No production source change is needed for this PR's own
+review. The coordinator owns parent integration and complete configured gates.
+
+## 2026-10-11 — Fourth-review PR55 final CI prerequisite ancestry
+
+Scope: ordinary merge of updated PR54 `827be89752e6a35c2b41009a0f103c52b15bc45f`, retaining updated PR53 `a939f457aa94de142f23109e21f1c3f05a10971e`. PR53 CI now builds public packages before the strict-Node discovery regression; PR54 and PR55 already have the identical build prerequisite. This second merge changes only testing-log histories. Runtime source, test trees, workflows, package/dependency/build files and all other tracked files are identical to the complete-gated PR55 merge `8459ed54`.
+
+Verification: exact staged changed-file comparison permits only this testing log; `git diff --check`, final `bun run lint` (including boundary) and `bun run typecheck` pass. Functional source retains the full gate: 5,844 passed / 19 existing skips / zero failures; 24,285 assertions across all 560 files. Independent peer verification adds the same 36 focused tests and four compiled strict-Node supported/unsupported sync/async descriptor scenarios, with warning delivery and invocation denial intact.
+
+## 2026-10-11 — Fourth-review PR55 parent merge and complete source gate
+
+Scope: carry reviewed PR54 parent `5f3fe9ad236804b516b4eb46665db49d4e5a8858` into PR55, preserving its original head and both testing histories. Complete PR53 observer isolation at the PR55 descriptor warning caller as recorded below. The owner requested dependency-aware review and fixes. No PR is merged into master.
+
+Commands: `bun install --frozen-lockfile --ignore-scripts`, `bun run build`, `bun run tui:build`, and the serialized full gate (`bun run lint`, `bun run typecheck`, strict SDK build, and all discovered `bun run test` files with global compiler/theme and timing/subprocess fixtures isolated). Result: 5,844 passed / 19 existing skips / zero failures; 24,285 assertions across 560 files. Every file ran. This validates the inherited and corrected source, not a public release or live host. The follow-up CI/log-only parent ancestry merge will verify the same functional source before publication.
+
+## 2026-10-11 — Fourth-review PR55 downstream descriptor observer carry
+
+Scope: complete PR53 diagnostic observer isolation at the descriptor compatibility warning caller introduced by PR55. `packages/sdk/src/skills/loader.ts` now routes those warnings through the inherited `observeSkillDiagnostic` helper. `tests/skills/discovery.test.ts` extends the compiled strict-Node effect fixture with portable `allowed-tools: Read` metadata. It asserts descriptor and legacy `whenToUse` warning delivery, unchanged catalog membership, unchanged restricted/preapproved tool policy, and containment of synchronous throws and rejected promises.
+
+Commands: `bun install --frozen-lockfile --ignore-scripts`, `bun run build`, `bun test tests/skills/discovery.test.ts -t 'throwing and rejecting diagnostic observers'` on the merged parent before the caller correction, then `bun run build` and `bun test tests/skills/discovery.test.ts tests/skills/descriptor.test.ts tests/skills/activation.test.ts` after correction. Bun 1.3.13; Node v25.9.0 with `--unhandled-rejections=strict`. The original caller failed with `observer changed catalog` (zero passed / one failed / one assertion). Corrected suites: 36 passed / zero failures / 155 assertions across three files. No host permission or invocation control is widened. The full merged-source gate is recorded with the parent propagation receipt below.
+
+## 2026-10-11 — Third review PR55 dependency integration
+
+Merged the corrected parent without rewriting PR history. Complete source gate: **5,841 passed / 19 existing skips / zero failures**, 24,256 assertions across all 560 discovered files. Configured lint/boundary, root types and strict SDK build pass. Protocol/SDK and local TUI artifacts were built before fixtures. Global compiler and shared-theme fixtures run separately; every test remains covered. No release or installed-host change.
+
+Initial preparation refused a testing-log prefix difference before dependency installation; the build then reported the missing compiler. Both were preparation failures. The log merge retains both histories, dependencies were installed, and the complete gate below runs on the correct merged source.
 ## 2026-10-11 — Fifth-review complete source gate for PR54 compatibility
 
 Scope: owning review changes and ordinary parent correction carry in dependency order. Commands: frozen dependency install without scripts, public protocol/SDK build, TUI build, then configured lint/boundary, root types, strict SDK build and every discovered test file. Result: **5,854 passed / 19 existing skips / zero failures**, 24,323 assertions across all 561 files. Compiler, shared-theme, redaction-timing and subprocess fixtures run separately; no file or assertion is omitted. Prior testing histories remain intact. This validates review source; no master merge, release or installed-host change is performed.
@@ -213,6 +241,12 @@ the added regression uses `third54-backup-cas-final` and passes
 559 files, plus lint/boundary, typecheck and strict SDK build. No further source
 or test change followed that gate. No physical power-loss or Windows execution claim, paid
 inference, installed host change, release or restart.
+
+## 2026-10-11 — PR55 reviewed dependency integration
+
+Inherited the reviewed parent branch without rewriting existing PR history. Preserved this PR's reviewed behavior, all upstream fixes and both testing histories. Final integrated source passes configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,838 passed / 19 existing skips / zero failed**, 24,242 assertions across 559 files. Public protocol/SDK and local TUI artifacts were rebuilt first. Global compiler and footer fixtures were isolated; remaining files used a unique temporary root. No assertion was weakened or test omitted. No release or installed host change.
+
+An earlier branch-switch attempt refused four generated Python cache files. Its unintended repeat of the already-passing PR54 suite was stopped; only those generated .pyc files were removed. The recorded PR55 result is the fresh complete run at this actual merged branch. Later gates disable Python bytecode cache writes in their test environment.
 
 ## 2026-10-11 — PR54 reviewed dependency integration
 
@@ -353,6 +387,18 @@ Initial typechecks caught a missing fixture session ID and overloaded stat-spy t
 **Evidence:** original-head negative fixtures reproduce outside resource capture, internal staging redirection, inconsistent tree revisions, missing root/directory fsyncs, destructive delete-marker EIO and the 20-second FIFO timeout. Twenty-two safety fixtures cover full-tree CAS, both swaps, outside cleanup sentinels, dead-owner reopen, six actual SIGKILL/reopen boundaries, restrictive modes, create/edit/delete journal EIO before/after markers and malformed legacy records. Discovery checks cover hidden names/aliases and resource guard exclusion. Physical power loss and Windows were not tested; POSIX ordering is checked by syscall traces.
 
 **Gate:** `bun run build`, `bun run tui:build`; `python3 /private/tmp/sdk-skills-hardening-gate.py /private/tmp/sdk-pr-review-20261011/storage review54-storage-frozen` runs configured lint/boundary, typecheck, strict SDK build and every discovered test file: **5,823 passed / 19 existing skips / zero failures**, 24,167 assertions across 556 files. Compiler/theme fixtures are serialized and isolated; no file omitted. The frozen review source also includes the separately committed proposal-ownership and observer corrections. Focused store/review/Node checks pass 78/0; discovery checks pass 13/0. Initial fixture-only failures from Darwin realpath spelling, URL-valued module-loader opens, and readonly-fixture teardown were corrected. No assertion was weakened.
+
+## 2026-10-11 — Integrated skill foundations (#44, #45, #47, #46)
+
+Combined the independently tested activation, bounded discovery, transactional store and portable descriptor commits. The central activation checks invocation controls before approvals, shell effects or scope changes. Argument templates expand only in original prose; shell stdout remains literal. Canonical reload rejects post-discovery link swaps while supporting legacy host objects that used platform path aliases.
+
+Configured lint/boundary, typecheck, strict SDK build and all discovered test files pass: **5,796 passed / 19 existing skips / zero failures**, 24,068 assertions across 555 files (`foundation46` serialized gate). Focused integrated checks passed 172 tests with zero failures. An initial merge check found a missing path import, a missing fixture cwd and a legacy non-canonical reload regression; corrected each and repeated the full gate. SDK/TUI builds are worktree-local. No installed update or publication.
+
+## 2026-10-11 — Issue46 portable metadata and invocation controls
+
+Implemented descriptor schemaVersion1, model/manual invocation filters and central denial helpers. Portable allowed-tools retains pre-approval semantics and does not become native allowedTools. Import/direct loading preserve vendor data and unsupported execution controls; unsupported fork/model/agent/hooks remain inspectable but cannot activate. Portable quoted arguments and directory/session aliases use the native inert substitution path. Writer schema rejects malformed boolean/tool policy before commit.
+
+Final configured lint/boundary, typecheck, strict SDK build and every discovered test file pass: **5746 passed / 19 existing skips / zero failed**, 23836 assertions across550files. The gate serialized full-suite work across worktrees, isolated the existing global compiler and footer fixtures and used a private TMPDIR. Focused new controls:5/0,28 assertions. Earlier attempts exposed the missing local TUI binary, import/API snapshot expectations and timing contention; the local binary and intentional API tests were corrected, then all files passed with unchanged timing assertions. Source is frozen after final control-schema and substitution fixes. Shared activation44 integration/enforcement will receive a separate final gate before this issue's PR is ready. No release or installed-host change.
 
 ## 2026-10-11 — Issue 47: explicit transactional skill stores
 
@@ -8637,6 +8683,39 @@ Independent review of the combined foundations at `1d82acb5` confirmed that envi
 The same pass found that plugin command-only workflows lost their descriptor between `/commands` and `/turns`. The host now preserves a private command descriptor and resolves canonical command precedence before shared activation. HTTP transport fixtures verify plugin-only activation, a collision with a project skill, read-only provider schemas, inert plugin shell and refusal to shadow built-in `/help`. These descriptors remain outside the model catalog.
 
 Initial targeted failures were a fixture missing the plugin manifest description and a literal-backslash directory rejected by Bun realpath on macOS. Fixtures were corrected without reducing the effect assertions; backslash data is exercised through the session identifier. Lint and boundary checks, root type checking and the strict SDK build pass. The complete focused loader/activation/plugin/permission/orchestrator run passes 444 tests, zero failures, 1125 assertions across 16 files. The parent integration pass owns the final full-source gate before PR publication. No live provider requests, release or installed-runtime changes.
+## 2026-10-11 — Sixth-review corrected parent integration for PR54
+
+Carried the independently reviewed parent `29e03bc94383fbba00d4db74823e90f5d82c9edd` by ordinary merge, preserving incoming head `c15a0fd69b945a6a24d7fc2ccca8481b846c3c49` and all prior testing-log sections. Configured lint/boundary, root types, strict SDK build and all discovered tests pass: **5,882 passed / 19 existing skips / zero failures**, 24,495 assertions across 563 files. Local protocol/SDK/TUI artifacts built first. Complete runner: `/private/tmp/sdk-skills-round5-20261011/gate.py <seat> sixth-publish-54`. Existing compiler/theme/timing/subprocess fixtures are isolated without omissions or assertion changes. This checks review source; PRs remain open.
+
+## 2026-10-11 — Sixth review PR54: close races during complete-tree capture
+
+Confirmed High: replacing SKILL.md after the final snapshot opened it returned a
+successful mutation receipt for the old bytes while the stored revision and body
+differed. The same capture accepted a changed file mode, an edit to an earlier
+captured leaf and a resource added after enumeration. Snapshot now checks the
+opened handle against both pre-open and current leaf metadata, verifies directory
+stability, and rechecks all captured files and directories before returning.
+
+Eight isolated packaged-Node regression cases cover create/edit across these four
+triggers. Before rebuilding the corrected worker, all eight failed because the
+mutation resolved with a false receipt. After correction, the focused publication,
+capture and storage-safety suite passes 37 tests. Assertions cover no emitted event,
+retained previous revision, complete rollback and cleaned transaction leaves.
+Environment: macOS arm64, Bun 1.3.13, Node 25.9.0. Commands: local SDK/TUI builds,
+`bun test tests/skills/storeCaptureRace.test.ts tests/skills/storePublicationRace.test.ts tests/skills/storeSafetyReview.test.ts --timeout 20000`.
+Additional confirmed Medium: accepting an owner-nontraversable directory mode
+left an unremovable stage and blocked every later operation with EACCES. Both
+adapters now reject unreadable file modes and nontraversable directory modes
+before staging. Seven mode regressions failed before correction. Three further
+regressions pin complete implicit directory maps for legal JavaScript prototype
+names; these failed before correction because inherited keys hid real parents.
+One control preserves read-only 0440 files / 0550 directories and immediate CAS.
+Full configured lint/boundary, root typecheck, strict SDK build and all 563
+discovered test files pass: **5,873 passed / 19 existing skips / zero failures**,
+24,455 assertions. Compiler/theme/timing/subprocess fixture isolation preserves
+every file and assertion. No live inference,
+installed-host upgrade, release or master merge.
+
 ## 2026-10-11 — Sixth review: reject incomplete guarded resource listings
 
 Confirmed High: a transient resource-directory or outer-ancestor substitution during iterator opening could omit a normally blocked sidecar. The bounded guard now pins scanned directory metadata and validates all captured entry names/types against the final canonical listings before returning a verdict. No global ancestor timestamp dependency is introduced. The four original compiled-Node caller regressions fail before the fix. The first metadata-only correction passes 37 focused checks and a 5,799-test source gate, but an independent peer then reproduces the outer-ancestor omission. Corrected catalog/direct/reload/guard checks now pass **41 tests / 129 assertions**. Independent identity peer: 12/36 assertions; existing discovery/guard/loader peer:65/161 assertions. The restored-ancestor witness now rejects.
@@ -8673,6 +8752,26 @@ The discovery-time directory replacement weakness already exists on master
 and is corrected by the downstream PR53 pinned/bounded loader. No duplicate
 discovery API was added here. No paid inference, primary-seat mutation,
 installation update or release was performed.
+## 2026-10-11 — Current review: corrected parent integration for PR54
+
+Ordinary merge carries reviewed parent `8f387078e6d391c37df999770fa3befd88279abf` into local review head `eeb80dc978007a3efd63c7c6f2858c0a049a1744`, preserving incoming PR head `e3aa9771ece9b11d4ae242c675af20eb5b9a7e17` and both complete testing histories. Configured lint/boundary, root typecheck, strict SDK build and every discovered test file pass: **5,924 passed / 19 existing skips / zero failures**, 24,682 assertions across 568 files. Public protocol/SDK and worktree-local TUI built first. Complete runner: `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review8-20261011/publish54 review8-publish54`. Existing global compiler/theme/timing/subprocess fixtures run separately without exclusions or assertion changes. This is review source; publication changes the PR branch only.
+
+## 2026-10-11 — Eighth review PR54: complete configured gate
+
+The freshly reviewed current-remote source passes configured lint/boundary, root types, strict SDK build and every discovered test file: **5,920 passed / 19 existing skips / zero failures**, 24,678 assertions across all 567 files. Complete runner: `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review8-20261011/pr54 review8-pr54`; receipt `/private/tmp/sdk-skills-review8-pr54-gate.json`. Protocol/SDK and local TUI prerequisites were built first. Existing compiler/theme/timing/subprocess fixtures run separately without omitted files or changed assertions. `git diff --check` passes. This review adds evidence only; the coordinator carries newly reviewed parent corrections before publishing the stack. No PR merge into master, release, version change or installed-host update.
+
+## 2026-10-11 — Eighth review PR54: current transactional-storage boundaries
+
+Fresh review of remote head `e3aa9771ece9b11d4ae242c675af20eb5b9a7e17` against its declared discovery parent. Followed memory/filesystem store validation, complete-tree CAS, pinned worker paths, source import/install capture, journal recovery, publication receipts, failed durability checks, observers, proposal approval/revoke, and later descriptor/runtime consumers. No new confirmed finding above Low in these reviewed paths.
+
+Environment: isolated macOS worktree, Bun 1.3.13, Node v25.9.0, worktree-local dependency links, disposable filesystem fixtures and actual compiled Node workers. `bun run build` and `bun run tui:build` pass. `bun test tests/skills/store.test.ts tests/skills/storeCaptureRace.test.ts tests/skills/storeEntryValidation.test.ts tests/skills/storeObserverSafety.test.ts tests/skills/storePortablePaths.test.ts tests/skills/storePublicationRace.test.ts tests/skills/storeSafetyReview.test.ts tests/skills/storeSourceConsistency.test.ts tests/skills/storeSourceSafety.test.ts tests/skills/install.test.ts tests/skills/import.test.ts tests/commands/reviewOps.test.ts`: **180 passed / zero failed / 724 assertions** across 12 files. Complete gate evidence follows separately. Controlled race/recovery tests do not certify arbitrary hostile schedules or native Windows power-loss behavior. No installed host, release, model call or learning setting changes.
+
+## 2026-10-11 — Seventh review first parent integration for PR54
+
+Ordinary parent merge carries reviewed child-authorization and unavailable-marker corrections into coherent-source/portable-path storage fixes. Complete gate: **5,908 passed / 19 existing skips / zero failures**, 24,623 assertions across all566files; lint/boundary/types and strict SDK/protocol/local TUI builds pass. Existing compiler/theme/timing/subprocess fixtures are isolated without omissions or weaker assertions. Every parent and leaf testing-log section was checked intact. Root's independent storage peer passes65tests/355assertions at60c6a77d. This local integration was tested before a later SDK Conduct-regeneration permission finding; a second parent correction must be carried before this PR is published. No master merge, release or installed-host change.
+## 2026-10-11 — Seventh review parent integration for PR53
+
+Ordinary merge carries PR52's High child-authorization correction into the Discovery branch while retaining PR53's unavailable-marker correction and both immutable testing histories. Complete merged-source gate: **5,810 passed / 19 existing skips / zero failures**, 24,117 assertions across557files. Configured lint/boundary/types, strict SDK/protocol/local TUI builds pass. Runner label `seventh-publish53-final`; every discovered test file is covered. Initial helper invocation refused an unresolved merge-index marker before running tests; the resolved log was staged and the full unchanged-source rerun passes. No assertion is weakened, prior entry changed, master merged or installed host updated.
 ## 2026-10-11 — Current review: corrected parent integration for PR53
 
 Ordinary merge carries reviewed parent `bc3b2b255e70d690fe0cfef1c96f8432249f594b` into local review head `56a16b757472bd60beded05deaa4d68d2735cfdc`, preserving incoming PR head `dbf24c0f2803fe731176b060d93c67baddbd0c4c` and both complete testing histories. Configured lint/boundary, root typecheck, strict SDK build and every discovered test file pass: **5,826 passed / 19 existing skips / zero failures**, 24,176 assertions across 559 files. Public protocol/SDK and worktree-local TUI built first. Complete runner: `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review8-20261011/publish53 review8-publish53`. Existing global compiler/theme/timing/subprocess fixtures run separately without exclusions or assertion changes. This is review source; publication changes the PR branch only.
@@ -8694,4 +8793,3 @@ Darwin arm64, Bun 1.3.13, isolated `/private/tmp/sdk-skills-review8-20261011/pr5
 Complete changed-source gate: `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review8-20261011/pr52 review8-pr52` passes configured lint/boundary, typecheck, strict SDK build and all **557** discovered files: **5,798 passed / 19 existing skips / zero failures / 24,063 assertions**. The established global compiler, footer-theme, timing and subprocess fixtures run separately with no omitted files or weaker assertions. Receipt: `/private/tmp/sdk-skills-review8-pr52-gate.json`. No paid inference, master merge, release, installed-runtime update or host configuration change.
 
 An exploratory child-ceiling probe initially assumed `ToolContext.canUseTool` also authorized current inline Bash. The documented field and the existing explicit regression instead constrain delegation; the activation state owns current-tool approval. Applying that mistaken assumption failed the intentional parent-inline/child-denial witness. The probe and speculative change were discarded; the unchanged-source focused run above passes with every original assertion retained. No defect is claimed for this specified behavior.
-

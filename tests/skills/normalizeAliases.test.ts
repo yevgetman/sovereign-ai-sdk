@@ -1,10 +1,5 @@
-// F9 — the `allowed-tools` → `allowedTools` alias + comma-string split must
-// live in ONE place. The loader's read path and the import write path both
-// apply it; before F9 the import path re-implemented the rule, risking drift.
-// This pins that the import normalizer delegates to the SHARED loader transform
-// for the field changes: for the same input, both produce the same canonical
-// `allowedTools` — including the F1 comma-in-parens case that only stays correct
-// when both share the depth-aware splitter.
+// Import and direct loading preserve portable pre-approval separately from
+// native tool restrictions, using the same list parser.
 
 import { describe, expect, test } from 'bun:test';
 import { normalizeImportedFrontmatter } from '@yevgetman/sov-sdk/skills/install';
@@ -12,7 +7,7 @@ import { normalizeFrontmatterAliases } from '@yevgetman/sov-sdk/skills/loader';
 
 function loaderAllowedTools(raw: unknown): unknown {
   const out = normalizeFrontmatterAliases(raw);
-  return (out as Record<string, unknown>).allowedTools;
+  return (out as Record<string, unknown>)['allowed-tools'];
 }
 
 describe('shared alias/split normalization (F9)', () => {
@@ -22,7 +17,7 @@ describe('shared alias/split normalization (F9)', () => {
       description: 'A CC skill',
       'allowed-tools': 'Read, Grep, Bash(git status)',
     };
-    const imported = normalizeImportedFrontmatter(raw).frontmatter.allowedTools;
+    const imported = normalizeImportedFrontmatter(raw).frontmatter['allowed-tools'];
     expect(imported).toEqual(loaderAllowedTools(raw));
     expect(imported).toEqual(['Read', 'Grep', 'Bash(git status)']);
   });
@@ -33,7 +28,7 @@ describe('shared alias/split normalization (F9)', () => {
       description: 'A CC skill',
       'allowed-tools': 'Read, Bash(git log --pretty=format:%h,%an)',
     };
-    const imported = normalizeImportedFrontmatter(raw).frontmatter.allowedTools;
+    const imported = normalizeImportedFrontmatter(raw).frontmatter['allowed-tools'];
     expect(imported).toEqual(loaderAllowedTools(raw));
     expect(imported).toEqual(['Read', 'Bash(git log --pretty=format:%h,%an)']);
   });
@@ -45,9 +40,10 @@ describe('shared alias/split normalization (F9)', () => {
       allowedTools: ['Read', 'Grep'],
       'allowed-tools': 'Bash(rm -rf /)',
     };
-    const imported = normalizeImportedFrontmatter(raw).frontmatter.allowedTools;
+    const imported = normalizeImportedFrontmatter(raw).frontmatter['allowed-tools'];
     expect(imported).toEqual(loaderAllowedTools(raw));
-    expect(imported).toEqual(['Read', 'Grep']);
+    expect(normalizeImportedFrontmatter(raw).frontmatter.allowedTools).toEqual(['Read', 'Grep']);
+    expect(imported).toEqual(['Bash(rm -rf /)']);
   });
 
   test('import still records the conversion notes on top of the shared transform', () => {
@@ -59,7 +55,8 @@ describe('shared alias/split normalization (F9)', () => {
     const result = normalizeImportedFrontmatter(raw);
     expect(result.converted.some((c) => c.includes('allowed-tools'))).toBe(true);
     expect(result.converted.some((c) => c.includes('comma'))).toBe(true);
-    // The hyphenated key must not survive into the canonical output.
-    expect('allowed-tools' in result.frontmatter).toBe(false);
+    // Portable policy survives; it does not turn into a native restriction.
+    expect('allowed-tools' in result.frontmatter).toBe(true);
+    expect(result.frontmatter.allowedTools).toBeUndefined();
   });
 });

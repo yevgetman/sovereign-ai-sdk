@@ -2,6 +2,7 @@
 // models call this tool to see the current visible skill index on demand.
 
 import { z } from 'zod';
+import { isSkillInvocable } from '../skills/descriptor.js';
 import { splitWhenToUseTriggers } from '../skills/whenToUse.js';
 import { buildTool } from '../tool/buildTool.js';
 
@@ -40,6 +41,7 @@ export const SkillsListTool = buildTool<Input, Output>({
   async call(input, ctx) {
     const needle = input.query?.trim().toLowerCase();
     const candidates = (ctx.skills?.skills ?? [])
+      .filter((skill) => isSkillInvocable(skill, 'model'))
       .filter((skill) => {
         if (!needle) return true;
         return [skill.name, skill.description, skill.whenToUse]

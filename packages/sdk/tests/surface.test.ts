@@ -194,6 +194,8 @@ import type {
   SkillActivationSource,
   SkillActivationState,
   SkillClassification,
+  SkillCompatibilityDiagnostic,
+  SkillDescriptor,
   SkillDiscoveryDecision,
   SkillDiscoveryLimits,
   SkillDiscoveryOptions,
@@ -300,6 +302,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'accumulateUsage',
   'activateSkill',
   'aliasToNativeName',
+  'assertSkillInvocable',
   'budgetProvider',
   'buildHookRunner',
   'buildMcpClientPool',
@@ -335,11 +338,14 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'intersectCanUseTool',
   'intersectToolNames',
   'isRemoteMcpConfig',
+  'isSkillInvocable',
   'isToolsetName',
   'loadSkills',
   'loadSubscriptionProvider',
   'normalizeDirectModel',
   'normalizeOpenRouterModel',
+  'normalizeSkillDescriptor',
+  'parseSkillToolList',
   'query',
   'renamesFor',
   'resolveModelAlias',
@@ -565,6 +571,8 @@ type TypeSurfaceWitness = {
   skillActivationSource?: SkillActivationSource;
   skillActivationState?: SkillActivationState;
   skillClassification?: SkillClassification;
+  skillDescriptor?: SkillDescriptor;
+  skillCompatibilityDiagnostic?: SkillCompatibilityDiagnostic;
   skillExpansionOptions?: SkillExpansionOptions;
   skillGuardDecision?: SkillGuardDecision;
   skillGuardFinding?: SkillGuardFinding;
