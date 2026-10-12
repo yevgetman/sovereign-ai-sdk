@@ -5,6 +5,7 @@ import type { Job } from './types.js';
 export type AgentRunInput = {
   prompt: string;
   cronJobId: string;
+  skills?: readonly string[];
 };
 
 export type AgentRunOutput = {
@@ -19,6 +20,8 @@ export type CronExecutorDeps = {
   expandSkills: (skills: string[], cwd: string) => Promise<string>;
   runScript: (scriptPath: string, cwd: string, timeoutMs: number) => Promise<string>;
   cwd?: string;
+  /** Production activation must run inside the agent's scoped permission context. */
+  skillActivation?: 'in-agent';
 };
 
 const DEFAULT_SCRIPT_TIMEOUT_MS = 120_000;
@@ -45,7 +48,10 @@ export function buildCronJobExecutor(deps: CronExecutorDeps) {
         }
       }
 
-      const skillBlock = job.skills.length > 0 ? await deps.expandSkills(job.skills, cwd) : '';
+      const skillBlock =
+        job.skills.length > 0 && deps.skillActivation !== 'in-agent'
+          ? await deps.expandSkills(job.skills, cwd)
+          : '';
 
       const sections: string[] = [];
       if (scriptOutput) sections.push(`## Script output\n\n${scriptOutput}`);
@@ -53,7 +59,13 @@ export function buildCronJobExecutor(deps: CronExecutorDeps) {
       sections.push(job.prompt);
       const prompt = sections.join('\n\n---\n\n');
 
-      const agentResult = await deps.runAgent({ prompt, cronJobId: job.id });
+      const agentResult = await deps.runAgent({
+        prompt,
+        cronJobId: job.id,
+        ...(deps.skillActivation === 'in-agent' && job.skills.length > 0
+          ? { skills: job.skills }
+          : {}),
+      });
       const output = agentResult.output ?? '';
 
       const delivery = await send(job.deliver, output, deps.harnessHome, {

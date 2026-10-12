@@ -1523,6 +1523,29 @@ func TestApp_PromptToSendAutoFiresTurn(t *testing.T) {
 // TestApp_NoPromptToSendDoesNotFireTurn guards the negative case: local
 // slash commands (/help, /cost, etc.) come back with no promptToSend and
 // MUST NOT trigger a turn POST.
+func TestCommandSkillActivationPreservesIdentity(t *testing.T) {
+	var payload map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/turns") {
+			fmt.Fprint(w, `{}`)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode turn: %v", err)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+	m := New("skill-session", srv.URL)
+	cmd := m.submitCommandTurn(&transport.CommandResponse{PromptToSend: "/readonly file", TurnKind: "skill"})
+	if msg := cmd(); msg != nil {
+		t.Fatalf("submit skill command: %v", msg)
+	}
+	if payload["text"] != "/readonly file" || payload["kind"] != "skill" || payload["skillSource"] != "command" {
+		t.Fatalf("skill command lost identity: %#v", payload)
+	}
+}
+
 func TestApp_NoPromptToSendDoesNotFireTurn(t *testing.T) {
 	const sessionID = "test-session"
 

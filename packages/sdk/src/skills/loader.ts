@@ -2,13 +2,12 @@
 // directories, parses markdown frontmatter, and lazily expands skill bodies
 // when a slash command or SkillTool invokes one.
 
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import { shellCommand } from '../util/platform.js';
-import { spawnProc } from '../util/spawn.js';
 import { splitCommaList, splitFrontmatter } from './frontmatter.js';
 import { formatGuardBlockMessage, guardSkillLoad } from './guard.js';
 import type {
@@ -84,7 +83,6 @@ export const SkillFrontmatterSchema = z.preprocess(
 );
 
 const SHELL_INTERPOLATION_RE = /(?:`!([^`]+)`|!`([^`]+)`)/g;
-const SHELL_TIMEOUT_MS = 10_000;
 const SHELL_OUTPUT_CAP = 16 * 1024;
 
 /** The trusted environment placeholders a skill body may reference. Every value
@@ -107,44 +105,12 @@ const ENV_PLACEHOLDER_RE = /\$\{(HARNESS_SKILL_DIR|HARNESS_SESSION_ID|CLAUDE_PLU
  *  expansion is still stripped as defense-in-depth so it can never be mistaken
  *  for one. Parens/braces are deliberately PRESERVED (they are common, inert in
  *  prose). This is the PROSE-only neutralizer; the COMMAND context uses
- *  `stripDoubleQuote` + `shellSingleQuote` instead — see below. */
+ *  context-specific shell quoting instead — see below. */
 function sanitizeInlineShellSigil(value: string): string {
   return value.replace(/[`$\\]/g, '');
 }
 
-/** Remove the double-quote char `"` from a substituted env value. Single-quoting
- *  (below) neutralizes a value in a BARE or author-single-quoted context, but if
- *  a skill AUTHOR wraps the placeholder in THEIR OWN double quotes
- *  (`cat "${HARNESS_SKILL_DIR}/x"`) the wrapping single quotes become LITERAL
- *  inside that double-quoted string, so a value carrying a `"` could terminate
- *  the author's string and inject a new command. Stripping `"` closes that
- *  author-double-quote breakout. `"` is not a legal path char on the platforms
- *  this SDK ships on, so removing it cannot corrupt a legitimate skill path. */
-function stripDoubleQuote(value: string): string {
-  return value.replace(/"/g, '');
-}
-
-/** Wrap a value in single quotes so EVERY character inside — spaces, `;`, `|`,
- *  `&`, `(`, `)`, `<`, `>`, newline, `$`, backtick, backslash — is inert shell
- *  DATA. In POSIX single quotes NOTHING is special except the closing quote, so
- *  a literal single quote is emitted as `'\''` (close-quote, escaped-quote,
- *  reopen-quote), the standard idiom. This is the primary neutralizer for
- *  env-value command injection in a BARE or author-single-quoted span: the value
- *  can never become a command separator or a new substitution, and it also fixes
- *  word-splitting for legitimate paths that contain spaces or `$`.
- *
- *  Injection model (not "every context is closed by single-quoting" — that
- *  overclaimed): the value lands in one of two author contexts —
- *    - BARE / author-single-quoted → THIS single-quoting makes it inert;
- *    - author-DOUBLE-quoted → the paired `stripDoubleQuote` prevents a `"`
- *      breakout (see its note).
- *  The genuinely-untrusted input is HARNESS_SESSION_ID, guarded at the boundary
- *  by validateSessionId (rejects shell metachars); HARNESS_SKILL_DIR /
- *  CLAUDE_PLUGIN_ROOT come from a supported install. This layer is
- *  defense-in-depth on top of that. Single-quoting is kept as the primary rather
- *  than STRIPPING `$`/backtick/backslash, because stripping silently corrupts a
- *  legit path containing `$` (e.g. `/x/$stuff/skill`) while single-quoting
- *  neutralizes those same chars losslessly. */
+/** Quote data in an ordinary unquoted POSIX shell word. */
 function shellSingleQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
@@ -158,15 +124,98 @@ function substituteEnvProse(text: string, env: SkillEnv): string {
   );
 }
 
-/** Substitute env placeholders INSIDE the command of an inline-shell span: the
- *  double-quote char is stripped (kills the author-double-quote breakout) and the
- *  value is single-quoted (kills the bare / author-single-quote context). No
- *  `$`/backtick/backslash STRIP: single-quoting already neutralizes them and
- *  stripping would corrupt a legit path containing `$`. */
-function substituteEnvCommand(command: string, env: SkillEnv): string {
-  return command.replace(ENV_PLACEHOLDER_RE, (_full, name: keyof SkillEnv) =>
-    shellSingleQuote(stripDoubleQuote(env[name])),
+/** Expand only authored prose; inserted args, environment values and stdout are data. */
+function substituteSkillProse(text: string, env: SkillEnv, args: string): string {
+  const pattern = new RegExp(`${ENV_PLACEHOLDER_RE.source}|\\{\\{\\s*args\\s*\\}\\}`, 'g');
+  return text.replace(pattern, (match) =>
+    match.startsWith('${') ? substituteEnvProse(match, env) : args,
   );
+}
+
+/** Shell command templates do not consume arguments; only original prose does. */
+function hasProseArguments(text: string, shellAllowed: boolean): boolean {
+  const marker = /\{\{\s*args\s*\}\}/;
+  if (!shellAllowed) return marker.test(text);
+  let lastIndex = 0;
+  for (const match of text.matchAll(SHELL_INTERPOLATION_RE)) {
+    const start = match.index ?? 0;
+    if (marker.test(text.slice(lastIndex, start))) return true;
+    if (!(match[1] ?? match[2])?.trim() && marker.test(match[0])) return true;
+    lastIndex = start + match[0].length;
+  }
+  return marker.test(text.slice(lastIndex));
+}
+
+/** Substitute only in ordinary shell words. The author supplies the quote
+ * context; inserted paths/session ids never become a second shell expression.
+ * Complex nested expansions and here-documents need a host-specific adapter. */
+function substituteEnvCommand(command: string, env: SkillEnv): string {
+  if (!command.match(ENV_PLACEHOLDER_RE)) return command;
+  const placeholder = new RegExp(`^(?:${ENV_PLACEHOLDER_RE.source})`);
+  let quote: 'single' | 'double' | 'ansi' | undefined;
+  let out = '';
+  for (let index = 0; index < command.length; index++) {
+    const char = command[index] ?? '';
+    if (char === '\\' && quote !== 'single') {
+      out += char + (command[index + 1] ?? '');
+      index++;
+      continue;
+    }
+    const match = placeholder.exec(command.slice(index));
+    if (match) {
+      if (quote === 'ansi')
+        throw new Error(
+          'skill inline shell environment interpolation does not support ANSI-C quotes',
+        );
+      const value = env[match[1] as keyof SkillEnv];
+      out +=
+        quote === 'single'
+          ? value.replace(/'/g, "'\\''")
+          : quote === 'double'
+            ? value.replace(/[\\"$`]/g, '\\$&')
+            : shellSingleQuote(value);
+      index += match[0].length - 1;
+      continue;
+    }
+    if (quote === 'single') {
+      if (char === "'") quote = undefined;
+    } else if (quote === 'ansi') {
+      if (char === "'") quote = undefined;
+    } else {
+      if (
+        char === '`' ||
+        (char === '$' && ['(', '{'].includes(command[index + 1] ?? '')) ||
+        (quote === undefined && command.startsWith('<<', index))
+      )
+        throw new Error(
+          'skill inline shell environment interpolation does not support nested expansions or here-documents',
+        );
+      if (quote === 'double') {
+        if (char === '"') quote = undefined;
+      } else if (char === '"') {
+        if (command[index - 1] === '$')
+          throw new Error(
+            'skill inline shell environment interpolation does not support localized quotes',
+          );
+        quote = 'double';
+      } else if (char === "'") {
+        quote = command[index - 1] === '$' ? 'ansi' : 'single';
+      } else if (char === '#' && (index === 0 || /[\s;|&()<>]/.test(command[index - 1] ?? ''))) {
+        // Do not let data containing newlines escape an author's comment.
+        const end = command.indexOf('\n', index);
+        if (end === -1) return out + command.slice(index);
+        out += command.slice(index, end);
+        index = end - 1;
+        continue;
+      }
+    }
+    out += char;
+  }
+  if (quote !== undefined)
+    throw new Error(
+      'skill inline shell environment interpolation requires balanced ordinary quotes',
+    );
+  return out;
 }
 
 export type LoadSkillsOptions = {
@@ -279,25 +328,9 @@ export async function expandSkillText(
 ): Promise<string> {
   const args = opts.args ?? '';
   const argsTrimmed = args.trim();
-  const hasPlaceholder = /\{\{\s*args\s*\}\}/.test(text);
 
-  // Trusted environment placeholders (skill dir, session id, plugin root). These
-  // are DATA (a caller-supplied session id, a filesystem path), never shell
-  // identifiers, so where a value lands governs how it is neutralized:
-  //   - in PROSE it is inserted as sanitized display text (`substituteEnvProse`);
-  //   - INSIDE an author's inline-shell span it is single-quoted AND its `"` is
-  //     stripped so it is inert shell data in both the bare/single-quoted and the
-  //     author-double-quoted context (`substituteEnvCommand`, applied at exec by
-  //     `interpolateShellCommands`).
-  // The command-context model is single-quote + strip-`"`, NOT "every context is
-  // closed by single-quoting" (single quotes go LITERAL inside an author's own
-  // double quotes — the `"` strip is what closes that span). The genuinely
-  // untrusted input, HARNESS_SESSION_ID, is denylist-validated at the boundary
-  // (validateSessionId); this layer is defense-in-depth (C1 was HARNESS_SKILL_DIR
-  // with `;`, R1 was HARNESS_SESSION_ID with `$(…)`, round-6 was the author-`"`
-  // breakout). Model/user `args` are NEVER an env value here: they are merged LAST
-  // as inert text (audit 2026-06-10) so a `` `!cmd` `` in args can never reach the
-  // shell.
+  // Environment values are data. Prose uses a display sanitizer. Inline shell
+  // uses the author's quote context; arguments are never inserted into commands.
   const env: SkillEnv = {
     HARNESS_SKILL_DIR: skill.dir,
     HARNESS_SESSION_ID: opts.sessionId ?? '',
@@ -312,14 +345,15 @@ export async function expandSkillText(
   // run shell — the `source !== 'plugin'` clause is the backstop. With shell off
   // every placeholder is resolved as prose.
   const shellAllowed = skill.allowShellInterpolation && skill.source !== 'plugin';
+  const hasPlaceholder = hasProseArguments(text, shellAllowed);
   const body = shellAllowed
-    ? await interpolateShellCommands(text, skill.dir, env)
-    : substituteEnvProse(text, env);
+    ? await interpolateShellCommands(text, skill.dir, env, opts.runShellCommand, args)
+    : substituteSkillProse(text, env, args);
 
   // Merge args as INERT text: substitute {{args}} and/or append them. Skills
   // that don't reference {{args}} would otherwise silently drop the user's slash
   // arguments, so append them (e.g. `/review ~/code/babyboard/`).
-  let result = body.replace(/\{\{\s*args\s*\}\}/g, () => args);
+  let result = body;
   if (argsTrimmed && !hasPlaceholder) {
     result += `\n\nUser arguments: ${argsTrimmed}`;
   }
@@ -327,6 +361,11 @@ export async function expandSkillText(
 }
 
 export async function reloadSkill(skill: Skill, warn?: (message: string) => void): Promise<Skill> {
+  const currentRealpath = await realpath(skill.path);
+  const expectedRealpath = join(await realpath(dirname(skill.realpath)), basename(skill.realpath));
+  if (currentRealpath !== expectedRealpath) {
+    throw new Error(`skill '${skill.name}' changed its resolved path; reload the registry`);
+  }
   const loaded = await loadSkillFile(
     skill.path,
     skill.realpath,
@@ -379,6 +418,7 @@ async function loadSkillFile(
       warn?.(`skill '${frontmatter.name}' (${path}): ${rigor.reason}`);
     }
     return {
+      revision: createHash('sha256').update(raw).digest('hex'),
       name: frontmatter.name,
       description: frontmatter.description,
       whenToUse: frontmatter.whenToUse,
@@ -467,63 +507,43 @@ async function walk(dir: string, out: string[]): Promise<void> {
 
 // Resolve env placeholders SPAN-AWARE, then run each author inline-shell span.
 // The scan runs over the RAW body (placeholders intact) so an env value can
-// never invent a NEW `` !`cmd` `` span, and each value is single-quoted only as
+// never invent a NEW `` !`cmd` `` span, and each value is safely quoted as
 // it is interpolated into the command that reaches bash — inert shell data
 // (`substituteEnvCommand`) — while prose regions keep the sanitized display value
 // (`substituteEnvProse`). Command output is inserted verbatim, never re-scanned
 // or re-substituted.
-async function interpolateShellCommands(body: string, cwd: string, env: SkillEnv): Promise<string> {
+async function interpolateShellCommands(
+  body: string,
+  cwd: string,
+  env: SkillEnv,
+  runShellCommand: SkillExpansionOptions['runShellCommand'],
+  args: string,
+): Promise<string> {
   const matches = Array.from(body.matchAll(SHELL_INTERPOLATION_RE));
-  if (matches.length === 0) return substituteEnvProse(body, env);
+  if (matches.length === 0) return substituteSkillProse(body, env, args);
   let out = '';
   let lastIndex = 0;
   for (const match of matches) {
     const start = match.index ?? 0;
     const full = match[0];
-    out += substituteEnvProse(body.slice(lastIndex, start), env);
+    out += substituteSkillProse(body.slice(lastIndex, start), env, args);
     lastIndex = start + full.length;
     const rawCommand = (match[1] ?? match[2])?.trim();
     if (!rawCommand) {
       // Empty sigil (e.g. all-whitespace): keep it as inert text.
-      out += substituteEnvProse(full, env);
+      out += substituteSkillProse(full, env, args);
       continue;
     }
     const command = substituteEnvCommand(rawCommand, env);
     // Command stdout is inserted verbatim; no `.replace`, so a `$`-sequence in
     // the output ($1/$2 in awk, prices, git diffs) is never treated as special.
-    out += await runInterpolationCommand(command, cwd);
-  }
-  out += substituteEnvProse(body.slice(lastIndex), env);
-  return out;
-}
-
-async function runInterpolationCommand(command: string, cwd: string): Promise<string> {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), SHELL_TIMEOUT_MS);
-  try {
-    // `bash -lc` on POSIX; the platform-resolved shell on Windows. A missing
-    // shell throws here and surfaces as an inline-shell error like any other.
-    const shell = shellCommand(command, { login: true });
-    const proc = spawnProc([shell.cmd, ...shell.args], {
-      cwd,
-      stdout: 'pipe',
-      stderr: 'pipe',
-      signal: ctl.signal,
-    });
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    if (exitCode !== 0) {
-      return `[inline-shell error: ${command}\nexit_code: ${exitCode}\n${stderr.trimEnd()}]`;
+    if (!runShellCommand) {
+      throw new Error('skill inline shell requires an explicit permissioned host runner');
     }
-    return truncateShellOutput(stdout.trimEnd());
-  } catch (err) {
-    return `[inline-shell error: ${command}\n${errorMessage(err)}]`;
-  } finally {
-    clearTimeout(timer);
+    out += truncateShellOutput((await runShellCommand(command, cwd)).trimEnd());
   }
+  out += substituteSkillProse(body.slice(lastIndex), env, args);
+  return out;
 }
 
 function truncateShellOutput(text: string): string {

@@ -16,14 +16,23 @@ function skillToCommand(skill: Skill): PromptCommand {
     name: skill.name,
     description: skill.description,
     allowedTools: skill.allowedTools,
+    skill: {
+      name: skill.name,
+      ...(skill.revision ? { revision: skill.revision } : {}),
+      descriptor: skill,
+    },
     getPromptForCommand: async (args, ctx): Promise<ContentBlock[]> => [
       {
         type: 'text',
-        text: await expandSkillPrompt(await reloadSkill(skill), {
-          args,
-          cwd: ctx.cwd,
-          sessionId: ctx.sessionId,
-        }),
+        // Command discovery/preview has no execution or approval channel.
+        text: await expandSkillPrompt(
+          { ...(await reloadSkill(skill)), allowShellInterpolation: false },
+          {
+            args,
+            cwd: ctx.cwd,
+            sessionId: ctx.sessionId,
+          },
+        ),
       },
     ],
   };

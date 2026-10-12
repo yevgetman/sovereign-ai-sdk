@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
 import type { Skill, SkillRegistry } from '@yevgetman/sov-sdk/skills/types';
 import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { SkillTool } from '@yevgetman/sov-sdk/tools/SkillTool';
@@ -70,18 +71,15 @@ describe('SkillTool', () => {
         bundleRoot: dir,
         sessionId: 'skill-tool-test',
         skills,
+        skillActivation: createSkillActivationState({ tools: [] }),
       };
 
       const result = await SkillTool.call({ skill: 'simplify', args: 'src/main.ts' }, ctx);
       expect(result.data.prompt).toBe('Simplify src/main.ts.');
       const rendered = SkillTool.renderResult?.(result.data);
       expect(rendered?.content).toContain("Skill 'simplify' activated");
-      // Feature B — the model-invoked SkillTool path is advisory: the allowed
-      // tools are surfaced as guidance (not a hard pool restriction, unlike the
-      // user-invoked `/skill` path). The rendered line lists the tools AND
-      // states the advisory nature.
       expect(rendered?.content).toContain('Read, Edit');
-      expect(rendered?.content.toLowerCase()).toContain('advisory');
+      expect(rendered?.content.toLowerCase()).toContain('enforced');
     });
   });
 

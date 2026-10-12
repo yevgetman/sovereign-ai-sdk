@@ -333,7 +333,13 @@ export class SubagentScheduler implements Scheduler {
     let writeLockRelease: (() => void) | undefined;
     let treeRelease: (() => void) | undefined;
     try {
-      if (useSubprocessExecutor && policy !== undefined) {
+      if (
+        useSubprocessExecutor &&
+        (policy !== undefined ||
+          input.parentToolContext.skillActivation?.activations.some(
+            (activation) => activation.allowedTools.length > 0,
+          ))
+      ) {
         throw new Error('native child policy cannot be enforced by the subprocess executor');
       }
       treeRelease = policy?.treeBudget?.reserveChild(childDepth);

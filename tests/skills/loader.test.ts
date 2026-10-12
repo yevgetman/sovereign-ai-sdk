@@ -2,14 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import {
-  type SkillRoot,
-  expandSkillPrompt,
-  loadSkills,
-  reloadSkill,
-} from '@yevgetman/sov-sdk/skills/loader';
+import { type SkillRoot, loadSkills, reloadSkill } from '@yevgetman/sov-sdk/skills/loader';
 import type { Skill } from '@yevgetman/sov-sdk/skills/types';
 import { filterSkillRegistry, inferActiveToolsets } from '@yevgetman/sov-sdk/skills/visibility';
+import { expandSkillPrompt } from './expansionFixture.js';
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), 'sovereign-skills-'));
