@@ -23,7 +23,7 @@ export async function runSkillsDoctor(
   });
   const approvedRoots = opts.allowedLinkRoots ?? settings.skills?.discovery?.allowedLinkRoots;
   const projectRoot = settings.skills?.discovery?.projectRoot;
-  const bundleRoot = opts.bundleRoot ?? getDefaultBundlePath();
+  const bundleRoot = opts.bundleRoot ?? getDefaultBundlePath({ harnessHome });
   const manager = createSkillRegistryManager({
     load: () =>
       loadSkillRegistry({

@@ -1,3 +1,9 @@
+## 2026-10-11 — Sixth review: explicit skill doctor profile owns its default bundle
+
+Confirmed Medium: standalone `skills doctor --harness-home B` previously scanned the environment-selected profile A's default bundle. The shared default resolver now accepts an explicit home; the doctor passes the selected home and explicit `--bundle` still wins. A temporary two-profile regression failed before the fix, then passed with existing bundle resolver coverage: **14 passed / zero failures / 26 assertions**. No real profile data was used.
+
+Complete configured gate: **5873 passed / 19 existing skips / zero failures**, 24437 assertions across all 565 discovered files. Commands: local TUI build and `/private/tmp/sdk-skills-round5-20261011/gate.py <seat> sixth-pr56` (lint/boundary, root types, strict SDK build and all configured test files). Existing compiler/theme/timing/subprocess fixtures ran separately without omissions or weaker assertions. This is review-source validation; PR branches remain open.
+
 ## 2026-10-11 — Fifth-review complete source gate for PR56 compatibility
 
 Scope: owning review changes and ordinary parent correction carry in dependency order. Commands: frozen dependency install without scripts, public protocol/SDK build, TUI build, then configured lint/boundary, root types, strict SDK build and every discovered test file. Result: **5,872 passed / 19 existing skips / zero failures**, 24,432 assertions across all 564 files. Compiler, shared-theme, redaction-timing and subprocess fixtures run separately; no file or assertion is omitted. Prior testing histories remain intact. This validates review source; no master merge, release or installed-host change is performed.
