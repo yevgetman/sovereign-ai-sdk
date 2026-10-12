@@ -1,5 +1,7 @@
 # Skills hardening review evidence — 2026-10-11
 
+Latest evidence: [sixth review](#owner-requested-sixth-review--2026-10-11). Earlier rounds below are historical receipts.
+
 Batch: `SKILL-HARDENING-2026-10-11`, issues #44–#51. Source baseline:
 `85d78f9acd9ef863c7abb9bd414b61d10111fe96`. Review branches only; no release,
 installed-host update, restart or consumer change.
@@ -192,3 +194,44 @@ Controlled filesystem boundaries, mock providers, temporary adapters and real No
 - [Composed skill runtime](../04-extending/skill-runtime.md)
 - [Bounded catalog](../04-extending/skill-catalog.md)
 - [Private skill continuity](../04-extending/skill-continuity.md)
+
+## Owner-requested sixth review — 2026-10-11
+
+The owner requested native parallel agents, separate review of each PR52–59, interdependency checks and correction of every confirmed severity above Low. Each incoming parent-relative change was a separate task. Three native review workers plus the coordinator traced source contracts and later consumers. The final reviewer performed independent checks on the corrections. The transiently interrupted discovery task left its draft; the coordinator completed and verified that correction.
+
+**Current result: nine confirmed findings above Low closed — two High and seven Medium.** The table lists the owning PR. PR55 and PR57 have no new independent above-Low finding and inherit all corrected ancestors. The Low prototype-key parent issue was also corrected within complete-tree validation. The existing Low continuity separator-budget excess remains outside the requested threshold.
+
+| PR | Severity and concrete trigger | Correction and effects verified |
+| --- | --- | --- |
+| 52 activation | Medium: inline policy decisions execute before the native provider drive has an evidence ID. | A distinct context-expansion evidence segment begins before policy callbacks and settles on approval or rejection. Actual HTTP checks verify one joined policy row, correct session, no invented delivered text and a separate later provider-drive ID. |
+| 53 discovery | High: a directory or outer ancestor is substituted during iterator opening, then restored; omitted sidecars escape the guard. | Pin scanned directory metadata and validate the final canonical entry names/types with bounded streaming. Catalog/direct/reload/guard witnesses now reject; approved exact plugin roots, managed links, exclusions and resource limits remain usable. |
+| 54 storage | High: a final opened leaf differs from its current published pathname; prior captured leaves or resource membership can change before receipt. | Compare before/opened/current metadata and recheck every captured file/directory before issuing a complete-tree revision. Packaged create/edit fixtures reject, emit no false event and restore the prior accepted tree. |
+| 54 storage | Medium: an accepted directory mode makes staging and recovery permanently inaccessible. | Reject files lacking owner-read and directories lacking owner-read/execute before effects in both adapters. Invalid modes leave the store usable; restrictive0440/0550 controls retain immediate CAS. |
+| 56 diagnostics | Medium: explicit profile B diagnostics use environment-selected profile A's default bundle. | The shared default resolver accepts the captured explicit home. Standalone doctor honors B's bundle; explicit bundle paths still win and the zero-argument resolver keeps its behavior. |
+| 58 budgets | Medium: opaque host names expand during JSON escaping, so a fragment exceeds its issued page allocation. | Fit the complete serialized page and its actual next cursor before publication. Quotes, controls, Unicode and lone surrogates reconstruct exactly with unique progressing cursors and later-entry reachability. |
+| 59 continuity | Medium: native activation lifetime identity is discarded by fresh composition. | Carry the private lifetime identity without restoring tool grants, so real route outcomes match the activated record. |
+| 59 continuity | Medium: post-activation pre-query failure leaves guidance active after turn_error. | Host-owned finalization closes reached native main-session records for errors/cancellation before terminal session events release the slot. |
+| 59 continuity | Medium: successful overflow recovery clones the first hop's failed outcome. | Native gateway finishing follows the final logical route outcome across reached session ports; generic SDK queries and native children retain their per-call finishing contract. Only matching active lifetime records transition. |
+
+Owning file locations and full reproductions are in the testing receipts: `src/server/routes/turns.ts`, `src/server/turnComposition.ts`, `packages/sdk/src/skills/guard.ts`, `storeWorker.ts`, `storeValidation.ts`, `store.ts`, `catalog.ts`, `packages/sdk/src/bundle/defaultBundle.ts`, and `src/cli/skillsDoctorCommand.ts`. Tests assert actual HTTP/SQLite/store/provider/subprocess effects rather than calling lifecycle finish directly.
+
+All corrections are pushed to their owning PR branches and carried forward by ordinary parent merges. Incoming heads and all seven updated parent edges remain ancestors. Full testing-log histories from both sides of each merge remain intact. PRs stay open in order52→53→54→55→56→57→58→59.
+
+**Frozen functional source:** `a9e861e9def5bf0f50c5a1e66c7113a654804a5f`. Complete combined source gate: **6,009 passed / 19 existing skips / zero failures**, 25,736 assertions across all 584 discovered files. Configured lint/boundary, root types, strict public SDK/TUI builds, Go, packed Node/Bun consumer/types/artifact checks and unchanged release-plan validation pass. Existing compiler/theme/timing/subprocess fixtures run separately; no file or assertion is omitted or weakened. Report-only receipt commits do not change this functional source.
+
+| PR | Published functional head before this report receipt | Local pass / existing skip / fail |
+| --- | --- | --- |
+| PR52 | `5e2b06dc6a6700b87f987b54be0a7e76fa7fa44c` | 5,776 / 19 / 0 |
+| PR53 | `29e03bc94383fbba00d4db74823e90f5d82c9edd` | 5,803 / 19 / 0 |
+| PR54 | `41b27f0cf3ea859994ae65bf6bd9a0f9730c816f` | 5,882 / 19 / 0 |
+| PR55 | `f0cade9bba4c6546be831c66f0aee4e86c9d7dd2` | 5,889 / 19 / 0 |
+| PR56 | `0fe1261dfb715871a7ff5cdcb0f8b18e261be0da` | 5,901 / 19 / 0 |
+| PR57 | `030925a7bb7c9271a794055b6908a8624fb3df2d` | 5,945 / 19 / 0 |
+| PR58 | `5e86c6ebcdcda38b63f79e3c6ff91d3a61bc0af6` | 5,963 / 19 / 0 |
+| PR59 | `a9e861e9def5bf0f50c5a1e66c7113a654804a5f` | 6,009 / 19 / 0 |
+
+Independent correction checks: discovery identity12/36 assertions plus discovery/guard/loader65/161; doctor14/26; invocation controls37/155; catalog8/489 plus15 escaped/Unicode allocation cases over286pages. Final merged native continuity peer checks pass65tests/950assertions. Four actual-route dual-identity witnesses cover completion, denial, setup failure and real overflow recovery. Policy evidence settles once without invented delivery; private lifetime UUIDs remain separate and match settled parent/child outcomes. Native child finishing and permission floors remain intact.
+
+The first PR53 directory-metadata correction passed its then-covered gate but missed an outer-ancestor listing omission. Its independent failed witness prompted bounded canonical listing validation and a new clean complete gate. Clarification of that PR's immutable test-log receipt: **one** queued baseline gate was stopped before checks for parent integration. A later attempted cancellation correctly refused the already-started partial-correction gate; it completed5,799/19skip/0fail. The corrected listing source subsequently passed5,803/19skip/0fail. The receipt's phrase “two queued earlier gate attempts were stopped” was a recording error. All logs remain archived.
+
+Controlled faults, mock providers and public packed-process fixtures prove the reviewed paths and regressions. They do not certify arbitrary hostile filesystem scheduling, physical power-loss recovery, live paid inference or longitudinal workflow quality. No master merge, force push, release/version/manifest change, consumer pin, installed upgrade or restart. Public SDK0.14.0/SOV0.6.77 remains current; the existing documentation-only next-release draft stays unchanged.

@@ -1,3 +1,11 @@
+## 2026-10-11 — Sixth review final report and evidence receipt
+
+Eight incoming PRs were reviewed independently with native agents and the code-review skill. Nine above-Low findings close: two High and seven Medium. Owning fixes are on PR52/53/54/56/58/59 and all dependent heads. PR55/57 have no new independent above-Low finding. The final complete source gate passes **6,009 tests / 19 existing skips / zero failures**, 25,736 assertions across584files, plus lint/boundary, types, strict SDK/TUI builds, six Go test packages, actual packed Node/Bun consumer/type/artifact checks and unchanged release-plan validation. Final independent source recheck:65tests/950assertions plus four actual-route dual-ID effect witnesses. Reports and immutable source heads are recorded in `skill-hardening-review-2026-10-11.md`.
+
+Recording clarification for the owning PR53 receipt: one queued baseline gate was stopped before checks for parent integration. A later attempted cancellation refused to kill an already-started partial-correction gate, which completed5,799/19skip/0fail. The final canonical listing correction then received a new clean5,803/19skip/0fail gate. The earlier phrase “two queued earlier gate attempts were stopped” was a recording error. Its historical entry stays intact. Source assertions and every discovered test file remain unchanged/covered.
+
+This receipt changes reports only. PRs stay open. No release, version/manifest change, consumer pin, installed upgrade, restart or master merge.
+
 ## 2026-10-11 — Sixth-review corrected parent integration for PR59
 
 Carried the independently reviewed parent `5e86c6ebcdcda38b63f79e3c6ff91d3a61bc0af6` by ordinary merge, preserving incoming head `cef636fbaa41c481d7b52260e60f2bb029486a43` and all prior testing-log sections. Configured lint/boundary, root types, strict SDK build and all discovered tests pass: **6,009 passed / 19 existing skips / zero failures**, 25,736 assertions across 584 files. Local protocol/SDK/TUI artifacts built first. Complete runner: `/private/tmp/sdk-skills-round5-20261011/gate.py <seat> sixth-publish-59`. Existing compiler/theme/timing/subprocess fixtures are isolated without omissions or assertion changes. This checks review source; PRs remain open.
