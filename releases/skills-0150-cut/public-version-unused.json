@@ -1,0 +1,9 @@
+{
+  "version": "v0.6.78",
+  "response": {
+    "message": "Not Found",
+    "documentation_url": "https://docs.github.com/rest/releases/releases#get-a-release-by-tag-name",
+    "status": "404"
+  },
+  "verified_unused": true
+}

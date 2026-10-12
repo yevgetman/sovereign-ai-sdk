@@ -1,0 +1,50 @@
+{
+  "build_commit": "486c58f5d2fee5478c9f7c5088f9f8bbdc859c11",
+  "checked_at": "2026-10-12T04:43:59.974161Z",
+  "result": "pass",
+  "counts": {
+    "pass": 6060,
+    "skip": 19,
+    "fail": 0,
+    "assertions": 25969,
+    "files": 592,
+    "coverage": "All discovered test files; global compile fixture serialized; footer theme, redaction timing and subprocess fixtures isolated; all remaining files use unique TMPDIR."
+  },
+  "commands": [
+    "bun install --frozen-lockfile --linker hoisted",
+    "bun run build",
+    "bun run tui:build",
+    "bun run lint",
+    "bun run typecheck",
+    "bun run --cwd packages/sdk build",
+    "bun run test across all592 discovered files; compiler/theme/timing fixtures isolated"
+  ],
+  "logs": [
+    "source-secretRedactor.test.ts-isolated.log",
+    "source-build.log",
+    "source-footer-tests.log",
+    "source-remaining-tests.log",
+    "source-compile-tests.log",
+    "source-types.log",
+    "source-spawn.test.ts-isolated.log",
+    "source-lint.log"
+  ],
+  "limitations": [
+    "19 existing fixture skips; no new test/skip/assertion changes.",
+    "12 source-planning validator tests not selected product source; validated current source control records separately.",
+    "Offline fixtures do not certify paid-provider eligibility, production throughput, arbitrary adversarial filesystems or hardware power loss."
+  ],
+  "retained_failed_attempts": [
+    "CI38204175430:62missingcompiledSDKerrors, correctedexplicitselectedPR62preparation; no public/frozenbytes.",
+    "Initial shared-source canary collision corrected with isolated same-SHA QA and complete rerun."
+  ],
+  "planning_source_gate": {
+    "pass": 6072,
+    "skip": 19,
+    "fail": 0,
+    "assertions": 25988,
+    "files": 593,
+    "coverage": "All discovered test files; global compile fixture serialized; footer theme, redaction timing and subprocess fixtures isolated; all remaining files use unique TMPDIR."
+  },
+  "planning_source_note": "Includes all12 source-only validator fixtures and shared planning relationship checks; selected build uses all592 discovered product test files."
+}

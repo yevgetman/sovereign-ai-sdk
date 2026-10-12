@@ -1,0 +1,361 @@
+{
+  "architecture": "linux-arm64",
+  "coverage": {
+    "archive_members": 0,
+    "bytes": 99096977,
+    "files": 32,
+    "links": 0,
+    "metadata": 42
+  },
+  "errors": [],
+  "errors_count": 0,
+  "exclusions": [],
+  "exit_code": 0,
+  "findings": [],
+  "findings_count": 0,
+  "findings_count_unit": "file/rule pairs",
+  "input_kind": "directory",
+  "inventory": [
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "LICENSE.txt",
+      "path_sha256": "d0ed4cc3fb70489fe51c7e0ac180cba2a7472124f9f9e9ae67b01a37fbd580b7",
+      "sha256": "043effdda1399ae47d7bde10e059f9ffa3ad1afd9ec2af667c1d5355215975bd",
+      "size": 816
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "README.md",
+      "path_sha256": "b335630551682c19a781afebcf4d07bf978fb1f8ac04c6bf87428ed5106870f5",
+      "sha256": "7d4c8a54bb87b3662f51e2e95d5f50e774dccd6841e8850a1775fab58d43149b",
+      "size": 1077
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "bin",
+      "path_sha256": "51a1f05af85e342e3c849b47d387086476282d5f50dc240c19216d6edfb1eb5a"
+    },
+    {
+      "kind": "file",
+      "mode": 493,
+      "path": "bin/sov",
+      "path_sha256": "ef0edfaa6e8c2e49310cd1c78ccce58c712ef0be4c51211367fef94405feeb09",
+      "sha256": "c77b142874bfe4b5aa9f1308be09156b7b2676c4ab58fa042fee5336e32c1ada",
+      "size": 84003112
+    },
+    {
+      "kind": "file",
+      "mode": 493,
+      "path": "bin/sov-tui",
+      "path_sha256": "d0df5fc54217e6e09c9e73695a9eb09a19f55370c87eee8a6518ab570b728abf",
+      "sha256": "8ea802524668d5f2db53fe98b8f6a0d7d7fc896e7c9f4127e2d34b8da6f71da1",
+      "size": 15007928
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "build-inputs.json",
+      "path_sha256": "11d551e5502f6b0c5e051ab3f594b666f33fc6c824622430945549f3c0890181",
+      "sha256": "67703760f9139a5232fef09bfd1e789f1ed19e5f8213c4665998fb31aca5f591",
+      "size": 27187
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "bundle-default",
+      "path_sha256": "c5a00692505c0e8700853da2f4d479206e40edbd800c5c06a796d514e3e74925"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/BUNDLE-CONTRACT.md",
+      "path_sha256": "4ffd78da60b72126c6bc5f5cf0d754575ca1970a9dc681c9832702d32dd518aa",
+      "sha256": "925cb873e625373643f7f509b005f0c576d14d0a267da55dde50bb17af59dbbd",
+      "size": 1062
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "bundle-default/agents",
+      "path_sha256": "804fcb4863d637bc2844f54144d77c85ff2ce099137761f72407129e6ee9d41b"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/agents/cheap-task.md",
+      "path_sha256": "fd005daa715711895cb3523e5f8457d63ff7b89fb3e7512bd534cbbd40299f29",
+      "sha256": "d5193db09d3cce2aaf7d049c3aa63dc2b0ef8f260f409439b0aa2a7aef6559a3",
+      "size": 861
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/agents/delegator.md",
+      "path_sha256": "1f7fd15efb2709bad7107f3bd572e6cc7275877be16451428b3e965d00a0ac90",
+      "sha256": "33db7dfb6cd7d1d86170e0248e0bf87ac4804eab01323d9c234efe675ff388d7",
+      "size": 3117
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/agents/explore.md",
+      "path_sha256": "38d61b8ba7846957cf77206cab58c18c802638a1658013f4183651531f6365a5",
+      "sha256": "f076fe66bd0941ef6d51da8ff32990e02464fac37e31a32eb3d3d95598cc538a",
+      "size": 2124
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/agents/frontier-task.md",
+      "path_sha256": "0255efa36086de3f450f671146eb769ce2036066fb33e5e75957cad55df38026",
+      "sha256": "e5f2f90e8e8d5bc09c0a27a1e538554d05a95cbbd3b1bec70bfd6c13e58bb245",
+      "size": 1049
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/agents/instinct-synthesizer.md",
+      "path_sha256": "40bbdd89655133b725ce26a0b1e42dd2a7c05f9fc52a6ef410fa35496e45eb6b",
+      "sha256": "49bd3abacd485b87af5c15bc40f9fa95961ab0783d64dc6cf2b4bd71018b2508",
+      "size": 4447
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/agents/moderate-task.md",
+      "path_sha256": "870b0322de43cf5a2ebea9d85ef153f65cf3c646d690a45a414600b57b02af47",
+      "sha256": "fc8d8b01b12a278fc8236518d30c57b14ff128cfb7748bc745605b5945d8593d",
+      "size": 829
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/agents/plan.md",
+      "path_sha256": "c7298c124aafd762ceb7bf770bb9ce8ff35e3876c612cb1009b2f232868fe3e5",
+      "sha256": "4d7f514a6e13cee1632ccf28143d2e209526c52b5dae0644c86aaa5cbb078187",
+      "size": 2335
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/agents/review-consolidate.md",
+      "path_sha256": "ef87d4f16a57bbc4a2264812f83b1a159ca5114e6202d9b241dfae7e034db7b1",
+      "sha256": "8e1372ef6f0d29228153cee6f2c31dedf48527cb657f6131961cb4154bf865f6",
+      "size": 1161
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/agents/review-memory.md",
+      "path_sha256": "d37a82479b2efb2a96b42fc9c137b3b437cf2e62779e2af6429b474c56a99221",
+      "sha256": "c2442bcb0f07b210238057bbc11965c4dd19144ac3a457852696c3d502573a96",
+      "size": 2806
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/agents/review-skill.md",
+      "path_sha256": "683a7e09ee1b4a7b4e8b625fd1620db184bea4a68fe2bc4c35afaa26eec6cc9c",
+      "sha256": "2c4e08eda0302b6eef6f5a6483f61c44f6d4c31d66469c9e20347b02a9f404ba",
+      "size": 1859
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/agents/scheduled-mission.md",
+      "path_sha256": "911a2de80aef71725d4ccd82ef1aa785119032f4248d127fc003a9c6ab741375",
+      "sha256": "46196f1ef69fd2f924d136e6621f95dc3624eeb70cd6a2d818dcada00bb4a5ad",
+      "size": 2493
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/agents/subscription-executor.md",
+      "path_sha256": "8a540f14aa8e1d987ae65bc268fd10dd59371defe3427389ced95eaac8dae778",
+      "sha256": "e80e25bca42f53d7363bdbc3ecd93b30e3d0bf7303538e90bfd081e215eef4ce",
+      "size": 1706
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/agents/verify.md",
+      "path_sha256": "61411fad5b03e2b554b7e0f02addb62c8ee9973abd80ea18e30248a2b540f886",
+      "sha256": "a9be9c7cd0d53ac25caa043aa1d0d9b0763350b94f9768ce079317767755fed5",
+      "size": 1850
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "bundle-default/business",
+      "path_sha256": "6706da02d6c026452c8f944b69a699856a87fae1cfa0377c0349c8e6e46ceb54"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/business/README.md",
+      "path_sha256": "d6da0d76fa49773983c26bb242b3eb16b4dcfc5b4d7e094370e7ff65c2e3840a",
+      "sha256": "11ab79fcc432794c1be5ba6c47ae0d24d1fb76ebe643f5e34312b0dcfe8e4a21",
+      "size": 2367
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/business/system-prompt.md",
+      "path_sha256": "4f81e713f9ea771e84de1f03486b9e7ef63a75124f3052723f87d4b44465e809",
+      "sha256": "612dd3fe14d00f2aadff9f195f6de9f6c2b9ccaed45e1639fdc23d28fa34cda7",
+      "size": 2265
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "bundle-default/harness",
+      "path_sha256": "aff6153ca3d9c6a7c145545da948bbdcc4d9eb7df6435e0f607f34cc755211f1"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "bundle-default/harness/schemas",
+      "path_sha256": "ba701e492b3985a2914dc8b62e03df2858e67bed828edf66919725fd1da5254e"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/harness/schemas/.gitkeep",
+      "path_sha256": "0cd42b518905de43c8a3c02be6466ca543e425c230f2f66a0175bd5027168a2f",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/index.yaml",
+      "path_sha256": "8d918b3230cc6934c79949d48f03834b093c14e1e4fa9f813fdd93478c35417c",
+      "sha256": "f742f6a687480270bad36ac0da4c3c75f622f440ade72c796bd853dc6a7e6e87",
+      "size": 1045
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "bundle-default/prompts",
+      "path_sha256": "03d6463be3aa77b6564613ef1b1a578fccb6bc262e3d3e0a4353101d6197b7ea"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/prompts/smart-router-trivial-fast-path.md",
+      "path_sha256": "8353c012540947667c00634ba571602c8f2667cda587ba931c2167b4ec87b36a",
+      "sha256": "2661f45ad1b59a174ac59d50f6b1a7ec9b00532864e8d51b675eb0726ff30e1f",
+      "size": 1067
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/prompts/smart-router.md",
+      "path_sha256": "952fff29bfc9c894d0b4496fef51eee824db3fbd099dc228b8a83c86ec19eee7",
+      "sha256": "c50a8607d94a7e2c07b76f46c249c9a0abc481c924310001439e76a8567a9fea",
+      "size": 1287
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/prompts/subscription-executor.md",
+      "path_sha256": "c963ba3efefa20daa0848085538ec8466c3c32d967f2bc4bc8875710ae776158",
+      "sha256": "89dd3a4590124cccf39091a956bf12692d3290e8c0170a2e84a8591ff46242e6",
+      "size": 1314
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "bundle-default/skills",
+      "path_sha256": "549d61fdbfb9fbab2dbe338dd11c5e070fc9941d78c9e26e7a44c584dd356fc5"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/skills/review.md",
+      "path_sha256": "625ea0593b5579279d34781ad206dac170866baef9fbfbbddf644091f08cb0ff",
+      "sha256": "3f3bbb326492bd2e3b4b3dff6f3f0f0b5049a2a39c05f2cac627af8b82ba855f",
+      "size": 2083
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/skills/security-audit.md",
+      "path_sha256": "4f3761449b36800e632a10e078206e5a12a4573a95fbdea9f1c0823cafc0693f",
+      "sha256": "38d786fb478b0c5979e17bf1800946177d7efcf1d33d924182f9996a484a2125",
+      "size": 11875
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/skills/summarize.md",
+      "path_sha256": "3ab8c633eda60ae351824eacd17f358648ee9ea682815716b7110001347bc304",
+      "sha256": "e13d15cc4cf66daf5b54e98f789bdea106056398b8a201ea8322496d8d292e36",
+      "size": 1822
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "bundle-default/state",
+      "path_sha256": "91a7a86fc63707508cc0ec52b22d7d86825e6a30a1b565811936b931363090b1"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/state/.gitkeep",
+      "path_sha256": "94389a6d39cd91e1221792bcb7b88c03d5b6948198dd8384d9a8faf103768efd",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "bundle-default/workflows",
+      "path_sha256": "349967150096420e48aca408fc5b8c4bc0f10ffe4a40ab6d4f58c8942d606382"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "bundle-default/workflows/review.yaml",
+      "path_sha256": "ace724c4a6b027876cc43b205dee6a075c630ef552218a1950b2d09d8249f093",
+      "sha256": "fc46179ea37b0fba0171b2259651dad780f580df2ffef8ba1fd7f6a7125240d5",
+      "size": 4025
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "version",
+      "path_sha256": "5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+      "sha256": "50e43b770c29e95630b0624ae765d04d98e768a048f48e05c82f68b9b4c5080c",
+      "size": 8
+    }
+  ],
+  "inventory_sha256": "887e3cfb21c94698f5a7758db651dad9f69930e85ec0ae3d531bfa9b4fa21d9a",
+  "limits": {
+    "chunk_size": 1048576,
+    "max_depth": 12,
+    "max_diagnostics": 200,
+    "max_expanded_bytes": 34359738368,
+    "max_members": 200000,
+    "max_metadata_bytes": 16777216,
+    "max_temporary_bytes": 34359738368
+  },
+  "policy_sha256": "8e04fd1980cd9a1a534eaa51e993f632a79f62b603efabaf99cbf6c65a95e1c2",
+  "policy_version": "2026-10-01.2",
+  "required_paths": [
+    "bin/sov",
+    "bin/sov-tui",
+    "bundle-default/index.yaml",
+    "bundle-default/BUNDLE-CONTRACT.md",
+    "README.md",
+    "LICENSE.txt",
+    "version",
+    "build-inputs.json"
+  ],
+  "result": "clean",
+  "scanner_version": "1.0.1",
+  "schema_version": 1
+}

@@ -1,0 +1,27 @@
+{
+  "reviewer": "runtime_pin independent native peer",
+  "checked_at": "2026-10-12T04:35:28.280233+00:00",
+  "scope": "Release preflight package build preparation",
+  "source_parent": "6959514eaaa92794ab7792a9b27d5f5afb9ee802",
+  "findings": [],
+  "remaining_above_low": 0,
+  "correction": {
+    "severity": "Medium",
+    "trigger": "Clean release runner executes Node consumers/workers before compiled SDK exists",
+    "observed": "Failed dry-run38204175430 reports62fail and module-resolution errors for packages/sdk/dist files",
+    "change": "Build protocol+SDK after typecheck and before complete tests; no tests skipped/modified and no product changes"
+  },
+  "checks": {
+    "workflow_step_order": "pass",
+    "build_script_outputs": "protocol+SDK public compiled artifacts",
+    "diff_scope": "release workflow only",
+    "diff_check": "pass"
+  },
+  "failure_evidence": {
+    "run": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38204175430",
+    "local_log": "/private/tmp/sdk-skills-release-control-20261011/preflight-38204175430-failed.log",
+    "sha256": "95372345272249599cd28566d01b0f6b2c8bb469520b06ea2456d073255e787e",
+    "module_resolution_log_matches": 188
+  },
+  "pending": "New12th exact manifest application unit, updated assembled build identity and successful exact-build preflight rerun required."
+}

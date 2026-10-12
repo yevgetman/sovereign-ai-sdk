@@ -159,3 +159,17 @@ items:
     qa:
       - releases/skills-0150-preparation-review.json
       - docs/06-testing/testing-log.md
+  - id: sdk-prep-build-preflight
+    product: sovereign-ai-sdk
+    title: Build SDK artifacts before release preflight tests
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/62
+    merged_at: 2026-10-12T04:39:54Z
+    commits:
+      - sha: 3d4486dd442226f1597eba12bd9eb6958d9f001d
+        mainline: 1
+    requires:
+      - sdk-prep-0150
+    reason: null
+    qa:
+      - releases/skills-0150-preflight-review.json
+      - docs/06-testing/testing-log.md
