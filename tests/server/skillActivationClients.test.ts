@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ConductContext } from '@yevgetman/sov-sdk/core/conductPort';
 import { MockProvider } from '@yevgetman/sov-sdk/providers/mock';
+import { createTurnEvidence, withEvidenceSink } from '../../src/attestation/turnEvidence.js';
+import type { ObservedTurnRow } from '../../src/attestation/writer.js';
 import { DriveSseManager, EventRenderer, runSlashCommand } from '../../src/cli/driveCommand.js';
 import { buildConsentRecord, writeConsent } from '../../src/plugins/consent.js';
 import { hashPluginTree } from '../../src/plugins/integrity.js';
@@ -32,6 +35,73 @@ afterEach(() => {
 });
 
 describe('one skill activation path across clients', () => {
+  test('inline skill policy decisions have settled host evidence on success and denial', async () => {
+    writeFileSync(
+      join(home, '.harness/skills/evidence.md'),
+      '---\nname: evidence\ndescription: Evidence fixture\nallowedTools: [Bash]\n---\n!`printf approved`',
+    );
+    for (const deny of [false, true]) {
+      const rows: ObservedTurnRow[] = [];
+      const seen: ConductContext[] = [];
+      const evidence = createTurnEvidence({
+        writer: { recordIo: (row) => rows.push(row) },
+        io: true,
+      });
+      const sink = evidence.evidenceSink;
+      if (!sink) throw new Error('fixture requires an evidence sink');
+      const conduct = withEvidenceSink(
+        {
+          toolPolicy: (_name, _input, ctx) => {
+            seen.push(ctx);
+            return deny
+              ? { behavior: 'deny', reason: 'fixture denies shell' }
+              : { behavior: 'allow' };
+          },
+        },
+        sink,
+      );
+      const runtime = await buildRuntime({
+        cwd: home,
+        harnessHome: home,
+        provider: 'mock',
+        model: 'mock-haiku',
+        preflight: false,
+        permissionMode: 'bypass',
+        conduct,
+        attestationEvidence: evidence,
+      });
+      try {
+        const app = buildAppWithRuntime(runtime);
+        const { sessionId } = (await (
+          await app.request('/sessions', { method: 'POST' })
+        ).json()) as {
+          sessionId: string;
+        };
+        await app.request(`/sessions/${sessionId}/turns`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: '/evidence', kind: 'skill' }),
+        });
+        const events = await (await app.request(`/sessions/${sessionId}/events`)).text();
+        expect(events).toContain(deny ? 'turn_error' : 'turn_complete');
+        expect(seen).toHaveLength(1);
+        const decision = seen[0];
+        expect(decision?.turnId).toMatch(/^[0-9a-f-]{36}$/);
+        const matching = rows.filter((row) => row.turnId === decision?.turnId);
+        expect(matching).toHaveLength(1);
+        expect(matching[0]?.sessionId).toBe(sessionId);
+        // Inline context has no provider delivery. Keep its evidence honest
+        // and distinct from the later provider drive, including failure paths.
+        expect(matching[0]).not.toHaveProperty('delivered');
+        expect(rows).toHaveLength(deny ? 1 : 2);
+        evidence.settleAll();
+        expect(rows).toHaveLength(deny ? 1 : 2);
+      } finally {
+        await runtime.dispose();
+      }
+    }
+  });
+
   test('approved inline stdout cannot introduce a second context expansion', async () => {
     writeFileSync(join(home, 'private-data.txt'), 'PRIVATE_STDOUT_FIXTURE');
     writeFileSync(
