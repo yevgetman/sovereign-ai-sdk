@@ -579,6 +579,10 @@ Full compaction (`/compact`) summarizes message history into a child session. Pr
 
 `compaction.proactiveThresholdPct` (1–99) is settings-configurable in `~/.harness/config.json`. Reactive compaction (post-error retry on context-overflow) is unconditional.
 
+The SDK's optional skill-continuity port owns activation records, revision checks and model-aware retention. SOV binds this port to each trusted `SessionContext` through a private SQLite adapter. Schema version 7 adds `skill_continuity`, keyed by profile, owner and session, with session deletion cascades. `createSession` atomically freezes a same-owner parent's guidance for a compaction or delegation child, excluding turn-only records. Existing child sessions can resolve the nearest same-owner snapshot through at most eight ancestors. Empty snapshots stop inheritance, so a completed workflow cannot reappear from an older ancestor.
+
+Guidance storage is separate from `Session.metadata`, transcript search and live permission state. Fresh ToolContexts carry the session port but receive no saved tool or resource grants. Trace events use the existing `external` inlet with source `skill-continuity` and bounded safe fields. They contain no arguments, guidance, resource paths or command output. The adapter stores at most 512 KiB of serialized state per scoped session; the shared core imposes tighter record and aggregate guidance bounds.
+
 ## Semantic Test Suite
 
 A second test category lives under `tests/semantic/`, separate from the unit/integration suites. Where unit tests verify functions in isolation, semantic tests drive the real `sov` binary as a subprocess and have an LLM judge evaluate the resulting transcript against per-test criteria.

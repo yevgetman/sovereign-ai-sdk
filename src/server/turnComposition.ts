@@ -271,6 +271,10 @@ export type ComposeTurnOptions = {
   /** `/skill` allowedTools for THIS turn (already parse-filtered). Narrows only. */
   skillScope?: readonly string[];
   skillActivation?: import('@yevgetman/sov-sdk/skills/activation').SkillActivationEnvelope;
+  /** Match the private continuity record created before host composition. */
+  skillActivationTurnId?: string;
+  /** Gateway owns the final outcome across setup, compaction and retry. */
+  manageSkillContinuity?: boolean;
   /** `chat` | `web` | `ops` | `coding`. Narrows the pool sent to the model,
    *  executed, and inherited by sub-agents. Unknown → UnknownToolsetError. */
   toolset?: string;
@@ -419,6 +423,8 @@ export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
         effectivePool: tools,
       });
       const state = createSkillActivationState({ tools, canUseTool: scope.canUseTool });
+      if (opts.skillActivationTurnId) state.turnId = opts.skillActivationTurnId;
+      if (opts.manageSkillContinuity) context.skillContinuityManagedByHost = true;
       state.restrictionCanUseTool = buildToolScope({
         tools,
         allowedTools: opts.skillScope,

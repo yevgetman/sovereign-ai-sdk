@@ -25,3 +25,18 @@ in a resumable handoff. Do not merge or release without the separate request.
 - `specs/2026-10-11-skills-hardening-design.md`
 - Issues #44–#51 in `yevgetman/sovereign-ai-sdk`
 - `docs/06-testing/testing-log.md`
+
+## Implementation state
+
+All eight issue implementations are integrated in the review stack. Independent
+review corrections cover quoted shell data, plugin command identity, complete
+resource guarding, compaction-aware catalog budgets, nested child continuity,
+reference target pins, safe persisted IDs, inert main-body inspection and actual
+provider tool-result ordering. Dedicated issue PRs follow the linear review order
+44 → 45 → 47 → 46 → 48 → 49 → 50 → 51. The extra stack order does not add hard
+issue dependencies. Public versions and live installations remain unchanged.
+
+Final validation and PR evidence are recorded in `docs/06-testing/testing-log.md`
+and the owner's node handoff. Merge parents first and preserve commit ancestry;
+retarget each child to master as its parent lands. Add the merged commits to a
+release plan only in the separately authorized merge/release workflow.

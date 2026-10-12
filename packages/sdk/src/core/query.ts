@@ -44,7 +44,8 @@ import { createSkillActivationState, createSkillChildPermission } from '../skill
 import { resolveSkillContextBudget } from '../skills/budget.js';
 import { buildSkillCatalogIndex } from '../skills/catalog.js';
 import { isSkillInvocable } from '../skills/descriptor.js';
-import { getSkillRegistrySnapshot } from '../skills/registry.js';
+import { reloadSkill } from '../skills/loader.js';
+import { getSkillRegistry, getSkillRegistrySnapshot } from '../skills/registry.js';
 import { inferActiveToolsets } from '../skills/visibility.js';
 import { intersectCanUseTool } from '../tool/capabilityProfiles.js';
 import type { Tool, ToolContext } from '../tool/types.js';
@@ -132,6 +133,55 @@ function flattenContentBlock(block: unknown): string {
 
 /** Run one user turn, including provider streaming and tool-use continuation turns. */
 export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | Message, Terminal> {
+  const continuity = params.toolContext?.skillContinuity;
+  if (!continuity) return yield* queryInternal(params);
+  const context = params.toolContext;
+  if (
+    !context ||
+    continuity.scope.session !== context.sessionId ||
+    (params.sessionId !== undefined && params.sessionId !== context.sessionId)
+  )
+    return {
+      reason: 'error',
+      error: new Error('skill continuity scope does not match the current session'),
+    };
+  const state =
+    context.skillActivation ??
+    createSkillActivationState({
+      tools: params.tools ?? [],
+      ...(params.canUseTool ? { canUseTool: params.canUseTool } : {}),
+      ...(params.hookRunner ? { hookRunner: params.hookRunner } : {}),
+    });
+  let terminal: Terminal | undefined;
+  let failed = false;
+  try {
+    terminal = yield* queryInternal({
+      ...params,
+      toolContext: { ...context, skillActivation: state },
+    });
+    return terminal;
+  } catch (error) {
+    failed = true;
+    throw error;
+  } finally {
+    if (!context.skillContinuityManagedByHost)
+      await continuity.finish(
+        state.turnId,
+        failed ||
+          terminal?.reason === 'error' ||
+          terminal?.reason === 'max_tokens' ||
+          terminal?.reason === 'max_turns'
+          ? 'failed'
+          : !terminal || terminal.reason === 'interrupted'
+            ? 'cancelled'
+            : 'succeeded',
+      );
+  }
+}
+
+async function* queryInternal(
+  params: QueryParams,
+): AsyncGenerator<StreamEvent | Message, Terminal> {
   const modelMetadata = params.modelMetadata ? structuredClone(params.modelMetadata) : undefined;
   // Publisher limits are snapshotted once. Host caps never expand them.
   const useModelLimits = Boolean(modelMetadata || params.contextLimits?.contextWindowTokens);
@@ -186,8 +236,9 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   // Generic host contexts retain the public query() identity contract.
   const skillsEnabled = Boolean(
     params.toolContext?.skills ||
-      params.toolContext?.skillRegistryManager ||
-      params.toolContext?.skillActivation,
+      params.toolContext?.skillActivation ||
+      params.toolContext?.skillContinuity ||
+      params.toolContext?.skillRegistryManager,
   );
   const toolCtx: ToolContext | undefined =
     skillsEnabled && params.toolContext ? { ...params.toolContext } : params.toolContext;
@@ -206,6 +257,9 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   activationState.hasHostPermission =
     params.canUseTool !== undefined || inheritedActivation?.hasHostPermission === true;
   if (toolCtx && skillsEnabled) {
+    if (inheritedActivation) activationState.turnId = inheritedActivation.turnId;
+    if (inheritedActivation?.hasInheritedRestrictions)
+      activationState.hasInheritedRestrictions = true;
     // The actual turn pool is authoritative, including SDK-only contexts and
     // host contexts whose visibility hints were created for a broader pool.
     toolCtx.activeToolNames = toolPool.map((tool) => tool.name);
@@ -515,6 +569,54 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     }
   };
 
+  let retainedSkillGuidance = '';
+  const requestHistory = (): Message[] => {
+    if (!retainedSkillGuidance) return history;
+    const copy = history.slice();
+    let index = copy.findLastIndex((message) => message.role === 'user');
+    if (index < 0) {
+      copy.unshift({ role: 'user', content: [] });
+      index = 0;
+    }
+    const message = copy[index];
+    if (!message) throw new Error('skill guidance request message unavailable');
+    copy[index] = {
+      ...message,
+      content: [...message.content, { type: 'text', text: retainedSkillGuidance }],
+    };
+    return copy;
+  };
+  const attachSkillGuidance = async (): Promise<void> => {
+    if (!toolCtx?.skillContinuity) return;
+    const budget = resolveSkillContextBudget({
+      ...(effectiveModelLimits ? { contextWindowTokens: effectiveModelLimits.contextTokens } : {}),
+      outputTokens: outputCeiling,
+      reservedInputTokens: params.inputTokenCounter
+        ? params.inputTokenCounter({
+            model,
+            messages: history,
+            system: systemPrompt,
+            tools: toToolSchemas(activationState.tools),
+            maxTokens: outputCeiling,
+            ...(modelMetadata ? { modelMetadata } : {}),
+          })
+        : requestInputTokenEstimate(history, systemPrompt, toToolSchemas(activationState.tools))
+            .tokens,
+    });
+    const retained = await toolCtx.skillContinuity.guidance({
+      budget,
+      turnId: activationState.turnId,
+      resolveRevision: async (name) => {
+        if (toolCtx.skillRuntime) return (await toolCtx.skillRuntime.inspect(name)).skill.revision;
+        const skill = getSkillRegistry(toolCtx).byName.get(name);
+        return skill ? (await reloadSkill(skill)).revision : undefined;
+      },
+    });
+    // Expanded args, references and command output keep their original user /
+    // tool-result authority. Never promote them into a system instruction.
+    retainedSkillGuidance = retained.text;
+  };
+
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal?.aborted) {
       recordTrace({
@@ -580,6 +682,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           (modelMetadata.id !== model || modelMetadata.provider !== provider.name)
         )
           throw new ContextManagementError('model metadata does not match selected model/provider');
+        await attachSkillGuidance();
         let inputAccounting: RequestInputTokenEstimate | undefined;
         if (effectiveModelLimits) {
           const inputBound = () => {
@@ -587,7 +690,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
               ? {
                   tokens: params.inputTokenCounter({
                     model,
-                    messages: history,
+                    messages: requestHistory(),
                     system: systemPrompt,
                     tools: toToolSchemas(activationState.tools),
                     maxTokens,
@@ -597,7 +700,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
                   uncountedImages: 0,
                 }
               : requestInputTokenEstimate(
-                  history,
+                  requestHistory(),
                   systemPrompt,
                   toToolSchemas(activationState.tools),
                 );
@@ -610,6 +713,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
             contextLimits
           ) {
             yield await manageContext('budget');
+            await attachSkillGuidance();
             inputTokens = inputBound();
           }
           // maxTokens is a ceiling, not a promise to consume that many tokens.
@@ -623,7 +727,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           maxTokens = Math.min(outputCeiling, remaining);
           assertRequestFits(inputTokens, maxTokens, effectiveModelLimits);
         }
-        request.messages = history;
+        request.messages = requestHistory();
         request.system = systemPrompt;
         request.maxTokens = maxTokens;
         validateModelRequest(request, provider.name, modelMetadata);
