@@ -1,16 +1,5 @@
-// importSkill tests (Feature A2). The `import` verb is distinct from
-// `install`: it rewrites a Claude Code SKILL.md's frontmatter into the
-// harness-native canonical shape on write, rather than copying it
-// byte-faithfully. The contract this pins:
-//   - a CC SKILL.md (hyphenated `allowed-tools`, comma-string form) lands
-//     with a canonical `allowedTools:` list and no `allowed-tools:` key;
-//   - `converted` records the rewrite; `warnings` records ignored CC keys
-//     (model/license/argument-hint) and `:`-glob Bash patterns;
-//   - bundled reference files (references/, scripts/) are copied;
-//   - import refuses a skill that fails the loader schema (e.g. no description);
-//   - whenToUse is synthesized from description when absent, so the imported
-//     skill loads cleanly without the validateWhenToUse warning;
-//   - the imported skill loads back through the real loader.
+// Portable import preserves metadata and policy meaning; unsupported execution
+// controls remain visible and are refused at activation.
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -36,7 +25,7 @@ afterEach(async () => {
 });
 
 describe('importSkill', () => {
-  test('rewrites a CC SKILL.md to canonical allowedTools and drops allowed-tools', async () => {
+  test('preserves portable tool policy and unsupported model requests', async () => {
     const dir = join(sourceDir, 'cc-pkg');
     await mkdir(dir, { recursive: true });
     await writeFile(
@@ -59,11 +48,10 @@ Body of the CC skill.
     expect(result.installedAt).toBe(join(userSkills, 'cc-skill'));
 
     const written = await readFile(join(userSkills, 'cc-skill', 'SKILL.md'), 'utf8');
-    expect(written).toContain('allowedTools:');
-    expect(written).not.toContain('allowed-tools:');
-    // The model key is a CC-only field with no harness equivalent — it must
-    // not survive into the canonical frontmatter.
-    expect(written).not.toContain('model:');
+    expect(written).toContain('allowed-tools:');
+    expect(written).toContain('allowed-tools:');
+    // Preserve unsupported model controls so activation cannot silently ignore them.
+    expect(written).toContain('model:');
 
     // converted records the allowed-tools rewrite; warnings records the
     // ignored `model` key.
@@ -147,8 +135,9 @@ Body.
     });
     const loaded = registry.byName.get('no-when');
     expect(loaded).toBeDefined();
-    expect(loaded?.allowedTools).toEqual(['Read']);
-    expect(warnings.some((w) => w.includes('no-when'))).toBe(false);
+    expect(loaded?.allowedTools).toEqual([]);
+    expect(loaded?.descriptor?.toolPolicy.preapprovedTools).toEqual(['Read']);
+    expect(warnings.some((w) => w.includes('no-when') && w.includes('preamble'))).toBe(false);
   });
 
   test('warns on a Bash(...) pattern carrying a CC :-glob but keeps it verbatim', async () => {
@@ -194,7 +183,7 @@ Body.
     expect(result.ok).toBe(true);
     expect(existsSync(join(userSkills, 'file-src', 'SKILL.md'))).toBe(true);
     const written = await readFile(join(userSkills, 'file-src', 'SKILL.md'), 'utf8');
-    expect(written).toContain('allowedTools:');
+    expect(written).toContain('allowed-tools:');
   });
 
   test('refuses to overwrite an existing skill without force', async () => {
@@ -246,9 +235,9 @@ Body.
     if (!result.ok) throw new Error('expected import to succeed');
 
     const written = await readFile(join(userSkills, 'both-keys', 'SKILL.md'), 'utf8');
-    expect(written).not.toContain('allowed-tools:');
-    // The hyphenated value must NOT have leaked into the canonical output.
-    expect(written).not.toContain('rm -rf');
+    expect(written).toContain('allowed-tools:');
+    // Preserve the separate portable request without granting host authority.
+    expect(written).toContain('rm -rf');
 
     // Load back through the real loader: the native list survived intact.
     const registry = await loadSkills({
@@ -291,7 +280,7 @@ Body.
     const loaded = registry.byName.get('plain-desc');
     expect(loaded).toBeDefined();
     // No validateWhenToUse warning for this skill.
-    expect(warnings.some((w) => w.includes('plain-desc'))).toBe(false);
+    expect(warnings.some((w) => w.includes('plain-desc') && w.includes('preamble'))).toBe(false);
   });
 
   test('refuses a source tree containing an out-of-tree symlink', async () => {

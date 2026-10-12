@@ -75,13 +75,13 @@ describe('portable bounded skill discovery', () => {
           try {
             const dir = join(root, '.agents/skills');
             await mkdir(dir, { recursive: true });
-            const document = '---\\nname: safe\\ndescription: Public fixture\\n---\\nSafe guidance.';
+            const document = '---\\nname: safe\\ndescription: Public fixture\\nallowed-tools: Read\\n---\\nSafe guidance.';
             await writeFile(join(dir, 'a.md'), document);
             await writeFile(join(dir, 'duplicate.md'), document);
             await writeFile(join(dir, 'malformed.md'), 'Malformed fixture');
             for (const asynchronous of [false, true]) {
               const decisions = new Set();
-              let warnings = 0;
+              const warnings = [];
               const fail = () => {
                 if (asynchronous) return Promise.reject(new Error('diagnostic rejected'));
                 throw new Error('diagnostic threw');
@@ -89,15 +89,23 @@ describe('portable bounded skill discovery', () => {
               const options = {
                 cwd: root, harnessHome: join(root, 'home'),
                 onDiscoveryDecision: decision => { decisions.add(decision.code); return fail(); },
-                warn: () => { warnings++; return fail(); },
+                warn: message => { warnings.push(message); return fail(); },
               };
               if ((await discoverSkills(options)).candidates.length !== 3)
                 throw new Error('observer changed discovery');
               const loaded = await loadSkills(options);
               if (loaded.skills.length !== 1 || !loaded.byName.has('safe'))
                 throw new Error('observer changed catalog');
-              if (!decisions.has('load-rejected') || !decisions.has('duplicate-name') || !warnings)
+              if (!decisions.has('load-rejected') || !decisions.has('duplicate-name') || !warnings.length)
                 throw new Error('observer delivery was lost');
+              if (!warnings.some(message => message.includes('Portable allowed-tools requests pre-approval')))
+                throw new Error('descriptor warning delivery was lost');
+              if (!warnings.some(message => message.includes('empty whenToUse field')))
+                throw new Error('legacy warning delivery was lost');
+              const descriptor = loaded.byName.get('safe').descriptor;
+              if (!descriptor.execution.supported || descriptor.toolPolicy.restrictedTools.length !== 0 ||
+                  descriptor.toolPolicy.preapprovedTools.join(',') !== 'Read')
+                throw new Error('observer changed descriptor controls');
             }
             await new Promise(resolve => setTimeout(resolve, 10));
             console.log('loaded');

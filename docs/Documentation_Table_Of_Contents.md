@@ -51,6 +51,7 @@ The command surface and day-to-day operation.
 
 Recipes for adding extension points.
 
+- [Skill compatibility](04-extending/skill-compatibility.md) — portable descriptors, invocation controls, tool-policy distinctions and explicit unsupported behavior.
 - [Extending the harness](04-extending/extending.md) — adding tools, providers, slash commands, skills, hooks, MCP servers, agents, permission rules, workflows, semantic tests, and trajectory redaction.
 - [Explicit skill storage](04-extending/skill-storage.md) — writable store selection, tree revisions, conditional commits, pagination, recoverable transactions and committed events.
 - [Routing an agent](04-extending/routing-an-agent.md) — generic OpenAI-compatible router lane, headers and route callbacks.

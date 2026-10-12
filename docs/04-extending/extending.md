@@ -151,7 +151,7 @@ A skill's native `allowedTools` narrows the current turn's tool pool and input-p
 
 ### Importing Claude Code skills
 
-`importSkill()` (`packages/sdk/src/skills/install.ts`) ports a Claude Code `SKILL.md` onto the harness-native canonical shape, distinct from `installSkill()` (which copies byte-faithfully). It parses with the real YAML parser, normalizes the frontmatter — aliases `allowed-tools` → `allowedTools` (splitting a comma-string into a list), synthesizes `whenToUse` from `description` when absent, drops Claude-Code-only keys (`model`/`license`/`argument-hint`) — validates the result against the exported `SkillFrontmatterSchema` (fail loud), copies the source tree, then overwrites the target `SKILL.md` with canonical content. The loader also accepts the hyphenated `allowed-tools` key directly (via a `z.preprocess` in front of the schema), so a Claude Code skill loads natively even without import. Claude Code `:`-globs (`Bash(git status:*)`) are **not** auto-translated (lossy) — the importer warns and leaves them verbatim.
+`importSkill()` preserves portable frontmatter and vendor extensions. Its shared normalization parses comma or whitespace `allowed-tools` lists without translating pre-approval requests into native `allowedTools` restrictions. Host permissions still govern every tool call. `disable-model-invocation` hides and blocks model activation; `user-invocable: false` hides and blocks user commands. Unsupported fork, model, agent and hook controls produce actionable diagnostics and cannot activate silently. See `docs/04-extending/skill-compatibility.md` for the versioned descriptor and argument adapters.
 
 ### Trigger-rigor convention for `whenToUse`
 

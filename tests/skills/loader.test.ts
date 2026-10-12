@@ -305,7 +305,10 @@ Body
 `,
       );
       const registry = await loadSkills({ cwd, harnessHome });
-      expect(registry.byName.get('cc-list')?.allowedTools).toEqual(['Read', 'Grep']);
+      expect(registry.byName.get('cc-list')?.descriptor?.toolPolicy.preapprovedTools).toEqual([
+        'Read',
+        'Grep',
+      ]);
     });
   });
 
@@ -327,7 +330,7 @@ Body
 `,
       );
       const registry = await loadSkills({ cwd, harnessHome });
-      expect(registry.byName.get('cc-string')?.allowedTools).toEqual([
+      expect(registry.byName.get('cc-string')?.descriptor?.toolPolicy.preapprovedTools).toEqual([
         'Read',
         'Bash(git status:*)',
       ]);
