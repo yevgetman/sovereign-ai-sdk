@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open, realpath, stat } from 'node:fs/promises';
+import { normalize } from 'node:path';
 import type { ToolContext } from '../tool/types.js';
 import {
   type SkillActivationEnvelope,
@@ -253,7 +254,8 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
         const entry = storeOnly ? await options.store?.read(name) : undefined;
         if (storeOnly && !entry) throw new Error(`skill '${name}' no longer exists`);
         const skill = entry ? skillFromEntry(entry, classification) : await resolveCurrent(cached);
-        if (!path || path === 'SKILL.md') return { skill, path: 'SKILL.md', content: skill.body };
+        if (!path || normalize(path) === 'SKILL.md')
+          return { skill, path: 'SKILL.md', content: skill.body };
         assertSkillStoreResource(path);
         let content: string;
         let resourceIdentity = createHash('sha256')
@@ -272,6 +274,7 @@ export function createSkillRuntime(options: SkillRuntimeOptions): SkillRuntime {
             path,
             await options.allowedResourceRoots?.(skill),
           );
+          if (target === skill.realpath) return { skill, path: 'SKILL.md', content: skill.body };
           resourceIdentity = createHash('sha256').update(target).digest('hex');
           content = await readBoundedResource(
             skill,

@@ -465,3 +465,15 @@ export {
   skillCatalogGeneration,
 } from './skills/catalog.js';
 export type { SkillCatalogEntry, SkillCatalogPage } from './skills/catalog.js';
+
+export { createSkillContinuity, InMemorySkillContinuityStore } from './skills/continuity.js';
+export type {
+  SkillContinuityScope,
+  SkillGuidanceLifetime,
+  SkillActivationOutcome,
+  SkillContinuityRecord,
+  SkillContinuityDiagnostic,
+  SkillContinuityStore,
+  SkillContinuityPort,
+  SkillContinuityOptions,
+} from './skills/continuity.js';

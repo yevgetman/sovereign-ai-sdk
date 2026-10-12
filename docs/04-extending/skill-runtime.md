@@ -87,7 +87,8 @@ Managed links outside the project need explicit approved roots.
 `discover()` and `refresh()` atomically replace that generation. A failed refresh
 keeps the last successful catalog.
 
-`inspect(name, path?)` returns inert body or reference text. It does not expand
+`inspect(name, path?)` returns inert body or reference text. References include an
+opaque `resourceIdentity`; main-body inspection and its canonical aliases do not. It does not expand
 arguments, variables or inline shell commands. Store references remain inside
 the supplied store. Memory resources are not copied to an implicit disk path.
 Store-only loading checks every sidecar with the shared text guard. It applies
@@ -190,6 +191,8 @@ must provide their resolver and an empty resource-root list if they have no
 filesystem namespace. Store-only catalogs already supply these ports.
 
 ## Read next
+
+- `docs/04-extending/skill-continuity.md` — optional private lifecycle and bounded guidance retention.
 
 - `docs/04-extending/skill-activation.md` — permissions and activation identity.
 - `docs/04-extending/skill-storage.md` — tree revisions and committed writes.

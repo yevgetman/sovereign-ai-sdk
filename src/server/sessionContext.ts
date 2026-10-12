@@ -27,6 +27,7 @@ import type { RecallTurn, Terminal } from '@yevgetman/sov-sdk/core/types';
 import { type MemoryManager, createDefaultMemoryManager } from '@yevgetman/sov-sdk/memory/provider';
 import { type ProjectScope, resolveProjectScope } from '@yevgetman/sov-sdk/memory/scope';
 import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
+import type { SkillContinuityPort } from '@yevgetman/sov-sdk/skills/continuity';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { TraceWriter } from '@yevgetman/sov-sdk/trace/writer';
 import { tryWriteTrajectory } from '@yevgetman/sov-sdk/trajectory/writer';
@@ -34,6 +35,7 @@ import { LearningObserver } from '../learning/observer.js';
 import { instinctsDir } from '../learning/paths.js';
 import { getProjectId } from '../learning/project.js';
 import { ReviewManager } from '../review/manager.js';
+import { buildSovSkillContinuity } from '../skills/continuity.js';
 import type { ServerEventBus } from './eventBus.js';
 import { resolveSubagentArtifactsRoot } from './runtime.js';
 import type { Runtime } from './runtime.js';
@@ -60,6 +62,8 @@ export type TrajectoryMetadata = {
  *  disabled in user settings. */
 export type SessionContext = {
   sessionId: string;
+  /** Private guidance only. Turn permission grants live on fresh ToolContexts. */
+  skillContinuity?: SkillContinuityPort;
   /** Last frozen turn budget; local to this session, including model overrides. */
   modelBudget?: { provider: string; model: string; contextTokens: number };
   traceWriter: TraceWriter;
@@ -358,7 +362,8 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
   // (observer opts, recall context, sub-agent parentToolContext), never a field
   // on the shared runtime/learningLayer singleton, since the runtime is shared
   // across users.
-  const ownerId = runtime.sessionDb.getSession(sessionId)?.ownerId ?? null;
+  const persistedSession = runtime.sessionDb.getSession(sessionId);
+  const ownerId = persistedSession?.ownerId ?? null;
   const userId = ownerId ?? undefined;
 
   // M7 T5 — per-session learning observer.
@@ -523,8 +528,26 @@ export function buildSessionContext(opts: BuildSessionContextOpts): SessionConte
   // id, and the founder-reserved fallbacks.
   const recall = buildSessionRecallThunk(runtime, userSettings.learning, userId);
 
+  const skillContinuity =
+    persistedSession === null
+      ? undefined
+      : buildSovSkillContinuity({
+          db: runtime.sessionDb,
+          harnessHome: runtime.harnessHome,
+          sessionId,
+          observe: (event) => {
+            traceWriter.record({
+              type: 'external',
+              source: 'skill-continuity',
+              payload: event,
+              iso: new Date().toISOString(),
+            });
+          },
+        });
+
   return {
     sessionId,
+    ...(skillContinuity !== undefined ? { skillContinuity } : {}),
     traceWriter,
     trajectoryMetadata: {
       toolCallCount: 0,

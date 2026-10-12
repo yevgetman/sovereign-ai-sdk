@@ -4,7 +4,7 @@ import { getSkillRegistry } from '../skills/registry.js';
 
 import { constants } from 'node:fs';
 import { open, realpath, stat } from 'node:fs/promises';
-import { dirname, relative } from 'node:path';
+import { dirname, normalize, relative } from 'node:path';
 import { z } from 'zod';
 import { resolveSkillResource } from '../skills/activation.js';
 import { assertSkillFileIdentity, captureSkillFileIdentity } from '../skills/fileIdentity.js';
@@ -52,6 +52,15 @@ export const SkillsViewTool = buildTool<Input, Output>({
     if (ctx.skillRuntime) {
       const inspected = await ctx.skillRuntime.inspect(skill.name, input.path);
       assertCurrentSkillVisible(inspected.skill, input.name, ctx);
+      if (ctx.skillContinuity && ctx.skillContinuity.scope.session !== ctx.sessionId)
+        throw new Error('skill continuity scope does not match the current session');
+      if (inspected.resourceIdentity !== undefined)
+        await ctx.skillContinuity?.resource(
+          inspected.skill.name,
+          inspected.content,
+          normalize(input.path ?? inspected.path),
+          inspected.resourceIdentity,
+        );
       return {
         data: { skill: inspected.skill.name, path: inspected.path, content: inspected.content },
         observation: {
@@ -79,6 +88,10 @@ export const SkillsViewTool = buildTool<Input, Output>({
 
     const target = await resolveSkillResource(current, input.path);
     const content = await readBoundedReference(current, input.path, target);
+    if (ctx.skillContinuity && ctx.skillContinuity.scope.session !== ctx.sessionId)
+      throw new Error('skill continuity scope does not match the current session');
+    if (target !== current.realpath)
+      await ctx.skillContinuity?.resource(current.name, content, normalize(input.path), target);
     return {
       data: {
         skill: current.name,

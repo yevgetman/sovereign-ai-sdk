@@ -99,6 +99,29 @@ export function buildSessionToolContext(
     skillRegistryManager: runtime.skillRegistryManager,
     skillRuntime: runtime.skillRuntime,
     canUseTool: sessionCanUseTool,
+    ...(sessionCtx.skillContinuity !== undefined
+      ? {
+          skillContinuity: sessionCtx.skillContinuity,
+          forkSkillContinuity: async (childSessionId: string, parentSessionId = sessionId) => {
+            const origin = runtime.sessionDb.getSession(sessionId);
+            const parent = runtime.sessionDb.getSession(parentSessionId);
+            const child = runtime.sessionDb.getSession(childSessionId);
+            if (
+              origin === null ||
+              parent === null ||
+              parent.ownerId !== origin.ownerId ||
+              child === null ||
+              child.parentSessionId !== parentSessionId ||
+              child.ownerId !== parent.ownerId
+            ) {
+              throw new Error('skill continuity child unavailable');
+            }
+            const continuity = runtime.getSessionContext(childSessionId).skillContinuity;
+            if (continuity !== undefined) await continuity.importRecords([], 'delegation');
+            return continuity;
+          },
+        }
+      : {}),
     // M8 T3 — per-session subdirectory-hint dedup state (passed by reference so
     // the dedup Set persists across the session's turn loop).
     subdirectoryHintState: sessionCtx.subdirectoryHintState,

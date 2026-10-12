@@ -55,6 +55,7 @@ Recipes for adding extension points.
 - [Skill catalogs and model context budgets](04-extending/skill-catalog.md) — complete paging, bounded metadata indexes, lazy discovery and measured selection.
 - [Extending the harness](04-extending/extending.md) — adding tools, providers, slash commands, skills, hooks, MCP servers, agents, permission rules, workflows, semantic tests, and trajectory redaction.
 - [Explicit skill storage](04-extending/skill-storage.md) — writable store selection, tree revisions, conditional commits, pagination, recoverable transactions and committed events.
+- [Skill continuity](04-extending/skill-continuity.md) — pinned guidance, explicit lifetimes, private session lineage and model-budgeted reattachment.
 - [Composed SDK skill runtime](04-extending/skill-runtime.md) — optional direct SDK and programmatic SOV composition, explicit stores, profiles, permissions and events.
 - [Routing an agent](04-extending/routing-an-agent.md) — generic OpenAI-compatible router lane, headers and route callbacks.
 - [Metering an agent](04-extending/metering-an-agent.md) — the three token-usage read surfaces (per-run `RunResult`, per-span `traceRecorder`, per-turn gateway wire), the disjoint-phase cost invariant, `reasoningTokens`, and the public accumulator + pricing primitives (`PRICING_VERSION`).
@@ -88,6 +89,7 @@ The semantic-test framework and the running log.
 
 - [Semantic testing](06-testing/semantic-testing.md) — judge backends, suites, the coverage inventory, and how test categories map to bug classes.
 - [Live-session diagnostics](06-testing/live-session-diagnostics.md) — read-only monitoring, model/tool timing, failed child receipts and legacy trace interpretation.
+- [Skills hardening review](06-testing/skill-hardening-review-2026-10-11.md) — confirmed findings, corrections and evidence limits for issues #44–#51.
 - [Testing log](06-testing/testing-log.md) — the append-only, newest-first record of every test run, finding, and design-error postmortem.
 
 ## 07 — History

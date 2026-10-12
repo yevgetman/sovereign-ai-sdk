@@ -50,11 +50,22 @@ export function getDefaultDbPath(): string {
  *  back-compat shim for tests that reference it directly. */
 export const DEFAULT_DB_PATH = join(resolveHarnessHome(), 'sessions.db');
 
-const CURRENT_SCHEMA_VERSION = 6;
+const CURRENT_SCHEMA_VERSION = 7;
 
 type Migration = { from: number; to: number; sql: string };
 
 const MIGRATIONS: Migration[] = [
+  {
+    from: 6,
+    to: 7,
+    sql: `CREATE TABLE skill_continuity (
+      profile TEXT NOT NULL,
+      owner TEXT NOT NULL,
+      session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+      records TEXT NOT NULL CHECK (length(CAST(records AS BLOB)) <= 524288),
+      PRIMARY KEY (profile, owner, session_id)
+    );`,
+  },
   {
     from: 5,
     to: 6,
@@ -509,30 +520,95 @@ export class SessionDb implements SessionStore {
     const systemPromptJson =
       input.systemPrompt !== undefined ? JSON.stringify(input.systemPrompt) : null;
     const metadataJson = JSON.stringify(input.metadata ?? {});
-    this.writeWithRetry(() => {
-      this.db.run(
-        `INSERT INTO sessions (
+    this.writeWithRetry(() =>
+      this.db.transaction(() => {
+        this.db.run(
+          `INSERT INTO sessions (
           session_id, parent_session_id, model, provider, platform,
           created_at, last_updated, title, system_prompt,
           schema_version, metadata, owner_id
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          sessionId,
-          input.parentSessionId ?? null,
-          input.model,
-          input.provider,
-          input.platform ?? 'cli',
-          now,
-          now,
-          input.title ?? null,
-          systemPromptJson,
-          CURRENT_SCHEMA_VERSION,
-          metadataJson,
-          input.owner ?? null,
-        ],
-      );
-    });
+          [
+            sessionId,
+            input.parentSessionId ?? null,
+            input.model,
+            input.provider,
+            input.platform ?? 'cli',
+            now,
+            now,
+            input.title ?? null,
+            systemPromptJson,
+            CURRENT_SCHEMA_VERSION,
+            metadataJson,
+            input.owner ?? null,
+          ],
+        );
+        // Freeze private guidance with the child's creation, before a parent
+        // activation can change. Turn lifetimes and tool authority do not transfer.
+        if (input.parentSessionId !== undefined) {
+          const parent = this.getSession(input.parentSessionId);
+          if (parent !== null && parent.ownerId === (input.owner ?? null)) {
+            const snapshots = this.db
+              .query<{ profile: string; owner: string; records: string }, [string]>(
+                'SELECT profile, owner, records FROM skill_continuity WHERE session_id = ?',
+              )
+              .all(parent.sessionId);
+            for (const snapshot of snapshots) {
+              if (snapshot.owner !== skillContinuityOwnerKey(parent.ownerId)) continue;
+              const inherited = nonTurnSkillContinuitySnapshot(snapshot.records);
+              this.db.run(
+                'INSERT INTO skill_continuity (profile, owner, session_id, records) VALUES (?, ?, ?, ?)',
+                [snapshot.profile, snapshot.owner, sessionId, inherited],
+              );
+            }
+          }
+        }
+      })(),
+    );
     return sessionId;
+  }
+
+  /** Private bounded workflow state, deliberately absent from Session.metadata,
+   *  public session projections and transcript search. Ownership comes from the
+   *  persisted row and is checked again at every read/write boundary. */
+  loadSkillContinuity(profile: string, owner: string, sessionId: string): string | null {
+    if (profile.length === 0 || profile.length > 512)
+      throw new Error('invalid skill continuity scope');
+    this.assertSkillContinuityOwner(owner, sessionId);
+    return (
+      this.db
+        .query<{ records: string }, [string, string, string]>(
+          'SELECT records FROM skill_continuity WHERE profile = ? AND owner = ? AND session_id = ?',
+        )
+        .get(profile, owner, sessionId)?.records ?? null
+    );
+  }
+
+  saveSkillContinuity(profile: string, owner: string, sessionId: string, records: string): void {
+    if (
+      profile.length === 0 ||
+      profile.length > 512 ||
+      Buffer.byteLength(records, 'utf8') > 524288
+    ) {
+      throw new Error('invalid skill continuity snapshot');
+    }
+    this.writeWithRetry(() =>
+      this.db.transaction(() => {
+        this.assertSkillContinuityOwner(owner, sessionId);
+        this.db.run(
+          `INSERT INTO skill_continuity (profile, owner, session_id, records) VALUES (?, ?, ?, ?)
+        ON CONFLICT(profile, owner, session_id) DO UPDATE SET records = excluded.records`,
+          [profile, owner, sessionId, records],
+        );
+      })(),
+    );
+  }
+
+  private assertSkillContinuityOwner(owner: string, sessionId: string): void {
+    const session = this.getSession(sessionId);
+    if (session === null || skillContinuityOwnerKey(session.ownerId) !== owner) {
+      throw new Error('skill continuity session unavailable');
+    }
   }
 
   /** Phase 18 T8 — idempotent session creation. Returns the row's
@@ -1000,6 +1076,28 @@ export class SessionDb implements SessionStore {
     }
     throw new Error('unreachable');
   }
+}
+
+function nonTurnSkillContinuitySnapshot(serialized: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch {
+    throw new Error('invalid skill continuity snapshot');
+  }
+  if (
+    Buffer.byteLength(serialized, 'utf8') > 524288 ||
+    !Array.isArray(parsed) ||
+    parsed.length > 1024
+  ) {
+    throw new Error('invalid skill continuity snapshot');
+  }
+  return JSON.stringify(parsed.filter((record) => record && record.lifetime !== 'turn'));
+}
+
+/** Distinct local/user namespaces, even when a user's ID is literally "local". */
+export function skillContinuityOwnerKey(ownerId: string | null): string {
+  return ownerId === null ? 'local' : `user:${ownerId}`;
 }
 
 // ------------------------------------------------------------------
