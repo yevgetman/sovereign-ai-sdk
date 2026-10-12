@@ -27,8 +27,8 @@ const MAX_SOURCE_BUNDLE_WALK_DEPTH = 16;
  *  in a healthy install (the shipped bundle is committed to the repo)
  *  but we still treat the absence as a soft failure rather than a hard
  *  crash. The caller falls back to bundleless behavior in that case. */
-export function getDefaultBundlePath(): string | null {
-  const override = userOverridePath();
+export function getDefaultBundlePath(opts: { harnessHome?: string } = {}): string | null {
+  const override = userOverridePath(opts.harnessHome);
   if (existsSync(join(override, 'index.yaml'))) return override;
   const shipped = shippedBundlePath();
   if (shipped !== null && existsSync(join(shipped, 'index.yaml'))) return shipped;
@@ -38,8 +38,8 @@ export function getDefaultBundlePath(): string | null {
 /** `<harness-home>/default-bundle/`. Resolved at call time so the
  *  Phase 10.7 profile system (which scopes harness-home) lands the
  *  override under the right root. */
-export function userOverridePath(): string {
-  return join(resolveHarnessHome(), 'default-bundle');
+export function userOverridePath(harnessHome?: string): string {
+  return join(harnessHome ?? resolveHarnessHome(), 'default-bundle');
 }
 
 /** `<runtime-repo>/bundle-default/` (source mode) OR

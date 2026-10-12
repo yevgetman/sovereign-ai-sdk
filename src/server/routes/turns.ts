@@ -481,6 +481,11 @@ async function runTurnInBackground(
   try {
     let skillActivation: SkillActivationEnvelope | undefined;
     if (skillInvocation) {
+      // Keep policy evidence separate from the private continuity lifetime.
+      const activationTurnId = runtime.attestationEvidence?.beginTurn(sessionId, {
+        surface: 'user',
+        model: perTurnModel ?? runtime.model,
+      });
       try {
         const skill = resolveSkillInvocation(runtime, skillInvocation.name, skillInvocation.source);
         if (!skill) throw new Error(`unknown skill: ${skillInvocation.name}`);
@@ -496,6 +501,7 @@ async function runTurnInBackground(
               model: perTurnModel ?? runtime.model,
               providerName: runtime.resolvedProvider.transport.name,
               cwd: runtime.cwd,
+              ...(activationTurnId !== undefined ? { turnId: activationTurnId } : {}),
             },
             hostGate,
           ) ?? hostGate;
@@ -527,6 +533,9 @@ async function runTurnInBackground(
       } catch (error) {
         bus.clearCurrentTurnAbort();
         throw error;
+      } finally {
+        // Expansion has no delivered provider response, including rejection.
+        if (activationTurnId !== undefined) runtime.attestationEvidence?.endTurn(activationTurnId);
       }
     }
     // Activated instructions, substituted arguments and command stdout are data.

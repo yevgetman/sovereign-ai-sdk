@@ -189,18 +189,35 @@ export function listSkillCatalog(
         },
       };
       const room = byteCap - withContinuation(overhead, index, nameOffset + 1) - 24;
-      const fragment = clipSkillText(skill.name.slice(nameOffset), Math.max(0, room));
+      let fragment = clipSkillText(skill.name.slice(nameOffset), Math.max(0, room));
+      let nextNameOffset = nameOffset;
+      let complete = false;
+      while (fragment.text) {
+        nextNameOffset = nameOffset + fragment.text.length;
+        complete = nextNameOffset === skill.name.length;
+        listed = {
+          ...overhead,
+          name: fragment.text,
+          nameFragment: {
+            offset: nameOffset,
+            complete,
+            totalBytes: skillTextTokenBound(skill.name),
+          },
+        };
+        // Opaque host identities can expand when JSON escapes quotes,
+        // controls or lone surrogates. Bound the entire issued page/cursor,
+        // rather than assuming the raw name bytes equal serialized bytes.
+        if (
+          withContinuation(listed, complete ? index + 1 : index, complete ? 0 : nextNameOffset) <=
+          byteCap
+        )
+          break;
+        fragment = clipSkillText(fragment.text, Math.floor(skillTextTokenBound(fragment.text) / 2));
+      }
       if (!fragment.text) {
         page.budgetExhausted = true;
         break;
       }
-      const nextNameOffset = nameOffset + fragment.text.length;
-      const complete = nextNameOffset === skill.name.length;
-      listed = {
-        ...overhead,
-        name: fragment.text,
-        nameFragment: { offset: nameOffset, complete, totalBytes: skillTextTokenBound(skill.name) },
-      };
       page.skills.push(listed);
       if (complete) {
         index++;
