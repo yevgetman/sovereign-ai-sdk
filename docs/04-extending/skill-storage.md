@@ -100,8 +100,10 @@ complete revision. Replaced leaves, changed modes and resources added during
 capture cause rollback without a receipt. A changed uncommitted stage rolls back without an event.
 Recovery leaves an unrelated replacement directory and the backup for inspection.
 
-Destination directories and resources cannot be symlinks. Resource names reject
-absolute paths, parent segments and platform separators. A short-lived Node/Bun
+Destination directories and resources cannot be symlinks. Portable resource names reject
+absolute paths, parent segments, platform separators and colons. Colons can select
+another Windows drive or an NTFS alternate stream, so ordinary POSIX filenames
+that contain colons are also refused by both adapters. A short-lived Node/Bun
 worker pins the chosen root with its kernel working directory and checks directory
 identity before effects and publication. Replacing a root pathname with a link
 cannot redirect the worker's writes. Store-internal state is private (0700).
@@ -113,6 +115,11 @@ outside or dangling links and directory cycles. Capture checks canonical ancesto
 identities and compares the opened file with the current pathname after reading.
 An ancestor swapped away and restored during capture is refused. Installed aliases
 become ordinary files, so source locations are not retained as destination links.
+Source capture rechecks all captured files, directories and aliases after traversal.
+Install and import parse and normalize the SKILL.md from that same captured tree;
+they do not mix an earlier metadata read with later sidecars. Single-file capture
+also checks that the selected file's identity, bytes metadata and modes remain
+unchanged across its read. A changed source refuses publication and emits no event.
 
 File data and modes, nested directories, new root ancestors and transaction
 records are synced before publication. POSIX directory syncs preserve ordering.

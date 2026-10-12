@@ -153,6 +153,11 @@ export type QueryParams = {
   /** Permission decider invoked before every tool dispatch. When omitted,
    * tools run without gating (Phase 2 default; tests and bypass-mode REPL). */
   canUseTool?: import('../permissions/types.js').CanUseTool;
+  /** @internal Capture live restrictions for retries within one logical run.
+   * Host permission callbacks and approvals are excluded. */
+  onSkillRestrictionState?: (
+    state: import('../skills/activation.js').SkillRestrictionState,
+  ) => void;
   /** Provider prompt-cache markers. Defaults to enabled; --no-cache disables. */
   cacheEnabled?: boolean;
   /** Optional bounded-memory manager; injects a fenced snapshot once per user turn. */
