@@ -160,12 +160,25 @@ async function projectAncestors(
     throw new Error('skill projectRoot must contain cwd');
   }
   const ancestors: string[] = [];
+  const isBoundary = async (path: string): Promise<boolean> => {
+    try {
+      await lstat(path);
+      return true;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') return false;
+      // An inaccessible marker cannot establish that this is the same project.
+      // Stop at its directory rather than inherit an unrelated parent catalog.
+      emit({ code: 'unreadable', path, message: 'project boundary marker is unavailable' });
+      return true;
+    }
+  };
   let cursor = cwd;
   for (let depth = 0; depth < limits.maxAncestors; depth += 1) {
     ancestors.push(cursor);
     if (
-      (await exists(join(cursor, '.git'))) ||
-      (await exists(join(cursor, '.kernel', 'node.yml')))
+      (await isBoundary(join(cursor, '.git'))) ||
+      (await isBoundary(join(cursor, '.kernel', 'node.yml')))
     ) {
       return ancestors;
     }

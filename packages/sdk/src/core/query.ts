@@ -40,7 +40,7 @@ import { validateModelRequest } from '../providers/models/validateRequest.js';
 import { listRoutes } from '../providers/routes/catalog.js';
 import { validateRouteSelection } from '../providers/routes/validate.js';
 import type { ProviderRequest } from '../providers/types.js';
-import { createSkillActivationState } from '../skills/activation.js';
+import { createSkillActivationState, createSkillChildPermission } from '../skills/activation.js';
 import { intersectCanUseTool } from '../tool/capabilityProfiles.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
@@ -197,9 +197,27 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     params.canUseTool !== undefined || inheritedActivation?.hasHostPermission === true;
   if (toolCtx && skillsEnabled) {
     activationState.activations = toolCtx.skillActivation?.activations.slice() ?? [];
-    if (toolCtx.skillActivation)
+    if (toolCtx.skillActivation) {
       activationState.restrictionCanUseTool = toolCtx.skillActivation.restrictionCanUseTool;
+      // A fresh attempt retains the input floor with its fresh host callback.
+      // Delegated calls need this gate as well as the final dispatch check.
+      activationState.canUseTool = intersectCanUseTool(
+        activationState.canUseTool,
+        activationState.restrictionCanUseTool,
+      );
+    }
     toolCtx.skillActivation = activationState;
+    params.onSkillRestrictionState?.({
+      get tools() {
+        return activationState.tools;
+      },
+      get restrictionCanUseTool() {
+        return activationState.restrictionCanUseTool;
+      },
+      get activations() {
+        return activationState.activations;
+      },
+    });
   }
   // Resolve dynamically: serial calls after SkillTool in the same batch must
   // obey its new floor as well as continuation requests on the next iteration.
@@ -853,15 +871,11 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       );
     }
     if (skillsEnabled && canUseTool) {
-      turnCtx.canUseTool =
-        inheritedChildPermission && inheritedChildPermission !== params.canUseTool
-          ? async (tool, input, ctx) => {
-              const result = await canUseTool(tool, input, ctx);
-              return result.behavior === 'deny'
-                ? result
-                : inheritedChildPermission(tool, result.updatedInput ?? input, ctx);
-            }
-          : canUseTool;
+      turnCtx.canUseTool = createSkillChildPermission(
+        activationState,
+        inheritedChildPermission !== params.canUseTool ? inheritedChildPermission : undefined,
+        inheritedActivation,
+      );
     }
 
     if (params.persistBeforeTools && assistant) {
