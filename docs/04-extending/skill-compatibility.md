@@ -39,7 +39,9 @@ Bodies support `{{args}}`, `$ARGUMENTS`, zero-based `$ARGUMENTS[n]` and `$n`.
 Positional parsing handles quoted groups and backslash escapes as data. Arguments
 are inserted after dynamic context expansion, so a command-shaped argument cannot
 run during interpolation. If the body has no argument placeholder, nonempty
-arguments are appended as `User arguments`.
+arguments are appended as `User arguments`. Argument-like tokens inside an inline
+shell command do not suppress this fallback. Only supported placeholders in the
+original prose consume arguments; shell output remains literal data.
 
 `${CLAUDE_SKILL_DIR}` and `${SKILL_DIR}` alias `${HARNESS_SKILL_DIR}`.
 `${CLAUDE_SESSION_ID}` aliases `${HARNESS_SESSION_ID}`. `${CLAUDE_PLUGIN_ROOT}`
