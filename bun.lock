@@ -52,7 +52,7 @@
     },
     "packages/sdk": {
       "name": "@yevgetman/sov-sdk",
-      "version": "0.14.0",
+      "version": "0.15.0",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.110.0",
         "@modelcontextprotocol/sdk": "^1.32.1",

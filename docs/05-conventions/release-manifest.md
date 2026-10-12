@@ -21,11 +21,13 @@ release when the selected work also changes the wrapper. A library-only cut may
 retain the published CLI version. Protocol/debug-console versions remain unchanged
 unless explicitly selected work requires their own release preparation.
 
-Current targets are SDK **0.14.0** and CLI **0.6.77**. PR23 and the ten reviewed
-SDK/SOV PRs #34–#43 are included once each as their exact master merge commits,
-with `mainline: 1`. The SDK target is a minor release because numeric-only pricing
-callers must handle unknown cost. The manifest preserves dependency order. Source package stamps remain at the
-last release until cut preparation. The draft is planning, not an artifact or a pin.
+This cut targets SDK **0.15.0** and CLI **0.6.78**. Both previously queued
+documentation units and reviewed PR52–59 are included once, with each PR's exact
+master merge SHA and `mainline: 1`. Contained branch commits and review fixes are
+covered by their merge unit. Additive public SDK exports require a minor version.
+The list preserves dependency order. Version, lockfile and release documentation
+preparation is an explicit reviewed item. Immutable history records the published
+result; active records then name the next draft.
 
 ## Adding work
 

@@ -10,25 +10,20 @@ Runs on **Node ≥ 20.19** and **Bun ≥ 1.2**.
 
 ## Install
 
-SDK **0.14.0** is published as a tarball in [SOV v0.6.77](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.77), with `SDK-SHA256SUMS`. Download both assets, verify the checksum, then install the local tarball:
+SDK **0.15.0** is published as a tarball in [SOV v0.6.78](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.78), with `SDK-SHA256SUMS`. Download both assets, verify the checksum, then install the local tarball:
 
 ```sh
-curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/yevgetman-sov-sdk-0.14.0.tgz
-curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.77/SDK-SHA256SUMS
+curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.78/yevgetman-sov-sdk-0.15.0.tgz
+curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.78/SDK-SHA256SUMS
 shasum -a 256 -c SDK-SHA256SUMS
-npm install ./yevgetman-sov-sdk-0.14.0.tgz   # Node
+npm install ./yevgetman-sov-sdk-0.15.0.tgz   # Node
 # Or:
-bun add ./yevgetman-sov-sdk-0.14.0.tgz       # Bun
+bun add ./yevgetman-sov-sdk-0.15.0.tgz       # Bun
 ```
-
-**SDK 0.14.0 documentation correction:** the README inside the published
-0.14.0 tarball still shows the previous release's install example. Use the
-commands above. The package version and code are 0.14.0. Released bytes remain
-unchanged; the corrected README is queued for SDK 0.14.1.
 
 For repeatable builds, vendor the verified file and commit the dependency lockfile.
 This release does not establish npm-registry publication. Registry publication is a
-separate owner gate in [PUBLISHING.md](../../PUBLISHING.md). Installing the SOV binary
+separate owner gate in [PUBLISHING.md](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/PUBLISHING.md). Installing the SOV binary
 installs the application, not this library.
 
 Tool input/output schemas are [zod](https://www.npmjs.com/package/zod) schemas.
@@ -163,7 +158,7 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
   `buildSkillCommands`, `activateSkill`, and `createSkillActivationState`.
   Activation owns a turn-local tool scope and routes inline shell through
   the host permission callback. Inspection stays raw. See the
-  [activation contract](../../docs/04-extending/skill-activation.md).
+  [activation contract](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-activation.md).
   Discovery also supports bounded native/portable roots, managed links, explicit
   external link approval and structured diagnostics via `discoverSkills`.
   Filesystem discovery is optional; `createAgent` remains disk-free by default.
@@ -172,11 +167,11 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
   metadata and guidance allocations from frozen effective model limits, with a
   conservative unknown-window fallback. `loadSkills({ mode: 'metadata', ... })`
   defers full body/resource scans until inspection or activation. See
-  [skill catalogs](../../docs/04-extending/skill-catalog.md).
+  [skill catalogs](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-catalog.md).
   Optional `SkillWritableStore`, `InMemorySkillStore` and
   `FilesystemSkillStore` provide explicit validated mutations, full-tree revision
   checks, paginated enumeration and committed events. See
-  [skill storage](../../docs/04-extending/skill-storage.md). No writable store or
+  [skill storage](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-storage.md). No writable store or
   machine home is selected for an embedded context by default.
   `createSkillRegistryManager` accepts an injected async loader and publishes
   atomic generations through `snapshot`, `refresh` and `subscribe`.
@@ -187,7 +182,7 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
   inspection, permissioned activation, writable storage, refresh and events.
   Pass it as `createAgent({ skillRuntime })` or bind it to a host tool context.
   Store-only memory catalogs perform no filesystem operations. SOV uses the same
-  composition. See [direct SDK and SOV examples](../../docs/04-extending/skill-runtime.md).
+  composition. See [direct SDK and SOV examples](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-runtime.md).
 - **Persistence & ports** — `createInMemorySessionStore` / the `SessionStore`
   port, the `TranscriptStore` port (+ no-op impl), and the injected port types
   for memory, recall, and observation (`MemoryRuntime`, `RecallResult`,
@@ -522,12 +517,12 @@ still needs an authorized context reducer or fails before inference. A
 reasoning adapter that requires a larger minimum reservation still refuses an
 insufficient cap before contacting the provider.
 
-## Skills hardening review APIs
+## Skills runtime APIs
 
-The skills-hardening source branches add explicit discovery, transactional stores,
+SDK 0.15.0 adds explicit discovery, transactional stores,
 permissioned activation, live registries, composed runtimes, complete catalogs and
 optional `createSkillContinuity()` / `InMemorySkillContinuityStore` lifecycle ports.
-These additions are not yet in the public 0.14.0 tarball. Retained workflow text
+Retained workflow text
 uses current model budgets and never restores expired tool permissions. See
-[`skill-continuity.md`](../../docs/04-extending/skill-continuity.md) and the related
+[skill continuity](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-continuity.md) and the related
 composition recipes for host scope, privacy, outcomes and evaluation limits.
