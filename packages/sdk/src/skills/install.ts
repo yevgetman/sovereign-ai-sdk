@@ -23,7 +23,7 @@
 
 import { existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { z } from 'zod';
 import { normalizeSkillDescriptor } from './descriptor.js';
@@ -88,7 +88,7 @@ export async function installSkill(opts: InstallSkillOptions): Promise<InstallRe
     return {
       ok: true,
       name: validated.name,
-      installedAt: join(opts.userSkillsRoot, validated.name),
+      installedAt: committed.event.path ? dirname(committed.event.path) : `skill:${validated.name}`,
       revision: committed.revision,
       event: committed.event,
     };
@@ -193,7 +193,7 @@ export async function importSkill(opts: ImportSkillOptions): Promise<ImportResul
     return {
       ok: true,
       name,
-      installedAt: join(opts.userSkillsRoot, name),
+      installedAt: committed.event.path ? dirname(committed.event.path) : `skill:${name}`,
       revision: committed.revision,
       event: committed.event,
       converted: normalized.converted,
@@ -350,7 +350,12 @@ export async function uninstallSkill(opts: UninstallSkillOptions): Promise<Unins
       name,
       expectedRevision: opts.expectedRevision ?? previous.revision,
     });
-    return { ok: true, name, removedFrom: targetDir, event: result.event };
+    return {
+      ok: true,
+      name,
+      removedFrom: result.event.path ? dirname(result.event.path) : `skill:${name}`,
+      event: result.event,
+    };
   } catch (err) {
     return { ok: false, reason: `failed to remove ${targetDir}: ${errorMessage(err)}` };
   }

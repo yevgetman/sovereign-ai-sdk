@@ -49,6 +49,17 @@ export const SkillsViewTool = buildTool<Input, Output>({
       throw new Error(`unknown skill '${input.name}'. Available skills: ${available}`);
     }
 
+    if (ctx.skillRuntime) {
+      const inspected = await ctx.skillRuntime.inspect(skill.name, input.path);
+      assertCurrentSkillVisible(inspected.skill, input.name, ctx);
+      return {
+        data: { skill: inspected.skill.name, path: inspected.path, content: inspected.content },
+        observation: {
+          status: 'success',
+          summary: `viewed ${inspected.path} for ${inspected.skill.name}`,
+        },
+      };
+    }
     const current = await reloadSkill(skill);
     assertCurrentSkillVisible(current, input.name, ctx);
     if (!input.path) {

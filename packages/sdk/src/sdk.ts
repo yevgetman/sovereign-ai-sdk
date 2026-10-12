@@ -277,7 +277,7 @@ export type {
 } from './hooks/consent.js';
 
 // ── Skills / slash commands (skills/ + commands/) ───────────────────────────
-export { expandSkillPrompt, expandSkillText, loadSkills } from './skills/loader.js';
+export { expandSkillPrompt, expandSkillText, loadSkills, loadSkillText } from './skills/loader.js';
 // `SkillRoot` is LoadSkillsOptions.extraRoots' element type;
 // `SkillClassification` is SkillRoot.classify's return type (Task 2.9).
 export type { LoadSkillsOptions, SkillClassification, SkillRoot } from './skills/loader.js';
@@ -290,6 +290,14 @@ export type {
   SkillDiscoveryResult,
 } from './skills/discovery.js';
 export { buildSkillCommands } from './skills/commands.js';
+export { createSkillRuntime } from './skills/runtime.js';
+export type {
+  SkillRuntime,
+  SkillRuntimeOptions,
+  SkillRuntimeEvent,
+  SkillRuntimeInspection,
+  SkillRuntimeActivationOptions,
+} from './skills/runtime.js';
 export {
   activateSkill,
   createSkillActivationState,

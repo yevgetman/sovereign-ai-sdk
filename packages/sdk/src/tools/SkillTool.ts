@@ -45,22 +45,27 @@ export const SkillTool = buildTool<Input, Output>({
     if (!ctx.skillActivation)
       throw new Error('SkillTool requires a turn-owned skill activation state');
     const state = ctx.skillActivation;
-    const { prompt, activation } = await activateSkill(skill, {
+    const options = {
       source: 'model',
       args: input.args ?? '',
       toolContext: ctx,
       state,
-      resolveSkill: async (candidate) => {
-        const current = await reloadSkill(candidate);
-        const names = state.tools.map((tool) => tool.name);
-        if (
-          current.name !== input.skill ||
-          !isSkillVisible(current, inferActiveToolsets(names, ctx.activeToolsets), names)
-        )
-          throw new Error(`unknown or unavailable skill '${input.skill}'`);
-        return current;
-      },
-    });
+    } as const;
+    const { prompt, activation } = ctx.skillRuntime
+      ? await ctx.skillRuntime.activate(skill.name, options)
+      : await activateSkill(skill, {
+          ...options,
+          resolveSkill: async (candidate) => {
+            const current = await reloadSkill(candidate);
+            const names = state.tools.map((tool) => tool.name);
+            if (
+              current.name !== input.skill ||
+              !isSkillVisible(current, inferActiveToolsets(names, ctx.activeToolsets), names)
+            )
+              throw new Error(`unknown or unavailable skill '${input.skill}'`);
+            return current;
+          },
+        });
     return {
       data: {
         skill: activation.name,

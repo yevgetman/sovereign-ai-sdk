@@ -1,4 +1,4 @@
-import { createSkillRegistryManager } from '@yevgetman/sov-sdk/skills/registry';
+import { createSkillRuntime } from '@yevgetman/sov-sdk/skills/runtime';
 // `sov config` — config-only TUI mode.
 //
 // Built 2026-05-24 as part of the config UX rebuild (spec
@@ -322,6 +322,9 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
   };
 
   // ── Runtime literal ────────────────────────────────────────────────────
+  const skillRuntime = createSkillRuntime({
+    load: async () => ({ registry: { skills: [], byName: new Map() } }),
+  });
   const runtime: Runtime = {
     sessionDb,
     toolPool: [],
@@ -360,9 +363,8 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
     taskManager,
     daemonEventBus,
     skills: { skills: [], byName: new Map() },
-    skillRegistryManager: createSkillRegistryManager({
-      load: async () => ({ registry: { skills: [], byName: new Map() } }),
-    }),
+    skillRegistryManager: skillRuntime.manager,
+    skillRuntime,
     // Config-only mode loads no plugins (no bundle, no agent loop) — empty so
     // the Runtime shape is satisfied; the command seam spreads nothing.
     plugins: [],
@@ -402,6 +404,7 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
     // plain "saved" instead of "applied to current session".
     configStandalone: true,
     dispose: async () => {
+      skillRuntime.dispose();
       approvalQueue.disposeAll();
       sessionDb.close();
     },

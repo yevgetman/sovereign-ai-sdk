@@ -175,6 +175,7 @@ export type CommandContext = {
   skillRegistryManager?: import('../skills/registry.js').SkillRegistryManager;
   activeToolNames?: string[];
   activeToolsets?: string[];
+  skillRuntime?: import('../skills/runtime.js').SkillRuntime;
   /** Last assistant message's plain text, or null when the latest
    *  assistant turn was tool-only / image-only / not yet emitted. */
   getLastAssistantText: () => string | null;

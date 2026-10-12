@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createSkillRuntime } from '@yevgetman/sov-sdk/skills/runtime';
 import { createSkillRegistryManager } from '../../packages/sdk/src/skills/registry.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildServerCommandContext } from '../../src/server/commandContext.js';
@@ -120,12 +121,16 @@ describe('live server skill catalogs', () => {
         ).status,
       ).toBe(200);
       const previous = runtime.skillRegistryManager.snapshot();
-      runtime.skillRegistryManager = createSkillRegistryManager({
+      const failedManager = createSkillRegistryManager({
         initial: previous,
         load: async () => {
           throw new Error('PRIVATE refresh failure');
         },
       });
+      runtime.skillRegistryManager = failedManager;
+      // The composed runtime owns publication from PR57 onward. Inject the
+      // failing loader into that actual port as well as its diagnostics view.
+      runtime.skillRuntime = createSkillRuntime({ manager: failedManager });
       for (const verb of ['install', 'import', 'uninstall']) {
         writeFileSync(
           source,
@@ -165,6 +170,7 @@ describe('live server skill catalogs', () => {
       }
     } finally {
       await runtime.dispose();
+      runtime.skillRuntime.dispose();
     }
   });
 

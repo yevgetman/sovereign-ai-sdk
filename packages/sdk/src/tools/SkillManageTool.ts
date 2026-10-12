@@ -50,11 +50,12 @@ export const SkillManageTool = buildTool<Input, Output>({
     matchesPathPermissionPattern(`skills/agent-created/${input.name}/SKILL.md`, pattern),
   renderHint: { kind: 'markdown' },
   async call(input, ctx) {
-    const store =
-      ctx.skillStore ??
-      (ctx.harnessHome
-        ? new FilesystemSkillStore({ root: join(ctx.harnessHome, 'skills', 'agent-created') })
-        : undefined);
+    const store = ctx.skillRuntime
+      ? ctx.skillRuntime.store
+      : (ctx.skillStore ??
+        (ctx.harnessHome
+          ? new FilesystemSkillStore({ root: join(ctx.harnessHome, 'skills', 'agent-created') })
+          : undefined));
     if (!store)
       return {
         data: {

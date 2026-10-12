@@ -36,7 +36,6 @@ import { remoteSkillDiagnostics } from '@yevgetman/sov-sdk/skills/registry';
 import { filterSkillRegistry, inferActiveToolsets } from '@yevgetman/sov-sdk/skills/visibility';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { createSovSkillStore } from '../../skills/store.js';
 import type { AppVariables } from '../auth.js';
 import type { Runtime } from '../runtime.js';
 import { isValidSessionId } from '../sessionId.js';
@@ -120,10 +119,12 @@ export function skillsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
       return c.json({ error: parsed.error.issues[0]?.message ?? 'invalid body' }, 400);
     }
     const userSkillsRoot = join(runtime.harnessHome, 'skills');
+    if (!runtime.skillInstallationStore)
+      return c.json({ error: 'skill catalog is read-only' }, 400);
     const installArgs: Parameters<typeof installSkill>[0] = {
       source: parsed.data.source,
       userSkillsRoot,
-      store: createSovSkillStore(userSkillsRoot, 'community'),
+      store: runtime.skillInstallationStore,
     };
     if (parsed.data.force !== undefined) {
       installArgs.force = parsed.data.force;
@@ -132,7 +133,7 @@ export function skillsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
     if (!result.ok) {
       return c.json({ error: result.reason }, 400);
     }
-    const catalog = await refreshAfterMutation(runtime);
+    const catalog = await refreshAfterMutation(runtime, result.event);
     return c.json({ ok: true, name: result.name, installedAt: result.installedAt, catalog });
   });
 
@@ -165,10 +166,12 @@ export function skillsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
       return c.json({ error: parsed.error.issues[0]?.message ?? 'invalid body' }, 400);
     }
     const userSkillsRoot = join(runtime.harnessHome, 'skills');
+    if (!runtime.skillInstallationStore)
+      return c.json({ error: 'skill catalog is read-only' }, 400);
     const importArgs: Parameters<typeof importSkill>[0] = {
       source: parsed.data.source,
       userSkillsRoot,
-      store: createSovSkillStore(userSkillsRoot, 'community'),
+      store: runtime.skillInstallationStore,
     };
     if (parsed.data.force !== undefined) {
       importArgs.force = parsed.data.force;
@@ -177,7 +180,7 @@ export function skillsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
     if (!result.ok) {
       return c.json({ error: result.reason }, 400);
     }
-    const catalog = await refreshAfterMutation(runtime);
+    const catalog = await refreshAfterMutation(runtime, result.event);
     return c.json({
       ok: true,
       catalog,
@@ -204,24 +207,30 @@ export function skillsRoute(runtime: Runtime): Hono<{ Variables: AppVariables }>
     }
     const name = c.req.param('name');
     const userSkillsRoot = join(runtime.harnessHome, 'skills');
+    if (!runtime.skillInstallationStore)
+      return c.json({ error: 'skill catalog is read-only' }, 400);
     const result = await uninstallSkill({
       name,
       userSkillsRoot,
-      store: createSovSkillStore(userSkillsRoot, 'community'),
+      store: runtime.skillInstallationStore,
     });
     if (!result.ok) {
       return c.json({ error: result.reason }, 400);
     }
-    const catalog = await refreshAfterMutation(runtime);
+    const catalog = await refreshAfterMutation(runtime, result.event);
     return c.json({ ok: true, name: result.name, removedFrom: result.removedFrom, catalog });
   });
 
   return r;
 }
 
-async function refreshAfterMutation(runtime: Runtime) {
+async function refreshAfterMutation(
+  runtime: Runtime,
+  event: import('@yevgetman/sov-sdk/skills/storeTypes').SkillMutationEvent,
+) {
   try {
-    const snapshot = await runtime.skillRegistryManager.refresh();
+    await runtime.skillRuntime.onMutation(event);
+    const snapshot = runtime.skillRuntime.snapshot();
     return { generation: snapshot.generation, refreshed: true };
   } catch {
     // The store already committed. Report catalog failure without misreporting
