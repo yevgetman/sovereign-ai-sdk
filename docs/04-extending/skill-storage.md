@@ -113,6 +113,11 @@ outside or dangling links and directory cycles. Capture checks canonical ancesto
 identities and compares the opened file with the current pathname after reading.
 An ancestor swapped away and restored during capture is refused. Installed aliases
 become ordinary files, so source locations are not retained as destination links.
+Source capture rechecks all captured files, directories and aliases after traversal.
+Install and import parse and normalize the SKILL.md from that same captured tree;
+they do not mix an earlier metadata read with later sidecars. Single-file capture
+also checks that the selected file's identity, bytes metadata and modes remain
+unchanged across its read. A changed source refuses publication and emits no event.
 
 File data and modes, nested directories, new root ancestors and transaction
 records are synced before publication. POSIX directory syncs preserve ordering.

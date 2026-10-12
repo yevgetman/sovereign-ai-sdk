@@ -80,9 +80,9 @@ export async function installSkill(opts: InstallSkillOptions): Promise<InstallRe
   const { sourceAbs, skillMdPath, isDirectory } = resolved;
 
   try {
-    const raw = Buffer.from(await readSkillSourceFile(skillMdPath)).toString('utf8');
-    const validated = LoaderSkillFrontmatterSchema.parse(parseFrontmatter(raw));
     const tree = await captureSource(sourceAbs, skillMdPath, isDirectory);
+    const raw = Buffer.from(tree.files.get('SKILL.md')?.data ?? []).toString('utf8');
+    const validated = LoaderSkillFrontmatterSchema.parse(parseFrontmatter(raw));
     const committed = await publishTree(opts, validated.name, tree);
     return {
       ok: true,
@@ -174,8 +174,10 @@ export async function importSkill(opts: ImportSkillOptions): Promise<ImportResul
   // name-only regex).
   let rawFrontmatter: unknown;
   let body: string;
+  let tree: Awaited<ReturnType<typeof captureSource>>;
   try {
-    const raw = Buffer.from(await readSkillSourceFile(skillMdPath)).toString('utf8');
+    tree = await captureSource(sourceAbs, skillMdPath, isDirectory);
+    const raw = Buffer.from(tree.files.get('SKILL.md')?.data ?? []).toString('utf8');
     const parts = splitFrontmatter(raw);
     rawFrontmatter = parseYaml(parts.frontmatter);
     body = parts.body;
@@ -200,7 +202,6 @@ export async function importSkill(opts: ImportSkillOptions): Promise<ImportResul
   const name = (validated.data as { name: string }).name;
 
   try {
-    const tree = await captureSource(sourceAbs, skillMdPath, isDirectory);
     const files = new Map(tree.files);
     files.set('SKILL.md', {
       data: Buffer.from(buildCanonicalSkillFile(normalized.frontmatter, body)),
@@ -455,10 +456,21 @@ async function captureSource(
 }> {
   if (directory) return await readSkillSourceTree(source);
   const info = await stat(skillPath);
+  const data = await readSkillSourceFile(skillPath);
+  const current = await stat(skillPath);
+  if (
+    !info.isFile() ||
+    !current.isFile() ||
+    current.dev !== info.dev ||
+    current.ino !== info.ino ||
+    current.mode !== info.mode ||
+    current.size !== info.size ||
+    current.mtimeMs !== info.mtimeMs ||
+    current.ctimeMs !== info.ctimeMs
+  )
+    throw new Error('skill source changed during capture');
   return {
-    files: new Map([
-      ['SKILL.md', { data: await readSkillSourceFile(skillPath), mode: info.mode & 0o777 }],
-    ]),
+    files: new Map([['SKILL.md', { data, mode: info.mode & 0o777 }]]),
     directoryModes: new Map([['', 0o700]]),
   };
 }
