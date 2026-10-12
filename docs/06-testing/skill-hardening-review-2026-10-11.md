@@ -235,3 +235,85 @@ Independent correction checks: discovery identity12/36 assertions plus discovery
 The first PR53 directory-metadata correction passed its then-covered gate but missed an outer-ancestor listing omission. Its independent failed witness prompted bounded canonical listing validation and a new clean complete gate. Clarification of that PR's immutable test-log receipt: **one** queued baseline gate was stopped before checks for parent integration. A later attempted cancellation correctly refused the already-started partial-correction gate; it completed5,799/19skip/0fail. The corrected listing source subsequently passed5,803/19skip/0fail. The receipt's phrase “two queued earlier gate attempts were stopped” was a recording error. All logs remain archived.
 
 Controlled faults, mock providers and public packed-process fixtures prove the reviewed paths and regressions. They do not certify arbitrary hostile filesystem scheduling, physical power-loss recovery, live paid inference or longitudinal workflow quality. No master merge, force push, release/version/manifest change, consumer pin, installed upgrade or restart. Public SDK0.14.0/SOV0.6.77 remains current; the existing documentation-only next-release draft stays unchanged.
+
+
+## Owner-requested follow-up review — 2026-10-11 (review8)
+
+The owner requested native parallel review of every PR52–59, dependency checks,
+fixes above Low, and pushes to the respective branches. Three native review
+workers and the coordinator reviewed each incoming PR and followed its callers.
+Independent peers checked the corrected and merged paths.
+
+**Five Medium affected paths are corrected across four owning PRs.** They form
+three defect types: literal-data substitution, argument loss and stale skill
+visibility. No new High or Critical finding was confirmed. PR52's substitution
+problem was inherited from master in the modified activation path; it is not
+presented as a newly introduced regression. PR53, PR54, PR58 and PR59 have no
+new independent finding above Low in this pass.
+
+| PR / severity | Location and concrete trigger | Consequence and correction | Failed-before evidence |
+| --- | --- | --- | --- |
+| #52 / Medium | `packages/sdk/src/skills/loader.ts`, `expandSkillText`: approved stdout or environment prose contains literal `{args}`. | A second substitution changes data after insertion. Expand arguments and environment values only in original prose spans. Preserve literal command output and argument suffixes. Owning commit `bc3b2b25`. | Four actual activation cases fail before and pass after, including command-only markers and session IDs. `activationLiteralOutput.test.ts`. |
+| #55 / Medium | `packages/sdk/src/skills/loader.ts`, `hasProseArguments`: an author's shell command uses `$1`, `$ARGUMENTS` or `{args}`, or prose contains `$ARGUMENTS_EXTRA`. | Caller arguments disappear although no supported prose placeholder consumes them. Detect supported markers only in original prose; retain the portable placeholder superset and shell-disabled behavior. Owning commit `9bc3afa9`. | Four failed-before cases; six final cases with positive prose and split-region controls. `argumentConsumption.test.ts`. |
+| #56 / Medium | `packages/sdk/src/tools/SkillsViewTool.ts`: a cached visible descriptor is freshly renamed or gains required/fallback tool gates. | The fallback view returns unavailable body/reference text. Recheck fresh identity and current activation tools before disclosure, while preserving host profile tags. Owning commit `e0cf8a9c`. | Five negative metadata cases fail before; body/reference and permitted profile controls pass. `viewFreshVisibility.test.ts`. |
+| #56 / Medium | `packages/sdk/src/tools/SkillTool.ts`: cached metadata becomes unavailable before direct activation. | Fresh guidance still activates and can expand an inline command. Recheck identity and prerequisites inside the activation queue before expansion. Owning commit `ecee892a`. | Two failed-before cases. `toolFreshVisibility.test.ts`. A separate actual-tool witness gives zero Bash calls/activations when unavailable and one each when permitted. |
+| #57 / Medium | `packages/sdk/src/tools/SkillsViewTool.ts`: composed runtime inspection returns fresh unavailable metadata. | The composed view discloses text after checking only its cache. Apply the same fresh view check to the inspected result. Owning commit `6cf8d56c`. | Five failed-before cases plus permitted profile controls. `viewFreshComposedVisibility.test.ts`. |
+
+### Dependency integration
+
+Ordinary parent merges preserve every incoming PR head and restore every current
+parent edge. Incoming PR58 and PR59 did not include the latest recovered parent
+corrections from PR52–57. This pass carries those corrections into both children.
+No history rewrite is used.
+
+The PR55 loader resolution retains its portable original-prose substitution and
+argument detection, plus PR52's literal-output regressions. PR57 keeps
+`runtime.activate()` and adds the fresh resolver only to direct fallback.
+PR58 keeps catalog budgets and Conduct retry floors; its conflicts were import
+unions. PR59 keeps random lifetime IDs, fresh view checks before continuity
+reference pinning, same-session checks and logical/canonical resource pins.
+Every original testing-log section remains present.
+
+### Verified branch source gates
+
+Protocol/SDK and worktree-local TUI artifacts were built before fixtures.
+Each source passes configured lint/boundary, root typecheck, strict SDK build
+and every discovered test file. Compiler/theme/timing/subprocess fixtures run
+separately with unchanged assertions; no file is omitted.
+
+| PR | Verified source head | Passed / existing skips / failed | Files |
+| --- | --- | --- | --- |
+| #52 | `bc3b2b25` | 5,798 / 19 / 0 | 557 |
+| #53 | `8f387078` | 5,826 / 19 / 0 | 559 |
+| #54 | `000c6b18` | 5,924 / 19 / 0 | 568 |
+| #55 | `0f029432` | 5,937 / 19 / 0 | 570 |
+| #56 | `bd8ad744` | 5,958 / 19 / 0 | 575 |
+| #57 | `109b9bd8` | 6,008 / 19 / 0 | 584 |
+| #58 | `ed77ad47` | 6,026 / 19 / 0 | 587 |
+| #59 | `76c21ac1` | 6,072 / 19 / 0 | 593 |
+
+PR59's exact functional source is `76c21ac1f66c00251b991691c8ee983afdae9930`. This appended review receipt changes
+reports only. Its final publication head and exact GitHub check links are
+recorded in the docs-repo handoff at
+`state/evals/skills-hardening-implementation-2026-10-11.md`.
+
+Final combined source: **6,072 passed / 19 existing skips / zero failures**,
+25,988 assertions across 593 files. All six Go test packages pass. Actual packed
+SDK/protocol Node and Bun consumers, consumer types and artifact boundaries pass.
+The unchanged documentation-only SDK0.14.1/CLI0.6.78 draft validates.
+
+Independent merged checks pass 44 tests / 117 assertions for registry/runtime,
+26 / 109 for budgets and retry floors, and 66 / 350 for final continuity/floors
+and visibility. The direct-fallback effect witness passes against owning PR56
+and merged PR57. These are controlled fixtures, not live paid inference or
+longitudinal workflow evidence.
+
+### Remaining scope limits
+
+No confirmed issue above Low remains in the bounded reviewed paths. The earlier
+Low continuity separator-accounting excess stays under the requested threshold.
+The work does not certify arbitrary hostile filesystem scheduling, hardware
+power-loss durability or native Windows storage effects. Hosts retain ownership
+of custom resource/persistence authority. PRs remain open in order
+52 → 53 → 54 → 55 → 56 → 57 → 58 → 59. Public versions, consumer pins and installed
+hosts are unchanged.
