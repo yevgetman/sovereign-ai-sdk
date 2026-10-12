@@ -179,7 +179,11 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   }
   // Isolate skill-enabled contexts so their capabilities expire with the turn.
   // Generic host contexts retain the public query() identity contract.
-  const skillsEnabled = Boolean(params.toolContext?.skills || params.toolContext?.skillActivation);
+  const skillsEnabled = Boolean(
+    params.toolContext?.skills ||
+      params.toolContext?.skillActivation ||
+      params.toolContext?.skillRegistryManager,
+  );
   const toolCtx: ToolContext | undefined =
     skillsEnabled && params.toolContext ? { ...params.toolContext } : params.toolContext;
   const inheritedChildPermission = toolCtx?.canUseTool;

@@ -61,7 +61,12 @@ import type { LLMProvider, Transport } from '@yevgetman/sov-sdk/providers/types'
 import { LaneSemaphores, type LaneSemaphoresOpts } from '@yevgetman/sov-sdk/runtime/laneSemaphores';
 import { PathLockManager } from '@yevgetman/sov-sdk/runtime/pathLock';
 import { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
-import { loadSkills } from '@yevgetman/sov-sdk/skills/loader';
+import type { LoadSkillsOptions } from '@yevgetman/sov-sdk/skills/loader';
+import {
+  type SkillRegistryManager,
+  createSkillRegistryManager,
+  loadSkillRegistry,
+} from '@yevgetman/sov-sdk/skills/registry';
 import type { SkillRegistry } from '@yevgetman/sov-sdk/skills/types';
 import {
   type AssayUsageRecorder,
@@ -280,6 +285,11 @@ export type RuntimeOptions = {
   bundleRoot?: string;
   /** Process cwd for the turn (system prompt context, tool calls). */
   cwd: string;
+  /** Host-approved discovery scope for this runtime only. */
+  skillDiscovery?: Pick<
+    LoadSkillsOptions,
+    'projectRoot' | 'allowedLinkRoots' | 'discoveryLimits' | 'onDiscoveryDecision'
+  >;
   /** Provider name override; mock for tests, otherwise resolveProvider's
    *  precedence applies (settings → env). */
   provider?: string;
@@ -596,18 +606,11 @@ export type Runtime = {
    *  may inject their own bus via `RuntimeOptions.daemonEventBus`.
    *  Closes backlog #28. */
   daemonEventBus: DaemonEventBus;
-  /** Loaded skill registry (M8 T4). Populated once at buildRuntime boot
-   *  from project (.harness/skills/), user ($HARNESS_HOME/skills/), and
-   *  bundle (bundle-default/skills/, harness/skills-trusted/,
-   *  skills-community/) roots. This is the UNFILTERED superset — per-call
-   *  filtering via `inferActiveToolsets` + `filterSkillRegistry` happens
-   *  inside `buildSessionToolContext` (turns.ts) and the GET
-   *  /sessions/:id/skills route so the active toolset can narrow
-   *  visibility per turn / per request without re-walking disk. The T5
-   *  /skillname dispatch reads `byName` directly off this unfiltered
-   *  registry; visibility filtering is rendering-only.
-   *  Closes phase-16 prereq row 20. */
+  /** Current unfiltered profile catalog. The manager publishes complete
+   * generations after committed mutations; tools and commands derive visibility
+   * from their effective pool. In-flight activation records remain pinned. */
   skills: SkillRegistry;
+  skillRegistryManager: SkillRegistryManager;
   /** Plugin System v1 (T8) — every DISCOVERED plugin under
    *  `<harnessHome>/plugins/*` with its load verdict (active / needs-consent /
    *  tampered / disabled). The disclosure surface (HarnessInfo, `/plugins`)
@@ -810,25 +813,29 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     warn: (msg) => process.stderr.write(`[plugins] ${msg}\n`),
   });
 
-  // M8 T4 — load the skill registry once at boot. Roots scanned (in order)
-  // are project-local .harness/skills/, the user's $HARNESS_HOME/skills/,
-  // plugin skill roots (T8 — after user, before bundle, so a plugin skill can
-  // override a bundle skill but never shadow a user/project one), and (when a
-  // bundle is loaded) the bundle's three skill trees. The result is stored
-  // UNFILTERED on Runtime; per-call filtering via `inferActiveToolsets` +
-  // `filterSkillRegistry` happens at the call site (buildSessionToolContext
-  // for turns, the /skills route for TUI discovery) so visibility narrows with
-  // the active toolset without re-walking disk on every turn. Server sessions
-  // are independent requests rather than a single stable tool surface, so the
-  // registry stays unfiltered up here and the filter step lives at the
-  // consumers. Warnings (parse failures, duplicate names) route to stderr —
-  // identical policy to the agents loader above.
-  const skills = await loadSkills({
-    cwd: opts.cwd,
-    harnessHome,
-    ...(bundle ? { bundleRoot: bundle.root } : {}),
-    extraRoots: pluginContributions.skillRoots,
-    warn: (msg) => process.stderr.write(`[skills] ${msg}\n`),
+  // One profile-owned manager publishes complete generations. Contexts retain
+  // the manager reference, so new calls observe successful mutations.
+  const skillRegistryManager = createSkillRegistryManager({
+    load: () =>
+      loadSkillRegistry({
+        ...(settings.skills?.discovery?.projectRoot !== undefined
+          ? { projectRoot: settings.skills.discovery.projectRoot }
+          : {}),
+        ...(settings.skills?.discovery?.allowedLinkRoots !== undefined
+          ? { allowedLinkRoots: settings.skills.discovery.allowedLinkRoots }
+          : {}),
+        ...opts.skillDiscovery,
+        cwd: opts.cwd,
+        harnessHome,
+        ...(bundle ? { bundleRoot: bundle.root } : {}),
+        extraRoots: pluginContributions.skillRoots,
+        warn: (msg) => process.stderr.write(`[skills] ${msg}\n`),
+      }),
+  });
+  await skillRegistryManager.refresh();
+  let skills = skillRegistryManager.snapshot().registry;
+  skillRegistryManager.subscribe(() => {
+    skills = skillRegistryManager.snapshot().registry;
   });
 
   // M7 T1 — load MCP server settings + build pool when configured.
@@ -2085,7 +2092,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     subagentScheduler,
     taskManager,
     daemonEventBus,
-    skills,
+    get skills() {
+      return skills;
+    },
+    skillRegistryManager,
     plugins,
     pluginCommands: pluginContributions.commands,
     learningLayer,

@@ -795,6 +795,20 @@ func (m Model) fetchSkillsCmd() tea.Cmd {
 	}
 }
 
+// Refresh both derived catalogs from the server's canonical generation.
+func (m Model) fetchSkillCatalogsCmd() tea.Cmd {
+	return tea.Batch(m.fetchSkillsCmd(), m.fetchCommandsCmd())
+}
+
+func (m *Model) printSkillCatalogWarning(catalog *transport.SkillCatalogResult) {
+	if catalog == nil || catalog.Refreshed {
+		return
+	}
+	m.print(lipgloss.NewStyle().Foreground(m.theme.Warning).Render(
+		"warning: skill committed; catalog refresh failed. Run /skills doctor refresh to retry.",
+	))
+}
+
 // fetchCommandsCmd issues the backlog #45 GET /sessions/<id>/commands
 // hydration off the Update goroutine. Result populates the
 // autocomplete popup's dynamic command list (replacing staticEntries
@@ -1380,7 +1394,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.respond(nil)
 					}
 					m.print(m.theme.DimStyle().Render("reloading skill cache…"))
-					return m, m.fetchSkillsCmd()
+					return m, tea.Sequence(dispatchCommandCmd(m.baseURL, m.sessionID, "skills", "doctor refresh"), m.fetchSkillCatalogsCmd())
+				case "doctor":
+					if m.baseURL == "" {
+						m.print(m.theme.ErrorStyle().Render("skills doctor requires a server connection"))
+						return m, m.respond(nil)
+					}
+					return m, m.respond(dispatchCommandCmd(m.baseURL, m.sessionID, "skills", rest))
 				case "install":
 					if m.baseURL == "" {
 						m.print(m.theme.ErrorStyle().Render("skills install requires a server connection"))
@@ -1425,10 +1445,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 					m.print("")
-					m.print(m.theme.DimStyle().Render("verbs: /skills [list] | install <path> | import <path> | uninstall <name> | reload"))
+					m.print(m.theme.DimStyle().Render("verbs: /skills [list] | install <path> | import <path> | uninstall <name> | reload | doctor [refresh] [--json]"))
 				default:
 					m.print(m.theme.ErrorStyle().Render("unknown /skills verb: " + verb))
-					m.print(m.theme.DimStyle().Render("verbs: list, install <path>, import <path>, uninstall <name>, reload"))
+					m.print(m.theme.DimStyle().Render("verbs: list, install <path>, import <path>, uninstall <name>, reload, doctor [refresh] [--json]"))
 				}
 				return m, m.respond(nil)
 			}
@@ -1775,7 +1795,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.print(m.theme.DimStyle().Render(
 			fmt.Sprintf("installed /%s → %s", msg.result.Name, msg.result.InstalledAt),
 		))
-		return m, m.fetchSkillsCmd()
+		m.printSkillCatalogWarning(msg.result.Catalog)
+		return m, m.fetchSkillCatalogsCmd()
 	case skillUninstalledMsg:
 		// M11.17 — render uninstall result and refresh the skill cache.
 		if msg.err != nil {
@@ -1789,7 +1810,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.print(m.theme.DimStyle().Render(
 			fmt.Sprintf("uninstalled /%s (removed %s)", msg.result.Name, msg.result.RemovedFrom),
 		))
-		return m, m.fetchSkillsCmd()
+		m.printSkillCatalogWarning(msg.result.Catalog)
+		return m, m.fetchSkillCatalogsCmd()
 	case skillImportedMsg:
 		// Feature A2 — render import result (incl. the normalization notes the
 		// importer accrued) and refresh the skill cache on success so the
@@ -1812,7 +1834,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, w := range msg.result.Warnings {
 			m.print(warnStyle.Render("  warning: " + w))
 		}
-		return m, m.fetchSkillsCmd()
+		m.printSkillCatalogWarning(msg.result.Catalog)
+		return m, m.fetchSkillCatalogsCmd()
 	case commandDispatchedMsg:
 		// M10.5 — pop the "…running /name" placeholder; render the dispatch
 		// result. Two failure channels:
@@ -2204,6 +2227,9 @@ func (m *Model) handleEvent(env transport.Envelope) tea.Cmd {
 		// compose its next block (another tool call, follow-up text,
 		// or turn_complete). Arm the idle-check spinner so the gap
 		// reads as "still working" rather than as a dead UI.
+		if (tr.Tool == "skill_manage" || tr.Tool == "skill_propose") && m.baseURL != "" {
+			return tea.Batch(m.scheduleIdleCheck(), m.fetchSkillCatalogsCmd())
+		}
 		return m.scheduleIdleCheck()
 	case "permission_request":
 		// M5 T9: push the interactive permission modal. The modal renders

@@ -7,6 +7,8 @@
 import { spawnSync } from 'node:child_process';
 import type { CommandContext, LocalCommand } from '@yevgetman/sov-sdk/commands/types';
 import { formatBudgetReport } from '@yevgetman/sov-sdk/context/budget';
+import { isSkillInvocable } from '@yevgetman/sov-sdk/skills/descriptor';
+import { getSkillRegistry, remoteSkillDiagnostics } from '@yevgetman/sov-sdk/skills/registry';
 import { safeStaticToolDescription } from '@yevgetman/sov-sdk/tool/staticDescription';
 import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import chalk from 'chalk';
@@ -32,8 +34,28 @@ export const toolsCommand: LocalCommand = {
 export const skillsListCommand: LocalCommand = {
   type: 'local',
   name: 'skills',
-  description: 'List the skills currently visible to this session.',
-  call: async (_args, ctx) => formatSkills(ctx),
+  description: 'List visible skills. Use doctor for discovery diagnostics.',
+  usage: '/skills [doctor [--json]]',
+  call: async (args, ctx) => {
+    if (!args.trim().startsWith('doctor')) return formatSkills(ctx);
+    if (args.trim().split(/\s+/).includes('refresh')) {
+      try {
+        await ctx.skillRegistryManager?.refresh();
+      } catch {
+        return 'skill catalog refresh failed; previous generation retained';
+      }
+    }
+    const snapshot = ctx.skillRegistryManager?.snapshot();
+    if (!snapshot) return 'skill diagnostics unavailable for this host';
+    const report = remoteSkillDiagnostics(snapshot);
+    if (args.includes('--json')) return JSON.stringify(report, null, 2);
+    const counts = new Map<string, number>();
+    for (const item of report.diagnostics) counts.set(item.code, (counts.get(item.code) ?? 0) + 1);
+    return [
+      `skill generation ${report.generation}: ${report.skillCount} loaded`,
+      ...[...counts].map(([code, count]) => `${code}: ${count}`),
+    ].join('\n');
+  },
 };
 
 export const statsCommand: LocalCommand = {
@@ -177,7 +199,7 @@ function describeTool(tool: Tool<unknown, unknown>): string {
 }
 
 export function formatSkills(ctx: CommandContext): string {
-  const skills = ctx.skills.skills;
+  const skills = getSkillRegistry(ctx).skills.filter((skill) => isSkillInvocable(skill, 'user'));
   if (skills.length === 0) return 'no skills loaded for this session.';
   const sorted = [...skills].sort((a, b) => a.name.localeCompare(b.name));
   const labelWidth = Math.max(...sorted.map((s) => s.name.length));

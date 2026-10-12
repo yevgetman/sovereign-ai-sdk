@@ -1,3 +1,4 @@
+import { getSkillRegistry } from '../skills/registry.js';
 // Progressive skill disclosure. Returns the full body for one visible skill,
 // or a specific reference file under that skill's directory.
 
@@ -8,7 +9,10 @@ import { z } from 'zod';
 import { resolveSkillResource } from '../skills/activation.js';
 import { assertSkillFileIdentity, captureSkillFileIdentity } from '../skills/fileIdentity.js';
 import { reloadSkill } from '../skills/loader.js';
+import type { Skill } from '../skills/types.js';
+import { inferActiveToolsets, isSkillVisible } from '../skills/visibility.js';
 import { buildTool } from '../tool/buildTool.js';
+import type { ToolContext } from '../tool/types.js';
 
 const inputSchema = z.object({
   name: z.string().min(1).describe('Visible skill name to inspect.'),
@@ -36,13 +40,17 @@ export const SkillsViewTool = buildTool<Input, Output>({
   checkPermissions: async () => ({ behavior: 'allow' }),
   affectedPaths: (input) => (input.path ? [input.path] : []),
   async call(input, ctx) {
-    const skill = ctx.skills?.byName.get(input.name);
+    const skill = getSkillRegistry(ctx).byName.get(input.name);
     if (!skill) {
-      const available = ctx.skills?.skills.map((s) => s.name).join(', ') || 'none';
+      const available =
+        getSkillRegistry(ctx)
+          .skills.map((s) => s.name)
+          .join(', ') || 'none';
       throw new Error(`unknown skill '${input.name}'. Available skills: ${available}`);
     }
 
     const current = await reloadSkill(skill);
+    assertCurrentSkillVisible(current, input.name, ctx);
     if (!input.path) {
       return {
         data: {
@@ -120,4 +128,22 @@ async function readBoundedReference(
   } finally {
     await handle.close();
   }
+}
+
+/** Reloaded metadata and the current activation pool can differ from the catalog
+ * used for lookup. Apply the same visibility floor before disclosing fresh text. */
+function assertCurrentSkillVisible(skill: Skill, name: string, ctx: ToolContext): void {
+  const names = ctx.skillActivation?.tools.map((tool) => tool.name) ?? ctx.activeToolNames;
+  if (
+    skill.name !== name ||
+    ((names !== undefined || ctx.activeToolsets !== undefined) &&
+      !isSkillVisible(
+        skill,
+        names !== undefined
+          ? inferActiveToolsets(names, ctx.activeToolsets)
+          : (ctx.activeToolsets ?? []),
+        names ?? [],
+      ))
+  )
+    throw new Error(`unknown or unavailable skill '${name}'`);
 }

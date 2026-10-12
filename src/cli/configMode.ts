@@ -1,3 +1,4 @@
+import { createSkillRegistryManager } from '@yevgetman/sov-sdk/skills/registry';
 // `sov config` — config-only TUI mode.
 //
 // Built 2026-05-24 as part of the config UX rebuild (spec
@@ -359,6 +360,9 @@ function buildConfigOnlyRuntime(harnessHome: string): Runtime {
     taskManager,
     daemonEventBus,
     skills: { skills: [], byName: new Map() },
+    skillRegistryManager: createSkillRegistryManager({
+      load: async () => ({ registry: { skills: [], byName: new Map() } }),
+    }),
     // Config-only mode loads no plugins (no bundle, no agent loop) — empty so
     // the Runtime shape is satisfied; the command seam spreads nothing.
     plugins: [],

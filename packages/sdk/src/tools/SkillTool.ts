@@ -1,9 +1,12 @@
+import { getSkillRegistry } from '../skills/registry.js';
 // SkillTool lets the model activate a markdown skill by name. It returns
 // the expanded skill body as a tool_result so the continuation turn can use
 // those instructions.
 
 import { z } from 'zod';
 import { type SkillActivationEnvelope, activateSkill } from '../skills/activation.js';
+import { reloadSkill } from '../skills/loader.js';
+import { inferActiveToolsets, isSkillVisible } from '../skills/visibility.js';
 import { buildTool } from '../tool/buildTool.js';
 
 const inputSchema = z.object({
@@ -31,18 +34,32 @@ export const SkillTool = buildTool<Input, Output>({
   // Recheck guard against fresh content; shell separately uses the Bash gate.
   checkPermissions: async () => ({ behavior: 'allow' }),
   async call(input, ctx) {
-    const skill = ctx.skills?.byName.get(input.skill);
+    const skill = getSkillRegistry(ctx).byName.get(input.skill);
     if (!skill) {
-      const available = ctx.skills?.skills.map((s) => s.name).join(', ') || 'none';
+      const available =
+        getSkillRegistry(ctx)
+          .skills.map((s) => s.name)
+          .join(', ') || 'none';
       throw new Error(`unknown skill '${input.skill}'. Available skills: ${available}`);
     }
     if (!ctx.skillActivation)
       throw new Error('SkillTool requires a turn-owned skill activation state');
+    const state = ctx.skillActivation;
     const { prompt, activation } = await activateSkill(skill, {
       source: 'model',
       args: input.args ?? '',
       toolContext: ctx,
-      state: ctx.skillActivation,
+      state,
+      resolveSkill: async (candidate) => {
+        const current = await reloadSkill(candidate);
+        const names = state.tools.map((tool) => tool.name);
+        if (
+          current.name !== input.skill ||
+          !isSkillVisible(current, inferActiveToolsets(names, ctx.activeToolsets), names)
+        )
+          throw new Error(`unknown or unavailable skill '${input.skill}'`);
+        return current;
+      },
     });
     return {
       data: {

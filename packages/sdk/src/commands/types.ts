@@ -172,6 +172,9 @@ export type CommandContext = {
   getMetrics: () => Omit<SessionMetrics, 'endedAtMs'>;
   /** Skill registry filtered to the current session's active toolsets. */
   skills: SkillRegistry;
+  skillRegistryManager?: import('../skills/registry.js').SkillRegistryManager;
+  activeToolNames?: string[];
+  activeToolsets?: string[];
   /** Last assistant message's plain text, or null when the latest
    *  assistant turn was tool-only / image-only / not yet emitted. */
   getLastAssistantText: () => string | null;

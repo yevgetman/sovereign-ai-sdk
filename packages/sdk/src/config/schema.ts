@@ -309,6 +309,19 @@ export type TaskRoutingConfig = z.infer<typeof TaskRoutingSchema>;
 
 export const SettingsSchema = z
   .object({
+    /** Profile-scoped discovery approvals. Linked targets retain source trust. */
+    skills: z
+      .object({
+        discovery: z
+          .object({
+            projectRoot: z.string().min(1).optional(),
+            allowedLinkRoots: z.array(z.string().min(1)).optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
     defaultProvider: z.string().optional(),
     defaultModel: z.string().optional(),
     permissionMode: z.enum(['default', 'ask', 'bypass']).optional(),

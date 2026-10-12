@@ -78,6 +78,8 @@ export type ToolContext = {
   onSkillMutation?: (
     event: import('../skills/storeTypes.js').SkillMutationEvent,
   ) => void | Promise<void>;
+  /** Canonical live catalog. Tools read it per call, after visibility filters. */
+  skillRegistryManager?: import('../skills/registry.js').SkillRegistryManager;
   /** Phase 13 — sub-agent definitions available for delegation via AgentTool. */
   agents?: import('../agents/types.js').AgentRegistry;
   /** Explicit inherited host policy and host-stamped recursion depth. */
