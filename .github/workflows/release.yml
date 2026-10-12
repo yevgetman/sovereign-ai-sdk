@@ -56,6 +56,9 @@ jobs:
           echo "OK: tag $V matches package.json $PKG"
       - run: bun run lint
       - run: bun run typecheck
+      # Node consumer and transactional worker tests execute the compiled SDK.
+      - name: Build public package artifacts for runtime tests
+        run: bun run build
       # Item 2 — skip the env-flaky tuiLauncher integration smokes at the
       # release gate only (SOV_SKIP_FLAKY). Dev still runs them on a bare
       # `bun test`; they can die against the global 20s budget on a
