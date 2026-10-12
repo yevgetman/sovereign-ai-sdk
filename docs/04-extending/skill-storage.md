@@ -42,7 +42,10 @@ await store.mutate({
 Mutation can include a `files` map of relative resource names to `{ data, mode }`.
 Omitting that map on edit retains existing scripts and references. Providing it
 replaces the complete resource set. `content` sets SKILL.md within that tree.
-Directory modes can be supplied separately. Existing destination modes remain
+Directory modes can be supplied separately. Files must grant owner read permission;
+directories must grant owner read and execute permissions. Unreadable trees fail
+validation before staging, so a refused mode cannot block later store operations.
+Read-only files and directories remain supported. Existing destination modes remain
 in force when replacing the matching resources with a more permissive source.
 
 The store validates frontmatter, identity, resource paths, guard policy and bounds
@@ -91,7 +94,10 @@ an unpublished replacement restores its backup; an already published replacement
 keeps the new tree; a delete without its committed marker restores the backup.
 Before moving the previous tree, the worker checks the complete staged revision.
 After publication, it checks the published tree and stage directory identity
-before issuing a receipt. A changed uncommitted stage rolls back without an event.
+before issuing a receipt. Capture compares each opened resource with its current
+pathname and rechecks every captured file and directory before accepting the
+complete revision. Replaced leaves, changed modes and resources added during
+capture cause rollback without a receipt. A changed uncommitted stage rolls back without an event.
 Recovery leaves an unrelated replacement directory and the backup for inspection.
 
 Destination directories and resources cannot be symlinks. Resource names reject

@@ -1,7 +1,8 @@
 // Skill guard scanner. Phase 9.5 blocks high-risk third-party skill content
 // before it reaches the prompt or gets written as an agent-created skill.
 
-import { opendir, realpath } from 'node:fs/promises';
+import type { Dirent, Stats } from 'node:fs';
+import { lstat, opendir, realpath } from 'node:fs/promises';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { DEFAULT_SKILL_DISCOVERY_LIMITS, isPathWithin } from './discovery.js';
 import { readBoundedSkillContent } from './fileRead.js';
@@ -141,6 +142,26 @@ function isStoreInternal(name: string): boolean {
   );
 }
 
+function sameDirectory(left: Stats, right: Stats): boolean {
+  return (
+    left.isDirectory() &&
+    right.isDirectory() &&
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.mode === right.mode &&
+    left.size === right.size &&
+    left.mtimeMs === right.mtimeMs &&
+    left.ctimeMs === right.ctimeMs
+  );
+}
+
+function directoryEntryType(entry: Dirent): string {
+  if (entry.isDirectory()) return 'directory';
+  if (entry.isFile()) return 'file';
+  if (entry.isSymbolicLink()) return 'link';
+  return 'other';
+}
+
 async function readSkillDirectoryTexts(
   skillPath: string,
   resourceBudget?: SkillGuardResourceBudget,
@@ -158,6 +179,7 @@ async function readSkillDirectoryTexts(
   };
   const out: { file: string; text: string }[] = [];
   const seen = new Set<string>();
+  const directories = new Map<string, { identity: Stats; entries: Map<string, string> }>();
   const walk = async (path: string, depth: number): Promise<void> => {
     if (depth > budget.depthLimit) throw new Error('skill resource depth limit exceeded');
     const rp = await realpath(path);
@@ -165,11 +187,17 @@ async function readSkillDirectoryTexts(
       throw new Error('skill resource escaped its directory');
     if (seen.has(rp)) return;
     seen.add(rp);
+    const identity = await lstat(rp);
+    if (!identity.isDirectory()) throw new Error('skill resource directory changed');
+    const scannedEntries = new Map<string, string>();
+    directories.set(rp, { identity, entries: scannedEntries });
     const entries: { name: string; directory: boolean; file: boolean }[] = [];
     const handle = await opendir(rp);
     for await (const entry of handle) {
       if (budget.entriesRemaining <= 0) throw new Error('skill resource entry limit exceeded');
       budget.entriesRemaining -= 1;
+      if (scannedEntries.has(entry.name)) throw new Error('skill resource directory changed');
+      scannedEntries.set(entry.name, directoryEntryType(entry));
       if (
         ['.sov-skill-store', '.git', '.svn', '.hg', 'node_modules', 'vendor'].includes(
           entry.name.toLowerCase(),
@@ -201,6 +229,25 @@ async function readSkillDirectoryTexts(
     }
   };
   await walk(dir, 0);
+  // File checks do not run for omitted entries. A directory temporarily
+  // replaced during opendir can return an unrelated, empty listing and then
+  // regain its canonical path. Pin the scanned tree's directory metadata so
+  // replacement or entry changes invalidate that incomplete guard verdict.
+  for (const [path, { identity, entries }] of directories) {
+    if (!sameDirectory(identity, await lstat(path)))
+      throw new Error('skill resource directory changed during scan');
+    // A restored ancestor swap can leave this directory's metadata unchanged.
+    // Verify the canonical listing as well. Stop on the first unexpected or
+    // duplicate entry; validation is bounded by the already captured scan.
+    const found = new Set<string>();
+    for await (const entry of await opendir(path)) {
+      if (found.has(entry.name) || entries.get(entry.name) !== directoryEntryType(entry))
+        throw new Error('skill resource directory listing changed during scan');
+      found.add(entry.name);
+    }
+    if (found.size !== entries.size || !sameDirectory(identity, await lstat(path)))
+      throw new Error('skill resource directory changed during scan');
+  }
   if ((await realpath(dir)) !== dir) throw new Error('skill resource root changed during scan');
   return out;
 }

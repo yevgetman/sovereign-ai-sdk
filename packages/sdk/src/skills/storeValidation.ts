@@ -42,6 +42,8 @@ export function validateSkillStoreEntry(entry: SkillStoreWireEntry, tier: SkillT
     if (!file) continue;
     if (!Number.isInteger(file.mode) || file.mode < 0 || file.mode > 0o777)
       throw new Error('invalid skill file mode');
+    if ((file.mode & 0o400) !== 0o400)
+      throw new Error('skill file mode requires owner read permission');
     const data = Buffer.from(file.data, 'base64');
     if (data.byteLength > DEFAULT_SKILL_DISCOVERY_LIMITS.maxFileBytes)
       throw new Error('skill resource exceeds discovery file byte limit');
@@ -58,19 +60,23 @@ export function validateSkillStoreEntry(entry: SkillStoreWireEntry, tier: SkillT
     const mode = entry.directoryModes[path];
     if (!Number.isInteger(mode) || (mode ?? -1) < 0 || (mode ?? 0o1000) > 0o777)
       throw new Error('invalid skill directory mode');
+    if (((mode ?? 0) & 0o500) !== 0o500)
+      throw new Error('skill directory mode requires owner read and execute permissions');
     if (path) assertSkillStoreResource(path);
-    if (path in entry.files) throw new Error('skill resource cannot be both file and directory');
+    if (Object.hasOwn(entry.files, path))
+      throw new Error('skill resource cannot be both file and directory');
     const parts = path.split('/');
     for (let depth = 1; depth < parts.length; depth++) {
-      if (!(parts.slice(0, depth).join('/') in entry.directoryModes))
+      if (!Object.hasOwn(entry.directoryModes, parts.slice(0, depth).join('/')))
         throw new Error('skill directory parent is missing from the complete tree');
     }
   }
-  if (!('' in entry.directoryModes)) throw new Error('skill root directory mode is required');
+  if (!Object.hasOwn(entry.directoryModes, ''))
+    throw new Error('skill root directory mode is required');
   for (const path of paths) {
     const parts = path.split('/');
     for (let depth = 1; depth < parts.length; depth++) {
-      if (!(parts.slice(0, depth).join('/') in entry.directoryModes))
+      if (!Object.hasOwn(entry.directoryModes, parts.slice(0, depth).join('/')))
         throw new Error('skill resource parent is missing from the complete tree');
     }
   }

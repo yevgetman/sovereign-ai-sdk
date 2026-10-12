@@ -464,6 +464,13 @@ async function runTurnInBackground(
   // original turn ran against.
   let skillActivation: SkillActivationEnvelope | undefined;
   if (skillInvocation) {
+    // Inline context can emit conduct policy records before a provider drive
+    // exists. Give those records their own host identity in this session.
+    // Later compaction/provider drives keep their separate post-pivot ids.
+    const activationTurnId = runtime.attestationEvidence?.beginTurn(sessionId, {
+      surface: 'user',
+      model: perTurnModel ?? runtime.model,
+    });
     try {
       const skill = resolveSkillInvocation(runtime, skillInvocation.name, skillInvocation.source);
       if (!skill) throw new Error(`unknown skill: ${skillInvocation.name}`);
@@ -479,6 +486,7 @@ async function runTurnInBackground(
             model: perTurnModel ?? runtime.model,
             providerName: runtime.resolvedProvider.transport.name,
             cwd: runtime.cwd,
+            ...(activationTurnId !== undefined ? { turnId: activationTurnId } : {}),
           },
           hostGate,
         ) ?? hostGate;
@@ -509,6 +517,10 @@ async function runTurnInBackground(
     } catch (error) {
       bus.clearCurrentTurnAbort();
       throw error;
+    } finally {
+      // This segment performs context expansion only. Its backfill row has
+      // no delivered text, including when approval or expansion rejects.
+      if (activationTurnId !== undefined) runtime.attestationEvidence?.endTurn(activationTurnId);
     }
   }
   // Activated instructions, substituted arguments and command stdout are data.
