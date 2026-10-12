@@ -1,6 +1,6 @@
 schema_version: 4
 product: sovereign-ai-sdk
-version: 0.14.1
+version: 0.15.0
 items:
   - id: sdk-public-docs-014
     product: sovereign-ai-sdk
@@ -32,4 +32,130 @@ items:
       README in the next patch without replacing published bytes.
     qa:
       - releases/sdk-install-docs-correction-source-qa.json
+      - docs/06-testing/testing-log.md
+  - id: sdk-pr-52
+    product: sovereign-ai-sdk
+    title: Unify permissioned skill activation across SDK and SOV
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/52
+    merged_at: 2026-10-12T04:20:43Z
+    commits:
+      - sha: 3904fcc655bfbf7f9a586ea57948a807bd4e0da8
+        mainline: 1
+    requires:
+      - sdk-install-docs-correction
+    reason: null
+    qa:
+      - docs/06-testing/skill-hardening-review-2026-10-11.md
+      - docs/06-testing/testing-log.md
+  - id: sdk-pr-53
+    product: sovereign-ai-sdk
+    title: Discover portable skills within explicit bounded scopes
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/53
+    merged_at: 2026-10-12T04:20:49Z
+    commits:
+      - sha: 1cc7e8aae18ed97ba4314a26965e969166d2f421
+        mainline: 1
+    requires:
+      - sdk-pr-52
+    reason: null
+    qa:
+      - docs/06-testing/skill-hardening-review-2026-10-11.md
+      - docs/06-testing/testing-log.md
+  - id: sdk-pr-54
+    product: sovereign-ai-sdk
+    title: Confine skill writes to transactional explicit stores
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/54
+    merged_at: 2026-10-12T04:20:54Z
+    commits:
+      - sha: 559383045ef1d2099c3d311772766f53d120e089
+        mainline: 1
+    requires:
+      - sdk-pr-53
+    reason: null
+    qa:
+      - docs/06-testing/skill-hardening-review-2026-10-11.md
+      - docs/06-testing/testing-log.md
+  - id: sdk-pr-55
+    product: sovereign-ai-sdk
+    title: Preserve portable skill metadata and enforce invocation controls
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/55
+    merged_at: 2026-10-12T04:21:00Z
+    commits:
+      - sha: e2bd6fb44faaa7b42457a97c1355cd0e7b2a2978
+        mainline: 1
+    requires:
+      - sdk-pr-54
+    reason: null
+    qa:
+      - docs/06-testing/skill-hardening-review-2026-10-11.md
+      - docs/06-testing/testing-log.md
+  - id: sdk-pr-56
+    product: sovereign-ai-sdk
+    title: Refresh live skill registries and expose safe diagnostics
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/56
+    merged_at: 2026-10-12T04:21:06Z
+    commits:
+      - sha: 20bf9fe1ad3f2d453dc75be384e0c218ab868dce
+        mainline: 1
+    requires:
+      - sdk-pr-55
+    reason: null
+    qa:
+      - docs/06-testing/skill-hardening-review-2026-10-11.md
+      - docs/06-testing/testing-log.md
+  - id: sdk-pr-57
+    product: sovereign-ai-sdk
+    title: Compose optional SDK skill runtimes for embedded and SOV hosts
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/57
+    merged_at: 2026-10-12T04:21:11Z
+    commits:
+      - sha: bff9ae6c36db3a59b0d18c4d7b83caa8d22e7c75
+        mainline: 1
+    requires:
+      - sdk-pr-56
+    reason: null
+    qa:
+      - docs/06-testing/skill-hardening-review-2026-10-11.md
+      - docs/06-testing/testing-log.md
+  - id: sdk-pr-58
+    product: sovereign-ai-sdk
+    title: Bound complete skill catalogs by effective model context limits
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/58
+    merged_at: 2026-10-12T04:21:16Z
+    commits:
+      - sha: 8a4f2e75fefb5e3759d03737b7d21b6c9ab5f1fb
+        mainline: 1
+    requires:
+      - sdk-pr-57
+    reason: null
+    qa:
+      - docs/06-testing/skill-hardening-review-2026-10-11.md
+      - docs/06-testing/testing-log.md
+  - id: sdk-pr-59
+    product: sovereign-ai-sdk
+    title: Retain bounded private skill guidance across SOV session lineage
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/59
+    merged_at: 2026-10-12T04:21:22Z
+    commits:
+      - sha: e01f7e2be55b5b810ef6fb41a63713d03695fe73
+        mainline: 1
+    requires:
+      - sdk-pr-58
+    reason: null
+    qa:
+      - docs/06-testing/skill-hardening-review-2026-10-11.md
+      - docs/06-testing/testing-log.md
+  - id: sdk-prep-0150
+    product: sovereign-ai-sdk
+    title: Prepare SDK 0.15.0 and SOV 0.6.78 release
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/60
+    merged_at: 2026-10-12T04:31:12Z
+    commits:
+      - sha: 6959514eaaa92794ab7792a9b27d5f5afb9ee802
+        mainline: 1
+    requires:
+      - sdk-pr-59
+    reason: null
+    qa:
+      - releases/skills-0150-preparation-review.json
       - docs/06-testing/testing-log.md
