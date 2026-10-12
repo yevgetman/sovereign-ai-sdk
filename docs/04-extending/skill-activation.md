@@ -84,6 +84,9 @@ themselves. An author inline-shell expression requires an explicit
 port through the scoped host Bash tool and ordinary tool orchestrator. This
 preserves permission prompts, denials, hooks, validation, cancellation and
 tool observations. Plugin inline shell remains inert.
+Argument placeholders apply only to original prose. A placeholder inside an
+author shell command does not consume caller arguments. Approved stdout and
+substituted environment values remain literal, including `{{args}}` markers.
 
 Native HTTP activation creates a separate host evidence identity before inline
 context can reach the conduct policy. It settles that identity on success or

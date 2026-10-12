@@ -124,6 +124,28 @@ function substituteEnvProse(text: string, env: SkillEnv): string {
   );
 }
 
+/** Expand only authored prose; inserted args, environment values and stdout are data. */
+function substituteSkillProse(text: string, env: SkillEnv, args: string): string {
+  const pattern = new RegExp(`${ENV_PLACEHOLDER_RE.source}|\\{\\{\\s*args\\s*\\}\\}`, 'g');
+  return text.replace(pattern, (match) =>
+    match.startsWith('${') ? substituteEnvProse(match, env) : args,
+  );
+}
+
+/** Shell command templates do not consume arguments; only original prose does. */
+function hasProseArguments(text: string, shellAllowed: boolean): boolean {
+  const marker = /\{\{\s*args\s*\}\}/;
+  if (!shellAllowed) return marker.test(text);
+  let lastIndex = 0;
+  for (const match of text.matchAll(SHELL_INTERPOLATION_RE)) {
+    const start = match.index ?? 0;
+    if (marker.test(text.slice(lastIndex, start))) return true;
+    if (!(match[1] ?? match[2])?.trim() && marker.test(match[0])) return true;
+    lastIndex = start + match[0].length;
+  }
+  return marker.test(text.slice(lastIndex));
+}
+
 /** Substitute only in ordinary shell words. The author supplies the quote
  * context; inserted paths/session ids never become a second shell expression.
  * Complex nested expansions and here-documents need a host-specific adapter. */
@@ -306,7 +328,6 @@ export async function expandSkillText(
 ): Promise<string> {
   const args = opts.args ?? '';
   const argsTrimmed = args.trim();
-  const hasPlaceholder = /\{\{\s*args\s*\}\}/.test(text);
 
   // Environment values are data. Prose uses a display sanitizer. Inline shell
   // uses the author's quote context; arguments are never inserted into commands.
@@ -324,14 +345,15 @@ export async function expandSkillText(
   // run shell — the `source !== 'plugin'` clause is the backstop. With shell off
   // every placeholder is resolved as prose.
   const shellAllowed = skill.allowShellInterpolation && skill.source !== 'plugin';
+  const hasPlaceholder = hasProseArguments(text, shellAllowed);
   const body = shellAllowed
-    ? await interpolateShellCommands(text, skill.dir, env, opts.runShellCommand)
-    : substituteEnvProse(text, env);
+    ? await interpolateShellCommands(text, skill.dir, env, opts.runShellCommand, args)
+    : substituteSkillProse(text, env, args);
 
   // Merge args as INERT text: substitute {{args}} and/or append them. Skills
   // that don't reference {{args}} would otherwise silently drop the user's slash
   // arguments, so append them (e.g. `/review ~/code/babyboard/`).
-  let result = body.replace(/\{\{\s*args\s*\}\}/g, () => args);
+  let result = body;
   if (argsTrimmed && !hasPlaceholder) {
     result += `\n\nUser arguments: ${argsTrimmed}`;
   }
@@ -495,20 +517,21 @@ async function interpolateShellCommands(
   cwd: string,
   env: SkillEnv,
   runShellCommand: SkillExpansionOptions['runShellCommand'],
+  args: string,
 ): Promise<string> {
   const matches = Array.from(body.matchAll(SHELL_INTERPOLATION_RE));
-  if (matches.length === 0) return substituteEnvProse(body, env);
+  if (matches.length === 0) return substituteSkillProse(body, env, args);
   let out = '';
   let lastIndex = 0;
   for (const match of matches) {
     const start = match.index ?? 0;
     const full = match[0];
-    out += substituteEnvProse(body.slice(lastIndex, start), env);
+    out += substituteSkillProse(body.slice(lastIndex, start), env, args);
     lastIndex = start + full.length;
     const rawCommand = (match[1] ?? match[2])?.trim();
     if (!rawCommand) {
       // Empty sigil (e.g. all-whitespace): keep it as inert text.
-      out += substituteEnvProse(full, env);
+      out += substituteSkillProse(full, env, args);
       continue;
     }
     const command = substituteEnvCommand(rawCommand, env);
@@ -519,7 +542,7 @@ async function interpolateShellCommands(
     }
     out += truncateShellOutput((await runShellCommand(command, cwd)).trimEnd());
   }
-  out += substituteEnvProse(body.slice(lastIndex), env);
+  out += substituteSkillProse(body.slice(lastIndex), env, args);
   return out;
 }
 
