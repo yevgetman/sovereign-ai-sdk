@@ -11,13 +11,43 @@ import { SkillTool } from '@yevgetman/sov-sdk/tools/SkillTool';
 import { SkillsListTool } from '@yevgetman/sov-sdk/tools/SkillsListTool';
 import { z } from 'zod';
 
-function providerWithCalls(calls: { name: string; input: unknown }[]) {
+function providerWithCalls(calls: { name: string; input: unknown }[], pageCatalog = false) {
   const requests: ProviderRequest[] = [];
+  const listedPages: string[] = [];
+  const issuedCalls: { id: string; name: string }[] = [];
+  const cursors = new Set<string>();
+  let previous: { id: string; name: string; input: unknown } | undefined;
   const provider: LLMProvider = {
     name: 'visibility-fixture',
     async *stream(request): AsyncGenerator<StreamEvent, AssistantMessage> {
       requests.push({ ...request, messages: structuredClone(request.messages) });
+      if (pageCatalog && previous?.name === 'skills_list') {
+        const previousId = previous.id;
+        const result = request.messages
+          .flatMap((message) => message.content)
+          .find((block) => block.type === 'tool_result' && block.tool_use_id === previousId);
+        if (result?.type !== 'tool_result' || result.is_error)
+          throw new Error('missing successful catalog page');
+        listedPages.push(result.content);
+        const data = JSON.parse(result.content.slice(result.content.indexOf('{'))) as {
+          nextCursor?: string;
+          truncated: boolean;
+          budgetExhausted?: boolean;
+        };
+        if (data.nextCursor) {
+          if (cursors.has(data.nextCursor)) throw new Error('catalog cursor did not advance');
+          cursors.add(data.nextCursor);
+          calls.unshift({
+            name: 'skills_list',
+            input: { ...(previous.input as Record<string, unknown>), cursor: data.nextCursor },
+          });
+        } else if (data.truncated || data.budgetExhausted) {
+          throw new Error('catalog enumeration did not complete');
+        }
+      }
       const call = calls.shift();
+      previous = call ? { id: `call-${requests.length}`, ...call } : undefined;
+      if (previous) issuedCalls.push({ id: previous.id, name: previous.name });
       const message: AssistantMessage = {
         role: 'assistant',
         content: call
@@ -30,7 +60,7 @@ function providerWithCalls(calls: { name: string; input: unknown }[]) {
       return message;
     },
   };
-  return { provider, requests };
+  return { provider, requests, listedPages, issuedCalls };
 }
 
 async function catalog() {
@@ -56,10 +86,13 @@ describe('direct SDK skill visibility follows the effective tool pool', () => {
     'native agent filters missing prerequisites and replaces stale host tool names (%s)',
     async (staleHostNames) => {
       const runtime = await catalog();
-      const { provider, requests } = providerWithCalls([
-        { name: 'skills_list', input: {} },
-        { name: 'SkillTool', input: { skill: 'terminalOnly' } },
-      ]);
+      const { provider, requests, listedPages, issuedCalls } = providerWithCalls(
+        [
+          { name: 'skills_list', input: {} },
+          { name: 'SkillTool', input: { skill: 'terminalOnly' } },
+        ],
+        true,
+      );
       const agent = createAgent({
         provider,
         model: 'fixture',
@@ -80,19 +113,19 @@ describe('direct SDK skill visibility follows the effective tool pool', () => {
             : {}),
         });
         while (!(await stream.next()).done) {}
-        const listed = requests[1]?.messages
-          .flatMap((message) => message.content)
-          .find((block) => block.type === 'tool_result' && block.tool_use_id === 'call-1');
-        if (listed?.type !== 'tool_result') throw new Error('missing list result');
-        expect(listed.content).toContain('terminalFallback');
-        expect(listed.content).not.toContain('terminalOnly');
-        expect(listed.content).toContain('terminalSetFallback');
-        expect(listed.content).not.toContain('terminalSetOnly');
-        if (staleHostNames) expect(listed.content).toContain('customProfile');
-        else expect(listed.content).not.toContain('customProfile');
-        const activation = requests[2]?.messages
-          .flatMap((message) => message.content)
-          .find((block) => block.type === 'tool_result' && block.tool_use_id === 'call-2');
+        expect(listedPages.length).toBeGreaterThan(0);
+        const listed = listedPages.join('\n');
+        expect(listed).toContain('terminalFallback');
+        expect(listed).not.toContain('terminalOnly');
+        expect(listed).toContain('terminalSetFallback');
+        expect(listed).not.toContain('terminalSetOnly');
+        if (staleHostNames) expect(listed).toContain('customProfile');
+        else expect(listed).not.toContain('customProfile');
+        const activationId = issuedCalls.find((call) => call.name === 'SkillTool')?.id;
+        const activation = requests
+          .at(-1)
+          ?.messages.flatMap((message) => message.content)
+          .find((block) => block.type === 'tool_result' && block.tool_use_id === activationId);
         if (activation?.type !== 'tool_result') throw new Error('missing activation result');
         expect(activation.is_error).toBe(true);
         expect(activation.content).not.toContain('terminalOnly private guidance');
@@ -121,10 +154,13 @@ describe('direct SDK skill visibility follows the effective tool pool', () => {
           throw new Error('fixture Bash must not execute');
         },
       });
-      const { provider, requests } = providerWithCalls([
-        { name: 'SkillTool', input: { skill: 'restricted' } },
-        { name: 'skills_list', input: {} },
-      ]);
+      const { provider, requests, listedPages } = providerWithCalls(
+        [
+          { name: 'SkillTool', input: { skill: 'restricted' } },
+          { name: 'skills_list', input: {} },
+        ],
+        true,
+      );
       const agent = createAgent({
         provider,
         model: 'fixture',
@@ -137,14 +173,12 @@ describe('direct SDK skill visibility follows the effective tool pool', () => {
         });
         while (!(await stream.next()).done) {}
         expect(requests[1]?.tools?.map((tool) => tool.name)).toEqual(['skills_list']);
-        const listed = requests[2]?.messages
-          .flatMap((message) => message.content)
-          .find((block) => block.type === 'tool_result' && block.tool_use_id === 'call-2');
-        if (listed?.type !== 'tool_result') throw new Error('missing list result');
-        expect(listed.content).not.toContain('terminalOnly');
-        expect(listed.content).not.toContain('terminalSetOnly');
-        expect(listed.content).toContain('terminalFallback');
-        expect(listed.content).toContain('terminalSetFallback');
+        expect(listedPages.length).toBeGreaterThan(0);
+        const listed = listedPages.join('\n');
+        expect(listed).not.toContain('terminalOnly');
+        expect(listed).not.toContain('terminalSetOnly');
+        expect(listed).toContain('terminalFallback');
+        expect(listed).toContain('terminalSetFallback');
       } finally {
         runtime.dispose();
       }

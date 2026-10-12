@@ -116,6 +116,8 @@ export type Terminal = {
  * segments are concatenated and the marker is ignored.
  */
 export type SystemSegment = {
+  /** Host catalog segments can be re-budgeted at the effective model boundary. */
+  kind?: 'skill-catalog' | 'skill-guidance';
   text: string;
   cacheable: boolean;
 };

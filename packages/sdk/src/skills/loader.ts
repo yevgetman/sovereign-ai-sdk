@@ -3,7 +3,8 @@
 // when a slash command or SkillTool invokes one.
 
 import { createHash } from 'node:crypto';
-import { realpath } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { open, realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
@@ -19,6 +20,7 @@ import {
   discoverSkills,
   observeSkillDiagnostic,
 } from './discovery.js';
+import { assertSkillFileIdentity, captureSkillFileIdentity } from './fileIdentity.js';
 import { readBoundedSkillContent } from './fileRead.js';
 import { splitCommaList, splitFrontmatter } from './frontmatter.js';
 import {
@@ -231,10 +233,31 @@ function substituteEnvCommand(command: string, env: SkillEnv): string {
 }
 
 export type { SkillClassification, SkillRoot } from './discovery.js';
-export type LoadSkillsOptions = SkillDiscoveryOptions;
+export type LoadSkillsOptions = SkillDiscoveryOptions & {
+  /** Metadata mode reads only bounded frontmatter. Full body/resource guard
+   * is deferred until reload/activation/inspection; default eager is compatible. */
+  mode?: 'eager' | 'metadata';
+  metadataMaxBytes?: number;
+  onLoadStats?: (stats: {
+    candidateReads: number;
+    bytesRead: number;
+    deferredBodies: number;
+    rejected: number;
+    elapsedMs: number;
+  }) => void;
+};
 
 export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry> {
+  const started = performance.now();
   const discovery = await discoverSkills(opts);
+  const metadataMaxBytes =
+    opts.metadataMaxBytes ?? Math.min(64 * 1024, discovery.limits.maxFileBytes);
+  if (
+    !Number.isSafeInteger(metadataMaxBytes) ||
+    metadataMaxBytes < 1 ||
+    metadataMaxBytes > discovery.limits.maxFileBytes
+  )
+    throw new Error('skill metadataMaxBytes must be positive and within the file read limit');
   const byName = new Map<string, Skill>();
   const skills: Skill[] = [];
   const readBudget: SkillGuardResourceBudget = {
@@ -251,8 +274,9 @@ export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry
       candidate.classification,
       opts.warn,
       candidate.root.pluginRoot,
-      budget,
+      opts.mode === 'metadata' ? Math.min(budget, metadataMaxBytes) : budget,
       readBudget,
+      opts.mode === 'metadata',
     );
     const decision = {
       path: candidate.path,
@@ -285,13 +309,34 @@ export async function loadSkills(opts: LoadSkillsOptions): Promise<SkillRegistry
     skills.push(loaded);
   }
   skills.sort((a, b) => a.name.localeCompare(b.name));
+  try {
+    Promise.resolve(
+      opts.onLoadStats?.({
+        candidateReads: discovery.candidates.length,
+        bytesRead: discovery.limits.maxTotalBytes - readBudget.bytesRemaining,
+        deferredBodies: skills.filter((skill) => skill.guardDeferred).length,
+        rejected: discovery.candidates.length - skills.length,
+        elapsedMs: performance.now() - started,
+      }),
+    ).catch(() => undefined);
+  } catch {
+    /* Diagnostics cannot change the loaded catalog. */
+  }
   return { skills, byName };
+}
+
+export function assertSkillContentLoaded(skill: Skill): void {
+  if (skill.bodyLoaded === false || skill.guardDeferred === true)
+    throw new Error(
+      `skill '${skill.name}' requires full body/resource validation before expansion or activation`,
+    );
 }
 
 export async function expandSkillPrompt(
   skill: Skill,
   opts: SkillExpansionOptions,
 ): Promise<string> {
+  assertSkillContentLoaded(skill);
   return expandSkillText(skill, skill.body, opts);
 }
 
@@ -300,6 +345,7 @@ export async function expandSkillText(
   text: string,
   opts: SkillExpansionOptions,
 ): Promise<string> {
+  assertSkillContentLoaded(skill);
   const args = opts.args ?? '';
   const argsTrimmed = args.trim();
 
@@ -339,9 +385,10 @@ export async function expandSkillText(
 
 export async function reloadSkill(skill: Skill, warn?: (message: string) => void): Promise<Skill> {
   const currentRealpath = await realpath(skill.path);
-  const expectedRealpath = skill.revision
-    ? skill.realpath
-    : join(await realpath(dirname(skill.realpath)), basename(skill.realpath));
+  const expectedRealpath =
+    skill.revision || skill.metadataRevision
+      ? skill.realpath
+      : join(await realpath(dirname(skill.realpath)), basename(skill.realpath));
   if (currentRealpath !== expectedRealpath) {
     throw new Error(`skill '${skill.name}' changed its resolved path; reload the registry`);
   }
@@ -380,6 +427,7 @@ async function loadSkillFile(
   pluginRoot?: string,
   maxBytes = DEFAULT_SKILL_DISCOVERY_LIMITS.maxFileBytes,
   resourceBudget?: SkillGuardResourceBudget,
+  metadataOnly = false,
 ): Promise<Skill | null> {
   try {
     const budget = resourceBudget ?? {
@@ -388,22 +436,31 @@ async function loadSkillFile(
       fileBytesLimit: maxBytes,
       depthLimit: DEFAULT_SKILL_DISCOVERY_LIMITS.maxDepth,
     };
-    const raw = await readBoundedSkillFile(path, rp, maxBytes, (bytes) => {
-      budget.bytesRemaining -= bytes;
-    });
-    const guard = await guardSkillLoad({
-      path: rp,
-      raw,
-      resourceBudget: budget,
-      ...(basename(path).toLowerCase() === 'skill.md' ? { resourceRoot: dirname(rp) } : {}),
-      trustTier: classification.trustTier,
-    });
+    const raw = await readBoundedSkillFile(
+      path,
+      rp,
+      maxBytes,
+      (bytes) => {
+        budget.bytesRemaining -= bytes;
+      },
+      metadataOnly,
+    );
+    const guard = metadataOnly
+      ? guardSkillText(raw, classification.trustTier)
+      : await guardSkillLoad({
+          path: rp,
+          raw,
+          resourceBudget: budget,
+          ...(basename(path).toLowerCase() === 'skill.md' ? { resourceRoot: dirname(rp) } : {}),
+          trustTier: classification.trustTier,
+        });
     if (guard.action === 'block') {
       observeSkillDiagnostic(warn, `skill skipped (${path}): ${formatGuardBlockMessage(guard)}`);
       return null;
     }
     return loadSkillText(raw, {
       ...classification,
+      metadataOnly,
       path,
       realpath: rp,
       guard,
@@ -504,9 +561,51 @@ async function readBoundedSkillFile(
   rp: string,
   maxBytes: number,
   onRead?: (bytes: number) => void,
+  metadataOnly = false,
 ): Promise<string> {
   if (maxBytes <= 0) throw new Error('skill discovery read budget exhausted');
-  return readBoundedSkillContent(path, rp, maxBytes, onRead);
+  if (!metadataOnly) return readBoundedSkillContent(path, rp, maxBytes, onRead);
+  if ((await realpath(path)) !== rp || (await realpath(rp)) !== rp)
+    throw new Error('skill real path changed before reading');
+  const identity = await captureSkillFileIdentity(rp);
+  const handle = await open(rp, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    await assertSkillFileIdentity(rp, handle, identity);
+    const buffer = Buffer.alloc(maxBytes);
+    let length = 0;
+    let header: string | undefined;
+    while (length < buffer.length) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        length,
+        Math.min(256, buffer.length - length),
+        null,
+      );
+      if (bytesRead === 0) break;
+      length += bytesRead;
+      const prefix = buffer.subarray(0, length).toString('utf8');
+      const match = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n)/.exec(prefix);
+      if (match) {
+        header = match[0];
+        break;
+      }
+    }
+    onRead?.(Math.min(length, maxBytes));
+    if (!header) {
+      const prefix = buffer.subarray(0, length).toString('utf8');
+      if (length === identity.file.size) header = /^---\r?\n[\s\S]*?\r?\n---$/.exec(prefix)?.[0];
+      if (!header)
+        throw new Error(
+          'skill frontmatter exceeds bounded metadata read limit or has no closing delimiter',
+        );
+    }
+    if ((await realpath(path)) !== rp || (await realpath(rp)) !== rp)
+      throw new Error('skill real path or file identity changed while reading');
+    await assertSkillFileIdentity(rp, handle, identity);
+    return header;
+  } finally {
+    await handle.close();
+  }
 }
 
 // Resolve env placeholders SPAN-AWARE, then run each author inline-shell span.

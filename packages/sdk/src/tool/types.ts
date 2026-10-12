@@ -82,6 +82,8 @@ export type ToolContext = {
   ) => void | Promise<void>;
   /** Canonical live catalog. Tools read it per call, after visibility filters. */
   skillRegistryManager?: import('../skills/registry.js').SkillRegistryManager;
+  /** Frozen effective-model allocation for skill metadata and retained guidance. */
+  skillContextBudget?: import('../skills/budget.js').SkillContextBudget;
   /** Phase 13 — sub-agent definitions available for delegation via AgentTool. */
   agents?: import('../agents/types.js').AgentRegistry;
   /** Explicit inherited host policy and host-stamped recursion depth. */

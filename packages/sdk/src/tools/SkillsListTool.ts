@@ -1,84 +1,72 @@
-import { getSkillRegistry } from '../skills/registry.js';
-// Progressive skills discovery. The system prompt carries only a reminder;
-// models call this tool to see the current visible skill index on demand.
+// Progressive skill discovery. Small catalogs receive a bounded metadata
+// index; models search and page the current visible catalog on demand.
 
 import { z } from 'zod';
+import { listSkillCatalog } from '../skills/catalog.js';
 import { isSkillInvocable } from '../skills/descriptor.js';
-import { splitWhenToUseTriggers } from '../skills/whenToUse.js';
+import { getSkillRegistrySnapshot } from '../skills/registry.js';
 import { buildTool } from '../tool/buildTool.js';
 
-const OUTPUT_CHAR_CAP = 3_000;
-
 const inputSchema = z.object({
-  query: z.string().optional().describe('Optional case-insensitive filter by name or description.'),
+  query: z
+    .string()
+    .max(256)
+    .optional()
+    .describe('Optional case-insensitive filter by name, description or trigger.'),
+  cursor: z
+    .string()
+    .max(2048)
+    .optional()
+    .describe(
+      'Continuation from the previous page. Keep the same query; changed catalogs require restart.',
+    ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe('Maximum entries per page (default 25; byte budget may return fewer).'),
 });
 
 type Input = z.infer<typeof inputSchema>;
 
-type ListedSkill = {
-  name: string;
-  description: string;
-  /** Single trigger predicate or an array of predicates when whenToUse
-   *  is a semicolon-separated multi-trigger value (Phase 9.6). The model
-   *  reads each entry as a discrete if-then activation rule. */
-  whenToUse: string | string[];
-};
-
-type Output = {
-  query?: string;
-  skills: ListedSkill[];
-  truncated: boolean;
-};
+type Output = import('../skills/catalog.js').SkillCatalogPage;
 
 export const SkillsListTool = buildTool<Input, Output>({
   name: 'skills_list',
   description: () =>
-    'List visible skills by name and short description. Use query to narrow the index.',
+    'Search or page every enabled skill. Follow nextCursor with the same query to enumerate the catalog. metadataTruncated means inspect with skill_view; nameFragment segments reconstruct an oversized name. budgetExhausted requires more context headroom.',
   inputSchema,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
   renderHint: { kind: 'tree' },
   checkPermissions: async () => ({ behavior: 'allow' }),
   async call(input, ctx) {
-    const needle = input.query?.trim().toLowerCase();
-    const candidates = (getSkillRegistry(ctx).skills ?? [])
-      .filter((skill) => isSkillInvocable(skill, 'model'))
-      .filter((skill) => {
-        if (!needle) return true;
-        return [skill.name, skill.description, skill.whenToUse]
-          .join('\n')
-          .toLowerCase()
-          .includes(needle);
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    const skills: ListedSkill[] = [];
-    let chars = 0;
-    let truncated = false;
-    for (const skill of candidates) {
-      const triggers = splitWhenToUseTriggers(skill.whenToUse);
-      const listed: ListedSkill = {
-        name: skill.name,
-        description: skill.description,
-        whenToUse: triggers.length > 1 ? triggers : skill.whenToUse,
-      };
-      const nextChars = chars + JSON.stringify(listed).length + 2;
-      if (nextChars > OUTPUT_CHAR_CAP) {
-        truncated = true;
-        break;
-      }
-      chars = nextChars;
-      skills.push(listed);
-    }
-
-    return {
-      data: {
+    const snapshot = getSkillRegistrySnapshot(ctx);
+    const data = listSkillCatalog(
+      snapshot.registry.skills.filter((skill) => isSkillInvocable(skill, 'model')),
+      {
+        generation: snapshot.generation,
         ...(input.query !== undefined ? { query: input.query } : {}),
-        skills,
-        truncated,
+        ...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
+        ...(input.limit !== undefined ? { limit: input.limit } : {}),
+        ...(ctx.skillContextBudget !== undefined ? { budget: ctx.skillContextBudget } : {}),
       },
-      observation:
-        skills.length === 0
+    );
+    const needle = input.query?.trim();
+    const { skills, truncated } = data;
+    return {
+      data,
+      observation: data.budgetExhausted
+        ? {
+            status: 'warning',
+            summary: 'skill catalog page exceeds current context budget',
+            next_actions: [
+              'reduce history or increase the host context allowance, then retry without cursor',
+            ],
+          }
+        : skills.length === 0
           ? {
               status: 'warning',
               summary: needle
@@ -93,11 +81,14 @@ export const SkillsListTool = buildTool<Input, Output>({
             }
           : {
               status: 'success',
-              summary: `${skills.length} skill${skills.length === 1 ? '' : 's'}${truncated ? ' (truncated)' : ''}`,
+              summary: `${skills.length} of ${data.total} matching skills${truncated ? ' (continue with nextCursor)' : ''}`,
+              ...(truncated
+                ? { next_actions: ['call skills_list with nextCursor and the same query'] }
+                : {}),
             },
     };
   },
   renderResult: (out) => ({
-    content: out.skills.length === 0 ? 'No visible skills matched.' : JSON.stringify(out, null, 2),
+    content: JSON.stringify(out),
   }),
 });

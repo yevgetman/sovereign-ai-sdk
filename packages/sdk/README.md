@@ -167,6 +167,12 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
   Discovery also supports bounded native/portable roots, managed links, explicit
   external link approval and structured diagnostics via `discoverSkills`.
   Filesystem discovery is optional; `createAgent` remains disk-free by default.
+  `listSkillCatalog` and `buildSkillCatalogIndex` provide complete cursor-based
+  enumeration and bounded metadata indexes. `resolveSkillContextBudget` derives
+  metadata and guidance allocations from frozen effective model limits, with a
+  conservative unknown-window fallback. `loadSkills({ mode: 'metadata', ... })`
+  defers full body/resource scans until inspection or activation. See
+  [skill catalogs](../../docs/04-extending/skill-catalog.md).
   Optional `SkillWritableStore`, `InMemorySkillStore` and
   `FilesystemSkillStore` provide explicit validated mutations, full-tree revision
   checks, paginated enumeration and committed events. See

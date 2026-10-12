@@ -41,6 +41,10 @@ import { listRoutes } from '../providers/routes/catalog.js';
 import { validateRouteSelection } from '../providers/routes/validate.js';
 import type { ProviderRequest } from '../providers/types.js';
 import { createSkillActivationState, createSkillChildPermission } from '../skills/activation.js';
+import { resolveSkillContextBudget } from '../skills/budget.js';
+import { buildSkillCatalogIndex } from '../skills/catalog.js';
+import { isSkillInvocable } from '../skills/descriptor.js';
+import { getSkillRegistrySnapshot } from '../skills/registry.js';
 import { inferActiveToolsets } from '../skills/visibility.js';
 import { intersectCanUseTool } from '../tool/capabilityProfiles.js';
 import type { Tool, ToolContext } from '../tool/types.js';
@@ -162,7 +166,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     provider,
     model,
     messages,
-    systemPrompt,
+    systemPrompt: initialSystemPrompt,
     tools,
     temperature,
     effort,
@@ -182,11 +186,12 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   // Generic host contexts retain the public query() identity contract.
   const skillsEnabled = Boolean(
     params.toolContext?.skills ||
-      params.toolContext?.skillActivation ||
-      params.toolContext?.skillRegistryManager,
+      params.toolContext?.skillRegistryManager ||
+      params.toolContext?.skillActivation,
   );
   const toolCtx: ToolContext | undefined =
     skillsEnabled && params.toolContext ? { ...params.toolContext } : params.toolContext;
+  let systemPrompt = initialSystemPrompt;
   const inheritedChildPermission = toolCtx?.canUseTool;
   const hostPermission =
     inheritedActivation && params.canUseTool && params.canUseTool !== inheritedActivation.canUseTool
@@ -442,6 +447,41 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
     }
   }
 
+  const refreshSkillCatalog = (): void => {
+    if (!toolCtx || !skillsEnabled) return;
+    const standing = systemPrompt.filter((segment) => segment.kind !== 'skill-catalog');
+    const budget = resolveSkillContextBudget({
+      ...(effectiveModelLimits ? { contextWindowTokens: effectiveModelLimits.contextTokens } : {}),
+      outputTokens: outputCeiling,
+      reservedInputTokens: params.inputTokenCounter
+        ? params.inputTokenCounter({
+            model,
+            messages: history,
+            system: standing,
+            tools: toToolSchemas(activationState.tools),
+            maxTokens: outputCeiling,
+            ...(modelMetadata ? { modelMetadata } : {}),
+          })
+        : requestInputTokenEstimate(history, standing, toToolSchemas(activationState.tools)).tokens,
+    });
+    toolCtx.skillContextBudget = budget;
+    const snapshot = getSkillRegistrySnapshot(toolCtx);
+    const index = buildSkillCatalogIndex(
+      snapshot.registry.skills.filter((skill) => isSkillInvocable(skill, 'model')),
+      {
+        generation: snapshot.generation,
+        budget,
+      },
+    );
+    systemPrompt =
+      activationState.tools.some((tool) => tool.name === 'skills_list') && index.text
+        ? [
+            ...standing,
+            { text: index.text, cacheable: cacheEnabled, kind: 'skill-catalog' as const },
+          ]
+        : standing;
+  };
+
   let overflowRecoveries = 0;
   let toolsDispatched = false;
   const contextSignal = signal ?? new AbortController().signal;
@@ -462,6 +502,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       });
       // Model history only; createAgent persists its separate full transcript.
       history = reduced.messages;
+      refreshSkillCatalog();
       return { type: 'context_management', info: reduced.info };
     } catch (error) {
       if (error instanceof ContextManagementError && error.info) throw error;
@@ -507,6 +548,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
         }
 
         maxTokens = outputCeiling;
+        refreshSkillCatalog();
         const request: ProviderRequest = {
           model,
           system: systemPrompt,
@@ -582,6 +624,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
           assertRequestFits(inputTokens, maxTokens, effectiveModelLimits);
         }
         request.messages = history;
+        request.system = systemPrompt;
         request.maxTokens = maxTokens;
         validateModelRequest(request, provider.name, modelMetadata);
         requestStart = Date.now();

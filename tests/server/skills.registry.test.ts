@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSkillRuntime } from '@yevgetman/sov-sdk/skills/runtime';
+import { reloadSkill } from '../../packages/sdk/src/skills/loader.js';
 import { createSkillRegistryManager } from '../../packages/sdk/src/skills/registry.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildServerCommandContext } from '../../src/server/commandContext.js';
@@ -75,7 +76,11 @@ describe('live server skill catalogs', () => {
         body: JSON.stringify({ source, force: true }),
       });
       expect(edited.status).toBe(200);
-      expect(runtime.skills.byName.get('newSkill')?.body).toContain('Changed guidance');
+      const metadata = runtime.skills.byName.get('newSkill');
+      expect(metadata?.body).toBe('');
+      expect(metadata?.guardDeferred).toBe(true);
+      if (!metadata) throw new Error('Imported skill is missing from the catalog');
+      expect((await reloadSkill(metadata)).body).toContain('Changed guidance');
       const removed = await app.request(`/sessions/${sessionId}/skills/newSkill`, {
         method: 'DELETE',
       });
