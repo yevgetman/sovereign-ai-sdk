@@ -1,3 +1,13 @@
+## 2026-10-11 — Eighth review PR56: fresh fallback activation obeys visibility
+
+Confirmed Medium in the registry consumer introduced by PR56: direct `SkillTool` without a composed runtime checks only the cached visible descriptor, then activates fresh same-path metadata that requires missing tools or excludes the active primary. Two real filesystem failed-before cases disclose unavailable guidance and append an activation. The fallback now resolves and rechecks fresh name/prerequisites inside the shared activation queue against its current state tools and host profile tags, before prompt expansion or activation publication. No new public API is added. PR57's composed runtime already has this check.
+
+`bun run test ./tests/skills/toolFreshVisibility.test.ts` fails both new incoming-source cases before correction. `bun run test ./tests/skills/toolFreshVisibility.test.ts ./tests/skills/viewFreshVisibility.test.ts ./tests/skills/activationConcurrency.test.ts` passes **13 tests / zero failures / 35 assertions** after correction. Environment: Darwin arm64, Bun 1.3.13, temporary filesystem catalog, no paid provider or installed-host change.
+
+An isolated effect witness (`bun run /private/tmp/review8-fallback-effects.ts`) keeps actual Bash host-approved while fresh metadata requires absent FileWrite. Corrected fallback rejects before expansion: **zero Bash calls / zero activation records**. The fresh visible positive control performs **one approved Bash spy call / one activation record**. The witness uses no real shell effect and changes no tracked source.
+
+Complete corrected-source gate (`python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review8-20261011/pr56 review8-pr56-fallback`) passes **5,948 tests / 19 existing skips / zero failures**, 24,837 assertions across all 573 discovered files. Configured lint/boundary, root types and strict SDK build pass. Every original file runs with global compiler/theme/timing/subprocess fixtures isolated and no weaker assertions. PR57 must inherit this fallback resolver check while keeping its already-correct composed activation path.
+
 ## 2026-10-11 — Eighth review PR56: fresh skill inspection obeys visibility
 
 Confirmed Medium: `skill_view` checks the cached visible descriptor, then reloads a fresh descriptor without checking its name or prerequisites. A same-path edit can rename the workflow or add missing tool/toolset requirements (or active fallback exclusions) and still expose fresh body/reference guidance. Inspection now rechecks the fresh descriptor against the current activation tool pool and host profile tags before disclosure.

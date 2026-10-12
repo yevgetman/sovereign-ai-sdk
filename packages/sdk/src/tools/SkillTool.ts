@@ -5,6 +5,8 @@ import { getSkillRegistry } from '../skills/registry.js';
 
 import { z } from 'zod';
 import { type SkillActivationEnvelope, activateSkill } from '../skills/activation.js';
+import { reloadSkill } from '../skills/loader.js';
+import { inferActiveToolsets, isSkillVisible } from '../skills/visibility.js';
 import { buildTool } from '../tool/buildTool.js';
 
 const inputSchema = z.object({
@@ -42,11 +44,22 @@ export const SkillTool = buildTool<Input, Output>({
     }
     if (!ctx.skillActivation)
       throw new Error('SkillTool requires a turn-owned skill activation state');
+    const state = ctx.skillActivation;
     const { prompt, activation } = await activateSkill(skill, {
       source: 'model',
       args: input.args ?? '',
       toolContext: ctx,
-      state: ctx.skillActivation,
+      state,
+      resolveSkill: async (candidate) => {
+        const current = await reloadSkill(candidate);
+        const names = state.tools.map((tool) => tool.name);
+        if (
+          current.name !== input.skill ||
+          !isSkillVisible(current, inferActiveToolsets(names, ctx.activeToolsets), names)
+        )
+          throw new Error(`unknown or unavailable skill '${input.skill}'`);
+        return current;
+      },
     });
     return {
       data: {
