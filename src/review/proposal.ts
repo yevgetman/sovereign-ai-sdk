@@ -27,6 +27,7 @@ const SkillProposalMetaSchema = z.object({
   ...ProvenanceBase,
   type: z.literal('skill'),
   skillName: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]*$/),
+  appliedSkillRevision: z.string().optional(),
   sourceMessageRange: z.tuple([z.number(), z.number()]),
   sourceHash: z.string(),
   sourceExcerpt: z.string(),

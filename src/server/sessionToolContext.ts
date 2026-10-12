@@ -2,11 +2,13 @@
 // headless SDK host, OpenAI, cron, channels and workflows. Moved verbatim from
 // src/server/routes/turns.ts (which re-exports it for existing importers).
 
+import { join } from 'node:path';
 import { readConfig } from '@yevgetman/sov-sdk/config/store';
 import type { CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
 import { buildToolContext } from '@yevgetman/sov-sdk/tool/buildToolContext';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import type { DelegationLifecycleEvent } from '../router/progressEvents.js';
+import { createSovSkillStore } from '../skills/store.js';
 import type { Runtime } from './runtime.js';
 
 /** Build the per-turn ToolContext for `runTurnInBackground`'s `query()`
@@ -77,7 +79,7 @@ export function buildSessionToolContext(
   const webSearch =
     runtime.injectedSettings?.webSearch ??
     readConfig({ harnessHome: runtime.harnessHome }).webSearch;
-  return buildToolContext({
+  const context = buildToolContext({
     cwd: runtime.cwd,
     sessionId,
     harnessHome: runtime.harnessHome,
@@ -115,4 +117,8 @@ export function buildSessionToolContext(
     // with no SSE bus, e.g. cron + OpenAI).
     delegationLifecycleRecorder: opts.delegationLifecycleRecorder,
   });
+  return {
+    ...context,
+    skillStore: createSovSkillStore(join(runtime.harnessHome, 'skills', 'agent-created')),
+  };
 }

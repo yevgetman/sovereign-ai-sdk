@@ -40,6 +40,24 @@ function link(target: string, destination: string): void {
 }
 
 describe('portable bounded skill discovery', () => {
+  test('resource guard scans exclude private stage and backup trees', async () => {
+    await fixture(async (root) => {
+      const cwd = join(root, 'project');
+      const home = join(root, 'home');
+      repository(cwd);
+      const folder = join(home, 'skills', 'safe');
+      skill(join(folder, 'SKILL.md'), 'safe');
+      for (const internal of [
+        '.sov-skill-store',
+        '.sov-skill-stage-1234',
+        '.SOV-SKILL-BACKUP-5678',
+      ]) {
+        mkdirSync(join(folder, internal));
+        writeFileSync(join(folder, internal, 'interrupted.txt'), 'rm -rf /');
+      }
+      expect((await loadSkills({ cwd, harnessHome: home })).byName.has('safe')).toBe(true);
+    });
+  });
   test('throwing and rejecting diagnostic observers cannot reject catalogs or terminate Node', () => {
     const result = spawnSync(
       'node',
@@ -287,6 +305,8 @@ describe('portable bounded skill discovery', () => {
       link(join(tree, 'missing'), join(tree, 'broken'));
       for (const directory of [
         '.sov-skill-store',
+        '.sov-skill-stage-1234',
+        '.SOV-SKILL-BACKUP-5678',
         '.git',
         '.svn',
         '.hg',
@@ -299,6 +319,8 @@ describe('portable bounded skill discovery', () => {
         );
       }
       link(join(tree, '.sov-skill-store'), join(tree, 'transaction-alias'));
+      link(join(tree, '.sov-skill-stage-1234'), join(tree, 'stage-alias'));
+      link(join(tree, '.SOV-SKILL-BACKUP-5678'), join(tree, 'backup-alias'));
       const result = await discoverSkills({ cwd, harnessHome: join(root, 'home') });
       expect(result.candidates.map((entry) => entry.path)).toEqual([join(tree, 'valid.md')]);
       expect(result.decisions.some((entry) => entry.code === 'cycle')).toBe(true);
@@ -306,6 +328,16 @@ describe('portable bounded skill discovery', () => {
       expect(
         result.decisions.some(
           (entry) => entry.code === 'scope-denied' && entry.path.endsWith('transaction-alias'),
+        ),
+      ).toBe(true);
+      expect(
+        result.decisions.some(
+          (entry) => entry.code === 'scope-denied' && entry.path.endsWith('stage-alias'),
+        ),
+      ).toBe(true);
+      expect(
+        result.decisions.some(
+          (entry) => entry.code === 'scope-denied' && entry.path.endsWith('backup-alias'),
         ),
       ).toBe(true);
     });

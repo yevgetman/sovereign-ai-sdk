@@ -167,6 +167,11 @@ Everything below is exported from the package entry (`@yevgetman/sov-sdk`):
   Discovery also supports bounded native/portable roots, managed links, explicit
   external link approval and structured diagnostics via `discoverSkills`.
   Filesystem discovery is optional; `createAgent` remains disk-free by default.
+  Optional `SkillWritableStore`, `InMemorySkillStore` and
+  `FilesystemSkillStore` provide explicit validated mutations, full-tree revision
+  checks, paginated enumeration and committed events. See
+  [skill storage](../../docs/04-extending/skill-storage.md). No writable store or
+  machine home is selected for an embedded context by default.
 - **Persistence & ports** — `createInMemorySessionStore` / the `SessionStore`
   port, the `TranscriptStore` port (+ no-op impl), and the injected port types
   for memory, recall, and observation (`MemoryRuntime`, `RecallResult`,

@@ -72,6 +72,12 @@ export type ToolContext = {
   skills?: import('../skills/types.js').SkillRegistry;
   /** Fresh per-turn state. Model activation can only narrow this pool/gate. */
   skillActivation?: import('../skills/activation.js').SkillActivationState;
+  /** Explicit writable skill store. Embedded contexts never choose a machine home. */
+  skillStore?: import('../skills/storeTypes.js').SkillWritableStore;
+  /** Notify the host after a commit; active registry snapshots remain stable. */
+  onSkillMutation?: (
+    event: import('../skills/storeTypes.js').SkillMutationEvent,
+  ) => void | Promise<void>;
   /** Phase 13 — sub-agent definitions available for delegation via AgentTool. */
   agents?: import('../agents/types.js').AgentRegistry;
   /** Explicit inherited host policy and host-stamped recursion depth. */
