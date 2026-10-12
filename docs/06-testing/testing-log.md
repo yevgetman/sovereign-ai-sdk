@@ -1,3 +1,32 @@
+## 2026-10-11 — Sixth review PR54: close races during complete-tree capture
+
+Confirmed High: replacing SKILL.md after the final snapshot opened it returned a
+successful mutation receipt for the old bytes while the stored revision and body
+differed. The same capture accepted a changed file mode, an edit to an earlier
+captured leaf and a resource added after enumeration. Snapshot now checks the
+opened handle against both pre-open and current leaf metadata, verifies directory
+stability, and rechecks all captured files and directories before returning.
+
+Eight isolated packaged-Node regression cases cover create/edit across these four
+triggers. Before rebuilding the corrected worker, all eight failed because the
+mutation resolved with a false receipt. After correction, the focused publication,
+capture and storage-safety suite passes 37 tests. Assertions cover no emitted event,
+retained previous revision, complete rollback and cleaned transaction leaves.
+Environment: macOS arm64, Bun 1.3.13, Node 25.9.0. Commands: local SDK/TUI builds,
+`bun test tests/skills/storeCaptureRace.test.ts tests/skills/storePublicationRace.test.ts tests/skills/storeSafetyReview.test.ts --timeout 20000`.
+Additional confirmed Medium: accepting an owner-nontraversable directory mode
+left an unremovable stage and blocked every later operation with EACCES. Both
+adapters now reject unreadable file modes and nontraversable directory modes
+before staging. Seven mode regressions failed before correction. Three further
+regressions pin complete implicit directory maps for legal JavaScript prototype
+names; these failed before correction because inherited keys hid real parents.
+One control preserves read-only 0440 files / 0550 directories and immediate CAS.
+Full configured lint/boundary, root typecheck, strict SDK build and all 563
+discovered test files pass: **5,873 passed / 19 existing skips / zero failures**,
+24,455 assertions. Compiler/theme/timing/subprocess fixture isolation preserves
+every file and assertion. No live inference,
+installed-host upgrade, release or master merge.
+
 ## 2026-10-11 — Fifth-review complete source gate for PR54 compatibility
 
 Scope: owning review changes and ordinary parent correction carry in dependency order. Commands: frozen dependency install without scripts, public protocol/SDK build, TUI build, then configured lint/boundary, root types, strict SDK build and every discovered test file. Result: **5,854 passed / 19 existing skips / zero failures**, 24,323 assertions across all 561 files. Compiler, shared-theme, redaction-timing and subprocess fixtures run separately; no file or assertion is omitted. Prior testing histories remain intact. This validates review source; no master merge, release or installed-host change is performed.
