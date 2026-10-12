@@ -424,9 +424,9 @@ export function buildServerCommandContext(
     activeToolNames,
     activeToolsets,
     skillRegistryManager: runtime.skillRegistryManager,
-    onSkillMutation: async () => {
-      await runtime.skillRegistryManager.refresh();
-    },
+    skillRuntime: runtime.skillRuntime,
+    ...(runtime.skillRuntime.store ? { skillStore: runtime.skillRuntime.store } : {}),
+    onSkillMutation: (event) => runtime.skillRuntime.onMutation(event),
     getLastAssistantText: (): string | null => {
       for (let i = messages.length - 1; i >= 0; i--) {
         const m = messages[i];

@@ -33,6 +33,10 @@ export type SkillHarnessMetadata = {
 export type Skill = {
   /** Content digest recorded at load time. Optional for host-created descriptors. */
   revision?: string;
+  /** Header digest is not a full activation/content revision. */
+  metadataRevision?: string;
+  bodyLoaded?: boolean;
+  guardDeferred?: boolean;
   /** Present on all loader-produced skills; optional for legacy injected objects. */
   descriptor?: SkillDescriptor;
   name: string;

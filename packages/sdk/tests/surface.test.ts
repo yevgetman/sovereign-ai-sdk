@@ -215,6 +215,11 @@ import type {
   SkillRegistryManager,
   SkillRegistrySnapshot,
   SkillRoot,
+  SkillRuntime,
+  SkillRuntimeActivationOptions,
+  SkillRuntimeEvent,
+  SkillRuntimeInspection,
+  SkillRuntimeOptions,
   SkillSource,
   SkillStoreFile,
   SkillStoreListOptions,
@@ -325,6 +330,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'createOpenRouterModelSource',
   'createSkillActivationState',
   'createSkillRegistryManager',
+  'createSkillRuntime',
   'createSubscriptionModelSource',
   'createTurnLogRecorder',
   'createUsageAccumulator',
@@ -349,6 +355,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'isSkillInvocable',
   'isToolsetName',
   'loadSkillRegistry',
+  'loadSkillText',
   'loadSkills',
   'loadSubscriptionProvider',
   'normalizeDirectModel',
@@ -431,6 +438,11 @@ describe('sdk barrel — the 0.1.0 semver-contract surface snapshot', () => {
  *  compilation here — the type-surface half of the 0.1.0 contract (values are
  *  erased at runtime; types are not, so they need a compile-time pin). */
 type TypeSurfaceWitness = {
+  skillRuntime?: SkillRuntime;
+  skillRuntimeOptions?: SkillRuntimeOptions;
+  skillRuntimeEvent?: SkillRuntimeEvent;
+  skillRuntimeInspection?: SkillRuntimeInspection;
+  skillRuntimeActivationOptions?: SkillRuntimeActivationOptions;
   filesystemSkillStoreOptions?: FilesystemSkillStoreOptions;
   skillStoreOptions?: SkillStoreOptions;
   skillMutation?: SkillMutation;

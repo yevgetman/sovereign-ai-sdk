@@ -249,4 +249,10 @@ runCanary({
   token: 'CONTEXT_CHILD_OK',
   extraInstalls: ['zod@^3.24.0'],
 });
+runCanary({
+  name: '@yevgetman/sov-sdk',
+  pkgDir: join(repo, 'packages/sdk'),
+  consumer: join(here, 'skill-runtime-consumer.mjs'),
+  token: 'SKILL_RUNTIME_OK',
+});
 console.log('All consumer canaries passed.');

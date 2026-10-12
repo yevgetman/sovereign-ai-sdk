@@ -2,13 +2,11 @@
 // headless SDK host, OpenAI, cron, channels and workflows. Moved verbatim from
 // src/server/routes/turns.ts (which re-exports it for existing importers).
 
-import { join } from 'node:path';
 import { readConfig } from '@yevgetman/sov-sdk/config/store';
 import type { CanUseTool } from '@yevgetman/sov-sdk/permissions/types';
 import { buildToolContext } from '@yevgetman/sov-sdk/tool/buildToolContext';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import type { DelegationLifecycleEvent } from '../router/progressEvents.js';
-import { createSovSkillStore } from '../skills/store.js';
 import type { Runtime } from './runtime.js';
 
 /** Build the per-turn ToolContext for `runTurnInBackground`'s `query()`
@@ -99,6 +97,7 @@ export function buildSessionToolContext(
     // `/skillname` dispatch + the GET /skills route's own per-request view.
     skills: runtime.skills,
     skillRegistryManager: runtime.skillRegistryManager,
+    skillRuntime: runtime.skillRuntime,
     canUseTool: sessionCanUseTool,
     // M8 T3 — per-session subdirectory-hint dedup state (passed by reference so
     // the dedup Set persists across the session's turn loop).
@@ -118,11 +117,5 @@ export function buildSessionToolContext(
     // with no SSE bus, e.g. cron + OpenAI).
     delegationLifecycleRecorder: opts.delegationLifecycleRecorder,
   });
-  return {
-    ...context,
-    skillStore: createSovSkillStore(join(runtime.harnessHome, 'skills', 'agent-created')),
-    onSkillMutation: async () => {
-      await runtime.skillRegistryManager.refresh();
-    },
-  };
+  return context;
 }

@@ -499,12 +499,17 @@ async function runTurnInBackground(
       context.signal = turnSignal;
       context.traceRecorder = traceRecorder;
       context.skillActivation = state;
-      const result = await activateSkill(skill, {
+      const activationOptions = {
         source: skillInvocation.source,
         args: skillInvocation.args,
         toolContext: context,
         state,
-      });
+      };
+      const canonical = runtime.skills.byName.get(skill.name);
+      const result =
+        canonical?.path === skill.path && canonical.realpath === skill.realpath
+          ? await runtime.skillRuntime.activate(skill.name, activationOptions)
+          : await activateSkill(skill, activationOptions);
       text = result.prompt;
       skillActivation = result.activation;
       skillScope =

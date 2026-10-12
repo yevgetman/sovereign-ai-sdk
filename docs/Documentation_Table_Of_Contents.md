@@ -54,6 +54,7 @@ Recipes for adding extension points.
 - [Skill compatibility](04-extending/skill-compatibility.md) — portable descriptors, invocation controls, tool-policy distinctions and explicit unsupported behavior.
 - [Extending the harness](04-extending/extending.md) — adding tools, providers, slash commands, skills, hooks, MCP servers, agents, permission rules, workflows, semantic tests, and trajectory redaction.
 - [Explicit skill storage](04-extending/skill-storage.md) — writable store selection, tree revisions, conditional commits, pagination, recoverable transactions and committed events.
+- [Composed SDK skill runtime](04-extending/skill-runtime.md) — optional direct SDK and programmatic SOV composition, explicit stores, profiles, permissions and events.
 - [Routing an agent](04-extending/routing-an-agent.md) — generic OpenAI-compatible router lane, headers and route callbacks.
 - [Metering an agent](04-extending/metering-an-agent.md) — the three token-usage read surfaces (per-run `RunResult`, per-span `traceRecorder`, per-turn gateway wire), the disjoint-phase cost invariant, `reasoningTokens`, and the public accumulator + pricing primitives (`PRICING_VERSION`).
 

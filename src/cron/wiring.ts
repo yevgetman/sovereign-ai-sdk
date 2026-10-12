@@ -45,7 +45,7 @@ import type { AskResponse } from '@yevgetman/sov-sdk/permissions/types';
 import type { TranscriptStore } from '@yevgetman/sov-sdk/persistence/transcriptStore';
 import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
-import { activateSkill, createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
+import { createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
 import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { bashPath } from '@yevgetman/sov-sdk/util/platform';
 import { buildSessionToolContext } from '../server/routes/turns.js';
@@ -390,8 +390,13 @@ export function createProductionCronRunner(runtime: Runtime, harnessHome: string
           const skill = runtime.skills.byName.get(name);
           if (!skill) throw new Error(`unknown skill: ${name}`);
           expansions.push(
-            (await activateSkill(skill, { source: 'command', toolContext, state: activationState }))
-              .prompt,
+            (
+              await runtime.skillRuntime.activate(skill.name, {
+                source: 'command',
+                toolContext,
+                state: activationState,
+              })
+            ).prompt,
           );
         }
         const effectivePrompt = [...expansions, prompt].join('\n\n---\n\n');

@@ -21,8 +21,19 @@ import {
 } from './discovery.js';
 import { readBoundedSkillContent } from './fileRead.js';
 import { splitCommaList, splitFrontmatter } from './frontmatter.js';
-import { type SkillGuardResourceBudget, formatGuardBlockMessage, guardSkillLoad } from './guard.js';
-import type { Skill, SkillExpansionOptions, SkillHarnessMetadata, SkillRegistry } from './types.js';
+import {
+  type SkillGuardResourceBudget,
+  formatGuardBlockMessage,
+  guardSkillLoad,
+  guardSkillText,
+} from './guard.js';
+import type {
+  Skill,
+  SkillExpansionOptions,
+  SkillGuardDecision,
+  SkillHarnessMetadata,
+  SkillRegistry,
+} from './types.js';
 import { validateWhenToUse } from './whenToUse.js';
 
 const MetadataHarnessSchema = z
@@ -391,46 +402,74 @@ async function loadSkillFile(
       observeSkillDiagnostic(warn, `skill skipped (${path}): ${formatGuardBlockMessage(guard)}`);
       return null;
     }
-    const parsed = parseMarkdownFrontmatter(raw);
-    const frontmatter = SkillFrontmatterSchema.parse(parsed.frontmatter);
-    const descriptor = normalizeSkillDescriptor(frontmatter);
-    for (const diagnostic of descriptor.execution.diagnostics) {
-      observeSkillDiagnostic(warn, `skill '${frontmatter.name}' (${path}): ${diagnostic.message}`);
-    }
-    const rigor = validateWhenToUse(frontmatter.whenToUse);
-    if (!rigor.ok) {
-      observeSkillDiagnostic(warn, `skill '${frontmatter.name}' (${path}): ${rigor.reason}`);
-    }
-    return {
-      revision: createHash('sha256').update(raw).digest('hex'),
-      descriptor,
-      name: frontmatter.name,
-      description: frontmatter.description,
-      whenToUse: frontmatter.whenToUse,
-      allowedTools: frontmatter.allowedTools,
+    return loadSkillText(raw, {
+      ...classification,
       path,
       realpath: rp,
-      dir: dirname(path),
-      source: classification.source,
-      trustTier: classification.trustTier,
-      // Forced by source — NOT manifest-controlled. Plugin skills never run
-      // inline shell (it bypasses the permission layer); everything else does.
-      allowShellInterpolation: classification.source !== 'plugin',
-      // Carried only for plugin-sourced skills; resolves ${CLAUDE_PLUGIN_ROOT}.
-      // Conditionally spread so the key is ABSENT (not `undefined`) for
-      // non-plugin skills — required under exactOptionalPropertyTypes.
-      ...(pluginRoot !== undefined ? { pluginRoot } : {}),
-      metadata: {
-        ...frontmatter.metadata,
-        harness: normalizeHarnessMetadata(frontmatter.metadata.harness),
-      },
       guard,
-      body: parsed.body.trim(),
-    };
+      ...(warn ? { warn } : {}),
+      ...(pluginRoot !== undefined ? { pluginRoot } : {}),
+    });
   } catch (err) {
     observeSkillDiagnostic(warn, `skill skipped (${path}): ${errorMessage(err)}`);
     return null;
   }
+}
+
+/** Parse host-supplied text with the same policy and descriptor as filesystem
+ * loading. Pure: no directory discovery, resource reads or interpolation. */
+export function loadSkillText(
+  raw: string,
+  options: SkillClassification & {
+    path: string;
+    realpath?: string;
+    pluginRoot?: string;
+    guard?: SkillGuardDecision;
+    warn?: (message: string) => void;
+    /** Header-only records are inspected/activated through a fresh full resolver. */
+    metadataOnly?: boolean;
+  },
+): Skill {
+  const parsed = parseMarkdownFrontmatter(raw);
+  const frontmatter = SkillFrontmatterSchema.parse(parsed.frontmatter);
+  const guard = options.guard ?? guardSkillText(raw, options.trustTier);
+  if (guard.action === 'block') throw new Error(formatGuardBlockMessage(guard));
+  const descriptor = normalizeSkillDescriptor(frontmatter);
+  for (const diagnostic of descriptor.execution.diagnostics)
+    observeSkillDiagnostic(
+      options.warn,
+      `skill '${frontmatter.name}' (${options.path}): ${diagnostic.message}`,
+    );
+  const rigor = validateWhenToUse(frontmatter.whenToUse);
+  if (!rigor.ok)
+    observeSkillDiagnostic(
+      options.warn,
+      `skill '${frontmatter.name}' (${options.path}): ${rigor.reason}`,
+    );
+  const digest = createHash('sha256').update(raw).digest('hex');
+  return {
+    ...(options.metadataOnly
+      ? { metadataRevision: digest, bodyLoaded: false, guardDeferred: true }
+      : { revision: digest, bodyLoaded: true }),
+    descriptor,
+    name: frontmatter.name,
+    description: frontmatter.description,
+    whenToUse: frontmatter.whenToUse,
+    allowedTools: frontmatter.allowedTools,
+    path: options.path,
+    realpath: options.realpath ?? options.path,
+    dir: dirname(options.path),
+    source: options.source,
+    trustTier: options.trustTier,
+    allowShellInterpolation: options.source !== 'plugin',
+    ...(options.pluginRoot !== undefined ? { pluginRoot: options.pluginRoot } : {}),
+    metadata: {
+      ...frontmatter.metadata,
+      harness: normalizeHarnessMetadata(frontmatter.metadata.harness),
+    },
+    guard,
+    body: options.metadataOnly ? '' : parsed.body.trim(),
+  };
 }
 
 function normalizeHarnessMetadata(

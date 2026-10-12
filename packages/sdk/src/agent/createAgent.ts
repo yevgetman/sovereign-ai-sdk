@@ -97,6 +97,7 @@ import {
   createSkillActivationState,
   createSkillChildPermission,
 } from '../skills/activation.js';
+import type { SkillRuntime } from '../skills/runtime.js';
 import type { CapabilityProfileRegistry } from '../tool/capabilityProfiles.js';
 import type { LearningObserverPort } from '../tool/ports.js';
 import {
@@ -144,6 +145,8 @@ export type AgentConfig = {
   // embedder. Threaded as `Tool<any, any>[]` through the whole tool surface.
   // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8).
   tools?: Tool<any, any>[];
+  /** Optional composed skill catalog. The host calls discover() explicitly. */
+  skillRuntime?: SkillRuntime;
   /**
    * `chat`, `web`, `ops`, or `coding`. Omit to keep today's pool and
    * `maxTurns`. An unknown string fails before the provider is called.
@@ -221,6 +224,7 @@ export type AgentConfig = {
 /** The per-turn override slice — exactly the subset of `QueryParams` that varies
  *  per turn/session. Standing `AgentConfig` supplies defaults; `PerTurn` wins. */
 export type PerTurn = Partial<{
+  skillRuntime: SkillRuntime;
   signal: AbortSignal;
   canUseTool: CanUseTool;
   sessionId: string;
@@ -475,13 +479,27 @@ export function createAgent(config: AgentConfig): Agent {
           : filterToolsForToolset(tools ?? [], requestedToolset);
     }
     const cwd = config.cwd ?? process.cwd();
-    const toolContext = resolveToolContext(
+    const baseToolContext = resolveToolContext(
       perTurn.toolContext,
       tools,
       cwd,
       sessionId,
       learningObserver,
     );
+    const skillRuntime = perTurn.skillRuntime ?? config.skillRuntime;
+    let toolContext = skillRuntime
+      ? skillRuntime.bindContext(baseToolContext ?? { cwd, sessionId })
+      : baseToolContext;
+    if (
+      requestedToolset !== undefined &&
+      toolContext &&
+      (toolContext.skills || toolContext.skillRegistryManager || toolContext.skillActivation)
+    ) {
+      toolContext = {
+        ...toolContext,
+        activeToolsets: [...new Set([...(toolContext.activeToolsets ?? []), requestedToolset])],
+      };
+    }
 
     // 7. Merge the remaining ports for QueryParams (per-turn wins where allowed).
     const effort = perTurn.effort ?? config.effort;
