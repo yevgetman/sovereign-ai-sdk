@@ -827,6 +827,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     opts.skillRuntime ??
     createSkillRuntime({
       discovery: {
+        mode: 'metadata',
         ...(settings.skills?.discovery?.projectRoot !== undefined
           ? { projectRoot: settings.skills.discovery.projectRoot }
           : {}),

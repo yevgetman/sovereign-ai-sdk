@@ -457,3 +457,11 @@ export type {
   SkillRegistryDiagnostic,
   SkillRegistryEvent,
 } from './skills/registry.js';
+export { resolveSkillContextBudget, skillTextTokenBound, clipSkillText } from './skills/budget.js';
+export type { SkillContextBudget } from './skills/budget.js';
+export {
+  listSkillCatalog,
+  buildSkillCatalogIndex,
+  skillCatalogGeneration,
+} from './skills/catalog.js';
+export type { SkillCatalogEntry, SkillCatalogPage } from './skills/catalog.js';

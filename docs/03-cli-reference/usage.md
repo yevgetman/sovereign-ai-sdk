@@ -2338,7 +2338,7 @@ Visible skills register as slash commands:
 /simplify src/main.ts
 ```
 
-The model can also discover skills with `skills_list`, inspect them with `skill_view`, and invoke them through `SkillTool`.
+The model can also discover skills with `skills_list`, inspect them with `skill_view`, and invoke them through `SkillTool`. Small catalogs have a bounded initial metadata index. Larger catalogs remain fully searchable and paginated: follow `nextCursor` with the same `query` until it is absent. Context budgets follow effective model window metadata. See `docs/04-extending/skill-catalog.md`.
 
 **Native `allowedTools` is enforced on every activation path.** User slash turns, TUI/drive command turns and model `SkillTool` activation narrow the permitted tools and input patterns for the current turn. Child agents inherit that floor. Empty native rules keep the host pool. Skills cannot override host denials. `skill_view` returns raw text and never executes dynamic context. Inline shell requires a host permission callback and uses the normal Bash approval/hook path. Direct expansion callers must now supply a controlled runner or use `activateSkill`. See `docs/04-extending/skill-activation.md`.
 

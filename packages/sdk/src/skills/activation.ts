@@ -13,7 +13,7 @@ import { intersectCanUseTool } from '../tool/capabilityProfiles.js';
 import { buildToolScope, filterParseableRules } from '../tool/toolScope.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { assertSkillInvocable } from './descriptor.js';
-import { expandSkillPrompt, reloadSkill } from './loader.js';
+import { assertSkillContentLoaded, expandSkillPrompt, reloadSkill } from './loader.js';
 import type { Skill } from './types.js';
 
 export type SkillActivationSource = 'user' | 'model' | 'command';
@@ -157,6 +157,7 @@ async function activateSkillSerial(
   opts: Parameters<typeof activateSkill>[1],
 ): Promise<{ prompt: string; activation: SkillActivationEnvelope }> {
   const current = await (opts.resolveSkill ?? reloadSkill)(skill);
+  assertSkillContentLoaded(current);
   assertSkillInvocable(current, opts.source);
   if (current.guard.action === 'block') throw new Error(`skill '${current.name}' is blocked`);
   if (current.guard.action === 'ask') {

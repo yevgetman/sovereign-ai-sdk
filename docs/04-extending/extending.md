@@ -135,7 +135,7 @@ Skills are markdown files loaded by `packages/sdk/src/skills/loader.ts`. Runtime
 - `packages/sdk/src/tools/SkillTool.ts` and `packages/sdk/src/skills/commands.ts` for invocation
 - `packages/sdk/src/skills/install.ts` for the `install` (byte-faithful) and `import` (normalize-on-write) verbs
 
-New skill features should preserve progressive disclosure: the system prompt should carry a reminder, not the full skill body.
+Skill catalogs preserve progressive disclosure: small catalogs expose a bounded metadata index; larger catalogs use searchable cursor-based pages. Bodies and resources load on demand in metadata mode. Model allocations use frozen effective window metadata, with conservative unknown-window limits. See `docs/04-extending/skill-catalog.md`.
 
 ### Discovering portable and managed skills
 

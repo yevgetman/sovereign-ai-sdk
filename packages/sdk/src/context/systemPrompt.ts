@@ -4,6 +4,8 @@
 import type { Bundle } from '../bundle/types.js';
 import type { SystemSegment } from '../core/types.js';
 import type { ProjectScope } from '../memory/scope.js';
+import { buildSkillCatalogIndex } from '../skills/catalog.js';
+import { isSkillInvocable } from '../skills/descriptor.js';
 import type { Skill } from '../skills/types.js';
 import { safeStaticToolDescription } from '../tool/staticDescription.js';
 import type { Tool } from '../tool/types.js';
@@ -195,7 +197,7 @@ export function buildSystemSegments(
   if (toolText) segments.push({ text: toolText, cacheable: cacheEnabled });
 
   const skillText = formatSkillsIndex(options.skills ?? []);
-  if (skillText) segments.push({ text: skillText, cacheable: cacheEnabled });
+  if (skillText) segments.push({ text: skillText, cacheable: cacheEnabled, kind: 'skill-catalog' });
 
   if (options.bundle) {
     segments.push(...formatBundleSegments(options.bundle, cacheEnabled));
@@ -247,11 +249,7 @@ export function formatTools(tools: Tool<any, any>[]): string {
 
 export function formatSkillsIndex(skills: Skill[]): string {
   if (skills.length === 0) return '';
-  return [
-    '<skills>',
-    'Use skills_list at the start of each task to see available skills. Use skill_view to inspect full skill bodies or reference files before following a skill.',
-    '</skills>',
-  ].join('\n');
+  return buildSkillCatalogIndex(skills.filter((skill) => isSkillInvocable(skill, 'model'))).text;
 }
 
 function formatBundleSegments(bundle: Bundle, cacheEnabled: boolean): SystemSegment[] {

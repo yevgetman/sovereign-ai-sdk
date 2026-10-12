@@ -367,9 +367,9 @@ describe('formatTools', () => {
 });
 
 describe('formatSkillsIndex', () => {
-  test('renders progressive disclosure reminder without skill names', () => {
+  test('renders bounded metadata with unknown model window', () => {
     const text = formatSkillsIndex([makeSkill()]);
-    expect(text).toContain('Use skills_list at the start of each task');
-    expect(text).not.toContain('simplify');
+    expect(text).toContain('Search/page with skills_list');
+    expect(text).toContain('simplify');
   });
 });
