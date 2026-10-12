@@ -1,3 +1,25 @@
+## 2026-10-11 — Eighth review PR57: composed inspection retains fresh visibility
+
+Confirmed Medium: the composed `skill_view` path returns `runtime.inspect()` text after checking only the cached descriptor. A fresh same-path name or visibility metadata edit can disclose body/reference guidance unavailable to the actual turn pool. This path now shares PR56's fresh descriptor visibility check. Explicit host `runtime.inspect()` remains an inert host inspection API; tool disclosure applies its current context.
+
+Darwin arm64, Bun 1.3.13, Node 25.9.0; isolated composition, temporary roots and fake providers. Five incoming-source negative fixtures all fail before correction. After correction, required tools/toolsets, active fallback exclusions and changed names reject both body and reference disclosure; permitted fresh custom-profile content succeeds. `bun run build` and `bun run tui:build` prepare worktree-local artifacts.
+
+- `bun run test ./tests/skills/viewFreshComposedVisibility.test.ts`: **five failed-before cases** on incoming PR57 source.
+- `bun run test ./tests/skills/viewFreshComposedVisibility.test.ts ./tests/skills/runtimeVisibility.test.ts ./tests/skills/runtimeReferenceIdentity.test.ts`: corrected source initially passes **17 tests / 57 assertions**; after adding the positive profile fixture, final targeted run passes **18 tests / zero failures / 58 assertions**.
+
+Complete configured merged-source gate (`python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review8-20261011/pr57 review8-pr57`) passes **5,996 tests / 19 existing skips / zero failures**, 25,033 assertions across all 581 discovered files. Lint/boundary, root types and strict SDK build pass; every discovered file runs with existing compiler/theme/timing/subprocess fixtures isolated. Coordinator independent peer passes the six composed-view cases with eleven assertions. This gate precedes the later PR56 direct fallback-activation finding, which must be carried during final parent integration. No release or installed-host update.
+
+## 2026-10-11 — Eighth review PR56: fresh skill inspection obeys visibility
+
+Confirmed Medium: `skill_view` checks the cached visible descriptor, then reloads a fresh descriptor without checking its name or prerequisites. A same-path edit can rename the workflow or add missing tool/toolset requirements (or active fallback exclusions) and still expose fresh body/reference guidance. Inspection now rechecks the fresh descriptor against the current activation tool pool and host profile tags before disclosure.
+
+Five failed-before negative fixtures cover required tools, required toolsets, fallback tools, fallback toolsets and renamed identity. Each checks both body and sidecar disclosure. A positive fixture retains permitted fresh guidance and custom profile visibility. Environment: Darwin arm64, Bun 1.3.13, Node 25.9.0, isolated PR worktree and temporary fixtures; no live provider/profile change.
+
+- `bun run test ./tests/skills/viewFreshVisibility.test.ts`: incoming source fails all five new negative cases; corrected source passes those cases.
+- The first registry companion run passed ten tests and failed one existing Node observer test because SDK `dist` had not yet been built. `bun run build` and `bun run tui:build` prepare worktree-local protocol/SDK/TUI artifacts. The unchanged companion rerun passes **12 tests / zero failures / 33 assertions** (`bun run test ./tests/skills/viewFreshVisibility.test.ts ./tests/skills/registry.test.ts`).
+
+Complete configured gate (`python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review8-20261011/pr56 review8-pr56`) passes **5,946 tests / 19 existing skips / zero failures**, 24,833 assertions across all 572 discovered files. Lint/boundary, root types and strict SDK build pass. Existing global compiler/theme/timing/subprocess fixtures run separately without omissions or weaker assertions. Coordinator independent peer also passes the six fresh-view cases with eleven assertions. No release or installed-host update.
+
 ## 2026-10-11 — Recovered seventh-review parent integration for PR57
 
 Recovered the interrupted review's owning corrections and carried the current parent by ordinary merge. The configured gate passes **5,984 tests / 19 existing skips / zero failures**, 25,011 assertions across all 579 discovered files. Frozen dependency installation, protocol/strict SDK and local TUI build, lint/boundary and root types pass. Runner: `/private/tmp/sdk-skills-round5-20261011/gate.py <seat> seventh-recovered-publish57`. Existing compiler/theme/timing/subprocess groups run separately; every original file and assertion remains. This validates PR source; public versions and installed hosts remain unchanged.
