@@ -133,6 +133,15 @@ function isDirectorySkill(path: string): boolean {
   return basename(path).toLowerCase() === 'skill.md';
 }
 
+function isStoreInternal(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return (
+    normalized === '.sov-skill-store' ||
+    normalized.startsWith('.sov-skill-stage-') ||
+    normalized.startsWith('.sov-skill-backup-')
+  );
+}
+
 function sameDirectory(left: Stats, right: Stats): boolean {
   return (
     left.isDirectory() &&
@@ -174,12 +183,7 @@ async function readSkillDirectoryTexts(
   const walk = async (path: string, depth: number): Promise<void> => {
     if (depth > budget.depthLimit) throw new Error('skill resource depth limit exceeded');
     const rp = await realpath(path);
-    if (
-      !isPathWithin(dir, rp) ||
-      relative(dir, rp)
-        .split(sep)
-        .some((part) => part.toLowerCase() === '.sov-skill-store')
-    )
+    if (!isPathWithin(dir, rp) || relative(dir, rp).split(sep).some(isStoreInternal))
       throw new Error('skill resource escaped its directory');
     if (seen.has(rp)) return;
     seen.add(rp);
@@ -197,7 +201,8 @@ async function readSkillDirectoryTexts(
       if (
         ['.sov-skill-store', '.git', '.svn', '.hg', 'node_modules', 'vendor'].includes(
           entry.name.toLowerCase(),
-        )
+        ) ||
+        isStoreInternal(entry.name)
       )
         continue;
       entries.push({ name: entry.name, directory: entry.isDirectory(), file: entry.isFile() });

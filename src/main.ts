@@ -27,10 +27,17 @@ import {
 } from '@yevgetman/sov-sdk/config/store';
 import type { PermissionMode } from '@yevgetman/sov-sdk/permissions/types';
 import { REASONING_EFFORTS, type ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
+import { runSkillStoreWorker } from '@yevgetman/sov-sdk/skills/storeWorker';
 import { parseProfileFlag } from './cli/profileFlag.js';
 import { registerRouteCommands } from './cli/routesCommands.js';
 import type { WorkflowEvent } from './workflows/events.js';
 import { VERSION } from './wrapperVersion.js';
+
+// Internal storage helper. Exit before any config/profile/provider startup.
+if (process.argv.includes('--sov-skill-store-worker')) {
+  await runSkillStoreWorker();
+  process.exit(0);
+}
 
 /**
  * Fill `process.env` from the `.env` at the repo root. Bun auto-loads `.env`

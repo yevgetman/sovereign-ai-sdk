@@ -1,14 +1,11 @@
 // Agent-created skill authoring. Writes only to the agent-created skill root
 // and runs the Phase 9.5 guard before any content becomes loadable.
 
-import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { stringify as stringifyYaml } from 'yaml';
 import { z } from 'zod';
-import { resolveHarnessHome } from '../config/paths.js';
-import { formatGuardBlockMessage, guardSkillText } from '../skills/guard.js';
-import { loadSkillFromPath } from '../skills/loader.js';
-import type { SkillRegistry } from '../skills/types.js';
+import { FilesystemSkillStore } from '../skills/store.js';
+import type { SkillMutationEvent } from '../skills/store.js';
 import { buildTool } from '../tool/buildTool.js';
 import { matchesPathPermissionPattern } from './permissionMatchers.js';
 
@@ -19,6 +16,10 @@ const inputSchema = z.object({
   name: z.string().regex(SAFE_SKILL_NAME_RE, 'must be a slash-command-safe skill name'),
   body: z.string().optional().describe('Markdown body for create/edit.'),
   frontmatter: z.record(z.unknown()).optional().describe('Optional SKILL.md frontmatter fields.'),
+  expectedRevision: z
+    .string()
+    .optional()
+    .describe('Required current revision for edit/delete; obtain from create or the host store.'),
 });
 
 type Input = z.infer<typeof inputSchema>;
@@ -29,6 +30,8 @@ type Output = {
   name: string;
   path?: string;
   message: string;
+  revision?: string;
+  event?: SkillMutationEvent;
 };
 
 export const SkillManageTool = buildTool<Input, Output>({
@@ -47,77 +50,70 @@ export const SkillManageTool = buildTool<Input, Output>({
     matchesPathPermissionPattern(`skills/agent-created/${input.name}/SKILL.md`, pattern),
   renderHint: { kind: 'markdown' },
   async call(input, ctx) {
-    const harnessHome = ctx.harnessHome ?? resolveHarnessHome();
-    const skillDir = join(harnessHome, 'skills', 'agent-created', input.name);
-    const skillPath = join(skillDir, 'SKILL.md');
-
-    if (input.action === 'delete') {
-      await rm(skillDir, { recursive: true, force: true });
-      removeSkill(ctx.skills, input.name);
+    const store =
+      ctx.skillStore ??
+      (ctx.harnessHome
+        ? new FilesystemSkillStore({ root: join(ctx.harnessHome, 'skills', 'agent-created') })
+        : undefined);
+    if (!store)
+      return {
+        data: {
+          ok: false,
+          action: input.action,
+          name: input.name,
+          message:
+            'An explicit writable skillStore or harnessHome is required; no ambient home was selected.',
+        },
+      };
+    if (input.action !== 'delete' && input.body === undefined) {
+      return {
+        data: {
+          ok: false,
+          action: input.action,
+          name: input.name,
+          message: 'body is required for create/edit.',
+        },
+      };
+    }
+    try {
+      const result = await store.mutate({
+        action: input.action,
+        name: input.name,
+        ...(input.body !== undefined
+          ? { content: renderSkillMarkdown(input.name, input.body, input.frontmatter) }
+          : {}),
+        ...(input.expectedRevision !== undefined
+          ? { expectedRevision: input.expectedRevision }
+          : {}),
+      });
+      // Keep this turn's registry snapshot stable. The host refreshes future
+      // snapshots from the durable mutation event, never from a tentative edit.
+      try {
+        await ctx.onSkillMutation?.(result.event);
+      } catch {
+        /* Commit succeeded; host diagnostics own refresh failures. */
+      }
       return {
         data: {
           ok: true,
           action: input.action,
           name: input.name,
-          path: skillPath,
-          message: `Deleted agent-created skill '${input.name}'.`,
+          ...(result.entry?.path ? { path: result.entry.path } : {}),
+          ...(result.entry ? { revision: result.entry.revision } : {}),
+          event: result.event,
+          message: `${input.action === 'create' ? 'Created' : input.action === 'edit' ? 'Edited' : 'Deleted'} agent-created skill '${input.name}'.`,
         },
       };
-    }
-
-    if (input.body === undefined) {
+    } catch (error) {
       return {
         data: {
           ok: false,
           action: input.action,
           name: input.name,
-          path: skillPath,
-          message: 'body is required for create/edit.',
+          message: error instanceof Error ? error.message : String(error),
         },
       };
     }
-
-    const content = renderSkillMarkdown(input.name, input.body, input.frontmatter);
-    const guard = guardSkillText(content, 'agent-created');
-    if (guard.action !== 'allow') {
-      return {
-        data: {
-          ok: false,
-          action: input.action,
-          name: input.name,
-          path: skillPath,
-          message: `${formatGuardBlockMessage(guard)} agent-created critical-tier content is rejected.`,
-        },
-      };
-    }
-
-    await mkdir(skillDir, { recursive: true });
-    await writeFile(skillPath, content);
-    const loaded = await loadSkillFromPath(skillPath, {
-      source: 'agent-created',
-      trustTier: 'agent-created',
-    });
-    if (!loaded) {
-      return {
-        data: {
-          ok: false,
-          action: input.action,
-          name: input.name,
-          path: skillPath,
-          message: 'Skill file was written but could not be loaded.',
-        },
-      };
-    }
-    upsertSkill(ctx.skills, loaded);
-    return {
-      data: {
-        ok: true,
-        action: input.action,
-        name: loaded.name,
-        path: skillPath,
-        message: `${input.action === 'create' ? 'Created' : 'Edited'} agent-created skill '${loaded.name}'.`,
-      },
-    };
   },
   renderResult: (out) => ({
     content: JSON.stringify(out, null, 2),
@@ -132,35 +128,12 @@ function renderSkillMarkdown(
 ): string {
   const fm: Record<string, unknown> = { ...(frontmatter ?? {}) };
   fm.name = name;
-  if (typeof fm.description !== 'string' || fm.description.trim() === '') {
+  if (fm.description === undefined) {
     fm.description = 'Agent-created skill';
   }
-  if (typeof fm.whenToUse !== 'string') {
+  if (fm.whenToUse === undefined) {
     fm.whenToUse = 'Agent-created reusable workflow';
   }
-  if (
-    !Array.isArray(fm.allowedTools) ||
-    !fm.allowedTools.every((value) => typeof value === 'string')
-  ) {
-    fm.allowedTools = [];
-  }
+  if (fm.allowedTools === undefined) fm.allowedTools = [];
   return `---\n${stringifyYaml(fm).trimEnd()}\n---\n${body.trimEnd()}\n`;
-}
-
-function upsertSkill(
-  registry: SkillRegistry | undefined,
-  skill: SkillRegistry['skills'][number],
-): void {
-  if (!registry) return;
-  const existing = registry.skills.findIndex((candidate) => candidate.name === skill.name);
-  if (existing >= 0) registry.skills.splice(existing, 1, skill);
-  else registry.skills.push(skill);
-  registry.skills.sort((a, b) => a.name.localeCompare(b.name));
-  registry.byName.set(skill.name, skill);
-}
-
-function removeSkill(registry: SkillRegistry | undefined, name: string): void {
-  if (!registry) return;
-  registry.skills = registry.skills.filter((skill) => skill.name !== name);
-  registry.byName.delete(name);
 }

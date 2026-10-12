@@ -301,6 +301,19 @@ export type {
   SkillActivationSource,
   SkillActivationState,
 } from './skills/activation.js';
+export { FilesystemSkillStore, InMemorySkillStore } from './skills/store.js';
+export type {
+  FilesystemSkillStoreOptions,
+  SkillStoreOptions,
+  SkillMutation,
+  SkillMutationEvent,
+  SkillMutationResult,
+  SkillStoredEntry,
+  SkillStoreFile,
+  SkillStoreListOptions,
+  SkillStoreListPage,
+  SkillWritableStore,
+} from './skills/store.js';
 export type {
   Skill,
   SkillExpansionOptions,

@@ -108,6 +108,15 @@ const EXCLUDED_DIRECTORIES = new Set([
   'vendor',
 ]);
 
+function isSkillStoreInternal(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return (
+    normalized === '.sov-skill-store' ||
+    normalized.startsWith('.sov-skill-stage-') ||
+    normalized.startsWith('.sov-skill-backup-')
+  );
+}
+
 export function isPathWithin(root: string, path: string): boolean {
   const rel = relative(root, path);
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
@@ -342,7 +351,7 @@ export async function discoverSkills(opts: SkillDiscoveryOptions): Promise<Skill
         );
         return;
       }
-      if (rp.split(sep).some((part) => part.toLowerCase() === '.sov-skill-store')) {
+      if (rp.split(sep).some(isSkillStoreInternal)) {
         event('scope-denied', path, 'internal skill store transactions are excluded', rp);
         return;
       }
@@ -426,7 +435,12 @@ export async function discoverSkills(opts: SkillDiscoveryOptions): Promise<Skill
             break;
           }
           entriesVisited += 1;
-          if (!EXCLUDED_DIRECTORIES.has(entry.name.toLowerCase())) entries.push(entry.name);
+          if (
+            !(
+              EXCLUDED_DIRECTORIES.has(entry.name.toLowerCase()) || isSkillStoreInternal(entry.name)
+            )
+          )
+            entries.push(entry.name);
         }
       } catch {
         event('unreadable', path, 'directory cannot be listed', info.realpath);
