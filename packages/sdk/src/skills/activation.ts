@@ -1,5 +1,6 @@
 // One activation contract for library hosts, model tools and SOV clients.
-// State is owned by a single turn. It can narrow capabilities, never grant them.
+// State is owned by one turn attempt; retries retain its restrictions only.
+// It can narrow capabilities, never grant them.
 import { createHash, randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
@@ -8,6 +9,7 @@ import { runTools } from '../core/orchestrator.js';
 import type { HookRunner } from '../hooks/types.js';
 import type { CanUseTool } from '../permissions/types.js';
 import { buildTool } from '../tool/buildTool.js';
+import { intersectCanUseTool } from '../tool/capabilityProfiles.js';
 import { buildToolScope, filterParseableRules } from '../tool/toolScope.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { assertSkillInvocable } from './descriptor.js';
@@ -40,6 +42,45 @@ export type SkillActivationState = {
   hookRunner?: HookRunner;
   activations: SkillActivationEnvelope[];
 };
+
+/** Restriction-only state a logical run may retain across provider attempts. */
+export type SkillRestrictionState = Pick<
+  SkillActivationState,
+  'tools' | 'restrictionCanUseTool' | 'activations'
+>;
+
+// Remember only callbacks we own. A query-owned child gate already wraps
+// this state's host gate; carry its independent ceiling into a new scope
+// without running that host gate twice or dropping an approved rewrite.
+const childPermissionOrigins = new WeakMap<
+  CanUseTool,
+  { state: SkillActivationState; ceiling: CanUseTool | undefined }
+>();
+
+function independentChildPermission(
+  state: SkillActivationState,
+  permission: CanUseTool | undefined,
+): CanUseTool | undefined {
+  const origin = permission ? childPermissionOrigins.get(permission) : undefined;
+  return origin?.state === state
+    ? origin.ceiling
+    : permission === state.canUseTool
+      ? undefined
+      : permission;
+}
+
+/** @internal Build the dynamic delegation gate for one skill-enabled turn. */
+export function createSkillChildPermission(
+  state: SkillActivationState,
+  inheritedPermission?: CanUseTool,
+  inheritedState: SkillActivationState = state,
+): CanUseTool {
+  const ceiling = independentChildPermission(inheritedState, inheritedPermission);
+  const host: CanUseTool = (...args) => state.canUseTool(...args);
+  const permission = ceiling ? intersectCanUseTool(host, ceiling) : host;
+  childPermissionOrigins.set(permission, { state, ceiling });
+  return permission;
+}
 
 /** Missing host policy permits only an explicit tool allow self-check. */
 export const skillDefaultCanUseTool: CanUseTool = async (tool, input, ctx) => {
@@ -161,6 +202,12 @@ async function activateSkillSerial(
     canUseTool: opts.state.restrictionCanUseTool,
     allowedTools: rules,
   });
+  // A child callback only narrows the host-authorized input. Preserve host
+  // rewrites and denials instead of replacing them with its allow result.
+  const childCeiling = independentChildPermission(opts.state, opts.toolContext.canUseTool);
+  const childPermission = childCeiling
+    ? intersectCanUseTool(scope.canUseTool, childCeiling)
+    : scope.canUseTool;
   const roots = await Promise.all(
     (opts.allowedResourceRoots ?? [dirname(current.realpath)]).map((root) => realpath(root)),
   );
@@ -187,7 +234,7 @@ async function activateSkillSerial(
           canUseTool: buildToolScope({
             tools: childPool,
             allowedTools: rules,
-            canUseTool: opts.toolContext.canUseTool ?? scope.canUseTool,
+            canUseTool: childPermission,
           }).canUseTool,
           skillActivation: { ...opts.state, restrictionCanUseTool: restrictionScope.canUseTool },
         };
@@ -242,11 +289,7 @@ async function activateSkillSerial(
   opts.toolContext.parentToolPool = (opts.toolContext.parentToolPool ?? scope.tools).filter(
     (tool) => effectiveNames.has(tool.name),
   );
-  opts.toolContext.canUseTool = buildToolScope({
-    tools: opts.toolContext.parentToolPool,
-    allowedTools: rules,
-    canUseTool: opts.toolContext.canUseTool ?? scope.canUseTool,
-  }).canUseTool;
+  opts.toolContext.canUseTool = createSkillChildPermission(opts.state, childCeiling);
   opts.toolContext.activeToolNames = scope.tools.map((tool) => tool.name);
   return { prompt, activation };
 }

@@ -120,6 +120,9 @@ calls. Skills with missing required tools are unavailable; fallback skills are
 visible when their primary tools are absent. Existing host visibility hints do
 not replace the effective turn pool. Direct `activate()` applies the same
 visibility rules using the supplied activation state's tools.
+Fresh `skill_view` inspection rechecks the resolved name and visibility before
+returning body or reference guidance. Metadata edits cannot bypass the effective
+turn pool by retaining a previously visible catalog record.
 Host-owned custom profile tags remain available. Built-in capability sets,
 such as `terminal`, are recomputed from the current tools.
 The selected `createAgent()` profile, including a per-turn override, is present

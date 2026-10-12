@@ -90,6 +90,21 @@ export const SkillFrontmatterSchema = z.preprocess(
 
 const SHELL_INTERPOLATION_RE = /(?:`!([^`]+)`|!`([^`]+)`)/g;
 const SHELL_OUTPUT_CAP = 16 * 1024;
+const ARGUMENT_PLACEHOLDER_RE = /\{\{\s*args\s*\}\}|\$ARGUMENTS\b(?:\[\d+\])?|\$\d+\b/;
+
+/** Shell command templates do not consume arguments; only original prose does. */
+function hasProseArguments(text: string, shellAllowed: boolean): boolean {
+  if (!shellAllowed) return ARGUMENT_PLACEHOLDER_RE.test(text);
+  let lastIndex = 0;
+  for (const match of text.matchAll(SHELL_INTERPOLATION_RE)) {
+    const start = match.index ?? 0;
+    if (ARGUMENT_PLACEHOLDER_RE.test(text.slice(lastIndex, start))) return true;
+    // Empty shell sigils remain prose in interpolateShellCommands.
+    if (!(match[1] ?? match[2])?.trim() && ARGUMENT_PLACEHOLDER_RE.test(match[0])) return true;
+    lastIndex = start + match[0].length;
+  }
+  return ARGUMENT_PLACEHOLDER_RE.test(text.slice(lastIndex));
+}
 
 /** The trusted environment placeholders a skill body may reference. Every value
  *  is caller/filesystem-derived DATA (a session id, a skill directory, a plugin
@@ -333,7 +348,6 @@ export async function expandSkillText(
   assertSkillContentLoaded(skill);
   const args = opts.args ?? '';
   const argsTrimmed = args.trim();
-  const hasPlaceholder = /\{\{\s*args\s*\}\}|\$ARGUMENTS|\$\d+\b/.test(text);
 
   // Environment values are data. Prose uses a display sanitizer. Inline shell
   // uses the author's quote context; arguments are never inserted into commands.
@@ -354,6 +368,7 @@ export async function expandSkillText(
   // run shell — the `source !== 'plugin'` clause is the backstop. With shell off
   // every placeholder is resolved as prose.
   const shellAllowed = skill.allowShellInterpolation && skill.source !== 'plugin';
+  const hasPlaceholder = hasProseArguments(text, shellAllowed);
   const body = shellAllowed
     ? await interpolateShellCommands(text, skill.dir, env, opts.runShellCommand, args)
     : substituteSkillProse(text, env, args);

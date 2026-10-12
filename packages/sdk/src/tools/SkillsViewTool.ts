@@ -9,7 +9,10 @@ import { z } from 'zod';
 import { resolveSkillResource } from '../skills/activation.js';
 import { assertSkillFileIdentity, captureSkillFileIdentity } from '../skills/fileIdentity.js';
 import { reloadSkill } from '../skills/loader.js';
+import type { Skill } from '../skills/types.js';
+import { inferActiveToolsets, isSkillVisible } from '../skills/visibility.js';
 import { buildTool } from '../tool/buildTool.js';
+import type { ToolContext } from '../tool/types.js';
 
 const inputSchema = z.object({
   name: z.string().min(1).describe('Visible skill name to inspect.'),
@@ -48,6 +51,7 @@ export const SkillsViewTool = buildTool<Input, Output>({
 
     if (ctx.skillRuntime) {
       const inspected = await ctx.skillRuntime.inspect(skill.name, input.path);
+      assertCurrentSkillVisible(inspected.skill, input.name, ctx);
       if (ctx.skillContinuity && ctx.skillContinuity.scope.session !== ctx.sessionId)
         throw new Error('skill continuity scope does not match the current session');
       if (inspected.resourceIdentity !== undefined)
@@ -66,6 +70,7 @@ export const SkillsViewTool = buildTool<Input, Output>({
       };
     }
     const current = await reloadSkill(skill);
+    assertCurrentSkillVisible(current, input.name, ctx);
     if (!input.path) {
       return {
         data: {
@@ -147,4 +152,22 @@ async function readBoundedReference(
   } finally {
     await handle.close();
   }
+}
+
+/** Reloaded metadata and the current activation pool can differ from the catalog
+ * used for lookup. Apply the same visibility floor before disclosing fresh text. */
+function assertCurrentSkillVisible(skill: Skill, name: string, ctx: ToolContext): void {
+  const names = ctx.skillActivation?.tools.map((tool) => tool.name) ?? ctx.activeToolNames;
+  if (
+    skill.name !== name ||
+    ((names !== undefined || ctx.activeToolsets !== undefined) &&
+      !isSkillVisible(
+        skill,
+        names !== undefined
+          ? inferActiveToolsets(names, ctx.activeToolsets)
+          : (ctx.activeToolsets ?? []),
+        names ?? [],
+      ))
+  )
+    throw new Error(`unknown or unavailable skill '${name}'`);
 }
