@@ -1,3 +1,9 @@
+## 2026-10-11 — Seventh review: preserve parent authorization in skill children
+
+Confirmed High child authorization defect in PR52. Query delegation discarded host input transformations and accepted child rewrites; direct activation could replace the host denial callback. Shared dynamic permission composition now preserves approved input and independent child ceilings. Weak callback ownership prevents duplicate host transformations on repeated activation. Six concrete filesystem/native-scheduler/repeated-activation checks pass, 11 assertions; broader activation/HTTP/concurrency/scheduler checks pass49tests/251assertions. Root independently reproduces four failures on incoming combined PR59, including actual native-child secret-redaction loss (synthetic data only).
+
+Complete gate: **5,782 passed / 19 existing skips / zero failures**, 24,004 assertions across all555discovered files. Configured lint/boundary/types and strict SDK build pass; protocol/SDK/local TUI prerequisites are built. Runner: `/private/tmp/sdk-skills-round5-20261011/gate.py <seat> seventh-review52-final`. Existing compiler/theme/timing/subprocess fixtures are isolated without omitted files or weaker assertions. The earlier `seventh-review52` run was interrupted when its reviewer handed off; it was not counted as a completed gate. This complete rerun uses unchanged functional source. No release, installed-host change or master merge.
+
 ## 2026-10-11 — Sixth review PR52: attribute inline skill policy evidence
 
 Confirmed Medium: the native HTTP skill activation path invoked conduct

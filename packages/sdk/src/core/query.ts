@@ -40,7 +40,7 @@ import { validateModelRequest } from '../providers/models/validateRequest.js';
 import { listRoutes } from '../providers/routes/catalog.js';
 import { validateRouteSelection } from '../providers/routes/validate.js';
 import type { ProviderRequest } from '../providers/types.js';
-import { createSkillActivationState } from '../skills/activation.js';
+import { createSkillActivationState, createSkillChildPermission } from '../skills/activation.js';
 import { intersectCanUseTool } from '../tool/capabilityProfiles.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
@@ -853,15 +853,11 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
       );
     }
     if (skillsEnabled && canUseTool) {
-      turnCtx.canUseTool =
-        inheritedChildPermission && inheritedChildPermission !== params.canUseTool
-          ? async (tool, input, ctx) => {
-              const result = await canUseTool(tool, input, ctx);
-              return result.behavior === 'deny'
-                ? result
-                : inheritedChildPermission(tool, result.updatedInput ?? input, ctx);
-            }
-          : canUseTool;
+      turnCtx.canUseTool = createSkillChildPermission(
+        activationState,
+        inheritedChildPermission !== params.canUseTool ? inheritedChildPermission : undefined,
+        inheritedActivation,
+      );
     }
 
     if (params.persistBeforeTools && assistant) {

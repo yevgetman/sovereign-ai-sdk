@@ -60,6 +60,11 @@ subscription executor is refused when a native skill restriction is active,
 because its tools cannot be bounded by SOV's in-process gate. The scope floor
 is checked against final inputs after permission or hook transformations.
 Hook rewrites also pass through the host gate again before execution.
+Child permission callbacks can deny the parent-authorized input but cannot
+rewrite it. Host transformations, including secret redaction, remain effective
+in delegated calls. Turn-owned child gates retain their separate ceiling when
+activation narrows the scope, so a host transformation is not run twice merely
+because that gate is rebuilt.
 
 ## Dynamic context
 
@@ -127,6 +132,9 @@ permissions, raw inspection, linked references, hooks and transformations,
 model continuation schemas, turn expiry and child inheritance.
 `tests/skills/activationConcurrency.test.ts` checks concurrent host requests,
 native tool effects, inline shell, failure recovery and independent states.
+`tests/skills/activationChildPermissions.test.ts` checks real delegated writes,
+parent redaction and denial, forbidden child rewrites, the native scheduler and
+repeated activation with an always-transforming host callback.
 `tests/server/skillActivationClients.test.ts` drives the actual command/HTTP
 and line-driver paths. TUI tests check that the command activation POST keeps
 the skill identity. Existing skill scope tests retain the legacy native rule
