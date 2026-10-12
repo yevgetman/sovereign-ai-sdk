@@ -23,12 +23,12 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
 
 ---
 
-## Selected public cut — 2026-10-11
+## Current public channel — verified 2026-10-12
 
-SDK **0.15.0** and SOV **0.6.78** are selected for the combined public
+SDK **0.15.0** and SOV **0.6.78** are published in the combined public
 [SOV v0.6.78](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.78) cut.
 Source tags are `sdk-v0.15.0` and `v0.6.78` at the exact assembled build in the
-frozen plan. Publication is established only by archived public-byte evidence.
+frozen plan. All six public artifacts and both checksum files match the frozen cut. Exact source is `486c58f5d2fee5478c9f7c5088f9f8bbdc859c11`; [archived public-byte evidence](releases/history/sdk-0.15.0/publication.json) establishes publication.
 SDK and binary checksums are separate. See [package install](packages/sdk/README.md#install).
 
 The SDK tarball is `yevgetman-sov-sdk-0.15.0.tgz`; its own packed README uses

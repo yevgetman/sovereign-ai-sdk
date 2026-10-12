@@ -21,7 +21,8 @@ release when the selected work also changes the wrapper. A library-only cut may
 retain the published CLI version. Protocol/debug-console versions remain unchanged
 unless explicitly selected work requires their own release preparation.
 
-This cut targets SDK **0.15.0** and CLI **0.6.78**. Both previously queued
+The verified cut released SDK **0.15.0** and CLI **0.6.78**. The active empty
+draft now plans SDK **0.15.1** and CLI **0.6.79** from that published baseline. Both previously queued
 documentation units and reviewed PR52–59 are included once, with each PR's exact
 master merge SHA and `mainline: 1`. Contained branch commits and review fixes are
 covered by their merge unit. Additive public SDK exports require a minor version.

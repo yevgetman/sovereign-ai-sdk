@@ -1,128 +1,32 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: 2026-10-12T04:58:35.271Z
+updated_at: 2026-10-12T05:14:23.864Z
 checkout: .
 last_release: &a1
-  version: 0.14.0
-  cli_version: 0.6.77
-  source_commit: dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823
-  evidence: releases/history/sdk-0.14.0/publication.json
-reconciliation:
-  history_start_commit: dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823
-  through_main_commit: 3d4486dd442226f1597eba12bd9eb6958d9f001d
-  checked_at: 2026-10-12T04:40:23.468Z
-  evidence: releases/skills-0150-baseline-reconciliation.json
-release:
-  id: sdk-0.15.0
-  product: sovereign-ai-sdk
   version: 0.15.0
   cli_version: 0.6.78
-  status: released
+  source_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
+  evidence: releases/history/sdk-0.15.0/publication.json
+reconciliation:
+  history_start_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
+  through_main_commit: fb01ca13cc18189198ecab3f6f92f094286f8f0e
+  checked_at: 2026-10-12T05:14:23.864Z
+  evidence: releases/history/sdk-0.15.0/publication.json
+release:
+  id: sdk-0.15.1
+  product: sovereign-ai-sdk
+  version: 0.15.1
+  cli_version: 0.6.79
+  status: draft
   base: *a1
-  applied_commits:
-    - item_id: sdk-public-docs-014
-      source_commit: 55d6d76dbd8ffa2f0e77e014bd2ae5c1662946dd
-      release_commit: 0a91d587227e184172d40ef09484b0b4732db34e
-    - item_id: sdk-install-docs-correction
-      source_commit: 59813dec67b6caa3ea6838229ce2aaedf9030a07
-      release_commit: 880913e25bce5d4968558c9daaaabb6fc2ce928b
-    - item_id: sdk-pr-52
-      source_commit: 3904fcc655bfbf7f9a586ea57948a807bd4e0da8
-      release_commit: 3e68823fc65a941bc64d2dd045e2874e550948c1
-    - item_id: sdk-pr-53
-      source_commit: 1cc7e8aae18ed97ba4314a26965e969166d2f421
-      release_commit: fce8cc1b87fdf483bb5aca3fb95fd9e475793ba9
-    - item_id: sdk-pr-54
-      source_commit: 559383045ef1d2099c3d311772766f53d120e089
-      release_commit: b8303af4f759f7c23c54b2dcc952673b07482b16
-    - item_id: sdk-pr-55
-      source_commit: e2bd6fb44faaa7b42457a97c1355cd0e7b2a2978
-      release_commit: 34ba7c7d7b4c587d6b1c9bb606bf093eb8b0f4a1
-    - item_id: sdk-pr-56
-      source_commit: 20bf9fe1ad3f2d453dc75be384e0c218ab868dce
-      release_commit: d18312115d918e9b98ff5efe6852e6ec024c7287
-    - item_id: sdk-pr-57
-      source_commit: bff9ae6c36db3a59b0d18c4d7b83caa8d22e7c75
-      release_commit: e040bef85fe67d8e27d6d44bfac7428c67092689
-    - item_id: sdk-pr-58
-      source_commit: 8a4f2e75fefb5e3759d03737b7d21b6c9ab5f1fb
-      release_commit: f06bd88f7d0ae85c7e917170d4ed5350b66376a9
-    - item_id: sdk-pr-59
-      source_commit: e01f7e2be55b5b810ef6fb41a63713d03695fe73
-      release_commit: 5f4b893a7569b53afd26815e59abc865c0422fed
-    - item_id: sdk-prep-0150
-      source_commit: 6959514eaaa92794ab7792a9b27d5f5afb9ee802
-      release_commit: 18d361bc932221eb14184e8fb5ba0606a48a20e1
-    - item_id: sdk-prep-build-preflight
-      source_commit: 3d4486dd442226f1597eba12bd9eb6958d9f001d
-      release_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
-  preparation_commits:
-    - item_id: sdk-prep-0150
-      commit: 18d361bc932221eb14184e8fb5ba0606a48a20e1
-      reason: Explicit reviewed version/docs or release-preflight preparation.
-      review: releases/skills-0150-cut/assembly-review-final.json
-    - item_id: sdk-prep-build-preflight
-      commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
-      reason: Explicit reviewed version/docs or release-preflight preparation.
-      review: releases/skills-0150-cut/assembly-review-final.json
-  build_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
-  frozen_manifest_commit: b82f22bb2faff91390b488f12f773903c91d1407
-  authorization:
-    kind: owner-approval
-    reference: "Authenticated Owner Telegram request2026-10-11: merge reviewed PRs,
-      cut SDK and SOV from release manifest, publish public channel, then
-      consumer source pins/manifests."
-    at: 2026-10-12T04:48:51.451Z
-    build_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
-  validation:
-    - check: complete source lint/boundary/types/strict builds/tests
-      result: pass
-      build_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
-      evidence: releases/skills-0150-cut/source-qa.json
-    - check: independent exact assembly and preparation code review
-      result: pass
-      build_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
-      evidence: releases/skills-0150-cut/assembly-review-final.json
-    - check: packed current and floor Node/Bun strict consumers/purity/Go/advisory
-        gates
-      result: pass
-      build_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
-      evidence: releases/skills-0150-cut/packed-qa-final.json
-    - check: all5platform builds/scans/native Mac Linux Windows and exact CI artifacts
-      result: pass
-      build_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
-      evidence: releases/skills-0150-cut/ci-artifact-verification.json
-    - check: independent every public download checksum and exact source/version plus
-        native downloaded Mac smokes
-      result: pass
-      build_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
-      evidence: releases/history/sdk-0.15.0/publication.json
-  artifacts:
-    - arch: darwin-arm64
-      filename: sov-darwin-arm64.tar.gz
-      sha256: 316974f08314f68f78a7436d9d07dd8f61d00e5310c19e3b8f7ec035e6d8c322
-      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.78/sov-darwin-arm64.tar.gz
-    - arch: darwin-x64
-      filename: sov-darwin-x64.tar.gz
-      sha256: 168f470db75dcd688c20ac42ea79c6551ab89b57654027051a862b4ed69da05d
-      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.78/sov-darwin-x64.tar.gz
-    - arch: linux-arm64
-      filename: sov-linux-arm64.tar.gz
-      sha256: 8e3798d799149444e1763a581504549771f878077656e27331aed32801ff56da
-      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.78/sov-linux-arm64.tar.gz
-    - arch: linux-x64
-      filename: sov-linux-x64.tar.gz
-      sha256: e45d8b1b0b7b8628ceec5a867b9c7cd9c45f5b082d5ed6cf93b067416c73f89e
-      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.78/sov-linux-x64.tar.gz
-    - arch: windows-x64
-      filename: sov-windows-x64.zip
-      sha256: 26e742b347a577d43d5d52ac32dff7c835948778ecd2c5cde8589296d12a8046
-      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.78/sov-windows-x64.zip
-    - arch: package
-      filename: yevgetman-sov-sdk-0.15.0.tgz
-      sha256: c3551af08671b730c301f8406b3764ff1df64b2aeaa9c42d70b805515750316b
-      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.78/yevgetman-sov-sdk-0.15.0.tgz
-  published_at: 2026-10-12T04:55:52.387999Z
-  publication_evidence: releases/history/sdk-0.15.0/publication.json
-  manifest_sha256: d631325f42c4bd556679811724df109aff6e55b3e3cd82a030a859dd1d6775d0
+  applied_commits: []
+  preparation_commits: []
+  build_commit: null
+  frozen_manifest_commit: null
+  authorization: null
+  validation: []
+  artifacts: []
+  published_at: null
+  publication_evidence: null
+  manifest_sha256: null
