@@ -1,5 +1,14 @@
 # Changelog
 
+## harness 0.6.78 / SDK 0.15.0 — permissioned skill runtime — 2026-10-11
+
+- PR52–59 unify explicit skill activation, bounded discovery, transactional storage, invocation controls, live registries and diagnostics, optional SDK runtime composition, model-aware catalogs and private skill continuity. All branch commits and review fixes are included through each exact merge unit.
+- Permission checks precede hooks, lazy evaluation and execution. Registry visibility refreshes at use time. Expanded literal tool output remains literal and caller arguments retain their authored meaning.
+- SDK root exports add optional host interfaces and continuity ports. Existing hosts can retain their current configuration. SDK 0.15.0 is a minor release under STABILITY.md. Node >=20.19.0 and Bun >=1.2.0 remain supported.
+- Retained skill guidance does not restore tool permission. Model catalogs use effective context limits. Complete catalogs fail closed when they do not fit; no silent truncation.
+- Source and packed consumers use offline fixtures. They do not certify paid-provider eligibility or production capacity.
+- SDK artifact: `yevgetman-sov-sdk-0.15.0.tgz` with `SDK-SHA256SUMS` in public SOV `v0.6.78`. Binary archives use separate `SHA256SUMS`. The packed README now points to its own version. npm publication remains owner-operated.
+
 ## harness 0.6.77 / SDK 0.14.0 — resilient provider and model discovery - 2026-10-10
 
 - Add explicit route-scoped model discovery for direct APIs, subscriptions and OpenRouter, with offline cached evidence and bounded refresh.

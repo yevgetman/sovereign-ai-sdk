@@ -23,19 +23,19 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
 
 ---
 
-## Current public channel — 2026-10-10
+## Selected public cut — 2026-10-11
 
-SDK **0.14.0** is publicly available as a checksummed tarball in
-[SOV v0.6.77](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.77).
-Exact released source: `dacbebc5c728b7c10a0ca2ad42675f9bfc3ab823`;
-source tags: `sdk-v0.14.0` and `v0.6.77`.
+SDK **0.15.0** and SOV **0.6.78** are selected for the combined public
+[SOV v0.6.78](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.78) cut.
+Source tags are `sdk-v0.15.0` and `v0.6.78` at the exact assembled build in the
+frozen plan. Publication is established only by archived public-byte evidence.
 SDK and binary checksums are separate. See [package install](packages/sdk/README.md#install).
 
-The README inside the immutable SDK 0.14.0 tarball has an older install example.
-Use the corrected source guide above: install `yevgetman-sov-sdk-0.14.0.tgz`
-after checking `SDK-SHA256SUMS`. The package version and code are 0.14.0.
-Do not replace released bytes to change documentation. The corrected package
-README is selected for the next SDK 0.14.1 patch; CLI 0.6.78 remains planned.
+The SDK tarball is `yevgetman-sov-sdk-0.15.0.tgz`; its own packed README uses
+that version and the companion SOV tag. Earlier published bytes remain immutable.
+The cut includes both queued documentation items and PR52–59 with all their
+contained commits and review fixes. SDK public API additions require a minor
+version. Protocol remains **0.1.0** and debug console **0.3.0**.
 
 The registry procedure below remains a separate owner gate. This GitHub release
 does not establish npm publication. Protocol remains **0.1.0**, debug console
