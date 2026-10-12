@@ -289,6 +289,8 @@ function snapshot(name: string): SkillStoreWireEntry | undefined {
   }
   const files: SkillStoreWireEntry['files'] = Object.create(null);
   const directoryModes: Record<string, number> = Object.create(null);
+  const capturedFiles = new Map<string, Stats>();
+  const capturedDirectories = new Map<string, Stats>();
   let count = 0;
   let directoryCount = 0;
   let bytes = 0;
@@ -296,7 +298,9 @@ function snapshot(name: string): SkillStoreWireEntry | undefined {
     if (++directoryCount > SKILL_STORE_LIMITS.files)
       throw new Error('skill tree exceeds directory limit');
     if (depth > SKILL_STORE_LIMITS.depth) throw new Error('skill tree exceeds depth limit');
-    directoryModes[relative] = statSync('.').mode & 0o777;
+    const directory = statSync('.');
+    directoryModes[relative] = directory.mode & 0o777;
+    capturedDirectories.set(relative, directory);
     for (const child of readdirSync('.').sort()) {
       const resource = relative ? `${relative}/${child}` : child;
       assertSkillStoreResource(resource);
@@ -313,7 +317,7 @@ function snapshot(name: string): SkillStoreWireEntry | undefined {
       const fd = openSync(child, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
         const opened = fstatSync(fd);
-        if (!opened.isFile() || opened.dev !== info.dev || opened.ino !== info.ino)
+        if (!sameCapturedFile(info, opened))
           throw new Error('skill resource changed during capture');
         const chunks: Buffer[] = [];
         let length = 0;
@@ -330,22 +334,57 @@ function snapshot(name: string): SkillStoreWireEntry | undefined {
         }
         const data = Buffer.concat(chunks, length);
         const captured = fstatSync(fd);
-        if (
-          captured.size !== opened.size ||
-          captured.mtimeMs !== opened.mtimeMs ||
-          captured.ctimeMs !== opened.ctimeMs
-        )
+        if (!sameCapturedFile(opened, captured) || !sameCapturedFile(opened, lstatSync(child)))
           throw new Error('skill resource changed during capture');
         bytes += data.byteLength;
         if (bytes > SKILL_STORE_LIMITS.bytes) throw new Error('skill tree exceeds byte limit');
         files[resource] = { data: data.toString('base64'), mode: info.mode & 0o777 };
+        capturedFiles.set(resource, captured);
       } finally {
         closeSync(fd);
       }
     }
+    const current = statSync('.');
+    if (
+      current.mode !== directory.mode ||
+      current.mtimeMs !== directory.mtimeMs ||
+      current.ctimeMs !== directory.ctimeMs
+    )
+      throw new Error('skill directory changed during capture');
   };
-  inPinnedDirectory(name, () => visit('', 0));
+  inPinnedDirectory(name, () => {
+    visit('', 0);
+    // A later resource read can change a leaf whose bytes were captured
+    // earlier. Recheck all leaves before accepting the complete tree revision.
+    for (const [resource, captured] of capturedFiles) {
+      inPinnedPath(dirname(resource), () => {
+        if (!sameCapturedFile(captured, lstatSync(basename(resource))))
+          throw new Error('skill resource changed during capture');
+      });
+    }
+    for (const [resource, captured] of capturedDirectories) {
+      inPinnedPath(resource || '.', () => {
+        if (!sameCapturedMetadata(captured, statSync('.')))
+          throw new Error('skill directory changed during capture');
+      });
+    }
+  });
   return { name, files, directoryModes, revision: skillStoreRevision({ files, directoryModes }) };
+}
+
+function sameCapturedFile(left: Stats, right: Stats): boolean {
+  return left.isFile() && right.isFile() && sameCapturedMetadata(left, right);
+}
+
+function sameCapturedMetadata(left: Stats, right: Stats): boolean {
+  return (
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.mode === right.mode &&
+    left.size === right.size &&
+    left.mtimeMs === right.mtimeMs &&
+    left.ctimeMs === right.ctimeMs
+  );
 }
 
 type Journal = {
@@ -569,7 +608,12 @@ function execute(request: SkillStoreWorkerRequest): {
           file.mode = previous?.files[path]?.mode ?? file.mode & 0o777;
         }
         for (const path of Object.keys(directoryModes)) {
-          directoryModes[path] = previous?.directoryModes[path] ?? directoryModes[path] ?? 0o700;
+          directoryModes[path] =
+            (previous && Object.hasOwn(previous.directoryModes, path)
+              ? previous.directoryModes[path]
+              : undefined) ??
+            directoryModes[path] ??
+            0o700;
         }
         entry = { name: request.name, files, directoryModes, revision: '' };
         validateSkillStoreEntry(entry, request.trustTier);
