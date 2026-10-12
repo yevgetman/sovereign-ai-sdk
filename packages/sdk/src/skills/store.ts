@@ -79,10 +79,17 @@ function prepareEntry(change: SkillMutation, previous?: SkillStoreWireEntry): Sk
       mode: previous?.files['SKILL.md']?.mode ?? files['SKILL.md']?.mode ?? 0o600,
     };
   }
-  const directoryModes = change.directoryModes
-    ? Object.fromEntries(change.directoryModes)
-    : structuredClone(previous?.directoryModes ?? { '': 0o700 });
-  directoryModes[''] ??= previous?.directoryModes[''] ?? 0o700;
+  // Resource names can be ordinary JavaScript prototype keys. Complete-tree
+  // maps must contain only actual directories, never inherited properties.
+  const previousModes: Record<string, number> = Object.assign(
+    Object.create(null),
+    previous?.directoryModes ?? {},
+  );
+  const directoryModes: Record<string, number> = Object.assign(
+    Object.create(null),
+    change.directoryModes ? Object.fromEntries(change.directoryModes) : previousModes,
+  );
+  directoryModes[''] ??= previousModes[''] ?? 0o700;
   // Recursive mkdir creates these ancestors on disk. Include them in the
   // accepted tree so the commit revision is the revision returned by read().
   for (const path of Object.keys(directoryModes)) {
@@ -90,7 +97,7 @@ function prepareEntry(change: SkillMutation, previous?: SkillStoreWireEntry): Sk
     const parts = path.split('/');
     for (let depth = 1; depth < parts.length; depth++) {
       const directory = parts.slice(0, depth).join('/');
-      directoryModes[directory] ??= previous?.directoryModes[directory] ?? 0o700;
+      directoryModes[directory] ??= previousModes[directory] ?? 0o700;
     }
   }
   for (const [path, file] of Object.entries(files)) {
@@ -102,7 +109,7 @@ function prepareEntry(change: SkillMutation, previous?: SkillStoreWireEntry): Sk
     }
   }
   for (const path of Object.keys(directoryModes))
-    directoryModes[path] = previous?.directoryModes[path] ?? directoryModes[path] ?? 0o700;
+    directoryModes[path] = previousModes[path] ?? directoryModes[path] ?? 0o700;
   return {
     name: change.name,
     files,

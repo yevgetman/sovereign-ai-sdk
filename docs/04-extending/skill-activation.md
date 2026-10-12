@@ -70,6 +70,13 @@ port through the scoped host Bash tool and ordinary tool orchestrator. This
 preserves permission prompts, denials, hooks, validation, cancellation and
 tool observations. Plugin inline shell remains inert.
 
+Native HTTP activation creates a separate host evidence identity before inline
+context can reach the conduct policy. It settles that identity on success or
+failure. The context-only evidence row omits delivered text. Later provider
+drives retain their own identities under the session they actually run in,
+including after compaction. This keeps activation decisions attributable
+without treating context expansion as a delivered model response.
+
 Dynamic context runs in the skill directory with a ten-second timeout and a
 bounded output. User arguments are merged last and never rescanned as shell.
 Permission failure stops activation and produces no activation record.
@@ -124,6 +131,8 @@ native tool effects, inline shell, failure recovery and independent states.
 and line-driver paths. TUI tests check that the command activation POST keeps
 the skill identity. Existing skill scope tests retain the legacy native rule
 and empty-list contracts.
+The client tests also join inline conduct decisions to one settled host
+evidence row on success and denial.
 
 ## Read next
 
