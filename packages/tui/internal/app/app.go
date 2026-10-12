@@ -800,6 +800,15 @@ func (m Model) fetchSkillCatalogsCmd() tea.Cmd {
 	return tea.Batch(m.fetchSkillsCmd(), m.fetchCommandsCmd())
 }
 
+func (m *Model) printSkillCatalogWarning(catalog *transport.SkillCatalogResult) {
+	if catalog == nil || catalog.Refreshed {
+		return
+	}
+	m.print(lipgloss.NewStyle().Foreground(m.theme.Warning).Render(
+		"warning: skill committed; catalog refresh failed. Run /skills doctor refresh to retry.",
+	))
+}
+
 // fetchCommandsCmd issues the backlog #45 GET /sessions/<id>/commands
 // hydration off the Update goroutine. Result populates the
 // autocomplete popup's dynamic command list (replacing staticEntries
@@ -1786,6 +1795,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.print(m.theme.DimStyle().Render(
 			fmt.Sprintf("installed /%s → %s", msg.result.Name, msg.result.InstalledAt),
 		))
+		m.printSkillCatalogWarning(msg.result.Catalog)
 		return m, m.fetchSkillCatalogsCmd()
 	case skillUninstalledMsg:
 		// M11.17 — render uninstall result and refresh the skill cache.
@@ -1800,6 +1810,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.print(m.theme.DimStyle().Render(
 			fmt.Sprintf("uninstalled /%s (removed %s)", msg.result.Name, msg.result.RemovedFrom),
 		))
+		m.printSkillCatalogWarning(msg.result.Catalog)
 		return m, m.fetchSkillCatalogsCmd()
 	case skillImportedMsg:
 		// Feature A2 — render import result (incl. the normalization notes the
@@ -1823,6 +1834,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, w := range msg.result.Warnings {
 			m.print(warnStyle.Render("  warning: " + w))
 		}
+		m.printSkillCatalogWarning(msg.result.Catalog)
 		return m, m.fetchSkillCatalogsCmd()
 	case commandDispatchedMsg:
 		// M10.5 — pop the "…running /name" placeholder; render the dispatch

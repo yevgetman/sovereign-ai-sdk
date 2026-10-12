@@ -70,11 +70,20 @@ func GetSkills(ctx context.Context, baseURL, sessionID string) ([]Skill, error) 
 	return payload.Skills, nil
 }
 
+// SkillCatalogResult reports publication after a committed skill mutation.
+// A nil result preserves compatibility with servers that omit the catalog field.
+type SkillCatalogResult struct {
+	Generation uint64 `json:"generation"`
+	Refreshed  bool   `json:"refreshed"`
+	Warning    string `json:"warning,omitempty"`
+}
+
 // InstallSkillResult is the decoded success envelope returned by
 // POST /sessions/:id/skills/install on success. M11.17.
 type InstallSkillResult struct {
-	Name        string `json:"name"`
-	InstalledAt string `json:"installedAt"`
+	Name        string              `json:"name"`
+	InstalledAt string              `json:"installedAt"`
+	Catalog     *SkillCatalogResult `json:"catalog,omitempty"`
 }
 
 // InstallSkill issues POST <baseURL>/sessions/<sessionID>/skills/install
@@ -128,10 +137,11 @@ func InstallSkill(ctx context.Context, baseURL, sessionID, source string, force 
 // `converted`/`warnings` notes the importer accrues while normalizing a
 // Claude Code SKILL.md onto the harness-native canonical shape.
 type ImportSkillResult struct {
-	Name        string   `json:"name"`
-	InstalledAt string   `json:"installedAt"`
-	Converted   []string `json:"converted"`
-	Warnings    []string `json:"warnings"`
+	Name        string              `json:"name"`
+	InstalledAt string              `json:"installedAt"`
+	Converted   []string            `json:"converted"`
+	Warnings    []string            `json:"warnings"`
+	Catalog     *SkillCatalogResult `json:"catalog,omitempty"`
 }
 
 // ImportSkill issues POST <baseURL>/sessions/<sessionID>/skills/import with
@@ -183,8 +193,9 @@ func ImportSkill(ctx context.Context, baseURL, sessionID, source string, force b
 // UninstallSkillResult is the decoded success envelope returned by
 // DELETE /sessions/:id/skills/:name on success. M11.17.
 type UninstallSkillResult struct {
-	Name        string `json:"name"`
-	RemovedFrom string `json:"removedFrom"`
+	Name        string              `json:"name"`
+	RemovedFrom string              `json:"removedFrom"`
+	Catalog     *SkillCatalogResult `json:"catalog,omitempty"`
 }
 
 // UninstallSkill issues DELETE <baseURL>/sessions/<sessionID>/skills/<name>.

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createSkillRegistryManager } from '../../packages/sdk/src/skills/registry.js';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildServerCommandContext } from '../../src/server/commandContext.js';
 import { buildRuntime } from '../../src/server/runtime.js';
@@ -86,6 +87,82 @@ describe('live server skill catalogs', () => {
           sessionId,
         ).ctx.registry.has('newSkill'),
       ).toBe(false);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  test('committed HTTP mutations report a failed catalog refresh without losing the prior catalog', async () => {
+    const home = join(root, 'home');
+    const cwd = join(root, 'project');
+    mkdirSync(cwd);
+    const runtime = await buildRuntime({
+      cwd,
+      harnessHome: home,
+      provider: 'mock',
+      preflight: false,
+      cronEnabled: false,
+    });
+    try {
+      const app = buildAppWithRuntime(runtime);
+      const sessionId = (
+        (await (await app.request('/sessions', { method: 'POST' })).json()) as { sessionId: string }
+      ).sessionId;
+      const source = join(root, 'SKILL.md');
+      writeFileSync(source, document('oldSkill'));
+      expect(
+        (
+          await app.request(`/sessions/${sessionId}/skills/install`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ source }),
+          })
+        ).status,
+      ).toBe(200);
+      const previous = runtime.skillRegistryManager.snapshot();
+      runtime.skillRegistryManager = createSkillRegistryManager({
+        initial: previous,
+        load: async () => {
+          throw new Error('PRIVATE refresh failure');
+        },
+      });
+      for (const verb of ['install', 'import', 'uninstall']) {
+        writeFileSync(
+          source,
+          document(verb === 'install' ? 'newSkill' : 'oldSkill', '', 'Updated committed guidance.'),
+        );
+        const response = await app.request(
+          `/sessions/${sessionId}/skills/${verb === 'uninstall' ? 'oldSkill' : verb}`,
+          {
+            method: verb === 'uninstall' ? 'DELETE' : 'POST',
+            headers: { 'content-type': 'application/json' },
+            ...(verb === 'uninstall' ? {} : { body: JSON.stringify({ source, force: true }) }),
+          },
+        );
+        expect(response.status).toBe(200);
+        const result = (await response.json()) as {
+          ok: boolean;
+          installedAt?: string;
+          removedFrom?: string;
+          catalog: { refreshed: boolean; generation: number; warning: string };
+        };
+        expect(result.ok).toBe(true);
+        expect(result.catalog.refreshed).toBe(false);
+        expect(result.catalog.generation).toBe(0);
+        expect(result.catalog.warning).toContain('catalog refresh failed');
+        expect(JSON.stringify(result)).not.toContain('PRIVATE');
+        const path = join(result.installedAt ?? result.removedFrom ?? '', 'SKILL.md');
+        expect(await Bun.file(path).exists()).toBe(verb !== 'uninstall');
+        if (verb !== 'uninstall')
+          expect(await Bun.file(path).text()).toContain('Updated committed guidance.');
+        const snapshot = runtime.skillRegistryManager.snapshot();
+        expect(snapshot.registry.skills.map((skill) => skill.name)).toEqual(
+          previous.registry.skills.map((skill) => skill.name),
+        );
+        expect(
+          snapshot.diagnostics.some((diagnostic) => diagnostic.code === 'refresh-failed'),
+        ).toBe(true);
+      }
     } finally {
       await runtime.dispose();
     }
