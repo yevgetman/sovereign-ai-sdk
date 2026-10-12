@@ -411,6 +411,8 @@ export async function readSkillSourceTree(source: string): Promise<{
   await checkSourceDirectoryChain(root, identities);
   const files = new Map<string, SkillStoreFile>();
   const directories = new Map<string, number>();
+  const capturedFiles: Array<{ path: string; actual: string; info: Stats }> = [];
+  const capturedDirectories: Array<{ path: string; actual: string; info: Stats }> = [];
   let bytes = 0;
   const visit = async (path: string, resource: string, ancestors: Set<string>): Promise<void> => {
     const actual = await realpath(path);
@@ -430,6 +432,7 @@ export async function readSkillSourceTree(source: string): Promise<{
         throw new Error('skill source changed during capture');
       identities.set(actual, { dev: info.dev, ino: info.ino });
       directories.set(resource, info.mode & 0o777);
+      capturedDirectories.push({ path, actual, info });
       const next = new Set([...ancestors, actual]);
       for (const child of (await readdir(actual)).sort())
         await visit(join(actual, child), resource ? `${resource}/${child}` : child, next);
@@ -468,11 +471,34 @@ export async function readSkillSourceTree(source: string): Promise<{
         throw new Error('skill source changed during capture or exceeded limits');
       await checkCapturedSourceFile(actual, file, opened, identities);
       files.set(resource, { data: new Uint8Array(data), mode: info.mode & 0o777 });
+      capturedFiles.push({ path, actual, info: opened });
     } finally {
       await file.close();
     }
   };
   await visit(root, '', new Set());
+  // Reading a later resource can change an earlier captured leaf in place
+  // without changing any directory identity or timestamp. Validate the whole
+  // captured source once traversal finishes, including each alias observation.
+  for (const { path, actual, info } of capturedFiles) {
+    if ((await realpath(path)) !== actual || !sameSourceFile(info, await lstat(actual)))
+      throw new Error('skill source changed during capture');
+    await checkSourceDirectoryChain(actual, identities);
+  }
+  for (const { path, actual, info } of capturedDirectories) {
+    const current = await lstat(actual);
+    if (
+      (await realpath(path)) !== actual ||
+      !current.isDirectory() ||
+      current.dev !== info.dev ||
+      current.ino !== info.ino ||
+      current.mode !== info.mode ||
+      current.mtimeMs !== info.mtimeMs ||
+      current.ctimeMs !== info.ctimeMs
+    )
+      throw new Error('skill source changed during capture');
+    await checkSourceDirectoryChain(actual, identities);
+  }
   if ((await realpath(source)) !== root) throw new Error('skill source changed during capture');
   return { files, directoryModes: directories };
 }

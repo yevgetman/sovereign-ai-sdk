@@ -32,8 +32,8 @@
 //      each tool dispatch.
 //
 // Design invariants (load-bearing):
-//   - `query()` gains one optional callback, `persistBeforeTools`. Absent, the
-//     loop is unchanged. `createAgent` is a composition over it, not a fork.
+//   - Persistence and retry restriction capture stay optional query callbacks.
+//     `createAgent` composes the shared loop rather than forking it.
 //   - Stream-passthrough: `run()` yields every `StreamEvent | Message` from
 //     `query()` UNCHANGED and in order — no buffering, coalescing, or reordering.
 //   - Immutability: the caller's `input` messages and `config` are never mutated.
@@ -92,6 +92,11 @@ import {
 } from '../providers/pricing.js';
 import { resolveProvider } from '../providers/resolver.js';
 import type { LLMProvider } from '../providers/types.js';
+import {
+  type SkillRestrictionState,
+  createSkillActivationState,
+  createSkillChildPermission,
+} from '../skills/activation.js';
 import type { SkillRuntime } from '../skills/runtime.js';
 import type { CapabilityProfileRegistry } from '../tool/capabilityProfiles.js';
 import type { LearningObserverPort } from '../tool/ports.js';
@@ -600,8 +605,43 @@ export function createAgent(config: AgentConfig): Agent {
         }
       },
     };
-    const startTurn = (extraSegments: SystemSegment[]) =>
-      query({
+    // Conduct attempts belong to the same run. Preserve only restrictions;
+    // each attempt rebuilds its host gate from the original caller context.
+    let skillRestrictions: SkillRestrictionState | undefined;
+    const startTurn = (extraSegments: SystemSegment[]) => {
+      let attemptToolContext = toolContext;
+      if (toolContext && skillRestrictions) {
+        const originalActivation = toolContext.skillActivation;
+        const hostPermission = originalActivation?.canUseTool ?? canUseTool;
+        const fresh = createSkillActivationState({
+          tools: skillRestrictions.tools,
+          ...(hostPermission ? { canUseTool: hostPermission } : {}),
+          ...(config.hookRunner ? { hookRunner: config.hookRunner } : {}),
+        });
+        const attemptActivation = {
+          ...fresh,
+          // Keep caller-owned lifetime fields and inherited markers.
+          ...originalActivation,
+          tools: fresh.tools,
+          canUseTool: fresh.canUseTool,
+          hasHostPermission:
+            canUseTool !== undefined || originalActivation?.hasHostPermission === true,
+          restrictionCanUseTool: skillRestrictions.restrictionCanUseTool,
+          activations: skillRestrictions.activations.slice(),
+        };
+        attemptToolContext = {
+          ...toolContext,
+          skillActivation: attemptActivation,
+          // Rebind a caller-owned child gate to this attempt's state. Its
+          // separate ceiling survives without rerunning the old host path.
+          canUseTool: createSkillChildPermission(
+            attemptActivation,
+            toolContext.canUseTool !== canUseTool ? toolContext.canUseTool : undefined,
+            originalActivation,
+          ),
+        };
+      }
+      return query({
         provider: observedProvider,
         model,
         messages: seedMessages,
@@ -627,7 +667,10 @@ export function createAgent(config: AgentConfig): Agent {
         ...(maxToolCallsBeforeCheckin !== undefined ? { maxToolCallsBeforeCheckin } : {}),
         ...(loop !== undefined ? { loop } : {}),
         ...(tools !== undefined ? { tools } : {}),
-        ...(toolContext !== undefined ? { toolContext } : {}),
+        ...(attemptToolContext !== undefined ? { toolContext: attemptToolContext } : {}),
+        onSkillRestrictionState: (state) => {
+          skillRestrictions = state;
+        },
         ...(canUseTool !== undefined ? { canUseTool } : {}),
         ...(memoryManager !== undefined ? { memoryManager } : {}),
         ...(recall !== undefined ? { recall } : {}),
@@ -659,6 +702,7 @@ export function createAgent(config: AgentConfig): Agent {
         ...(perTurn.signal !== undefined ? { signal: perTurn.signal } : {}),
         ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
       });
+    };
     let gen = startTurn([]);
 
     // 8. Drive query(), yielding every event UNCHANGED + in order. Track the
