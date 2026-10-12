@@ -100,8 +100,10 @@ complete revision. Replaced leaves, changed modes and resources added during
 capture cause rollback without a receipt. A changed uncommitted stage rolls back without an event.
 Recovery leaves an unrelated replacement directory and the backup for inspection.
 
-Destination directories and resources cannot be symlinks. Resource names reject
-absolute paths, parent segments and platform separators. A short-lived Node/Bun
+Destination directories and resources cannot be symlinks. Portable resource names reject
+absolute paths, parent segments, platform separators and colons. Colons can select
+another Windows drive or an NTFS alternate stream, so ordinary POSIX filenames
+that contain colons are also refused by both adapters. A short-lived Node/Bun
 worker pins the chosen root with its kernel working directory and checks directory
 identity before effects and publication. Replacing a root pathname with a link
 cannot redirect the worker's writes. Store-internal state is private (0700).
