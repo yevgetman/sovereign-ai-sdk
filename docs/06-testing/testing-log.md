@@ -1,3 +1,7 @@
+## 2026-10-11 — Current review: corrected parent integration for PR53
+
+Ordinary merge carries reviewed parent `bc3b2b255e70d690fe0cfef1c96f8432249f594b` into local review head `56a16b757472bd60beded05deaa4d68d2735cfdc`, preserving incoming PR head `dbf24c0f2803fe731176b060d93c67baddbd0c4c` and both complete testing histories. Configured lint/boundary, root typecheck, strict SDK build and every discovered test file pass: **5,826 passed / 19 existing skips / zero failures**, 24,176 assertions across 559 files. Public protocol/SDK and worktree-local TUI built first. Complete runner: `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review8-20261011/publish53 review8-publish53`. Existing global compiler/theme/timing/subprocess fixtures run separately without exclusions or assertion changes. This is review source; publication changes the PR branch only.
+
 ## 2026-10-11 — Eighth review: bounded portable discovery and guarded loading
 
 Fresh parent-relative code review of incoming PR53 `dbf24c0f2803fe731176b060d93c67baddbd0c4c` against PR52. Reviewed nearest project/node boundaries, deterministic root/name precedence, approved external links, canonical exclusions, physical deduplication, diagnostic observer isolation, bounded reads and resource enumeration, and reload identity. Checked downstream activation contracts. No new independent confirmed finding above Low.
@@ -8452,6 +8456,46 @@ Independent review of the combined foundations at `1d82acb5` confirmed that envi
 The same pass found that plugin command-only workflows lost their descriptor between `/commands` and `/turns`. The host now preserves a private command descriptor and resolves canonical command precedence before shared activation. HTTP transport fixtures verify plugin-only activation, a collision with a project skill, read-only provider schemas, inert plugin shell and refusal to shadow built-in `/help`. These descriptors remain outside the model catalog.
 
 Initial targeted failures were a fixture missing the plugin manifest description and a literal-backslash directory rejected by Bun realpath on macOS. Fixtures were corrected without reducing the effect assertions; backslash data is exercised through the session identifier. Lint and boundary checks, root type checking and the strict SDK build pass. The complete focused loader/activation/plugin/permission/orchestrator run passes 444 tests, zero failures, 1125 assertions across 16 files. The parent integration pass owns the final full-source gate before PR publication. No live provider requests, release or installed-runtime changes.
+## 2026-10-11 — Sixth review PR52: attribute inline skill policy evidence
+
+Confirmed Medium: the native HTTP skill activation path invoked conduct
+`toolPolicy` before the provider drive minted its host `turnId`. Inline shell
+policy decisions therefore had no host identity to join to observed evidence;
+a rejected activation created no provider drive or observed row at all. The
+new actual route/evidence regression fails before correction: **0 passed /
+1 failed / 3 assertions**, observing `ConductContext.turnId === undefined`.
+Native activation now has a separate host evidence identity, passed to its
+conduct gate and settled in a local finally on success or denial. Its
+context-only row omits delivered text. Subsequent provider drives preserve
+their own post-compaction identities.
+
+Darwin arm64, Bun 1.3.13, isolated worktree; mock inference and temporary
+filesystem roots. The regression uses the real HTTP route and evidence
+coordinator with capture-only writer/policy ports. Success and denial each
+join to exactly one settled policy row; repeated settlement creates no
+extra row. No live conduct adapter or external audit was run.
+
+Commands/results:
+- `bun test tests/skills/activation.test.ts tests/skills/activationConcurrency.test.ts tests/tools/skillsViewSecurity.test.ts tests/server/skillActivationClients.test.ts tests/server/turnsConduct.test.ts tests/cron/skillActivation.test.ts`: **44 passed / 0 failed / 242 assertions**.
+- `bun run tui:build`; `go test ./internal/app ./internal/transport` under `packages/tui`: passed.
+- `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-round6-20261011/review-52 round6-pr52`: lint/boundary, typecheck, strict SDK build and all **554** discovered test files passed: **5776 passed / 19 existing skips / 0 failed / 23993 assertions**. The serialized gate isolates the existing global compiler, footer-theme and timing/subprocess fixtures without removing any file.
+
+The discovery-time directory replacement weakness already exists on master
+and is corrected by the downstream PR53 pinned/bounded loader. No duplicate
+discovery API was added here. No paid inference, primary-seat mutation,
+installation update or release was performed.
+## 2026-10-11 — Eighth review: activation, retries and native clients
+
+Fresh parent-relative code review of incoming PR52 `e8c616984cf7b8de23c394c2b43636ff914f4775`. Reviewed activation serialization, guard approval, permission and hook rewrites, same-batch and next-request restrictions, Conduct retries, delegated permission gates, command transport, native HTTP/cron consumers and bounded reference reads. Confirmed one Medium context-integrity defect: the legacy expansion pass rewrote argument markers in already inserted Bash stdout and environment values. Four actual activation regressions fail on the incoming code. Expansion now substitutes only original prose templates; commands and inserted data stay literal.
+
+Darwin arm64, Bun 1.3.13, isolated `/private/tmp/sdk-skills-review8-20261011/pr52`; temporary filesystem fixtures and scripted providers. `bun test tests/skills/activation.test.ts tests/skills/activationChildPermissions.test.ts tests/skills/activationConcurrency.test.ts tests/skills/regenerationToolFloor.test.ts tests/tools/skillsViewSecurity.test.ts tests/server/skillActivationClients.test.ts tests/cron/skillActivation.test.ts`: **53 passed / zero failed / 254 assertions**. Protocol/SDK and worktree-local TUI artifacts were built with `bun run build && bun run tui:build`; configured lint/boundary and typecheck pass.
+
+`bun test tests/skills/activationLiteralOutput.test.ts` before the fix: **zero passed / four failed / four assertions**. All failures show substituted stdout or environment data; no shell permission bypass is claimed. After the fix, `bun test tests/skills/activationLiteralOutput.test.ts tests/skills/activation.test.ts tests/skills/loader.test.ts`: **55 passed / zero failed / 138 assertions**. Independent coordinator reproduction on the corrected source also passes **four tests / four assertions**. PR55's portable prose-expansion pipeline already subsumes this correction; preserve its broader argument grammar and prose-only fallback detection when integrating.
+
+Complete changed-source gate: `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-review8-20261011/pr52 review8-pr52` passes configured lint/boundary, typecheck, strict SDK build and all **557** discovered files: **5,798 passed / 19 existing skips / zero failures / 24,063 assertions**. The established global compiler, footer-theme, timing and subprocess fixtures run separately with no omitted files or weaker assertions. Receipt: `/private/tmp/sdk-skills-review8-pr52-gate.json`. No paid inference, master merge, release, installed-runtime update or host configuration change.
+
+An exploratory child-ceiling probe initially assumed `ToolContext.canUseTool` also authorized current inline Bash. The documented field and the existing explicit regression instead constrain delegation; the activation state owns current-tool approval. Applying that mistaken assumption failed the intentional parent-inline/child-denial witness. The probe and speculative change were discarded; the unchanged-source focused run above passes with every original assertion retained. No defect is claimed for this specified behavior.
+
 ## 2026-10-11 — Sixth review PR52: attribute inline skill policy evidence
 
 Confirmed Medium: the native HTTP skill activation path invoked conduct
