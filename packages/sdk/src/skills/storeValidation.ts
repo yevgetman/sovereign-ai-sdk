@@ -25,6 +25,9 @@ export function assertSkillStoreResource(path: string): void {
   if (
     !path ||
     path.includes('\\') ||
+    // A colon can select another Windows drive or an NTFS alternate stream.
+    // Portable resources must remain ordinary leaves under the pinned root.
+    path.includes(':') ||
     parts.length > SKILL_STORE_LIMITS.depth ||
     parts.some((part) => !part || part === '.' || part === '..' || part.includes('\0'))
   )
