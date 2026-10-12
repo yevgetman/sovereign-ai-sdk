@@ -126,6 +126,7 @@ Preserve these invariants:
 
 Skills are markdown files loaded by `packages/sdk/src/skills/loader.ts`. Runtime-visible skill behavior is split across:
 
+- `packages/sdk/src/skills/discovery.ts` for shared portable roots, project boundaries, link confinement, limits and structured discovery decisions
 - `packages/sdk/src/skills/types.ts` for the registry shape
 - `packages/sdk/src/skills/whenToUse.ts` for the trigger-rigor heuristic (Phase 9.6)
 - `packages/sdk/src/skills/visibility.ts` for active-tool and active-toolset gates
@@ -135,6 +136,12 @@ Skills are markdown files loaded by `packages/sdk/src/skills/loader.ts`. Runtime
 - `packages/sdk/src/skills/install.ts` for the `install` (byte-faithful) and `import` (normalize-on-write) verbs
 
 New skill features should preserve progressive disclosure: the system prompt should carry a reminder, not the full skill body.
+
+### Discovering portable and managed skills
+
+`discoverSkills(options)` returns ordered candidates, the effective project boundary, limits and structured decisions. `loadSkills(options)` consumes the same candidates and emits validation and duplicate-name decisions through `onDiscoveryDecision`. Both are SDK exports; SOV uses `loadSkills` and needs no independent scanner. Discovery alone does not parse bodies or execute a skill.
+
+Set `projectRoot` for a non-repository embedded project. It must contain `cwd` and cannot override a nearer Git or Kernel node boundary. Default project precedence is nearest `.harness/skills`, then `.agents/skills` at the same level, repeated toward the boundary. User roots follow, then `extraRoots` and bundle roots. Links default to their owning scope. Use `allowedLinkRoots` only for host-approved managed external targets; that option does not change source or trust tier. `discoveryLimits` and `onDiscoveryDecision` support bounded hosts and diagnostics. Do not expose raw diagnostic paths to clients without the host's authorization filter.
 
 ### Native `allowedTools` is enforced on every activation path
 

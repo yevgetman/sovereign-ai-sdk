@@ -31,7 +31,7 @@ Or pass it explicitly:
 sov --bundle ~/code/sovereign-ai-docs
 ```
 
-Generic-agent invocation — `sov` works in any directory without a bundle. The splash shows `no bundle`, the bundle-derived prompt segments are omitted, and project-level skills (`./.harness/skills`) plus user-level skills (`~/.harness/skills`) still load:
+Generic-agent invocation — `sov` works in any directory without a bundle. The splash shows `no bundle`, the bundle-derived prompt segments are omitted, and project-level skills (`.harness/skills` and `.agents/skills`, including eligible project ancestors) plus user-level skills (`~/.harness/skills`) still load:
 
 ```bash
 cd ~/some-project   # any directory, no bundle required
@@ -2270,12 +2270,19 @@ Use the memory tool to show current USER.md and MEMORY.md.
 
 Skills are markdown files. They can live in:
 
-- `<cwd>/.harness/skills/`
+- `<cwd>/.harness/skills/` and `<cwd>/.agents/skills/`
+- The same roots in eligible ancestors, up to the nearest Git repository or Kernel node boundary
 - `$HARNESS_HOME/skills/`
 - `$HARNESS_HOME/skills/agent-created/<name>/SKILL.md`
 - `<bundle>/skills/`
 - `<bundle>/harness/skills-trusted/`
 - `<bundle>/skills-community/`
+
+Discovery order is nearest project directory first, native `.harness/skills` before portable `.agents/skills` at each level, then user, explicit plugin/extra roots, and bundle roots. Duplicate names keep the first valid skill. A real file or directory linked into multiple roots loads once. Directory skills stop at `SKILL.md`, so reference files do not become separate skills.
+
+Links may target files inside their owning project, home, plugin or bundle scope. A managed project projection such as `.harness/skills/release -> ../../org-skill/release` works from the repository root and subfolders. External link targets require the SDK host to supply `allowedLinkRoots`; a link retains its root's trust classification. Discovery does not follow an unrelated parent catalog outside the nearest `.git` or `.kernel/node.yml` boundary. An unreadable boundary marker stops ancestor discovery at its directory and emits an `unreadable` decision. Without a project marker, only the current directory is eligible unless the host supplies `projectRoot`.
+
+The shared SDK scanner bounds ancestors (64), roots (128), depth (16), directory entries (20,000), skill files (2,000), each file (1 MiB), and total loaded bytes (16 MiB). Hosts may set `discoveryLimits`. Files that exceed a limit, broken links, cycles and denied targets produce structured discovery decisions and warnings. Reads recheck the byte limit and canonical file identity, including when a file grows or a parent directory changes after scanning. Directory reference scans share the byte and entry budget and reject incomplete scans. Internal `.sov-skill-store` transactions, VCS directories, `node_modules` and `vendor` are excluded.
 
 ### Managing skills from the TUI (M11.17)
 
