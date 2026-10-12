@@ -1,3 +1,31 @@
+## 2026-10-11 — Sixth review PR58: bound escaped catalog identity fragments
+
+Confirmed Medium: public/in-memory catalog identities with JSON escapes
+produced oversized pages. The name-fragment path clipped raw UTF-8 bytes
+without checking the final serialized page and its continuation cursor. A
+quote-heavy opaque host identity returned **1663 bytes** under a **1024-byte**
+allocation. The new enumeration regression fails before correction:
+**0 passed / 1 failed / 1 assertion**. Filesystem names remain slash-safe;
+this defect concerns the existing public typed host catalog path.
+
+Fragments now pass the complete serialized-page bound before publication.
+The regression reconstructs quote-heavy, control-heavy and Unicode names from
+ordered fragments, checks every serialized page, ensures cursors advance and
+terminate, and reaches the following ordinary skill. Corrected isolated
+selection: **1 passed / 0 failed / 300 assertions**.
+
+Darwin arm64, Bun 1.3.13, isolated worktree; public catalog fixtures, mock
+providers, temporary filesystem roots and strict built Node consumers.
+Commands/results:
+- `bun test tests/skills/catalog.test.ts tests/skills/catalogQuery.test.ts tests/skills/metadata.test.ts tests/skills/runtimeVisibility.test.ts tests/context/systemPrompt.test.ts`: **43 passed / 0 failed / 686 assertions** across five files.
+- `bun run --cwd packages/sdk build` and `bun run tui:build`: passed.
+- `python3 /private/tmp/sdk-skills-round5-20261011/gate.py /private/tmp/sdk-skills-round6-20261011/review-58 round6-pr58`: lint/boundary, typecheck, strict SDK build and all **575** discovered test files passed: **5934 passed / 19 existing skips / 0 failed / 25211 assertions**. The serialized gate isolates existing global compiler, footer-theme and timing/subprocess fixtures without removing any file.
+
+Read the exact PR57-relative diff and followed PR59 retained-guidance budgets.
+No other independent above-Low issue was confirmed. No paid evaluation,
+live service, primary-seat edit, parent merge, installation update or release
+was performed.
+
 ## 2026-10-11 — Fifth-review complete source gate for PR58 compatibility
 
 Scope: owning review changes and ordinary parent correction carry in dependency order. Commands: frozen dependency install without scripts, public protocol/SDK build, TUI build, then configured lint/boundary, root types, strict SDK build and every discovered test file. Result: **5,933 passed / 19 existing skips / zero failures**, 24,911 assertions across all 575 files. Compiler, shared-theme, redaction-timing and subprocess fixtures run separately; no file or assertion is omitted. Prior testing histories remain intact. This validates review source; no master merge, release or installed-host change is performed.

@@ -29,6 +29,11 @@ string offsets and the final-slice flag. Concatenate the slices before invoking
 that name. An exhausted context budget returns `budgetExhausted`, with a recovery
 instruction, instead of a cursor that cannot advance.
 
+Name fragments in public host catalogs are checked against the complete
+serialized page and continuation cursor. JSON escaping counts toward the byte
+allocation. Quotes, control characters and Unicode in an opaque host identity
+cannot enlarge a page beyond its allowance or lose the remainder of its name.
+
 The public pure helpers `listSkillCatalog` and `buildSkillCatalogIndex` implement
 these rules. Hosts can use the same contracts without the model tools.
 

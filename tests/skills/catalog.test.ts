@@ -101,6 +101,48 @@ describe('complete bounded skill catalogs', () => {
     expect(reachedLast).toBe(true);
   });
 
+  test('escaped and Unicode host identities stay within serialized page budgets and enumerate fully', () => {
+    // Public host catalogs carry opaque string identities. Their JSON escapes
+    // must count toward the page allowance, including fragmented names.
+    for (const name of [
+      `a${'"'.repeat(5_000)}`,
+      `a${'\u0000'.repeat(3_000)}`,
+      `a${'😀'.repeat(3_000)}`,
+    ]) {
+      const input = [skill(name), skill('z-last')];
+      let cursor: string | undefined;
+      let recovered = '';
+      let reachedLast = false;
+      let pages = 0;
+      const cursors = new Set<string>();
+      do {
+        const page = listSkillCatalog(input, {
+          budget: largeBudget,
+          ...(cursor ? { cursor } : {}),
+        });
+        expect(skillTextTokenBound(JSON.stringify(page))).toBeLessThanOrEqual(
+          largeBudget.pageTokens,
+        );
+        expect(page.budgetExhausted).toBeUndefined();
+        for (const item of page.skills) {
+          if (item.nameFragment) {
+            expect(item.nameFragment.offset).toBe(recovered.length);
+            recovered += item.name;
+          }
+          if (item.name === 'z-last') reachedLast = true;
+        }
+        cursor = page.nextCursor;
+        if (cursor) {
+          expect(cursors.has(cursor)).toBe(false);
+          cursors.add(cursor);
+        }
+        if (++pages > 100) throw new Error('catalog pagination did not terminate');
+      } while (cursor);
+      expect(recovered).toBe(name);
+      expect(reachedLast).toBe(true);
+    }
+  });
+
   test('generation, metadata, visibility and query changes reject stale cursors', () => {
     const skills = [skill('one'), skill('two'), skill('three')];
     const first = listSkillCatalog(skills, { generation: 1, limit: 1 });
