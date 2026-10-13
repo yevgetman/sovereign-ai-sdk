@@ -389,11 +389,13 @@ export function messagesToSdk(messages: Message[], cacheEnabled = true): Message
  * empty-string fallback makes Anthropic reject the whole request with a 400
  * (`thinking.signature invalid`). Anthropic ignores prior-turn thinking when
  * thinking is off, so dropping an unsigned thinking block is safe — only a
- * signed (same-provider) block needs to survive. All other block kinds —
- * including `redacted_thinking`, whose opaque `data` replays verbatim with no
- * signature — are replayable as-is.
+ * signed (same-provider) block needs to survive. `redacted_thinking`, whose
+ * opaque `data` replays verbatim with no signature, is replayable as-is.
+ * `encrypted_reasoning` is refused on Anthropic. Returning true here keeps
+ * that block so `blockToSdk` throws instead of dropping it silently.
  */
 function isReplayableBlock(block: ContentBlock): boolean {
+  // True for encrypted_reasoning on purpose: blockToSdk must see it and throw.
   if (block.type !== 'thinking') return true;
   return typeof block.signature === 'string' && block.signature.length > 0;
 }
