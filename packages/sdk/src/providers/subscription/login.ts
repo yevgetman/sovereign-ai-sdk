@@ -89,6 +89,9 @@ export async function loginSubscription(
             if ((await credentialGeneration(port, key)) !== generation)
               throw new Error('login changed during device approval');
             if (io.signal?.aborted) throw abortError(io.signal);
+            // Under the credential lock. The hook must not take it again.
+            // A throw leaves the previous credential stored.
+            if (name === 'chatgpt' || name === 'grok') await hooks?.onIdentityChanged?.(name);
             await advanceCredentialGeneration(port, key);
             await port.write(key, record);
           },
@@ -100,8 +103,8 @@ export async function loginSubscription(
       fetchImpl: boundedLoginFetch(io),
       sleep: (ms: number) => boundedLoginSleep(io, ms),
     };
-    if (name === 'chatgpt') return await loginChatGpt(guardedPort, boundedIo, hooks);
-    return await loginGrok(guardedPort, boundedIo, hooks);
+    if (name === 'chatgpt') return await loginChatGpt(guardedPort, boundedIo);
+    return await loginGrok(guardedPort, boundedIo);
   } catch {
     io.stderr(`${name} login failed\n`);
     return 1;
@@ -138,11 +141,7 @@ export async function logoutSubscription(
   return 0;
 }
 
-async function loginChatGpt(
-  port: SubscriptionCredentialPort,
-  io: LoginIo,
-  hooks?: SubscriptionIdentityHooks,
-): Promise<number> {
+async function loginChatGpt(port: SubscriptionCredentialPort, io: LoginIo): Promise<number> {
   const deviceRes = await io.fetchImpl(`${CODEX_ISSUER}/api/accounts/deviceauth/usercode`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
@@ -212,18 +211,12 @@ async function loginChatGpt(
     return 1;
   }
   const record = recordFromTokenJson('chatgpt', await tokenRes.json(), io.now(), '');
-  // A hook throw must not leave the new credential stored.
-  await hooks?.onIdentityChanged?.('chatgpt');
   await port.write(KEYCHAIN_SERVICE.chatgpt, record);
   io.stdout('signed in to chatgpt\n');
   return 0;
 }
 
-async function loginGrok(
-  port: SubscriptionCredentialPort,
-  io: LoginIo,
-  hooks?: SubscriptionIdentityHooks,
-): Promise<number> {
+async function loginGrok(port: SubscriptionCredentialPort, io: LoginIo): Promise<number> {
   const discoveryRes = await io.fetchImpl(XAI_DISCOVERY, {
     headers: { accept: 'application/json' },
   });
@@ -286,8 +279,6 @@ async function loginGrok(
     });
     if (poll.ok) {
       const record = recordFromTokenJson('grok', await poll.json(), io.now(), '');
-      // A hook throw must not leave the new credential stored.
-      await hooks?.onIdentityChanged?.('grok');
       await port.write(KEYCHAIN_SERVICE.grok, record);
       io.stdout('signed in to grok\n');
       return 0;

@@ -16,9 +16,14 @@ import type { AttemptDeps } from '@yevgetman/sov-sdk/providers/subscription/atte
 import { macKeychainPort } from '@yevgetman/sov-sdk/providers/subscription/keychain';
 import { loadSubscriptionProvider } from '@yevgetman/sov-sdk/providers/subscription/load';
 import {
+  advanceCredentialGeneration,
+  withCredentialLock,
+} from '@yevgetman/sov-sdk/providers/subscription/lock';
+import {
   loginSubscription,
   logoutSubscription,
 } from '@yevgetman/sov-sdk/providers/subscription/login';
+import { KEYCHAIN_SERVICE } from '@yevgetman/sov-sdk/providers/subscription/names';
 import type {
   SubscriptionCredentialPort,
   SubscriptionFetch,
@@ -460,6 +465,55 @@ describe('login and logout', () => {
     expect(grokOrder[0]).toBe('hook');
     expect(grokOrder).not.toContain('write');
     expect((await grokPort.read('SOV_SUB_GROK'))?.accessToken).toBe('old-grok');
+  });
+
+  test('a generation change before the login write commits does not clear the catalog', async () => {
+    const port = memoryPort({
+      accessToken: 'old-token',
+      refreshToken: 'old-refresh',
+      expiresAt: NOW + 1000,
+    });
+    const catalog = { id: 'gpt-5.3-codex', cleared: false };
+    let step = 0;
+    let hookCalls = 0;
+    const code = await loginSubscription(
+      'chatgpt',
+      port,
+      silentLoginIo(async () => {
+        step += 1;
+        if (step === 1) {
+          return jsonResponse(200, {
+            user_code: 'ABCD-EFGH',
+            device_auth_id: 'dev1',
+            interval: 1,
+          });
+        }
+        if (step === 2) return new Response('pending', { status: 404 });
+        if (step === 3) {
+          return jsonResponse(200, { authorization_code: 'code1', code_verifier: 'ver1' });
+        }
+        // A refresh advances the generation under the credential lock before this write.
+        await withCredentialLock(KEYCHAIN_SERVICE.chatgpt, port, () =>
+          advanceCredentialGeneration(port, KEYCHAIN_SERVICE.chatgpt),
+        );
+        return jsonResponse(200, {
+          access_token: SECRET,
+          refresh_token: 'rotated',
+          expires_in: 3600,
+        });
+      }),
+      {
+        onIdentityChanged() {
+          hookCalls += 1;
+          catalog.cleared = true;
+        },
+      },
+    );
+    expect(code).toBe(1);
+    expect(hookCalls).toBe(0);
+    expect(catalog.cleared).toBe(false);
+    expect(catalog.id).toBe('gpt-5.3-codex');
+    expect((await port.read(KEYCHAIN_SERVICE.chatgpt))?.accessToken).toBe('old-token');
   });
 
   test('logout during attended login prevents a late approval from restoring credentials', async () => {
