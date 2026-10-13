@@ -66,7 +66,7 @@ function turnErrorText(code: string, err: unknown): string {
   ) {
     return err.message;
   }
-  return ERRORS[code] ?? ERRORS.provider_failed;
+  return ERRORS[code] ?? 'Selected provider failed. No route fallback was performed.';
 }
 function interrupted(signal: AbortSignal): Promise<never> {
   return new Promise((_, reject) => {
