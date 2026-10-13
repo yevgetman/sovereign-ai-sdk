@@ -75,7 +75,9 @@ A backend model refusal does not change the model or payment path.
 ChatGPT Codex effort levels are `low`, `medium`, `high` and `max` (`xhigh` on the wire).
 `off` is refused for this backend. Grok subscription exposes the same four levels
 (`xhigh` on the wire for `max`). `auto` resolves to `high`. `off` is refused.
-The route accepts only `grok-4.7` and `grok-4.6`.
+The route accepts only `grok-4.7` and `grok-4.6`. `grok-4.7` keeps the documented
+context window of 500000. `grok-4.6` has no published window and stays on the
+32768 unknown floor. A subscription refresh does not fill that window.
 
 ## One native turn
 

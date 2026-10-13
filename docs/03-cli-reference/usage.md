@@ -1760,9 +1760,12 @@ also cannot disable reasoning. OpenRouter KimiK2.5 supports a binary switch: off
 they would falsely imply a verified depth control.
 
 Grok subscription (`grok-subscription`) sends Responses `reasoning.effort` for
-`grok-4.7` and `grok-4.6`. It does not send `reasoning_effort`. `auto`, or an
-omitted effort, resolves to `high`. `off` is rejected (`effort_unsupported`);
-omitting the field is not called off, because these models cannot disable reasoning.
+`grok-4.7` and `grok-4.6`. `grok-4.7` keeps the documented context window of
+500000. `grok-4.6` has no published window and stays on the 32768 unknown floor.
+A subscription refresh does not fill that window. It does not send
+`reasoning_effort`. `auto`, or an omitted effort, resolves to `high`. `off` is
+rejected (`effort_unsupported`); omitting the field is not called off, because
+these models cannot disable reasoning.
 
 | Caller value | This route | Wire `reasoning.effort` |
 |---|---|---|
