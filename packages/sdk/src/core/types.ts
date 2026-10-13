@@ -24,6 +24,8 @@ export type ContentBlock =
   // Anthropic-encrypted thinking. `data` is opaque and replayed verbatim on the
   // continuation call to preserve reasoning continuity across tool-use turns.
   | { type: 'redacted_thinking'; data: string }
+  // Grok Responses ciphertext. Copied, not decoded. Replay is route-gated.
+  | { type: 'encrypted_reasoning'; encryptedContent: string; id?: string; status?: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
   | {

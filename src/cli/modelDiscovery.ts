@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'no
 import { join } from 'node:path';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import type { Settings } from '@yevgetman/sov-sdk/config/schema';
+import { applyGrokSubscriptionPins } from '@yevgetman/sov-sdk/providers/models/grokPin';
 import {
   type ModelCatalog,
   type ModelCatalogCache,
@@ -230,14 +231,14 @@ export function readModelCatalogSnapshot(
       catalog.state !== 'current' ||
       !catalog.fetchedAt ||
       Date.now() - Date.parse(catalog.fetchedAt) >= 3600000;
-    return {
+    return applyGrokSubscriptionPins({
       ...catalog,
       state: catalog.state === 'current' && stale ? 'stale' : catalog.state,
       models: catalog.models.map((model) => ({
         ...model,
         metadata: { ...model.metadata, stale: stale || model.metadata.stale },
       })),
-    };
+    });
   } catch {
     return fallbackModelCatalog(routeId);
   }

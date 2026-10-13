@@ -1,4 +1,9 @@
 import { listRoutes } from '../routes/catalog.js';
+import {
+  applyGrokSubscriptionPins,
+  grokSubscriptionPin,
+  isGrokSubscriptionModelId,
+} from './grokPin.js';
 import type {
   ModelCatalog,
   ModelCatalogCache,
@@ -27,7 +32,7 @@ export function fallbackModelCatalog(routeId: string): ModelCatalog {
       availability: 'unknown',
       metadata: { source: 'bundled-suggestions', stale: true },
     })) ?? [];
-  return { version: 1, routeId, models, state: 'unavailable' };
+  return applyGrokSubscriptionPins({ version: 1, routeId, models, state: 'unavailable' });
 }
 
 export function createMemoryModelCatalogCache(): ModelCatalogCache {
@@ -109,14 +114,14 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
       !saved.fetchedAt ||
       now() - Date.parse(saved.fetchedAt) >= ttl ||
       !Number.isFinite(Date.parse(saved.fetchedAt));
-    return {
+    return applyGrokSubscriptionPins({
       ...saved,
       state: saved.state === 'current' && stale ? 'stale' : saved.state,
       models: saved.models.map((model) => ({
         ...model,
         metadata: { ...model.metadata, stale: stale || model.metadata.stale },
       })),
-    };
+    });
   }
   async function refresh(source: ModelDiscoverySource): Promise<ModelCatalog> {
     const key = keyFor(source);
@@ -137,7 +142,7 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
         const models = validateModelRecords(rawModels, source.routeId, now());
         if (!models) throw new Error('Invalid discovery metadata');
         const fetchedAt = new Date(now()).toISOString();
-        const catalog: ModelCatalog = {
+        const catalog: ModelCatalog = applyGrokSubscriptionPins({
           version: 1,
           routeId: source.routeId,
           state: 'current',
@@ -146,12 +151,12 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
             ...model,
             metadata: { ...model.metadata, fetchedAt, stale: false },
           })),
-        };
+        });
         await persist(key, catalog);
         failedSnapshots.delete(key);
         return structuredClone(catalog);
       } catch {
-        const failed: ModelCatalog = {
+        const failed: ModelCatalog = applyGrokSubscriptionPins({
           ...previous,
           state: previous.fetchedAt ? 'stale' : 'unavailable',
           error: 'Model discovery unavailable',
@@ -159,7 +164,7 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
             ...model,
             metadata: { ...model.metadata, stale: true },
           })),
-        };
+        });
         failedSnapshots.set(key, structuredClone(failed));
         try {
           await persist(key, failed);
@@ -181,6 +186,9 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
 
 /** Retains caller-entered IDs even when discovery is absent or a model was delisted. */
 export function findModel(catalog: ModelCatalog, id: string): ModelRecord {
+  if (catalog.routeId === 'grok-subscription' && isGrokSubscriptionModelId(id)) {
+    return grokSubscriptionPin(id);
+  }
   const existing = catalog.models.find((model) => model.id === id);
   if (existing) return structuredClone(existing);
   const route = listRoutes().find((candidate) => candidate.id === catalog.routeId);

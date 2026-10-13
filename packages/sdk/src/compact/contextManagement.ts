@@ -120,6 +120,14 @@ function validateHistory(messages: Message[]): void {
         if (typeof block.data !== 'string')
           throw new ContextManagementError('invalid redacted thinking');
         messageHasContent ||= block.data.trim().length > 0;
+      } else if (block.type === 'encrypted_reasoning') {
+        if (
+          message.role !== 'assistant' ||
+          typeof block.encryptedContent !== 'string' ||
+          block.encryptedContent.length === 0
+        )
+          throw new ContextManagementError('invalid encrypted reasoning');
+        messageHasContent = true;
       } else if (block.type === 'image') {
         if (
           block.source?.type !== 'base64' ||

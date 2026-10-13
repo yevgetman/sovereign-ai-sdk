@@ -9,7 +9,11 @@ import type {
   ContextManagementPort,
   ContextManagementRequest,
 } from '@yevgetman/sov-sdk/compact/contextManagement';
-import { ContextManagementError, historyBytes } from '@yevgetman/sov-sdk/compact/contextManagement';
+import {
+  ContextManagementError,
+  historyBytes,
+  reduceContext,
+} from '@yevgetman/sov-sdk/compact/contextManagement';
 import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import type { SessionStore } from '@yevgetman/sov-sdk/persistence/sessionStore';
 import { RegenerationRollbackUnavailableError } from '@yevgetman/sov-sdk/providers/errors';
@@ -792,5 +796,90 @@ describe('injected context management', () => {
     expect(effects).toBe(1);
     expect(requests).toHaveLength(2);
     expect(inner.loadMessages('legacy-rollback')).toHaveLength(3);
+  });
+});
+
+describe('encrypted reasoning context', () => {
+  test('a non-empty assistant block is accepted and empty or non-assistant blocks are refused', async () => {
+    const assistant: Message = {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'kept' },
+        { type: 'encrypted_reasoning', encryptedContent: 'cipher-value', id: 'rs_1' },
+      ],
+    };
+    const latest: Message = { role: 'user', content: [{ type: 'text', text: 'latest request' }] };
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'old '.repeat(2000) }] },
+      assistant,
+      latest,
+    ];
+    const replacement: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'Earlier history summarized.' }] },
+      assistant,
+      latest,
+    ];
+    const request = {
+      messages,
+      reason: 'budget' as const,
+      model: 'grok-4.7',
+      provider: 'grok',
+      maxTokens: 100,
+      limits: { maxHistoryBytes: historyBytes(replacement) },
+      signal: new AbortController().signal,
+    };
+    const reduced = await reduceContext(
+      {
+        async reduce() {
+          return { messages: replacement };
+        },
+      },
+      request,
+    );
+    expect(reduced.info.applied).toBe(true);
+    expect(JSON.stringify(reduced.messages)).toContain('cipher-value');
+    await expect(
+      reduceContext(
+        {
+          async reduce() {
+            return {
+              messages: [
+                { role: 'user', content: [{ type: 'text', text: 'short' }] },
+                {
+                  role: 'assistant',
+                  content: [
+                    { type: 'text', text: 'kept' },
+                    { type: 'encrypted_reasoning', encryptedContent: '' },
+                  ],
+                },
+                latest,
+              ],
+            };
+          },
+        },
+        request,
+      ),
+    ).rejects.toThrow('invalid encrypted reasoning');
+    await expect(
+      reduceContext(
+        {
+          async reduce() {
+            return {
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: 'short' },
+                    { type: 'encrypted_reasoning', encryptedContent: 'cipher-value' },
+                  ],
+                },
+                latest,
+              ],
+            };
+          },
+        },
+        request,
+      ),
+    ).rejects.toThrow('invalid encrypted reasoning');
   });
 });

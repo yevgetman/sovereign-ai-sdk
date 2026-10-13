@@ -18,6 +18,11 @@ export const REASONING_EFFORTS = ['off', 'low', 'medium', 'high', 'max'] as cons
 
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
+/** Map Sov `max` onto the ceiling the caller already sends. Other levels pass through. */
+export function mapMaxEffort(effort: string, maxWireValue: string): string {
+  return effort === 'max' ? maxWireValue : effort;
+}
+
 /**
  * Per-level Anthropic thinking budget (in tokens). `off` is 0 and never reaches
  * the on-path. `max` is the design ceiling before the budget < max_tokens clamp
