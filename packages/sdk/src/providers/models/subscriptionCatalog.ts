@@ -20,7 +20,7 @@ export type AppliedSubscriptionCatalog = {
   models: ModelRecord[];
   /** True when a current account list did not contain the pin. */
   missingPinnedDefault: boolean;
-  /** True when the pin was present but retired or non-text. */
+  /** True when the pin was seen and no kept model has that id. */
   pinnedDefaultUnavailable: boolean;
   /** False for 401, 403, empty, and every non-current result. */
   cacheableCurrent: boolean;
@@ -191,13 +191,9 @@ export function applySubscriptionAccountCatalog(
   const models: ModelRecord[] = [];
   const seen = new Set<string>();
   let pinSeen = false;
-  let pinDropped = false;
   for (const row of rows) {
     const raw = object(row);
-    if (raw.id === pin) {
-      pinSeen = true;
-      if (raw.lifecycle === 'retired' || nonText(raw)) pinDropped = true;
-    }
+    if (raw.id === pin) pinSeen = true;
     const model = normalizeSubscriptionCatalogRow(row, routeId, {
       accountCatalog: true,
       ...(input.listedAt ? { listedAt: input.listedAt } : {}),
@@ -206,9 +202,10 @@ export function applySubscriptionAccountCatalog(
     seen.add(model.id);
     models.push(model);
   }
+  const pinUnavailable = pinSeen && !models.some((model) => model.id === pin);
   if (!models.length || containsCredentialMaterial(models)) {
     const fallback = unavailable(routeId);
-    if (!pinDropped) return fallback;
+    if (!pinUnavailable) return fallback;
     // The fallback list is the pin itself. Do not put that retired id back.
     return {
       ...fallback,
@@ -223,7 +220,7 @@ export function applySubscriptionAccountCatalog(
     state: 'current',
     models,
     missingPinnedDefault: !pinSeen,
-    pinnedDefaultUnavailable: pinDropped,
+    pinnedDefaultUnavailable: pinUnavailable,
     cacheableCurrent: true,
     ...(observed ? { listedAt: observed } : {}),
   };
@@ -246,17 +243,22 @@ export function subscriptionAccountModelCatalog(applied: AppliedSubscriptionCata
   };
 }
 
-/** Missing pin on a current catalog, or an unavailable pin in any state. */
+/** Missing pin on a current catalog, or an unavailable pin unless that current list still has the id. */
 export function reportSubscriptionPin(
   catalog: ModelCatalog,
 ): { id: string; status: 'missing' | 'unavailable' } | undefined {
   if (catalog.routeId !== 'chatgpt-subscription' && catalog.routeId !== 'grok-subscription')
     return undefined;
   const id = subscriptionPinnedDefault(catalog.routeId);
-  if (catalog.pinnedDefault?.id === id && catalog.pinnedDefault.status === 'unavailable')
+  const present = catalog.models.some((model) => model.id === id);
+  if (
+    catalog.pinnedDefault?.id === id &&
+    catalog.pinnedDefault.status === 'unavailable' &&
+    !(catalog.state === 'current' && present)
+  )
     return { id, status: 'unavailable' };
   if (catalog.state !== 'current') return undefined;
-  if (catalog.models.some((model) => model.id === id)) return undefined;
+  if (present) return undefined;
   return { id, status: 'missing' };
 }
 

@@ -1211,3 +1211,45 @@ describe('subscription catalog disk isolation', () => {
     }
   });
 });
+
+test('a live text row keeps the subscription pin available beside a dropped duplicate', () => {
+  const text = {
+    id: 'grok-4.6',
+    output_modalities: ['text'],
+    capabilities: { tools: true },
+  };
+  const retired = { id: 'grok-4.6', lifecycle: 'retired', output_modalities: ['text'] };
+  const video = { id: 'grok-4.6', output_modalities: ['video'] };
+  for (const models of [
+    [text, retired],
+    [retired, text],
+    [text, video],
+    [video, text],
+  ]) {
+    const applied = applySubscriptionAccountCatalog('grok-subscription', { body: { models } });
+    expect(applied.state).toBe('current');
+    expect(applied.pinnedDefaultUnavailable).toBe(false);
+    expect(applied.models.map((model) => model.id)).toEqual(['grok-4.6']);
+    expect(applied.models[0]?.capabilities.tools).toBe('supported');
+    const stored = subscriptionAccountModelCatalog(applied);
+    expect(stored.pinnedDefault).toBeUndefined();
+    expect(reportSubscriptionPin(stored)).toBeUndefined();
+    expect(
+      reportSubscriptionPin({
+        ...stored,
+        pinnedDefault: { id: 'grok-4.6', status: 'unavailable' },
+      }),
+    ).toBeUndefined();
+  }
+
+  const retiredOnly = applySubscriptionAccountCatalog('grok-subscription', {
+    body: { models: [{ id: 'grok-4.6', lifecycle: 'retired', output_modalities: ['text'] }] },
+  });
+  expect(retiredOnly.state).toBe('unavailable');
+  expect(retiredOnly.pinnedDefaultUnavailable).toBe(true);
+  expect(retiredOnly.models.map((model) => model.id)).not.toContain('grok-4.6');
+  expect(reportSubscriptionPin(subscriptionAccountModelCatalog(retiredOnly))).toEqual({
+    id: 'grok-4.6',
+    status: 'unavailable',
+  });
+});
