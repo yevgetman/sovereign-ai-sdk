@@ -1,7 +1,8 @@
-// Route model/effort validation (spec 2026-10-08 §4.2). Rejects KNOWN
-// incompatible choices before inference; unknown-but-plausible model ids pass
-// through so a backend rejection can surface as `model_unsupported` later.
-// `auto` (or an absent value) selects the route default.
+// Route model/effort validation (spec 2026-10-08 §4.2). Authoritative routes
+// refuse ids outside the allowlist. Other routes still reject known-incompatible
+// ids; unknown-but-plausible ids pass through so a backend rejection can surface
+// as `model_unsupported` later. `auto` or an omitted model selects the route
+// default only when `rejectedConfiguredDefault` is absent.
 
 import { REASONING_EFFORTS, type ReasoningEffort } from '../effort.js';
 import {
