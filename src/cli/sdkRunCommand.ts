@@ -57,14 +57,21 @@ const ERRORS: Record<string, string> = {
 function string(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
-/** A rejected `routes.<id>.defaultModel` names the setting; other model errors stay generic. */
+/** A rejected `routes.<id>.defaultModel` names the setting; other model errors stay generic.
+ *  Explicit `off` is a route refusal (reasoning cannot be disabled), not a model with no effort.
+ */
 function turnErrorText(code: string, err: unknown): string {
-  if (
-    code === 'model_unsupported' &&
-    err instanceof RouteError &&
-    /routes\.[A-Za-z0-9-]+\.defaultModel/.test(err.message)
-  ) {
-    return err.message;
+  if (err instanceof RouteError) {
+    if (code === 'model_unsupported' && /routes\.[A-Za-z0-9-]+\.defaultModel/.test(err.message)) {
+      return err.message;
+    }
+    if (
+      code === 'effort_unsupported' &&
+      err.message.startsWith('effort "off" is not supported by route ') &&
+      err.message.includes(' with model ')
+    ) {
+      return err.message;
+    }
   }
   return ERRORS[code] ?? 'Selected provider failed. No route fallback was performed.';
 }

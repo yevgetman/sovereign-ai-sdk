@@ -651,6 +651,48 @@ test('rejected grok route default is named; explicit grok-4.7 runs; other unsupp
   }
 });
 
+test('grok subscription --effort off names the refused level and route', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'sdk-run-grok-effort-'));
+  dirs.push(home);
+  const prevConfig = process.env.HARNESS_CONFIG;
+  const prevHome = process.env.HARNESS_HOME;
+  process.env.HARNESS_CONFIG = join(home, 'missing-config.json');
+  process.env.HARNESS_HOME = home;
+  const restore = () => {
+    if (prevConfig === undefined) Reflect.deleteProperty(process.env, 'HARNESS_CONFIG');
+    else process.env.HARNESS_CONFIG = prevConfig;
+    if (prevHome === undefined) Reflect.deleteProperty(process.env, 'HARNESS_HOME');
+    else process.env.HARNESS_HOME = prevHome;
+  };
+  try {
+    const off = capture();
+    expect(
+      await runSdkRunCommand(
+        {
+          json: true,
+          stdin: true,
+          route: 'grok-subscription',
+          model: 'grok-4.7',
+          effort: 'off',
+          inputFormat: 'json',
+          toolset: 'chat',
+        },
+        off.io,
+      ),
+    ).toBe(2);
+    const error = off.events.at(-1);
+    expect(error).toMatchObject({ type: 'turn.error', code: 'effort_unsupported' });
+    const text = String(error?.error);
+    expect(text).toBe(
+      'effort "off" is not supported by route grok-subscription with model "grok-4.7"',
+    );
+    expect(text).not.toContain('not supported by the selected model');
+    expect(off.events.some((event) => event.type === 'session.started')).toBe(false);
+  } finally {
+    restore();
+  }
+});
+
 test('unknown model budget refuses oversized standing instructions before inference with a useful diagnostic', async () => {
   let calls = 0;
   const provider: LLMProvider = {
