@@ -1,3 +1,16 @@
+## 2026-10-13 — Agent Casa canary on the grok subscription head
+
+Scope: `encrypted_reasoning` on `ContentBlock`, so `Message` and `AssistantMessage` changed shape. Packed `@yevgetman/sov-sdk` from `docs/grok-subscription-current-model-20261012` at `6535fa12`. Consumer `real-estate-agent-runtime` revision `521a2ee` via `git archive HEAD` (the dirty checkout was not packed). Scratch directory removed by the runner. No SDK source change in this entry. No live xAI or OAuth call. No Keychain read.
+
+Environment: macOS. Worktree `/private/tmp/spec-prs/sdk-grok`. Runner `node scripts/canary/run-agent-casa-canary.mjs`.
+
+Commands:
+
+- `node scripts/canary/run-agent-casa-canary.mjs /Users/julie/code/real-estate-agent-runtime /tmp/agent-casa-canary-pr63.log`
+- The runner runs `npm ci --ignore-scripts`, `npm pack` of `packages/sdk`, installs that tarball, `npm run typecheck`, then `npm test -- --reporter=json`. The log file receives only the failing command's output.
+
+Result: fail. The thrown error is `Agent Casa compatibility failed: npm test -- --reporter=json (exit 1)`, so typecheck had already exited 0. Vitest JSON: 332 suites (294 passed / 38 failed), 1193 tests, 1174 pass / 19 fail / 0 pending. All 19 failures are `AssertionError: expected 0 to be greater than 0` at `tests/httpConsole.test.ts:689` (`expect(after.sessions[0].inputTokens).toBeGreaterThan(0)`), title `usage: empty before any turn, populated per side+role after a client turn`. The reporter attached that same stack to 19 suite filenames. This log does not show the failure is caused by `encrypted_reasoning`. The canary did not pass. The §8 live subscription probe has not been run.
+
 ## 2026-10-13 — Empty grok effort lists do not resolve to off
 
 Scope: verified `grok-4.7` / `grok-4.6` controls. Fresh metadata whose efforts do not intersect the pin (`efforts: ['off']`, or `capabilities.reasoning: 'unsupported'`) keeps the verified control with `efforts: []`. Omitted effort throws `effort_unsupported` and does not select `off`. Explicit `low` still throws. The pin record and `efforts: ['low']` are unchanged. No live xAI or OAuth call. No Keychain read.
