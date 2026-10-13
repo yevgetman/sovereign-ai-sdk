@@ -20,7 +20,11 @@ import {
 } from '@yevgetman/sov-sdk/providers/models/subscriptionCatalog';
 import type { ModelCatalog, ModelRecord } from '@yevgetman/sov-sdk/providers/models/types';
 import { validateModelRequest } from '@yevgetman/sov-sdk/providers/models/validateRequest';
-import { getRoute, validateRouteSelection } from '@yevgetman/sov-sdk/providers/routes/index';
+import {
+  SUBSCRIPTION_ROUTE_EFFORTS,
+  getRoute,
+  validateRouteSelection,
+} from '@yevgetman/sov-sdk/providers/routes/index';
 import {
   loginSubscription,
   logoutSubscription,
@@ -411,6 +415,37 @@ describe('subscription catalog policy', () => {
     };
     expect(settings.routes['grok-subscription'].defaultModel).toBe('grok-4.6');
     expect(settings.providers.xai.model).toBe('grok-4.6');
+  });
+
+  test('a grok payload level absent from SUBSCRIPTION_ROUTE_EFFORTS.grok is not selectable', () => {
+    expect(SUBSCRIPTION_ROUTE_EFFORTS.grok).toEqual(['off']);
+    const row = normalizeSubscriptionCatalogRow(
+      {
+        id: 'grok-4.7',
+        output_modalities: ['text'],
+        capabilities: { reasoning_effort: ['low', 'medium', 'high', 'xhigh'] },
+      },
+      'grok-subscription',
+      { accountCatalog: true, listedAt: listedAt() },
+    );
+    if (!row?.efforts) throw new Error('missing grok efforts');
+    const selectable = selectableSubscriptionEfforts(row);
+    expect(selectable).toEqual(['off']);
+    for (const level of row.efforts) {
+      if (!SUBSCRIPTION_ROUTE_EFFORTS.grok.includes(level)) expect(selectable).not.toContain(level);
+    }
+    const highOnly: ModelRecord = { ...row, efforts: ['high'] };
+    expect(selectableSubscriptionEfforts(highOnly)).toEqual(['off']);
+    expect(selectableSubscriptionEfforts(highOnly)).not.toContain('high');
+    const stale: ModelRecord = { ...row, metadata: { ...row.metadata, stale: true } };
+    expect(selectableSubscriptionEfforts(stale)).toEqual(['off']);
+    expect(selectableSubscriptionEfforts(stale)).not.toContain('low');
+    const bundled: ModelRecord = {
+      ...row,
+      metadata: { source: 'bundled-suggestions', stale: false },
+    };
+    expect(selectableSubscriptionEfforts(bundled)).toEqual(['off']);
+    expect(selectableSubscriptionEfforts(bundled)).not.toContain('max');
   });
 
   test('stale subscription rows do not keep expanded tools, effort, or context', () => {

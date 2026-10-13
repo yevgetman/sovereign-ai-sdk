@@ -10,6 +10,15 @@ wide, and does not edit the Grok request body, effort wire, or reasoning replay.
 > `Subscription model discovery unavailable` and performs zero fetches. No
 > endpoint is named. The probe gate has not been run. The Grok pin move belongs
 > to PR 63.
+>
+> **Rebase note:** `selectableSubscriptionEfforts` follows `SUBSCRIPTION_ROUTE_EFFORTS`
+> for ChatGPT and Grok with the same rules (pin verification, stale and
+> non-account rows do not gain effort, a payload level is selectable only when
+> the transport list contains it and the payload lists it). On this branch
+> `SUBSCRIPTION_ROUTE_EFFORTS.grok` is still `['off']`, so the result stays
+> `['off']` and payload levels absent from that list are not selectable. A later
+> rebase onto PR 63 should keep this function and change only that constant.
+> Do not restore a hardcoded Grok `return ['off']`.
 
 ### Phase 1 — Pure account-catalog normalization
 **Status:** complete (2026-10-12)
@@ -74,6 +83,7 @@ direct-discovery tests, including the subscription path that forbids any fetch.
 - A newer catalog id does not change `SUBSCRIPTION_DEFAULT_MODEL`, `knownModels`, or `modelsAuthoritative`.
 - Existing direct-discovery tests pass unchanged.
 - No probe result is cited. PR 63 owns the Grok pin move.
+- Grok selectable efforts follow `SUBSCRIPTION_ROUTE_EFFORTS.grok` (still `['off']` here). A payload level absent from that list is not selectable. Rebase onto PR 63 keeps `selectableSubscriptionEfforts` and changes only the constant.
 
 ## Read next
 

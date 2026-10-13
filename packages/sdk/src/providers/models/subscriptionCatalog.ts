@@ -222,16 +222,25 @@ export function applySubscriptionAccountCatalog(
   };
 }
 
-/** Payload efforts are selectable only when this transport already honors them. */
+/**
+ * Payload efforts are selectable only when this transport already honors them.
+ * Both routes use `SUBSCRIPTION_ROUTE_EFFORTS`. A list of only `off` stays `off`.
+ * A later change to the Grok constant should keep this function.
+ */
 export function selectableSubscriptionEfforts(record: ModelRecord): ReasoningEffort[] {
-  if (record.routeId === 'grok-subscription') return ['off'];
-  if (record.routeId !== 'chatgpt-subscription') return ['off'];
-  const verified =
-    record.id === SUBSCRIPTION_DEFAULT_MODEL.chatgpt ? [...SUBSCRIPTION_ROUTE_EFFORTS.chatgpt] : [];
+  if (record.routeId !== 'grok-subscription' && record.routeId !== 'chatgpt-subscription') {
+    return ['off'];
+  }
+  const transport =
+    record.routeId === 'grok-subscription'
+      ? SUBSCRIPTION_ROUTE_EFFORTS.grok
+      : SUBSCRIPTION_ROUTE_EFFORTS.chatgpt;
+  if (transport.length > 0 && transport.every((level) => level === 'off')) return [...transport];
+  const verified = record.id === subscriptionPinnedDefault(record.routeId) ? [...transport] : [];
   const unknown =
     record.metadata.stale || record.metadata.source !== SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE;
   if (unknown || !record.efforts?.length) return verified.length ? verified : ['off'];
-  return SUBSCRIPTION_ROUTE_EFFORTS.chatgpt.filter((level) => record.efforts?.includes(level));
+  return transport.filter((level) => record.efforts?.includes(level));
 }
 
 export function subscriptionToolsSelectable(
