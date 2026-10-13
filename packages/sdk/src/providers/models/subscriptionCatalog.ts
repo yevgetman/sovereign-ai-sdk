@@ -222,6 +222,47 @@ export function applySubscriptionAccountCatalog(
   };
 }
 
+/** ModelCatalog for a payload the caller already applied. Keeps the pin status. */
+export function subscriptionAccountModelCatalog(applied: AppliedSubscriptionCatalog): ModelCatalog {
+  const status =
+    applied.state === 'current' && applied.pinnedDefaultUnavailable
+      ? 'unavailable'
+      : applied.state === 'current' && applied.missingPinnedDefault
+        ? 'missing'
+        : undefined;
+  return {
+    version: 1,
+    routeId: applied.routeId,
+    state: applied.state,
+    models: applied.models,
+    ...(applied.listedAt ? { fetchedAt: applied.listedAt } : {}),
+    ...(status ? { pinnedDefault: { id: applied.defaultModel, status } } : {}),
+  };
+}
+
+/** Missing or unavailable reviewed pin on a current subscription catalog. */
+export function reportSubscriptionPin(
+  catalog: ModelCatalog,
+): { id: string; status: 'missing' | 'unavailable' } | undefined {
+  if (catalog.routeId !== 'chatgpt-subscription' && catalog.routeId !== 'grok-subscription')
+    return undefined;
+  if (catalog.state !== 'current') return undefined;
+  const id = subscriptionPinnedDefault(catalog.routeId);
+  if (catalog.models.some((model) => model.id === id)) return undefined;
+  if (catalog.pinnedDefault?.id === id && catalog.pinnedDefault.status === 'unavailable')
+    return { id, status: 'unavailable' };
+  return { id, status: 'missing' };
+}
+
+export function subscriptionPinNotice(pin: {
+  id: string;
+  status: 'missing' | 'unavailable';
+}): string {
+  return pin.status === 'missing'
+    ? `Pinned default ${pin.id} is missing from the account list and remains the default.`
+    : `Pinned default ${pin.id} is unavailable and remains the default.`;
+}
+
 /**
  * Payload efforts are selectable only when this transport already honors them.
  * Both routes use `SUBSCRIPTION_ROUTE_EFFORTS`. An all-`off` transport stays `off`

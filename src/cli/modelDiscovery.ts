@@ -19,7 +19,9 @@ import { fallbackModelCatalog } from '@yevgetman/sov-sdk/providers/models/index'
 import {
   assertSubscriptionDiskCatalog,
   presentSubscriptionCatalog,
+  reportSubscriptionPin,
   subscriptionDiskRoute,
+  subscriptionPinNotice,
 } from '@yevgetman/sov-sdk/providers/models/subscriptionCatalog';
 import { validateModelCatalog } from '@yevgetman/sov-sdk/providers/models/validate';
 import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
@@ -229,14 +231,25 @@ export function modelPage(catalog: ModelCatalog, query: ModelQuery) {
       (!query.author || modelAuthor(model) === query.author) &&
       (!search || `${model.id} ${model.displayName}`.toLowerCase().includes(search)),
   );
+  const pin = reportSubscriptionPin(catalog);
   return {
     schemaVersion: 1,
     route: catalog.routeId,
     state: catalog.state,
     ...(catalog.fetchedAt ? { fetchedAt: catalog.fetchedAt } : {}),
-    ...(catalog.error
-      ? { error: { code: 'catalog_unavailable', message: 'Model discovery unavailable.' } }
-      : {}),
+    ...(pin
+      ? {
+          defaultModel: pin.id,
+          pinnedDefault: pin,
+          error: {
+            code:
+              pin.status === 'missing' ? 'pinned_default_missing' : 'pinned_default_unavailable',
+            message: subscriptionPinNotice(pin),
+          },
+        }
+      : catalog.error
+        ? { error: { code: 'catalog_unavailable', message: 'Model discovery unavailable.' } }
+        : {}),
     total: models.length,
     offset,
     limit,
@@ -281,7 +294,7 @@ export function readModelCatalogSnapshot(
       catalog.state !== 'current' ||
       !catalog.fetchedAt ||
       Date.now() - Date.parse(catalog.fetchedAt) >= 3600000;
-    return presentSubscriptionCatalog({
+    const presented = presentSubscriptionCatalog({
       ...catalog,
       state: catalog.state === 'current' && stale ? 'stale' : catalog.state,
       models: catalog.models.map((model) => ({
@@ -289,6 +302,9 @@ export function readModelCatalogSnapshot(
         metadata: { ...model.metadata, stale: stale || model.metadata.stale },
       })),
     });
+    const pin = reportSubscriptionPin(presented);
+    if (!pin) return presented;
+    return { ...presented, pinnedDefault: pin, error: subscriptionPinNotice(pin) };
   } catch {
     return fallbackModelCatalog(routeId);
   }

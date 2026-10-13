@@ -16,6 +16,7 @@ import {
   normalizeSubscriptionCatalogRow,
   presentSubscriptionCatalog,
   selectableSubscriptionEfforts,
+  subscriptionAccountModelCatalog,
   subscriptionToolsSelectable,
 } from '@yevgetman/sov-sdk/providers/models/subscriptionCatalog';
 import type { ModelCatalog, ModelRecord } from '@yevgetman/sov-sdk/providers/models/types';
@@ -34,6 +35,7 @@ import { SUBSCRIPTION_DEFAULT_MODEL } from '@yevgetman/sov-sdk/providers/subscri
 import type { SubscriptionCredentialPort } from '@yevgetman/sov-sdk/providers/subscription/port';
 import {
   diskModelCache,
+  modelPage,
   modelSource,
   readModelCatalog,
   readModelCatalogSnapshot,
@@ -573,6 +575,62 @@ describe('subscription catalog policy', () => {
 });
 
 describe('subscription catalog disk isolation', () => {
+  test('a current account catalog still names a missing or retired pin', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'sov-sub-pin-'));
+    try {
+      const root = join(home, 'model-catalog');
+      const cache = diskModelCache(root);
+      const source = createSubscriptionModelSource('grok-subscription');
+      const key = `${source.routeId}:${source.cacheKey}`;
+      const missing = applySubscriptionAccountCatalog('grok-subscription', {
+        status: 200,
+        listedAt: listedAt(),
+        body: { models: [{ id: 'grok-4.7', output_modalities: ['text'] }] },
+      });
+      expect(missing.defaultModel).toBe('grok-4.6');
+      expect(missing.missingPinnedDefault).toBe(true);
+      await cache.set(key, diskShape('grok-subscription', missing.models, missing.listedAt));
+      const missingSnapshot = readModelCatalogSnapshot('grok-subscription', {}, home);
+      const missingPage = modelPage(missingSnapshot, { route: 'grok-subscription' });
+      expect(JSON.stringify(missingPage)).toContain('grok-4.6');
+      expect(JSON.stringify(missingPage).toLowerCase()).toContain('missing');
+      expect(JSON.stringify(missingPage).toLowerCase()).toContain('default');
+      expect(missingPage).toHaveProperty('error');
+      expect(JSON.stringify(missingSnapshot)).toContain('grok-4.6');
+      expect(JSON.stringify(missingSnapshot).toLowerCase()).toContain('missing');
+      expect(SUBSCRIPTION_DEFAULT_MODEL.grok).toBe('grok-4.6');
+
+      const retired = applySubscriptionAccountCatalog('grok-subscription', {
+        status: 200,
+        listedAt: listedAt(),
+        body: {
+          models: [
+            { id: 'grok-4.6', lifecycle: 'retired', output_modalities: ['text'] },
+            { id: 'grok-4.7', output_modalities: ['text'] },
+          ],
+        },
+      });
+      expect(retired.defaultModel).toBe('grok-4.6');
+      expect(retired.pinnedDefaultUnavailable).toBe(true);
+      expect(retired.models.map((model) => model.id)).toEqual(['grok-4.7']);
+      const retiredStored = subscriptionAccountModelCatalog(retired);
+      expect(retiredStored.pinnedDefault).toEqual({ id: 'grok-4.6', status: 'unavailable' });
+      expect(retiredStored.models.map((model) => model.id)).toEqual(['grok-4.7']);
+      await cache.set(key, retiredStored);
+      const retiredSnapshot = readModelCatalogSnapshot('grok-subscription', {}, home);
+      const retiredPage = modelPage(retiredSnapshot, { route: 'grok-subscription' });
+      const retiredText = JSON.stringify({ retiredSnapshot, retiredPage });
+      expect(retiredText).toContain('grok-4.6');
+      expect(retiredText.toLowerCase()).toContain('unavailable');
+      expect(retiredText).not.toContain('"defaultModel":"grok-4.7"');
+      expect(retiredPage).toHaveProperty('error');
+      expect((retiredPage as { defaultModel?: string }).defaultModel).toBe('grok-4.6');
+      expect(SUBSCRIPTION_DEFAULT_MODEL.grok).toBe('grok-4.6');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test('a failed refresh does not leave the current account catalog on disk', async () => {
     const home = mkdtempSync(join(tmpdir(), 'sov-sub-fail-'));
     try {

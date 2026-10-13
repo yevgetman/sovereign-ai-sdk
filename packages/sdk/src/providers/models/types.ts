@@ -58,6 +58,11 @@ export interface ModelCatalog {
   state: 'current' | 'stale' | 'unavailable';
   fetchedAt?: string | undefined;
   error?: string | undefined;
+  /**
+   * Reviewed subscription pin when a current account list omitted it or the
+   * pin row was retired or non-text. Never a substitute model id.
+   */
+  pinnedDefault?: { id: string; status: 'missing' | 'unavailable' } | undefined;
 }
 export type ModelFetch = typeof globalThis.fetch;
 export interface ModelCatalogCache {

@@ -211,6 +211,11 @@ export function validateModelCatalog(
   )
     return undefined;
   const models = validateModelRecords(catalog.models, routeId, now);
+  const pin = catalog.pinnedDefault;
+  const pinnedDefault =
+    pin && (pin.status === 'missing' || pin.status === 'unavailable') && safeText(pin.id, 200)
+      ? { id: pin.id, status: pin.status }
+      : undefined;
   return models
     ? {
         version: 1,
@@ -218,6 +223,7 @@ export function validateModelCatalog(
         state: catalog.state,
         models,
         ...(catalog.fetchedAt ? { fetchedAt: catalog.fetchedAt } : {}),
+        ...(pinnedDefault ? { pinnedDefault } : {}),
       }
     : undefined;
 }
