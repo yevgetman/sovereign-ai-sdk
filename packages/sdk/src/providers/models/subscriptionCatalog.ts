@@ -266,10 +266,11 @@ export function subscriptionPinNotice(pin: {
 /**
  * Payload efforts are selectable only when this transport already honors them.
  * Both routes use `SUBSCRIPTION_ROUTE_EFFORTS`. An all-`off` transport stays `off`
- * (Grok today). ChatGPT never invents `off`: Codex rejects it. A pin with no
- * published efforts keeps the ChatGPT transport list. A non-pin with no usable
- * published efforts returns no levels. A later Grok-constant change should keep
- * this function.
+ * (Grok today). ChatGPT never invents `off`: Codex rejects it. A non-stale pin
+ * with no published efforts keeps the ChatGPT transport list. Stale rows keep
+ * only the intersection still published, or no levels after those were cleared.
+ * A non-pin with no usable published efforts returns no levels. A later
+ * Grok-constant change should keep this function.
  */
 export function selectableSubscriptionEfforts(record: ModelRecord): ReasoningEffort[] {
   if (record.routeId !== 'grok-subscription' && record.routeId !== 'chatgpt-subscription') {
@@ -280,11 +281,16 @@ export function selectableSubscriptionEfforts(record: ModelRecord): ReasoningEff
       ? SUBSCRIPTION_ROUTE_EFFORTS.grok
       : SUBSCRIPTION_ROUTE_EFFORTS.chatgpt;
   if (transport.length > 0 && transport.every((level) => level === 'off')) return [...transport];
-  const verified = record.id === subscriptionPinnedDefault(record.routeId) ? [...transport] : [];
-  const unknown =
-    record.metadata.stale || record.metadata.source !== SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE;
-  if (unknown || !record.efforts?.length) return verified;
-  return transport.filter((level) => record.efforts?.includes(level));
+  const published = transport.filter((level) => record.efforts?.includes(level));
+  if (record.metadata.stale) return published;
+  if (
+    record.id === subscriptionPinnedDefault(record.routeId) &&
+    (record.metadata.source !== SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE || !record.efforts?.length)
+  ) {
+    return [...transport];
+  }
+  if (record.metadata.source !== SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE) return [];
+  return published;
 }
 
 /** Operator copy. Published levels stay on the normalized record. */

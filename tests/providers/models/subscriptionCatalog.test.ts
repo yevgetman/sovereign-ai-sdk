@@ -669,6 +669,62 @@ describe('subscription catalog policy', () => {
     expect(aged.models[0]?.metadata.source).toBe(SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE);
     expect(selectableSubscriptionEfforts(aged.models[0] as ModelRecord)).toEqual(['off']);
   });
+
+  test('a stale chatgpt pin does not regain cleared efforts', () => {
+    const applied = applySubscriptionAccountCatalog('chatgpt-subscription', {
+      listedAt: listedAt(),
+      body: {
+        models: [
+          {
+            id: 'gpt-5.3-codex',
+            output_modalities: ['text'],
+            capabilities: { reasoning_effort: ['high'] },
+          },
+        ],
+      },
+    });
+    const row = applied.models.find((model) => model.id === 'gpt-5.3-codex');
+    if (!row) throw new Error('missing pin');
+    expect(selectableSubscriptionEfforts(row)).toEqual(['high']);
+    const route = getRoute('chatgpt-subscription');
+    expect(
+      validateRouteSelection(route, { model: row.id, effort: 'high', modelMetadata: row }).effort,
+    ).toBe('high');
+    expect(() =>
+      validateRouteSelection(route, { model: row.id, effort: 'medium', modelMetadata: row }),
+    ).toThrow(/effort_unsupported|not supported/);
+    expect(() =>
+      validateRouteSelection(route, { model: row.id, effort: 'max', modelMetadata: row }),
+    ).toThrow(/effort_unsupported|not supported/);
+
+    const aged = presentSubscriptionCatalog({
+      version: 1,
+      routeId: 'chatgpt-subscription',
+      state: 'stale',
+      fetchedAt: listedAt(),
+      models: [row],
+    });
+    const stale = aged.models[0];
+    if (!stale) throw new Error('missing stale pin');
+    expect(stale.metadata.stale).toBe(true);
+    expect(stale.efforts).toBeUndefined();
+    expect(selectableSubscriptionEfforts(stale)).toEqual([]);
+    expect(() =>
+      validateRouteSelection(route, { model: stale.id, effort: 'medium', modelMetadata: stale }),
+    ).toThrow(/effort_unsupported|not supported/);
+    expect(() =>
+      validateRouteSelection(route, { model: stale.id, effort: 'max', modelMetadata: stale }),
+    ).toThrow(/effort_unsupported|not supported/);
+
+    const bare = applySubscriptionAccountCatalog('chatgpt-subscription', {
+      listedAt: listedAt(),
+      body: { models: [{ id: 'gpt-5.3-codex', output_modalities: ['text'] }] },
+    }).models[0];
+    if (!bare) throw new Error('missing bare pin');
+    expect(bare.metadata.stale).toBe(false);
+    expect(bare.efforts).toBeUndefined();
+    expect(selectableSubscriptionEfforts(bare)).toEqual(['low', 'medium', 'high', 'max']);
+  });
 });
 
 describe('subscription catalog disk isolation', () => {
