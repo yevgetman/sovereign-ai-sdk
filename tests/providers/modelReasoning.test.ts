@@ -178,6 +178,70 @@ test('fresh exact verified-model metadata narrows menus and requests before fetc
     }
   }
 });
+test('fresh grok metadata intersects verified efforts and does not prepend off', () => {
+  const route = getRoute('grok-subscription');
+  const base: ModelRecord = {
+    id: 'grok-4.7',
+    provider: 'grok',
+    routeId: 'grok-subscription',
+    auth: 'subscription',
+    displayName: 'grok-4.7',
+    availability: 'account',
+    capabilities: {
+      reasoning: 'supported',
+      tools: 'unknown',
+      images: 'unknown',
+      textOutput: 'supported',
+    },
+    metadata: { source: 'subscription-account-catalog', stale: false },
+    efforts: ['high'],
+  };
+  const control = reasoningControlFor('grok', 'grok-4.7', base);
+  expect(control?.parameter).toBe('grok');
+  expect(control?.efforts).toEqual(['high']);
+  expect(control?.efforts).not.toContain('off');
+  expect(modelReasoningParams(control, 'high')).toEqual({ reasoning: { effort: 'high' } });
+  expect(modelReasoningParams(control, 'high')).not.toHaveProperty('reasoning_effort');
+  expect(() =>
+    validateRouteSelection(route, { model: 'grok-4.7', effort: 'low', modelMetadata: base }),
+  ).toThrow();
+  expect(reasoningControlFor('grok', 'grok-4.7')?.efforts).toEqual([
+    'low',
+    'medium',
+    'high',
+    'max',
+  ]);
+  const stale = { ...base, metadata: { ...base.metadata, stale: true } };
+  expect(reasoningControlFor('grok', 'grok-4.7', stale)?.efforts).toEqual([
+    'low',
+    'medium',
+    'high',
+    'max',
+  ]);
+  const partial = { ...base, efforts: undefined };
+  expect(reasoningControlFor('grok', 'grok-4.7', partial)?.efforts).toEqual([
+    'low',
+    'medium',
+    'high',
+    'max',
+  ]);
+  const bundled = {
+    ...base,
+    metadata: { source: 'bundled-suggestions', stale: false },
+  };
+  expect(reasoningControlFor('grok', 'grok-4.7', bundled)?.efforts).toEqual([
+    'low',
+    'medium',
+    'high',
+    'max',
+  ]);
+  const empty = { ...base, efforts: ['off' as const] };
+  expect(reasoningControlFor('grok', 'grok-4.7', empty)).toBeUndefined();
+  expect(() =>
+    validateRouteSelection(route, { model: 'grok-4.7', effort: 'low', modelMetadata: empty }),
+  ).toThrow();
+});
+
 describe('metadata reasoning and exact transport controls', () => {
   test('direct xAI sends native depth, max maps to xhigh and off is no-control', () => {
     const p = new OpenAIProvider({ name: 'xai', apiKey: 'fake' });
