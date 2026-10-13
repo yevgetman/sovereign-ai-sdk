@@ -24,6 +24,17 @@ export type LoginIo = {
   signal?: AbortSignal;
 };
 
+/**
+ * Logout and completed login. The catalog cache key is `${service}:${identity}`,
+ * default `SOV_SUB_CHATGPT:SOV_SUB_CHATGPT` or `SOV_SUB_GROK:SOV_SUB_GROK`.
+ * The disk id is the route id plus that string, not token bytes. An account
+ * change under that same service name must clear the route's catalog files.
+ * The hook receives the provider name only.
+ */
+export type SubscriptionIdentityHooks = {
+  onIdentityChanged?: (name: 'chatgpt' | 'grok') => Promise<void> | void;
+};
+
 /** Open the system browser. A failure does not fail login; the URL is printed. */
 export function openSystemBrowser(url: string): void {
   try {
@@ -50,6 +61,7 @@ export async function loginSubscription(
   name: string,
   port: SubscriptionCredentialPort,
   io: LoginIo,
+  hooks?: SubscriptionIdentityHooks,
 ): Promise<number> {
   if (!isSubscriptionName(name)) {
     io.stderr(`unknown subscription provider ${name}\n`);
@@ -80,6 +92,9 @@ export async function loginSubscription(
             if (io.signal?.aborted) throw abortError(io.signal);
             await advanceCredentialGeneration(port, key);
             await port.write(key, record);
+            // Under the credential lock, after the write commits. The hook must
+            // not take the lock again, and a throw must not roll the write back.
+            if (name === 'chatgpt' || name === 'grok') await hooks?.onIdentityChanged?.(name);
           },
           io.signal ? { signal: io.signal } : {},
         ),
@@ -102,6 +117,7 @@ export async function logoutSubscription(
   name: string,
   port: SubscriptionCredentialPort,
   io: LoginIo,
+  hooks?: SubscriptionIdentityHooks,
 ): Promise<number> {
   if (!isSubscriptionName(name)) {
     io.stderr(`unknown subscription provider ${name}\n`);
@@ -114,6 +130,7 @@ export async function logoutSubscription(
       async () => {
         await advanceCredentialGeneration(port, KEYCHAIN_SERVICE[name]);
         await port.delete(KEYCHAIN_SERVICE[name]);
+        if (name === 'chatgpt' || name === 'grok') await hooks?.onIdentityChanged?.(name);
       },
       io.signal ? { signal: io.signal } : {},
     );

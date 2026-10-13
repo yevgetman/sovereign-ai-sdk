@@ -58,15 +58,27 @@ export interface ModelCatalog {
   state: 'current' | 'stale' | 'unavailable';
   fetchedAt?: string | undefined;
   error?: string | undefined;
+  /**
+   * Reviewed subscription pin when a current account list omitted it or the
+   * pin row was retired or non-text. Never a substitute model id.
+   */
+  pinnedDefault?: { id: string; status: 'missing' | 'unavailable' } | undefined;
 }
 export type ModelFetch = typeof globalThis.fetch;
 export interface ModelCatalogCache {
   get(key: string): Promise<ModelCatalog | undefined>;
-  set(key: string, catalog: ModelCatalog): Promise<void>;
+  /**
+   * `expected`, when passed, replaces only that still-stored entry. A missing
+   * entry stays missing. Callers must not treat fetchedAt and ids as identity.
+   */
+  set(key: string, catalog: ModelCatalog, expected?: ModelCatalog): Promise<void>;
 }
 export interface ModelDiscoverySource {
   routeId: string;
-  /** Caller-scoped identity without credentials, so accounts never share cached availability. */
+  /**
+   * Subscription default is `${service}:${service}`. Accounts on that service
+   * share the slot, and an account change deletes the route directory.
+   */
   cacheKey?: string | undefined;
   discover(options: { fetch: ModelFetch; signal: AbortSignal }): Promise<ModelRecord[]>;
 }

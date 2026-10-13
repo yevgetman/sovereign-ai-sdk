@@ -1,5 +1,6 @@
 import { REASONING_EFFORTS } from '../effort.js';
 import { fetchModelPages, object, positiveNumber } from './http.js';
+import { subscriptionAccountCacheKey } from './subscriptionCatalog.js';
 import type { ModelDiscoverySource, ModelRecord } from './types.js';
 
 export type DirectModelProvider = 'anthropic' | 'openai' | 'xai';
@@ -163,15 +164,20 @@ export function resolveModelAlias(model: string, aliases: Record<string, string>
   }
   return id;
 }
-/** No subscription discovery endpoint is known. No API credential/login is touched. */
+/**
+ * No subscription discovery endpoint is known. No API credential or login is touched.
+ * `accountKey` is a non-secret label. The default is the Keychain service name.
+ * Account change under that same service name must delete the route catalog.
+ */
 export function createSubscriptionModelSource(
   routeId: 'chatgpt-subscription' | 'grok-subscription',
+  accountKey?: string,
 ): ModelDiscoverySource {
   return {
     routeId,
+    cacheKey: subscriptionAccountCacheKey(routeId, accountKey),
     async discover() {
-      // Bundled suggestions are returned by the offline fallback, never reported
-      // as newly discovered subscription metadata by a successful refresh.
+      // Offline fallback owns bundled suggestions. This path never reports a fetch.
       throw new Error('Subscription model discovery unavailable');
     },
   };

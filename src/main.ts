@@ -197,7 +197,13 @@ async function main(argv: string[]): Promise<void> {
       const { macKeychainPort } = await import(
         '@yevgetman/sov-sdk/providers/subscription/keychain'
       );
-      const code = await loginSubscription(provider, macKeychainPort(), defaultLoginIo());
+      const { subscriptionSessionHooks } = await import('./cli/modelDiscovery.js');
+      const code = await loginSubscription(
+        provider,
+        macKeychainPort(),
+        defaultLoginIo(),
+        subscriptionSessionHooks(),
+      );
       process.exit(code);
     });
 
@@ -211,7 +217,13 @@ async function main(argv: string[]): Promise<void> {
       const { macKeychainPort } = await import(
         '@yevgetman/sov-sdk/providers/subscription/keychain'
       );
-      const code = await logoutSubscription(provider, macKeychainPort(), defaultLoginIo());
+      const { subscriptionSessionHooks } = await import('./cli/modelDiscovery.js');
+      const code = await logoutSubscription(
+        provider,
+        macKeychainPort(),
+        defaultLoginIo(),
+        subscriptionSessionHooks(),
+      );
       process.exit(code);
     });
 

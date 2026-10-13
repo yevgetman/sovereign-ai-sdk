@@ -11,6 +11,10 @@ import {
   preservesEstablishedReasoning,
   reasoningControlFor,
 } from '../modelReasoning.js';
+import {
+  SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE,
+  selectableSubscriptionEfforts,
+} from '../models/subscriptionCatalog.js';
 import type { ModelRecord } from '../models/types.js';
 import { routeDefinition } from './catalog.js';
 import { RouteError } from './errors.js';
@@ -50,6 +54,17 @@ export function effortsForModel(
 ): ReasoningEffort[] {
   if (metadata && metadata.routeId !== route.id)
     throw new RouteError('effort_unsupported', 'model metadata belongs to another route');
+  if (metadata?.metadata.source === SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE) {
+    if (metadata.id !== model || metadata.provider !== route.provider)
+      throw new RouteError('effort_unsupported', 'model metadata does not match request');
+    if (route.provider === 'grok') {
+      const grok = reasoningControlFor('grok', model, metadata);
+      if (metadata.capabilities.reasoning === 'unsupported') return [];
+      if (metadata.efforts?.length === 0) return [];
+      if (grok && grok.efforts.length === 0 && (metadata.efforts?.length ?? 0) > 0) return [];
+    }
+    return selectableSubscriptionEfforts(metadata);
+  }
   if (route.provider === 'anthropic')
     return [...anthropicReasoningControlFor(model, metadata).efforts];
   const control = reasoningControlFor(route.provider, model, metadata);
@@ -103,11 +118,12 @@ function resolveEffort(
   if (requested === undefined || requested === AUTO_SELECTION) {
     if (supported.includes(route.defaultEffort)) return route.defaultEffort;
     if (supported.includes('off')) return 'off';
-    throw new RouteError(
-      'effort_unsupported',
-      `effort ${JSON.stringify(route.defaultEffort)} is not supported by route ${route.id} with model ${JSON.stringify(model)}`,
-      { routeId: route.id },
-    );
+    // Empty means this transport can send nothing, not that its default level lost.
+    const message =
+      supported.length === 0
+        ? 'this model has no subscription effort this transport can send'
+        : `effort ${JSON.stringify(route.defaultEffort)} is not supported by route ${route.id} with model ${JSON.stringify(model)}`;
+    throw new RouteError('effort_unsupported', message, { routeId: route.id });
   }
   const level = requested as ReasoningEffort;
   if (!(REASONING_EFFORTS as readonly string[]).includes(requested) || !supported.includes(level)) {
