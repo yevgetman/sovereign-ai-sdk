@@ -1,31 +1,4 @@
 schema_version: 4
 product: sovereign-ai-sdk
-version: 0.15.1
-items:
-  - id: sdk-pr-63
-    product: sovereign-ai-sdk
-    title: Grok subscription grok-4.7 pin, effort, and reasoning replay
-    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/63
-    merged_at: 2026-10-13T13:59:04Z
-    commits:
-      - sha: 9bccdda996a57be2c73c0a707600bdf4740b0916
-        mainline: 1
-    requires: []
-    reason: null
-    qa:
-      - docs/06-testing/testing-log.md
-      - plans/2026-10-12-grok-subscription-current-model.md
-  - id: sdk-pr-64
-    product: sovereign-ai-sdk
-    title: Subscription catalogs move only by a reviewed pin or a proven read
-    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/64
-    merged_at: 2026-10-13T14:14:04Z
-    commits:
-      - sha: 59aecc941e6139f58d713fdf147f38c1fe71ef0d
-        mainline: 1
-    requires:
-      - sdk-pr-63
-    reason: null
-    qa:
-      - docs/06-testing/testing-log.md
-      - plans/2026-10-12-subscription-model-catalog.md
+version: 0.15.2
+items: []

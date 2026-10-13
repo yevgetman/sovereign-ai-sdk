@@ -1,0 +1,10 @@
+{
+  "cherry_pick": "d17875cd86e6b952a03269f18d245beb1513684b onto 52373d8fab261c9193c5f060e5ea6e03fa5e211b",
+  "release_commit": "85350f48cc726f62b7b6396919015960d810b2f5",
+  "conflicts": [
+    "PUBLISHING.md",
+    "README.md",
+    "docs/05-conventions/release-manifest.md"
+  ],
+  "resolution": "Kept the reviewed preparation text from the prep commit. The assembly baseline still had the pre-archive wording for those guides. package.json and bun.lock kept the baseline tooling and took only the 0.15.1 and 0.6.79 version stamps."
+}

@@ -1,0 +1,58 @@
+{
+  "result": "pass",
+  "checked_at": "2026-10-13T14:57:12Z",
+  "build_commit": "85350f48cc726f62b7b6396919015960d810b2f5",
+  "dry_run": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38415175432",
+  "cancelled_tag_publish": {
+    "run": "38415143364",
+    "conclusion": "cancelled",
+    "reason": "The tag push starts a non-dry-run upload that does not attach the SDK tarball. It was cancelled before the release job."
+  },
+  "targets": [
+    {
+      "target": "darwin-arm64",
+      "filename": "sov-darwin-arm64.tar.gz",
+      "sha256": "30dde305d969567f5cb42451ef361781a39876a51a4620ade1bd2a243ef99c19",
+      "size": 31643636,
+      "build_inputs_sha256": "d99c83189808312e29f4a17e66908f4386bc59b371340b6a0bf2b1a71e1bc53d"
+    },
+    {
+      "target": "darwin-x64",
+      "filename": "sov-darwin-x64.tar.gz",
+      "sha256": "c53eb70c8ead92ffa43dc80bda95600b7c12474a250b71fc7815668bae005ffc",
+      "size": 34714029,
+      "build_inputs_sha256": "ebf0c991650f005b311345b90a624296c6efb6a5db58bbd423595a0b20b997bc"
+    },
+    {
+      "target": "linux-arm64",
+      "filename": "sov-linux-arm64.tar.gz",
+      "sha256": "f649848e4d673d2272b96f8d63dd00f056ab8e539602e1651f3f3cd687bbcc77",
+      "size": 42263218,
+      "build_inputs_sha256": "efa3409c87fab34f3f658f91c62264df8e795243bf6e6ac0ee914996da341152"
+    },
+    {
+      "target": "linux-x64",
+      "filename": "sov-linux-x64.tar.gz",
+      "sha256": "dc08cebf2c4b0ddee58a46e1332660453fad7113281f29373e8d479a87c8664c",
+      "size": 42706374,
+      "build_inputs_sha256": "b8a5fd40d5cc2a2b67ce3d782458719952eb792fa8160ac5c3dfb9948c87a6d2"
+    },
+    {
+      "target": "windows-x64",
+      "filename": "sov-windows-x64.zip",
+      "sha256": "7ec9b432a99efd9ca63be82e9ceb832d4c86e7dfbbf1152865671a15ca1bbe51",
+      "size": 45830586,
+      "build_inputs_sha256": "d6b5ea7560f598bae9844ed4b71f88e31bbd86061b2dfad14471f9051e4ccfd8"
+    }
+  ],
+  "version_metadata": "scripts/release-package.py --verify-version passed for all five public archives against v0.6.79 and the target name.",
+  "native_smoke": {
+    "downloaded_darwin_arm64_version": "0.6.79",
+    "downloaded_darwin_x64_version": "0.6.79",
+    "codesign": "codesign --verify --strict passed. Signature is ad-hoc. TeamIdentifier is not set.",
+    "windows": "CI smoke-windows passed on run 38415175432.",
+    "linux_arm64_hardware": "not executed locally"
+  },
+  "scanner": "CI build jobs scan each archive before upload. Separate scan JSON was not retained outside the CI artifacts. Public version and build-source metadata were rechecked on the downloaded bytes.",
+  "findings_above_low": 0
+}

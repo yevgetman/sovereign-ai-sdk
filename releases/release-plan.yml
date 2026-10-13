@@ -1,23 +1,23 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: 2026-10-13T14:16:30Z
+updated_at: 2026-10-13T15:02:00Z
 checkout: .
 last_release: &a1
-  version: 0.15.0
-  cli_version: 0.6.78
-  source_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
-  evidence: releases/history/sdk-0.15.0/publication.json
-reconciliation:
-  history_start_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
-  through_main_commit: 59aecc941e6139f58d713fdf147f38c1fe71ef0d
-  checked_at: 2026-10-13T14:16:30Z
-  evidence: releases/history/sdk-0.15.0/publication.json
-release:
-  id: sdk-0.15.1
-  product: sovereign-ai-sdk
   version: 0.15.1
   cli_version: 0.6.79
+  source_commit: 85350f48cc726f62b7b6396919015960d810b2f5
+  evidence: releases/history/sdk-0.15.1/publication.json
+reconciliation:
+  history_start_commit: 85350f48cc726f62b7b6396919015960d810b2f5
+  through_main_commit: f18a36b95934bd6840c50d92658ef7775e9dc63c
+  checked_at: 2026-10-13T15:02:00Z
+  evidence: releases/history/sdk-0.15.1/publication.json
+release:
+  id: sdk-0.15.2
+  product: sovereign-ai-sdk
+  version: 0.15.2
+  cli_version: 0.6.80
   status: draft
   base: *a1
   applied_commits: []

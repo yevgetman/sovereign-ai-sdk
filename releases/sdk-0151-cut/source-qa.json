@@ -1,0 +1,92 @@
+{
+  "result": "pass",
+  "checked_at": "2026-10-13T14:57:12Z",
+  "build_commit": "85350f48cc726f62b7b6396919015960d810b2f5",
+  "environment": {
+    "os": "macOS arm64",
+    "bun": "1.3.13",
+    "node": "v25.9.0",
+    "go_local": "1.26.1",
+    "go_ci": "1.24"
+  },
+  "commands": [
+    {
+      "command": "bun run lint",
+      "result": "pass",
+      "evidence": "Biome and dependency-cruiser: 245 modules, 973 dependencies, no violations"
+    },
+    {
+      "command": "bun run typecheck",
+      "result": "pass"
+    },
+    {
+      "command": "bun run build",
+      "result": "pass"
+    },
+    {
+      "command": "SOV_SKIP_FLAKY=1 bun run test",
+      "result": "pass with documented environment limitation",
+      "detail": "6086 pass, 40 skip, 5 fail, 24078 expect() calls, 6131 tests across 593 files. The five failures are spawned Node processes whose stderr includes the FORCE_COLOR/NO_COLOR warning from this agent environment."
+    },
+    {
+      "command": "env -u FORCE_COLOR bun test tests/host/sqliteRestart.test.ts tests/skills/continuity.test.ts tests/skills/runtimeLoaderObserverSafety.test.ts tests/skills/storeObserverSafety.test.ts tests/skills/runtime.test.ts",
+      "result": "pass",
+      "detail": "31 pass, 0 fail, 139 expect() calls across the five files that failed under FORCE_COLOR."
+    },
+    {
+      "command": "go test ./... in packages/tui",
+      "result": "pass",
+      "detail": "Local Go 1.26.1. CI Go 1.24 passed on the exact build in run 38415175432."
+    },
+    {
+      "command": "bun run audit:dependencies",
+      "result": "pass",
+      "detail": "0 advisories"
+    },
+    {
+      "command": "node scripts/canary/run-agent-casa-canary.mjs",
+      "result": "pass",
+      "detail": "All consumer canaries passed. The same FORCE_COLOR warning was printed and did not fail the canary."
+    }
+  ],
+  "ci": [
+    {
+      "run": "38415175432",
+      "event": "workflow_dispatch",
+      "ref": "release/assembled-sdk-0151-20261013",
+      "head_sha": "85350f48cc726f62b7b6396919015960d810b2f5",
+      "dry_run": true,
+      "result": "pass",
+      "jobs": [
+        "preflight",
+        "build-darwin",
+        "build-linux",
+        "build-windows",
+        "smoke-windows",
+        "release"
+      ]
+    },
+    {
+      "run": "38413728475",
+      "event": "pull_request",
+      "pull_request": 66,
+      "result": "pass",
+      "note": "Reviewed preparation source. Product checks passed. Not the assembled SHA."
+    },
+    {
+      "run": "38415149489",
+      "event": "pull_request",
+      "pull_request": 67,
+      "result": "pass",
+      "note": "Manifest mapping branch. Floor and current packed consumers passed. Product SDK source matches the assembly except excluded bookkeeping."
+    }
+  ],
+  "limitations": [
+    "Offline fixtures do not certify paid-provider eligibility or production capacity. The live subscription probe was not run.",
+    "Local full test stderr is not empty when FORCE_COLOR and NO_COLOR are both set. CI does not set FORCE_COLOR. The exact-build preflight in run 38415175432 passed the suite.",
+    "SOV_SKIP_FLAKY=1 skips the existing env-flaky launcher smokes at the release gate. 40 skips are that existing set.",
+    "Linux arm64 was built and scanned in CI. It was not executed on native Linux arm64 hardware.",
+    "Mac signatures are ad-hoc. They are not Developer ID signatures and the binaries are not notarized."
+  ],
+  "findings_above_low": 0
+}
