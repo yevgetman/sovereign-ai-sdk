@@ -1,12 +1,13 @@
 # Changelog
 
-## Unreleased
+## harness 0.6.79 / SDK 0.15.1 — Grok subscription pin and catalog policy — 2026-10-13
 
 - Grok subscription defaults to `grok-4.7`, allowlists `grok-4.6`, sends Responses `reasoning.effort` (`max` maps to `xhigh`), and replays encrypted reasoning only on that route. The live subscription probe has not been run.
-
-### SDK
-
-- Minor. `AssistantMessage` and `Message` content can include `encrypted_reasoning` (`encryptedContent`, optional `id` and `status`). Migration: callers must keep the block on rehydration and must not send it to other providers.
+- Subscription catalogs change only through a reviewed pin or a proven read. A rejected configured default is named and is not silently replaced.
+- `AssistantMessage` and `Message` content can include `encrypted_reasoning` (`encryptedContent`, optional `id` and `status`). Callers must keep the block on rehydration and must not send it to other providers.
+- PR63 and PR64 are included once through each exact merge. Protocol stays **0.1.0** and the debug console stays **0.3.0**. Node >=20.19.0 and Bun >=1.2.0 remain supported.
+- Source and packed consumers use offline fixtures. They do not certify paid-provider eligibility or production capacity.
+- SDK artifact: `yevgetman-sov-sdk-0.15.1.tgz` with `SDK-SHA256SUMS` in public SOV `v0.6.79`. Binary archives use separate `SHA256SUMS`. The packed README points at this version. npm publication remains owner-operated.
 
 ## harness 0.6.78 / SDK 0.15.0 — permissioned skill runtime — 2026-10-11
 
