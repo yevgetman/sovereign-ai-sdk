@@ -1,9 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 import { AnthropicProvider } from '@yevgetman/sov-sdk/providers/anthropic';
+import {
+  modelReasoningParams,
+  reasoningControlFor,
+} from '@yevgetman/sov-sdk/providers/modelReasoning';
+import { fallbackModelCatalog, findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import { normalizeOpenRouterModel } from '@yevgetman/sov-sdk/providers/models/openrouter';
 import type { ModelRecord } from '@yevgetman/sov-sdk/providers/models/types';
 import { OpenAIProvider } from '@yevgetman/sov-sdk/providers/openai';
 import { getRoute } from '@yevgetman/sov-sdk/providers/routes/catalog';
+import { RouteError } from '@yevgetman/sov-sdk/providers/routes/errors';
 import {
   effortsForModel,
   validateRouteSelection,
@@ -173,6 +179,112 @@ test('fresh exact verified-model metadata narrows menus and requests before fetc
     }
   }
 });
+test('fresh grok metadata intersects verified efforts and does not prepend off', () => {
+  const route = getRoute('grok-subscription');
+  const base: ModelRecord = {
+    id: 'grok-4.7',
+    provider: 'grok',
+    routeId: 'grok-subscription',
+    auth: 'subscription',
+    displayName: 'grok-4.7',
+    availability: 'account',
+    capabilities: {
+      reasoning: 'supported',
+      tools: 'unknown',
+      images: 'unknown',
+      textOutput: 'supported',
+    },
+    metadata: { source: 'subscription-account-catalog', stale: false },
+    efforts: ['high'],
+  };
+  const control = reasoningControlFor('grok', 'grok-4.7', base);
+  expect(control?.parameter).toBe('grok');
+  expect(control?.efforts).toEqual(['high']);
+  expect(control?.efforts).not.toContain('off');
+  expect(modelReasoningParams(control, 'high')).toEqual({ reasoning: { effort: 'high' } });
+  expect(modelReasoningParams(control, 'high')).not.toHaveProperty('reasoning_effort');
+  expect(() =>
+    validateRouteSelection(route, { model: 'grok-4.7', effort: 'low', modelMetadata: base }),
+  ).toThrow();
+  expect(reasoningControlFor('grok', 'grok-4.7')?.efforts).toEqual([
+    'low',
+    'medium',
+    'high',
+    'max',
+  ]);
+  const stale = { ...base, metadata: { ...base.metadata, stale: true } };
+  expect(reasoningControlFor('grok', 'grok-4.7', stale)?.efforts).toEqual([
+    'low',
+    'medium',
+    'high',
+    'max',
+  ]);
+  const partial = { ...base, efforts: undefined };
+  expect(reasoningControlFor('grok', 'grok-4.7', partial)?.efforts).toEqual([
+    'low',
+    'medium',
+    'high',
+    'max',
+  ]);
+  const bundled = {
+    ...base,
+    metadata: { source: 'bundled-suggestions', stale: false },
+  };
+  expect(reasoningControlFor('grok', 'grok-4.7', bundled)?.efforts).toEqual([
+    'low',
+    'medium',
+    'high',
+    'max',
+  ]);
+  const empty = { ...base, efforts: ['off' as const] };
+  expect(reasoningControlFor('grok', 'grok-4.7', empty)).toMatchObject({
+    parameter: 'grok',
+    efforts: [],
+  });
+  expect(effortsForModel(route, 'grok-4.7', empty)).toEqual([]);
+  let selection: { model: string; effort: string } | undefined;
+  let codeSeen = 'ok';
+  try {
+    selection = validateRouteSelection(route, { model: 'grok-4.7', modelMetadata: empty });
+  } catch (err) {
+    codeSeen = err instanceof RouteError ? err.code : 'other';
+  }
+  expect(selection?.effort).not.toBe('off');
+  expect(codeSeen).toBe('effort_unsupported');
+  expect(() =>
+    validateRouteSelection(route, { model: 'grok-4.7', effort: 'low', modelMetadata: empty }),
+  ).toThrow();
+  const unsupported = {
+    ...base,
+    capabilities: { ...base.capabilities, reasoning: 'unsupported' as const },
+  };
+  expect(reasoningControlFor('grok', 'grok-4.7', unsupported)).toMatchObject({
+    parameter: 'grok',
+    efforts: [],
+  });
+  expect(effortsForModel(route, 'grok-4.7', unsupported)).toEqual([]);
+  selection = undefined;
+  codeSeen = 'ok';
+  try {
+    selection = validateRouteSelection(route, {
+      model: 'grok-4.7',
+      modelMetadata: unsupported,
+    });
+  } catch (err) {
+    codeSeen = err instanceof RouteError ? err.code : 'other';
+  }
+  expect(selection?.effort).not.toBe('off');
+  expect(codeSeen).toBe('effort_unsupported');
+  expect(() =>
+    validateRouteSelection(route, {
+      model: 'grok-4.7',
+      effort: 'low',
+      modelMetadata: unsupported,
+    }),
+  ).toThrow();
+  expect(reasoningControlFor('grok', 'grok-4.5', { ...empty, id: 'grok-4.5' })).toBeUndefined();
+});
+
 describe('metadata reasoning and exact transport controls', () => {
   test('direct xAI sends native depth, max maps to xhigh and off is no-control', () => {
     const p = new OpenAIProvider({ name: 'xai', apiKey: 'fake' });
@@ -182,9 +294,33 @@ describe('metadata reasoning and exact transport controls', () => {
     expect(p.buildKwargs(req('grok-4.6', 'high')).max_tokens).toBe(2048);
     expect(validateRouteSelection(getRoute('grok-api'), { effort: 'high' }).effort).toBe('high');
     expect(() => p.buildKwargs(req('grok-future', 'high'))).toThrow();
+    expect(validateRouteSelection(getRoute('grok-subscription'), { effort: 'high' }).effort).toBe(
+      'high',
+    );
     expect(() =>
-      validateRouteSelection(getRoute('grok-subscription'), { effort: 'high' }),
+      validateRouteSelection(getRoute('grok-subscription'), { effort: 'off' }),
     ).toThrow();
+    const pin = findModel(fallbackModelCatalog('grok-subscription'), 'grok-4.7');
+    expect(effortsForModel(getRoute('grok-subscription'), 'grok-4.7', pin)).toEqual([
+      'low',
+      'medium',
+      'high',
+      'max',
+    ]);
+    const control = reasoningControlFor('grok', 'grok-4.7', pin);
+    expect(control).toMatchObject({
+      parameter: 'grok',
+      efforts: ['low', 'medium', 'high', 'max'],
+      disableSupported: false,
+      maxWireValue: 'xhigh',
+    });
+    expect(reasoningControlFor('grok', 'grok-4.6')?.parameter).toBe('grok');
+    expect(reasoningControlFor('grok', 'grok-4.5')).toBeUndefined();
+    expect(reasoningControlFor('xai', 'grok-4.6')?.parameter).toBe('xai');
+    expect(modelReasoningParams(control, 'max')).toEqual({ reasoning: { effort: 'xhigh' } });
+    expect(modelReasoningParams(control, 'high')).toEqual({ reasoning: { effort: 'high' } });
+    expect(modelReasoningParams(control, 'max')).not.toHaveProperty('reasoning_effort');
+    expect(() => modelReasoningParams(control, 'off')).toThrow();
   });
   test('OpenRouter Grok has depth; Kimi has a toggle and rejects fake depth', () => {
     const p = new OpenAIProvider({ name: 'openrouter', apiKey: 'fake' });

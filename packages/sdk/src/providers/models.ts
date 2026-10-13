@@ -41,9 +41,9 @@ export const PROVIDER_REGISTRY: Record<string, ProviderRegistryEntry> = {
   // Direct xAI API-key lane (spec 2026-10-08 §2, route `grok-api`). Distinct from
   // the `grok` SUBSCRIPTION provider (Keychain login) and from OpenRouter-hosted
   // `x-ai/...` models: this lane sends XAI_API_KEY straight to api.x.ai over the
-  // OpenAI-compatible Chat Completions transport. The default model mirrors the
-  // grok subscription default (same api.x.ai Chat Completions endpoint);
-  // re-verify against live service behavior before claiming live support.
+  // OpenAI-compatible Chat Completions transport. The API-key default stays
+  // grok-4.6. It is not the subscription default and this lane still sends
+  // reasoning_effort.
   xai: {
     provider: 'xai',
     apiMode: 'openai',

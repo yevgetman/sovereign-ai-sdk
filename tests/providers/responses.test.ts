@@ -6,6 +6,7 @@ import {
   responsesInput,
   translateResponsesSse,
 } from '@yevgetman/sov-sdk/providers/responses';
+import { RouteError } from '@yevgetman/sov-sdk/providers/routes/errors';
 import type { ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 
 const req: ProviderRequest = {
@@ -204,7 +205,7 @@ describe('subscription Responses wire', () => {
     for await (const _ of provider.stream({
       ...req,
       model: 'grok-4.6',
-      effort: 'off',
+      effort: 'high',
       messages: [
         {
           role: 'assistant',
@@ -220,5 +221,152 @@ describe('subscription Responses wire', () => {
       { type: 'function_call_output', call_id: 'id1', output: 'found' },
     ]);
     expect(sent).not.toHaveProperty('messages');
+    expect(sent.reasoning).toEqual({ effort: 'high' });
+    expect(sent.include).toEqual(['reasoning.encrypted_content']);
+    expect(sent.store).toBe(false);
+    expect(sent).not.toHaveProperty('reasoning_effort');
+    expect(sent).not.toHaveProperty('previous_response_id');
+  });
+
+  test('Grok captures encrypted reasoning and replays it in output order', async () => {
+    const ciphertext = 'cipher-value';
+    const response = wire([
+      {
+        type: 'response.output_item.done',
+        item: {
+          type: 'reasoning',
+          id: 'rs_1',
+          encrypted_content: ciphertext,
+          status: 'completed',
+          summary: [{ type: 'summary_text', text: 'do not store this' }],
+        },
+      },
+      {
+        type: 'response.output_text.delta',
+        delta: 'hello',
+      },
+      {
+        type: 'response.completed',
+        response: {
+          status: 'completed',
+          output: [
+            {
+              type: 'reasoning',
+              id: 'rs_1',
+              encrypted_content: ciphertext,
+              status: 'completed',
+              summary: [{ type: 'summary_text', text: 'still not ciphertext' }],
+            },
+            {
+              type: 'reasoning',
+              id: 'rs_empty',
+              encrypted_content: '',
+            },
+            {
+              type: 'message',
+              content: [{ type: 'output_text', text: 'hello' }],
+            },
+            {
+              type: 'function_call',
+              call_id: 'call_1',
+              name: 'Read',
+              arguments: '{"path":"a"}',
+            },
+          ],
+        },
+      },
+    ]);
+    const { message } = await collect(response);
+    const reasoning = message.content.filter((block) => block.type === 'encrypted_reasoning');
+    expect(reasoning).toEqual([
+      {
+        type: 'encrypted_reasoning',
+        encryptedContent: ciphertext,
+        id: 'rs_1',
+        status: 'completed',
+      },
+    ]);
+    expect(JSON.stringify(message)).not.toContain('do not store this');
+    const replay = responsesInput(
+      {
+        ...req,
+        model: 'grok-4.7',
+        messages: [message],
+      },
+      { replayEncryptedReasoning: true },
+    );
+    expect(replay).toEqual([
+      { type: 'reasoning', encrypted_content: ciphertext, id: 'rs_1', status: 'completed' },
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'hello' }] },
+      { type: 'function_call', call_id: 'call_1', name: 'Read', arguments: '{"path":"a"}' },
+    ]);
+    expect(() => responsesInput({ ...req, messages: [message] })).toThrow(RouteError);
+    const chatgpt = new ChatGptSubscriptionProvider({
+      port,
+      fetchImpl: async () => {
+        throw new Error('chatgpt must not fetch encrypted reasoning');
+      },
+    });
+    await expect(chatgpt.stream({ ...req, messages: [message] }).next()).rejects.toMatchObject({
+      code: 'unsupported_input',
+    });
+    expect(() =>
+      responsesInput(
+        {
+          ...req,
+          messages: [
+            {
+              role: 'assistant',
+              content: [{ type: 'thinking', thinking: 'secret', signature: 'sig' }],
+            },
+          ],
+        },
+        { replayEncryptedReasoning: true },
+      ),
+    ).toThrow(/signed reasoning/);
+    expect(() =>
+      responsesInput(
+        {
+          ...req,
+          messages: [
+            { role: 'assistant', content: [{ type: 'redacted_thinking', data: 'opaque' }] },
+          ],
+        },
+        { replayEncryptedReasoning: true },
+      ),
+    ).toThrow(/encrypted reasoning history cannot be replayed/);
+  });
+
+  test('Grok subscription body maps max to xhigh and refuses off before fetch', async () => {
+    let fetches = 0;
+    let sent: Record<string, unknown> = {};
+    const provider = new GrokSubscriptionProvider({
+      port,
+      fetchImpl: async (_url, init) => {
+        fetches += 1;
+        sent = JSON.parse(String(init?.body));
+        return wire([{ type: 'response.completed', response: { status: 'completed' } }]);
+      },
+    });
+    for await (const _ of provider.stream({ ...req, model: 'grok-4.7', effort: 'max' })) {
+    }
+    expect(sent.reasoning).toEqual({ effort: 'xhigh' });
+    expect(sent.include).toEqual(['reasoning.encrypted_content']);
+    expect(sent.store).toBe(false);
+    expect(sent).not.toHaveProperty('reasoning_effort');
+    expect(JSON.stringify(sent)).not.toContain('summary');
+    for await (const _ of provider.stream({ ...req, model: 'grok-4.7' })) {
+    }
+    expect(sent.reasoning).toEqual({ effort: 'high' });
+    const before = fetches;
+    await expect(
+      provider.stream({ ...req, model: 'grok-4.7', effort: 'off' }).next(),
+    ).rejects.toMatchObject({ code: 'effort_unsupported' });
+    for (const model of ['grok-4.7-build-fast', 'grok-4.5', 'grok-foo', 'not-a-grok']) {
+      await expect(provider.stream({ ...req, model, effort: 'high' }).next()).rejects.toMatchObject(
+        { code: 'model_unsupported' },
+      );
+    }
+    expect(fetches).toBe(before);
   });
 });

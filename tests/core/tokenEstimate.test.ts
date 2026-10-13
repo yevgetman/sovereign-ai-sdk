@@ -92,3 +92,11 @@ describe('estimateBlockTokens — non-string tool_result content', () => {
     expect(estimateBlockTokens(stringBlock)).toBeGreaterThan(0);
   });
 });
+
+test('encrypted reasoning counts as text and does not read an image source', () => {
+  const encrypted: ContentBlock = {
+    type: 'encrypted_reasoning',
+    encryptedContent: 'abcd',
+  };
+  expect(estimateBlockTokens(encrypted)).toBe(estimateBlockTokens({ type: 'text', text: 'abcd' }));
+});

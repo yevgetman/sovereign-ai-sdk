@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { query } from '@yevgetman/sov-sdk/core/query';
+import { fallbackModelCatalog, findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import type { ModelRecord } from '@yevgetman/sov-sdk/providers/models/types';
 import {
   serializerSupportsImages,
@@ -214,6 +215,38 @@ describe('model and serializer capabilities', () => {
     expect(body.tools?.[0]?.function.name).toBe('run');
     expect(body.tool_choice).toBe('required');
     expect(() => validateModelRequest(req, 'grok')).toThrow('no verified image');
+  });
+  test('caller-source grok-4.7 still fails tools until the pin record is used', () => {
+    const caller: ModelRecord = {
+      id: 'grok-4.7',
+      displayName: 'grok-4.7',
+      provider: 'grok',
+      routeId: 'grok-subscription',
+      auth: 'subscription',
+      capabilities: {
+        textOutput: 'unknown',
+        tools: 'unknown',
+        images: 'unsupported',
+        reasoning: 'unknown',
+      },
+      availability: 'unknown',
+      metadata: { source: 'caller', stale: false },
+    };
+    const tools = {
+      ...text,
+      model: 'grok-4.7',
+      tools: [{ name: 'run', description: 'run', input_schema: {} }],
+    };
+    expect(() => validateModelRequest(tools, 'grok', caller)).toThrow(/unknown/);
+    const pin = findModel(fallbackModelCatalog('grok-subscription'), 'grok-4.7');
+    expect(() => validateModelRequest(tools, 'grok', pin)).not.toThrow();
+    expect(() =>
+      validateModelRequest(
+        { ...tools, messages: [{ role: 'user', content: [image] }] },
+        'grok',
+        pin,
+      ),
+    ).toThrow('no verified image');
   });
 });
 

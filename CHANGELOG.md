@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Grok subscription defaults to `grok-4.7`, allowlists `grok-4.6`, sends Responses `reasoning.effort` (`max` maps to `xhigh`), and replays encrypted reasoning only on that route. The live subscription probe has not been run.
+
+### SDK
+
+- Minor. `AssistantMessage` and `Message` content can include `encrypted_reasoning` (`encryptedContent`, optional `id` and `status`). Migration: callers must keep the block on rehydration and must not send it to other providers.
+
 ## harness 0.6.78 / SDK 0.15.0 — permissioned skill runtime — 2026-10-11
 
 - PR52–59 unify explicit skill activation, bounded discovery, transactional storage, invocation controls, live registries and diagnostics, optional SDK runtime composition, model-aware catalogs and private skill continuity. All branch commits and review fixes are included through each exact merge unit.

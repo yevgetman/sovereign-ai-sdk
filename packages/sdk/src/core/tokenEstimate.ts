@@ -60,6 +60,9 @@ export function estimateBlockTokens(block: ContentBlock): number {
   if (block.type === 'redacted_thinking') {
     return BLOCK_OVERHEAD_TOKENS + estimateTextTokens(block.data);
   }
+  if (block.type === 'encrypted_reasoning') {
+    return BLOCK_OVERHEAD_TOKENS + estimateTextTokens(block.encryptedContent);
+  }
   return (
     BLOCK_OVERHEAD_TOKENS +
     estimateTextTokens(block.source.media_type) +

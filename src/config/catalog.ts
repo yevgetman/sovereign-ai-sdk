@@ -152,7 +152,7 @@ const GENERAL_GROUP: ConfigGroup = {
       path: 'thinking.effort',
       label: 'thinking.effort',
       description:
-        'Reasoning-depth default for extended thinking. off = no thinking (default); low/medium/high/max enable it on reasoning-capable models. The /effort command overrides per session.',
+        'off | low | medium | high | max — boot default for reasoning depth (extended thinking). off ⇒ request byte-identical, except grok-subscription, where a stored or absent off selects high. --effort off on that route throws effort_unsupported and does not fetch. Overridden per session by /effort.',
       editor: { kind: 'enum', choices: EFFORT_CHOICES },
     },
     {

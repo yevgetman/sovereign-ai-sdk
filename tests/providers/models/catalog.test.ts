@@ -223,3 +223,45 @@ test('late cache writes cannot overwrite a newer successful refresh', async () =
   expect((await discovery.refresh(source)).state).toBe('current');
   expect(saved?.models[0]?.id).toBe('future-3');
 });
+
+test('failed grok subscription discovery keeps the pin instead of caller metadata', async () => {
+  let calls = 0;
+  const fetch = (async () => {
+    calls += 1;
+    throw new Error('must not fetch');
+  }) as unknown as typeof globalThis.fetch;
+  const source: ModelDiscoverySource = {
+    routeId: 'grok-subscription',
+    async discover() {
+      throw new Error('Subscription model discovery unavailable');
+    },
+  };
+  const catalog = await createModelDiscovery({ fetch }).refresh(source);
+  const pinned = findModel(catalog, 'grok-4.7');
+  expect(pinned.metadata).toMatchObject({ source: 'xai-docs-2026-10-10', stale: false });
+  expect(pinned.contextWindow).toBe(500_000);
+  expect(pinned.capabilities.tools).toBe('supported');
+  expect(pinned.metadata.source).not.toBe('caller');
+  const overwritten = {
+    ...catalog,
+    models: catalog.models.map((model) =>
+      model.id === 'grok-4.7'
+        ? {
+            ...model,
+            contextWindow: undefined,
+            capabilities: { ...model.capabilities, tools: 'unknown' as const },
+            metadata: { source: 'caller', stale: true },
+          }
+        : model,
+    ),
+  };
+  expect(findModel(overwritten, 'grok-4.7').contextWindow).toBe(500_000);
+  expect(findModel(overwritten, 'grok-4.7').metadata).toMatchObject({
+    source: 'xai-docs-2026-10-10',
+    stale: false,
+  });
+  expect(findModel(fallbackModelCatalog('openrouter-api'), 'grok-4.7').metadata.source).toBe(
+    'caller',
+  );
+  expect(calls).toBe(0);
+});

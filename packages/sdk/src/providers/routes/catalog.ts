@@ -11,8 +11,12 @@
 //   settings.routes.<routeId>.defaultModel
 //   > settings.providers.<provider>.model   (API-key routes only; existing key)
 //   > built-in default.
-// An incompatible explicit default is refused; configuration cannot silently
-// change the requested model to the built-in default.
+// A malformed or known-incompatible explicit default is refused at catalog
+// build. An authoritative allowlist miss is not: listRoutes and getRoute stay
+// usable, and an explicit allowlisted model still resolves. The record keeps
+// the rejected id and does not present the built-in as the selected default.
+// Selecting that bad default (omitted model or auto) throws model_unsupported
+// and names routes.<id>.defaultModel. A run does not silently use the built-in.
 
 import type { Settings } from '../../config/schema.js';
 import {
@@ -23,6 +27,7 @@ import {
 } from '../effort.js';
 import { reasoningControlFor } from '../modelReasoning.js';
 import { PROVIDER_REGISTRY } from '../models.js';
+import { GROK_SUBSCRIPTION_MODELS } from '../models/grokPin.js';
 import { SUBSCRIPTION_DEFAULT_MODEL } from '../subscription/names.js';
 import { RouteError } from './errors.js';
 import {
@@ -37,14 +42,15 @@ import {
 const NO_EFFORT: readonly ReasoningEffort[] = ['off'];
 
 /**
- * Effort levels the subscription transports honor today. The ChatGPT Codex body maps max to xhigh.
- * Grok currently has no verified effort parameter, so only off is supported.
+ * Effort levels the subscription transports honor today. Both map max to xhigh.
+ * ChatGPT has no off. Grok subscription refuses off because reasoning cannot be
+ * disabled, and an absent effort resolves to high rather than the first level.
  */
 export const SUBSCRIPTION_ROUTE_EFFORTS: Readonly<
   Record<'chatgpt' | 'grok', readonly ReasoningEffort[]>
 > = {
   chatgpt: ['low', 'medium', 'high', 'max'],
-  grok: NO_EFFORT,
+  grok: ['low', 'medium', 'high', 'max'],
 };
 
 /**
@@ -91,6 +97,8 @@ type RouteDefinition = {
   effortsFor: (model: string) => readonly ReasoningEffort[];
   /** True when `model` is KNOWN not to work on this backend. */
   isKnownIncompatible: (model: string) => boolean;
+  /** Unknown ids are refused. Default false. True only for grok-subscription. */
+  modelsAuthoritative?: boolean;
 };
 
 function allOrOff(supports: boolean): readonly ReasoningEffort[] {
@@ -170,8 +178,9 @@ const DEFINITIONS: Readonly<Record<RouteId, RouteDefinition>> = {
     auth: 'subscription',
     displayName: 'Grok (subscription)',
     builtinDefaultModel: SUBSCRIPTION_DEFAULT_MODEL.grok,
-    knownModels: [SUBSCRIPTION_DEFAULT_MODEL.grok],
-    effortsFor: () => SUBSCRIPTION_ROUTE_EFFORTS.grok,
+    knownModels: GROK_SUBSCRIPTION_MODELS,
+    modelsAuthoritative: true,
+    effortsFor: (model) => reasoningControlFor('grok', model)?.efforts ?? NO_EFFORT,
     isKnownIncompatible: directFamilyRule('xai'),
   },
 };
@@ -205,29 +214,50 @@ function orderedEfforts(levels: Iterable<ReasoningEffort>): ReasoningEffort[] {
 }
 
 function buildRecord(def: RouteDefinition, settings: Settings): RouteRecord {
-  const override = configuredDefaultModel(def, settings)?.trim();
-  if (
-    override !== undefined &&
-    (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(override) || def.isKnownIncompatible(override))
-  ) {
+  const configuredModel = configuredDefaultModel(def, settings)?.trim();
+  const wellFormed =
+    configuredModel !== undefined && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(configuredModel);
+  const incompatible = configuredModel !== undefined && def.isKnownIncompatible(configuredModel);
+  // A bad authoritative default must not take down listRoutes/getRoute or
+  // block an explicit allowlisted model. Malformed and known-incompatible
+  // defaults still fail here, and a valid configured model still wins.
+  const allowlistMiss =
+    wellFormed &&
+    !incompatible &&
+    configuredModel !== undefined &&
+    def.modelsAuthoritative === true &&
+    !def.knownModels.includes(configuredModel);
+  if (configuredModel !== undefined && !allowlistMiss && (!wellFormed || incompatible)) {
     throw new RouteError(
       'model_unsupported',
       `configured default model is not supported by route ${def.id}`,
       { routeId: def.id },
     );
   }
-  const defaultModel = override ?? def.builtinDefaultModel;
-  const models = def.knownModels.includes(defaultModel)
+  const rejectedDefault =
+    allowlistMiss && configuredModel !== undefined ? configuredModel : undefined;
+  // Models stay the allowlist. A rejected id is not selectable, and the built-in
+  // id is not reported as the configured default while that rejection is set.
+  const selectableDefault =
+    rejectedDefault === undefined && configuredModel !== undefined
+      ? configuredModel
+      : def.builtinDefaultModel;
+  const defaultModel = rejectedDefault ?? selectableDefault;
+  const models = def.knownModels.includes(selectableDefault)
     ? [...def.knownModels]
-    : [defaultModel, ...def.knownModels];
+    : [selectableDefault, ...def.knownModels];
   const modelEfforts: Record<string, ReasoningEffort[]> = Object.fromEntries(
     models.map((model) => [model, orderedEfforts(def.effortsFor(model))]),
   );
   const efforts = orderedEfforts(Object.values(modelEfforts).flat());
-  const configuredEffort = settings.thinking?.effort ?? 'off';
-  const defaultEffort = modelEfforts[defaultModel]?.includes(configuredEffort)
+  const configured = settings.thinking?.effort;
+  const configuredEffort =
+    def.id === 'grok-subscription' && (configured === undefined || configured === 'off')
+      ? 'high'
+      : (configured ?? 'off');
+  const defaultEffort = modelEfforts[selectableDefault]?.includes(configuredEffort)
     ? configuredEffort
-    : (modelEfforts[defaultModel]?.[0] ?? 'off');
+    : (modelEfforts[selectableDefault]?.[0] ?? 'off');
   return {
     id: def.id,
     provider: def.provider,
@@ -235,12 +265,18 @@ function buildRecord(def: RouteDefinition, settings: Settings): RouteRecord {
     displayName: def.displayName,
     defaultModel,
     models,
-    modelsAuthoritative: false,
+    modelsAuthoritative: def.modelsAuthoritative === true,
     efforts,
     modelEfforts,
     defaultEffort,
     credentialRef: `${def.auth}:${def.provider}`,
     enabled: true,
+    ...(rejectedDefault !== undefined
+      ? {
+          rejectedConfiguredDefault: rejectedDefault,
+          defaultModelNotice: `Omission and auto fail until routes.${def.id}.defaultModel is changed.`,
+        }
+      : {}),
   };
 }
 

@@ -1,10 +1,15 @@
 // Exact metadata and transport capabilities, not model-name family guessing.
-import { REASONING_EFFORTS, type ReasoningEffort, modelSupportsReasoning } from './effort.js';
+import {
+  REASONING_EFFORTS,
+  type ReasoningEffort,
+  mapMaxEffort,
+  modelSupportsReasoning,
+} from './effort.js';
 import type { ModelRecord } from './models/types.js';
 import { RouteError } from './routes/errors.js';
 
 export type ReasoningControl = {
-  parameter: 'openrouter' | 'openai' | 'xai';
+  parameter: 'openrouter' | 'openai' | 'xai' | 'grok';
   efforts: readonly ReasoningEffort[];
   /** off is no-control unless the transport can actually disable reasoning. */
   disableSupported: boolean;
@@ -15,6 +20,19 @@ const VERIFIED: Record<string, ReasoningControl> = {
   'xai:grok-4.6': {
     parameter: 'xai',
     efforts: ['off', 'low', 'medium', 'high', 'max'],
+    disableSupported: false,
+    maxWireValue: 'xhigh',
+  },
+  // Responses `reasoning.effort`. Not the Chat Completions `xai:grok-4.6` row.
+  'grok:grok-4.7': {
+    parameter: 'grok',
+    efforts: ['low', 'medium', 'high', 'max'],
+    disableSupported: false,
+    maxWireValue: 'xhigh',
+  },
+  'grok:grok-4.6': {
+    parameter: 'grok',
+    efforts: ['low', 'medium', 'high', 'max'],
     disableSupported: false,
     maxWireValue: 'xhigh',
   },
@@ -67,6 +85,35 @@ export function reasoningControlFor(
 ): ReasoningControl | undefined {
   if (metadata && (metadata.id !== model || metadata.provider !== provider))
     throw new RouteError('effort_unsupported', 'model metadata does not match request');
+  // The pin must not collapse to off when reasoning metadata is present.
+  // Fresh narrower published efforts still intersect the verified set. An empty
+  // intersection, including only off or unsupported reasoning, keeps this
+  // control with no levels so selection cannot synthesize off. Do not prepend
+  // off or switch the Responses parameter to reasoning_effort.
+  if (provider === 'grok') {
+    const verified = VERIFIED[`${provider}:${model}`];
+    if (!verified) return undefined;
+    if (
+      metadata &&
+      hasReasoningMetadata(metadata) &&
+      metadata.capabilities.reasoning === 'unsupported'
+    )
+      return { ...verified, efforts: [] };
+    const freshEfforts =
+      metadata &&
+      hasReasoningMetadata(metadata) &&
+      !metadata.metadata.stale &&
+      metadata.metadata.source !== 'bundled-suggestions' &&
+      metadata.capabilities.reasoning === 'supported' &&
+      metadata.efforts?.length
+        ? metadata.efforts
+        : undefined;
+    if (!freshEfforts) return verified;
+    const efforts = verified.efforts.filter(
+      (level) => level !== 'off' && freshEfforts.includes(level),
+    );
+    return { ...verified, efforts };
+  }
   if (hasReasoningMetadata(metadata) && metadata) {
     if (metadata.capabilities.reasoning === 'unsupported') return undefined;
     const established = VERIFIED[`${provider}:${model}`];
@@ -138,7 +185,9 @@ export function modelReasoningParams(
       : {};
   if (control.parameter === 'openrouter')
     return control.binary ? { reasoning: { enabled: true } } : { reasoning: { effort } };
-  return { reasoning_effort: effort === 'max' ? (control.maxWireValue ?? 'high') : effort };
+  if (control.parameter === 'grok')
+    return { reasoning: { effort: mapMaxEffort(effort, control.maxWireValue ?? 'xhigh') } };
+  return { reasoning_effort: mapMaxEffort(effort, control.maxWireValue ?? 'high') };
 }
 
 /** Native Anthropic thinking is a different transport from unified router depth.

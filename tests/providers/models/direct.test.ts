@@ -49,9 +49,31 @@ test('subscription catalogs never copy API account availability or make credenti
     expect(catalog.state).toBe('unavailable');
     expect(catalog.fetchedAt).toBeUndefined();
     expect(catalog.models.length).toBeGreaterThan(0);
-    expect(catalog.models.every((model) => model.metadata.stale)).toBe(true);
     expect(catalog.models.every((model) => model.availability === 'unknown')).toBe(true);
     expect(catalog.models.every((model) => model.auth === 'subscription')).toBe(true);
+    if (routeId === 'grok-subscription') {
+      await expect(
+        createSubscriptionModelSource(routeId).discover({
+          fetch,
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toThrow('Subscription model discovery unavailable');
+      expect(catalog.models.map((model) => model.id).slice(0, 2)).toEqual(['grok-4.7', 'grok-4.6']);
+      expect(catalog.models[0]?.metadata).toMatchObject({
+        source: 'xai-docs-2026-10-10',
+        stale: false,
+      });
+      expect(catalog.models[0]?.contextWindow).toBe(500_000);
+      expect(catalog.models[0]?.capabilities.tools).toBe('supported');
+      expect(catalog.models[0]?.capabilities.images).toBe('unsupported');
+      expect(catalog.models[1]?.contextWindow).toBeUndefined();
+      expect(catalog.models[1]?.metadata.stale).toBe(false);
+    } else {
+      expect(catalog.models.every((model) => model.metadata.stale)).toBe(true);
+      expect(catalog.models.every((model) => model.metadata.source === 'bundled-suggestions')).toBe(
+        true,
+      );
+    }
   }
   expect(calls).toBe(0);
 });
