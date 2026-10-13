@@ -1,3 +1,17 @@
+## 2026-10-13 — Grok subscription review fixes, full gate
+
+Scope: review fixes on `docs/grok-subscription-current-model-20261012` after `372aea01`. A bad authoritative default no longer throws from `listRoutes` or `getRoute`. Fresh grok effort metadata intersects the verified set. Docs state the grok-4.6 32768 floor, distinguish stored `off` from `--effort off`, and say the publisher pin is re-applied with `stale: false`. No live xAI or OAuth call. No Keychain read.
+
+Environment: macOS, Bun 1.3.13 at `/Users/julie/.bun/bin/bun`. Worktree `/private/tmp/spec-prs/sdk-grok`.
+
+Commands:
+
+- `bun test --timeout 20000 tests/providers/routes.test.ts`
+- `bun test --timeout 20000 tests/providers/modelReasoning.test.ts tests/providers/routes.test.ts`
+- `bun run lint && bun run typecheck && bun run test`
+
+Result: route catalog 30 pass / 0 fail / 298 expect() calls. Reasoning plus routes 41 pass / 0 fail / 456 expect() calls. Lint passed (`biome check` 1109 files; dependency-cruiser 244 modules, no violations). `tsc --noEmit` and `packages/debug-console` typecheck passed. Full test: **6010 pass / 31 skip / 63 fail**, 23444 expect() calls, 6104 tests across 593 files, 155.88s. The 63 failures are pre-existing and were not weakened. Node skill-store and host tests report `ERR_MODULE_NOT_FOUND` for compiled SDK dist modules (`packages/sdk/dist/skills/storeWorkerEntry.js`, `node_modules/@yevgetman/sov-sdk/dist/sdk.js`, and the loader, discovery, and registry entries). `tests/host/sqliteRestart.test.ts` fails because stderr is a Node `NO_COLOR`/`FORCE_COLOR` warning instead of empty. None of these assert the grok route, effort, or pin changes. The §8 live subscription probe has not been run.
+
 ## 2026-10-12 — Grok subscription two-id pin, offline
 
 Scope: draft PR 63 on `docs/grok-subscription-current-model-20261012`. Exact `grok-4.7` / `grok-4.6` pin, Responses `reasoning.effort`, and encrypted-reasoning replay. No Telekit edits. No catalog-endpoint discovery.
