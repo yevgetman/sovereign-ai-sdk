@@ -189,7 +189,8 @@ describe('route catalog', () => {
     };
     expect(listRoutes(settings).map((route) => route.id)).toEqual([...ROUTE_IDS]);
     const route = getRoute('grok-subscription', settings);
-    expect(route.defaultModel).toBe('grok-4.7');
+    expect(route.defaultModel).toBe('grok-4.5');
+    expect(route.rejectedConfiguredDefault).toBe('grok-4.5');
     expect(route.models).toEqual(['grok-4.7', 'grok-4.6']);
     for (const requested of [undefined, 'auto'] as const) {
       try {
@@ -214,6 +215,35 @@ describe('route catalog', () => {
         routes: { 'chatgpt-subscription': { defaultModel: 'gpt-5.9-codex' } },
       }).defaultModel,
     ).toBe('gpt-5.9-codex');
+  });
+
+  test('a rejected grok subscription default is not presented as the built-in model', () => {
+    const settings = {
+      routes: { 'grok-subscription': { defaultModel: 'grok-4.5' as const } },
+    };
+    const route = getRoute('grok-subscription', settings);
+    const listed = listRoutes(settings).find((item) => item.id === 'grok-subscription');
+    expect(listed).toEqual(route);
+    expect(route.rejectedConfiguredDefault).toBe('grok-4.5');
+    expect(route.defaultModel).toBe('grok-4.5');
+    expect(route.models).toEqual(['grok-4.7', 'grok-4.6']);
+    expect(route.defaultModelNotice).toBe(
+      'Omission and auto fail until routes.grok-subscription.defaultModel is changed.',
+    );
+    for (const requested of [undefined, 'auto'] as const) {
+      try {
+        validateRouteSelection(route, requested === undefined ? {} : { model: requested });
+        throw new Error('expected throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(RouteError);
+        expect((err as RouteError).code).toBe('model_unsupported');
+        expect((err as RouteError).message).toContain('routes.grok-subscription.defaultModel');
+      }
+    }
+    expect(validateRouteSelection(route, { model: 'grok-4.7' })).toEqual({
+      model: 'grok-4.7',
+      effort: 'high',
+    });
   });
 
   test('unknown route id is a typed route_unavailable error', () => {

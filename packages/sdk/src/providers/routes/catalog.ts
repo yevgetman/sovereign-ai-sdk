@@ -13,9 +13,10 @@
 //   > built-in default.
 // A malformed or known-incompatible explicit default is refused at catalog
 // build. An authoritative allowlist miss is not: listRoutes and getRoute stay
-// usable, and an explicit allowlisted model still resolves. Selecting that
-// bad default (omitted model or auto) throws model_unsupported and names
-// routes.<id>.defaultModel. A run does not silently use the built-in instead.
+// usable, and an explicit allowlisted model still resolves. The record keeps
+// the rejected id and does not present the built-in as the selected default.
+// Selecting that bad default (omitted model or auto) throws model_unsupported
+// and names routes.<id>.defaultModel. A run does not silently use the built-in.
 
 import type { Settings } from '../../config/schema.js';
 import {
@@ -233,11 +234,18 @@ function buildRecord(def: RouteDefinition, settings: Settings): RouteRecord {
       { routeId: def.id },
     );
   }
-  const defaultModel =
-    !allowlistMiss && configuredModel !== undefined ? configuredModel : def.builtinDefaultModel;
-  const models = def.knownModels.includes(defaultModel)
+  const rejectedDefault =
+    allowlistMiss && configuredModel !== undefined ? configuredModel : undefined;
+  // Models stay the allowlist. A rejected id is not selectable, and the built-in
+  // id is not reported as the configured default while that rejection is set.
+  const selectableDefault =
+    rejectedDefault === undefined && configuredModel !== undefined
+      ? configuredModel
+      : def.builtinDefaultModel;
+  const defaultModel = rejectedDefault ?? selectableDefault;
+  const models = def.knownModels.includes(selectableDefault)
     ? [...def.knownModels]
-    : [defaultModel, ...def.knownModels];
+    : [selectableDefault, ...def.knownModels];
   const modelEfforts: Record<string, ReasoningEffort[]> = Object.fromEntries(
     models.map((model) => [model, orderedEfforts(def.effortsFor(model))]),
   );
@@ -247,9 +255,9 @@ function buildRecord(def: RouteDefinition, settings: Settings): RouteRecord {
     def.id === 'grok-subscription' && (configured === undefined || configured === 'off')
       ? 'high'
       : (configured ?? 'off');
-  const defaultEffort = modelEfforts[defaultModel]?.includes(configuredEffort)
+  const defaultEffort = modelEfforts[selectableDefault]?.includes(configuredEffort)
     ? configuredEffort
-    : (modelEfforts[defaultModel]?.[0] ?? 'off');
+    : (modelEfforts[selectableDefault]?.[0] ?? 'off');
   return {
     id: def.id,
     provider: def.provider,
@@ -263,8 +271,11 @@ function buildRecord(def: RouteDefinition, settings: Settings): RouteRecord {
     defaultEffort,
     credentialRef: `${def.auth}:${def.provider}`,
     enabled: true,
-    ...(allowlistMiss && configuredModel !== undefined
-      ? { rejectedConfiguredDefault: configuredModel }
+    ...(rejectedDefault !== undefined
+      ? {
+          rejectedConfiguredDefault: rejectedDefault,
+          defaultModelNotice: `Omission and auto fail until routes.${def.id}.defaultModel is changed.`,
+        }
       : {}),
   };
 }

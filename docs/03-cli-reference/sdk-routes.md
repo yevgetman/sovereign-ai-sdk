@@ -80,7 +80,12 @@ A stored `low`, `medium`, or `max` wins. `--effort off` throws
 `effort_unsupported` and does not fetch.
 The route accepts only `grok-4.7` and `grok-4.6`. `grok-4.7` keeps the documented
 context window of 500000. `grok-4.6` has no published window and stays on the
-32768 unknown floor. A subscription refresh does not fill that window.
+32768 unknown floor. A subscription refresh does not fill that window. If
+`routes.grok-subscription.defaultModel` is outside that allowlist, the catalog
+sets `rejectedConfiguredDefault` and `defaultModel` to the rejected id and does
+not present built-in `grok-4.7` as the selected default. `defaultModelNotice`
+says omission and `auto` fail until `routes.grok-subscription.defaultModel` is
+changed. An explicit allowlisted `--model` still works.
 
 ## One native turn
 
@@ -91,7 +96,10 @@ printf '%s' '{"inputVersion":1,"text":"Check this folder","instructions":"","ima
 ```
 
 The route is required. Legacy `--provider` conflicts with SDK mode. `--model auto`
-and `--effort auto` use route defaults. A route never borrows an unrelated API key,
+and `--effort auto` use route defaults. When `rejectedConfiguredDefault` is set,
+the catalog does not present built-in `grok-4.7` as the selected default: omission
+and `--model auto` fail until `routes.grok-subscription.defaultModel` is changed.
+An explicit allowlisted model still accepts `--effort auto`. A route never borrows an unrelated API key,
 model, account or external harness. The SDK path does not perform a billable startup
 preflight or automatic context summarization.
 

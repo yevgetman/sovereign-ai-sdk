@@ -1,3 +1,17 @@
+## 2026-10-13 — Rejected grok subscription default is not the built-in id
+
+Scope: `routes.grok-subscription.defaultModel` outside the allowlist (`grok-4.5`) no longer makes `listRoutes` / `getRoute` present built-in `grok-4.7` as `defaultModel`. The record keeps the rejected id and `defaultModelNotice` says omission and auto fail until `routes.grok-subscription.defaultModel` is changed. Explicit `grok-4.7` still resolves. No live xAI or OAuth call. No Keychain read.
+
+Environment: macOS, Bun 1.3.13. Worktree `/private/tmp/pr-fixes/pr63-rejected-default`. Root `node_modules` is a symlink into another checkout, so the focused run temporarily resolved `@yevgetman/sov-sdk` to this worktree and restored the symlink. Full `bun run lint`, `bun run typecheck`, and `bun run test` were not run.
+
+Commands:
+
+- `bun test --timeout 20000 tests/providers/routes.test.ts -t "a rejected grok subscription default is not presented"` before the catalog change: 0 pass / 1 fail. Expected `defaultModel` `grok-4.5`; received `grok-4.7`.
+- After the change, `bunx biome check` on `packages/sdk/src/providers/routes/catalog.ts`, `packages/sdk/src/providers/routes/types.ts`, and `tests/providers/routes.test.ts`: no fixes.
+- `bun test --timeout 20000 tests/providers/routes.test.ts tests/cli/sdkRunCommand.test.ts`: 48 pass / 0 fail, 395 expect() calls.
+
+Result: pass for the focused files. The §8 live subscription probe has not been run.
+
 ## 2026-10-13 — Grok review follow-up fixes on 818825f4
 
 Scope: follow-up fixes on `docs/grok-subscription-current-model-20261012` at `818825f4` (parent of this log). SDK run names a rejected `routes.<id>.defaultModel`. Omitted Grok effort docs match `buildRecord` (missing or `off` becomes `high`; stored `low`/`medium`/`max` wins). `resolveEffort` returns `off` only when that level is supported. Validation and Anthropic comments only. SDK changelog notes `encrypted_reasoning` on `AssistantMessage`/`Message` as a minor. No live xAI or OAuth call. No Keychain read. Agent Casa canary was not run.
