@@ -1,4 +1,5 @@
 import { listRoutes } from '../routes/catalog.js';
+import { presentSubscriptionCatalog } from './subscriptionCatalog.js';
 import type {
   ModelCatalog,
   ModelCatalogCache,
@@ -151,7 +152,8 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
         failedSnapshots.delete(key);
         return structuredClone(catalog);
       } catch {
-        const failed: ModelCatalog = {
+        // Disk rejects a stale account catalog that still expands tools or effort.
+        const failed = presentSubscriptionCatalog({
           ...previous,
           state: previous.fetchedAt ? 'stale' : 'unavailable',
           error: 'Model discovery unavailable',
@@ -159,7 +161,7 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
             ...model,
             metadata: { ...model.metadata, stale: true },
           })),
-        };
+        });
         failedSnapshots.set(key, structuredClone(failed));
         try {
           await persist(key, failed);

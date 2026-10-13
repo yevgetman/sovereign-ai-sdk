@@ -573,6 +573,46 @@ describe('subscription catalog policy', () => {
 });
 
 describe('subscription catalog disk isolation', () => {
+  test('a failed refresh does not leave the current account catalog on disk', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'sov-sub-fail-'));
+    try {
+      const root = join(home, 'model-catalog');
+      const cache = diskModelCache(root);
+      const source = createSubscriptionModelSource('chatgpt-subscription');
+      const key = `${source.routeId}:${source.cacheKey}`;
+      const applied = applySubscriptionAccountCatalog('chatgpt-subscription', {
+        status: 200,
+        listedAt: listedAt(),
+        body: {
+          models: [
+            {
+              id: 'gpt-5.3-codex',
+              output_modalities: ['text'],
+              context_window: 8192,
+              capabilities: { tools: true, reasoning_effort: ['high'] },
+            },
+          ],
+        },
+      });
+      const row = applied.models[0];
+      if (!row) throw new Error('missing row');
+      expect(row.capabilities.tools).toBe('supported');
+      expect(row.availability).toBe('account');
+      await cache.set(key, diskShape('chatgpt-subscription', applied.models, applied.listedAt));
+      await createModelDiscovery({ cache }).refresh(source);
+      const saved = await diskModelCache(root).get(key);
+      if (!saved) return;
+      expect(saved.state).not.toBe('current');
+      const kept = saved.models.find((model) => model.id === row.id);
+      expect(kept?.availability).not.toBe('account');
+      expect(kept?.capabilities.tools).not.toBe('supported');
+      expect(kept?.contextWindow).toBeUndefined();
+      expect(kept?.efforts?.some((level) => level !== 'off')).not.toBe(true);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test('accounts, owners, logout, and API caches stay apart', async () => {
     const homeA = mkdtempSync(join(tmpdir(), 'sov-sub-a-'));
     const homeB = mkdtempSync(join(tmpdir(), 'sov-sub-b-'));
