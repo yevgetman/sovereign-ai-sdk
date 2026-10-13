@@ -9,6 +9,12 @@ import type {
 } from './types.js';
 import { validateModelCatalog, validateModelRecords } from './validate.js';
 
+/** Full canonical payload. fetchedAt and model ids alone do not identify an entry. */
+function modelCatalogIdentity(catalog: ModelCatalog | undefined): string {
+  if (!catalog) return '';
+  return JSON.stringify(catalog);
+}
+
 /** Offline suggestions only; no credential reads, provider creation or network. */
 export function fallbackModelCatalog(routeId: string): ModelCatalog {
   const route = listRoutes().find((candidate) => candidate.id === routeId);
@@ -38,7 +44,16 @@ export function createMemoryModelCatalogCache(): ModelCatalogCache {
       const value = values.get(key);
       return value ? structuredClone(value) : undefined;
     },
-    async set(key, value) {
+    async set(key, value, expected) {
+      if (expected) {
+        const validated = validateModelCatalog(
+          values.get(key),
+          expected.routeId,
+          Number.MAX_SAFE_INTEGER,
+        );
+        // Same exclusive section as the insert: a removed entry stays removed.
+        if (modelCatalogIdentity(validated) !== modelCatalogIdentity(expected)) return;
+      }
       values.set(key, structuredClone(value));
     },
   };
@@ -73,12 +88,33 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
       clearTimeout(timer);
     }
   }
-  async function persist(key: string, catalog: ModelCatalog): Promise<void> {
+  async function persist(
+    key: string,
+    catalog: ModelCatalog,
+    expected?: ModelCatalog,
+  ): Promise<void> {
     // Serialize even ports that ignore timeout: a late old write cannot overwrite
     // a later successful refresh. A stuck port never starts additional writes.
     const prior = writes.get(key);
     if (prior) await bounded(() => prior);
-    const write = Promise.resolve().then(() => cache.set(key, structuredClone(catalog)));
+    const write = (async () => {
+      const payload = structuredClone(catalog);
+      if (!expected) {
+        // The promise must stay pending if set ignores the timeout, so a later
+        // refresh cannot start a second write over the late one.
+        await cache.set(key, payload);
+        return;
+      }
+      let current: ModelCatalog | undefined;
+      try {
+        current = validateModelCatalog(await cache.get(key), catalog.routeId, now()) ?? undefined;
+      } catch {
+        current = undefined;
+      }
+      // Re-check inside this write. fetchedAt plus ids is not the stored entry.
+      if (modelCatalogIdentity(current) !== modelCatalogIdentity(expected)) return;
+      await cache.set(key, payload, structuredClone(expected));
+    })();
     writes.set(key, write);
     void write.then(
       () => {
@@ -92,10 +128,6 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
   }
   const keyFor = (source: ModelDiscoverySource) =>
     `${source.routeId}:${source.cacheKey ?? 'public'}`;
-  function catalogStamp(catalog: ModelCatalog | undefined): string {
-    if (!catalog) return '';
-    return `${catalog.fetchedAt ?? ''}\n${catalog.models.map((model) => model.id).join('\0')}`;
-  }
   async function cacheEntry(source: ModelDiscoverySource): Promise<ModelCatalog | undefined> {
     try {
       return (
@@ -177,10 +209,10 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
         });
         failedSnapshots.set(key, structuredClone(failed));
         try {
-          // Login can delete this entry after the read. Do not write that
-          // account back. An empty cache on both reads was never stored.
-          const current = await cacheEntry(source);
-          if (catalogStamp(observed) === catalogStamp(current)) await persist(key, failed);
+          // Login can rmSync the route directory after the read. Do not write
+          // that account back. An empty cache on both reads was never stored.
+          if (observed) await persist(key, failed, observed);
+          else if (!(await cacheEntry(source))) await persist(key, failed);
         } catch {
           /* in-memory invalidation remains */
         }

@@ -7,10 +7,6 @@ import {
   normalizeDirectModel,
 } from '@yevgetman/sov-sdk/providers/models/direct';
 import {
-  createModelDiscovery,
-  fallbackModelCatalog,
-} from '@yevgetman/sov-sdk/providers/models/index';
-import {
   SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE,
   applySubscriptionAccountCatalog,
   normalizeSubscriptionCatalogRow,
@@ -36,6 +32,11 @@ import {
 import { SUBSCRIPTION_DEFAULT_MODEL } from '@yevgetman/sov-sdk/providers/subscription/names';
 import type { SubscriptionCredentialPort } from '@yevgetman/sov-sdk/providers/subscription/port';
 import {
+  createModelDiscovery,
+  fallbackModelCatalog,
+} from '../../../packages/sdk/src/providers/models/index.js';
+import {
+  clearSubscriptionCatalogCache,
   diskModelCache,
   modelPage,
   modelSource,
@@ -1011,6 +1012,100 @@ describe('subscription catalog disk isolation', () => {
     expect(writes).toBe(0);
     expect(remaining).toBeUndefined();
     expect(JSON.stringify(remaining ?? {})).not.toContain('gpt-account-a');
+  });
+
+  test('a failed refresh does not restore a grok catalog removed before rename', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'sov-sub-refresh-race-'));
+    try {
+      const root = join(home, 'model-catalog');
+      const disk = diskModelCache(root);
+      const source = createSubscriptionModelSource('grok-subscription');
+      const key = `${source.routeId}:${source.cacheKey}`;
+      const applied = applySubscriptionAccountCatalog('grok-subscription', {
+        listedAt: listedAt(),
+        body: {
+          models: [
+            {
+              id: 'grok-4.7',
+              output_modalities: ['text'],
+              capabilities: { tools: true },
+            },
+          ],
+        },
+      });
+      const stored = subscriptionAccountModelCatalog(applied);
+      expect(stored.state).toBe('current');
+      expect(stored.models.some((model) => model.id === 'grok-4.7')).toBe(true);
+      await disk.set(key, stored);
+
+      let gets = 0;
+      const cache = {
+        async get(cacheKey: string) {
+          const value = await disk.get(cacheKey);
+          gets += 1;
+          return value;
+        },
+        async set(cacheKey: string, value: ModelCatalog, expected?: ModelCatalog) {
+          // After the re-read returns the stored catalog, login can rmSync the
+          // route directory before diskModelCache renameSync.
+          if (gets >= 2) clearSubscriptionCatalogCache(root, 'grok-subscription');
+          await disk.set(cacheKey, value, expected);
+        },
+      };
+
+      await createModelDiscovery({ cache }).refresh(source);
+      const later = await disk.get(key);
+      expect(JSON.stringify(later ?? {})).not.toContain('grok-4.7');
+      const routeDir = join(root, 'subscription', 'grok-subscription');
+      try {
+        for (const name of readdirSync(routeDir)) {
+          if (!name.endsWith('.json')) continue;
+          expect(readFileSync(join(routeDir, name), 'utf8')).not.toContain('grok-4.7');
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+      const reread = await createModelDiscovery({ cache: disk }).read(source);
+      expect(reread.models.some((model) => model.id === 'grok-4.7')).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('a failed refresh does not treat equal fetchedAt and ids as the same entry', async () => {
+    const applied = applySubscriptionAccountCatalog('grok-subscription', {
+      listedAt: listedAt(),
+      body: {
+        models: [{ id: 'grok-4.7', output_modalities: ['text'], capabilities: { tools: true } }],
+      },
+    });
+    const original = subscriptionAccountModelCatalog(applied);
+    const replacement: ModelCatalog = {
+      ...structuredClone(original),
+      models: original.models.map((model) => ({ ...model, displayName: 'replaced-account' })),
+    };
+    expect(original.fetchedAt).toBe(replacement.fetchedAt);
+    expect(original.models.map((model) => model.id).join('\0')).toBe(
+      replacement.models.map((model) => model.id).join('\0'),
+    );
+    let reads = 0;
+    let stored: ModelCatalog | undefined = original;
+    const cache = {
+      async get() {
+        reads += 1;
+        if (reads === 2) stored = structuredClone(replacement);
+        return stored ? structuredClone(stored) : undefined;
+      },
+      async set(_key: string, value: ModelCatalog) {
+        stored = structuredClone(value);
+      },
+    };
+    await createModelDiscovery({ cache }).refresh(
+      createSubscriptionModelSource('grok-subscription'),
+    );
+    expect(stored?.state).toBe('current');
+    expect(stored?.models[0]?.displayName).toBe('replaced-account');
+    expect(stored?.models.some((model) => model.id === 'grok-4.7')).toBe(true);
   });
 
   test('accounts, owners, logout, and API caches stay apart', async () => {

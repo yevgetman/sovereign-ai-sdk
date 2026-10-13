@@ -39,24 +39,72 @@ export function modelCatalogCacheFile(root: string, key: string): string {
   return join(root, `${digest}.json`);
 }
 
+const CATALOG_FILE_LIMIT = 16 * 1024 * 1024;
+
+function readCatalogIdentity(
+  file: string,
+): { dev: number; ino: number; text: string; parsed: unknown } | undefined {
+  try {
+    const info = statSync(file);
+    if (!info.isFile() || info.size > CATALOG_FILE_LIMIT) return undefined;
+    const text = readFileSync(file, 'utf8');
+    return { dev: info.dev, ino: info.ino, text, parsed: JSON.parse(text) as unknown };
+  } catch {
+    return undefined;
+  }
+}
+
+function sameCatalogPayload(parsed: unknown, expected: ModelCatalog): boolean {
+  const validated = validateModelCatalog(parsed, expected.routeId, Number.MAX_SAFE_INTEGER);
+  // Same canonical payload as modelCatalogIdentity. fetchedAt and ids are not enough.
+  return JSON.stringify(validated ?? null) === JSON.stringify(expected);
+}
+
 export function diskModelCache(
   root = join(resolveHarnessHome(), 'model-catalog'),
 ): ModelCatalogCache {
   return {
     async get(key) {
       if (subscriptionCacheId(key) && !subscriptionDiskRoute(key)) return undefined;
-      try {
-        const file = modelCatalogCacheFile(root, key);
-        if (statSync(file).size > 16 * 1024 * 1024) return undefined;
-        return JSON.parse(readFileSync(file, 'utf8')) as ModelCatalog;
-      } catch {
-        return undefined;
-      }
+      const stored = readCatalogIdentity(modelCatalogCacheFile(root, key));
+      return stored ? (stored.parsed as ModelCatalog) : undefined;
     },
-    async set(key, catalog) {
+    async set(key, catalog, expected) {
       assertSubscriptionDiskCatalog(key, catalog);
-      mkdirSync(root, { recursive: true, mode: 0o700 });
       const file = modelCatalogCacheFile(root, key);
+      // Failure writes are conditional. Check inode and payload in this same
+      // section as rename, so a removed route directory is not recreated.
+      if (expected) {
+        const seen = readCatalogIdentity(file);
+        if (!seen || !sameCatalogPayload(seen.parsed, expected)) return;
+        mkdirSync(root, { recursive: true, mode: 0o700 });
+        mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+        const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+        try {
+          const again = readCatalogIdentity(file);
+          if (
+            !again ||
+            again.dev !== seen.dev ||
+            again.ino !== seen.ino ||
+            again.text !== seen.text
+          )
+            return;
+          writeFileSync(tmp, JSON.stringify(catalog), { mode: 0o600 });
+          const ready = readCatalogIdentity(file);
+          if (
+            !ready ||
+            ready.dev !== seen.dev ||
+            ready.ino !== seen.ino ||
+            ready.text !== seen.text
+          )
+            return;
+          renameSync(tmp, file);
+        } finally {
+          rmSync(tmp, { force: true });
+        }
+        return;
+      }
+      mkdirSync(root, { recursive: true, mode: 0o700 });
       mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
       const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
       writeFileSync(tmp, JSON.stringify(catalog), { mode: 0o600 });

@@ -67,7 +67,11 @@ export interface ModelCatalog {
 export type ModelFetch = typeof globalThis.fetch;
 export interface ModelCatalogCache {
   get(key: string): Promise<ModelCatalog | undefined>;
-  set(key: string, catalog: ModelCatalog): Promise<void>;
+  /**
+   * `expected`, when passed, replaces only that still-stored entry. A missing
+   * entry stays missing. Callers must not treat fetchedAt and ids as identity.
+   */
+  set(key: string, catalog: ModelCatalog, expected?: ModelCatalog): Promise<void>;
 }
 export interface ModelDiscoverySource {
   routeId: string;
