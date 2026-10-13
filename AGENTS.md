@@ -86,6 +86,7 @@ These apply every session and override defaults:
 - **TUI style guide** — all spacing, padding, glyphs, brand colors, and typography in `packages/tui/` MUST reference `style.S.*` from `packages/tui/internal/style/`. Never hardcode layout values in components. Details: [`docs/05-conventions/tui-style-guide.md`](docs/05-conventions/tui-style-guide.md).
 - **Plans and specs paths** — `plans/YYYY-MM-DD-<feature>.md`, `specs/YYYY-MM-DD-<topic>-design.md` (repo root, not under `docs/`). Never `docs/superpowers/`.
 - **Agent instruction files** — `AGENTS.md` is canonical; `CLAUDE.md` imports it. Follow the apex two-file contract linked below.
+- **SOV SDK release** — when the user asks to ship, deploy, release, or publish, that request is the Sovereign AI SDK and SOV harness release for this node. Load and follow the added skill `sov-sdk-release` (`kernel skill detail added sov-sdk-release`). Examples: "ship it", "deploy it", "release", "run the release", "cut the release", "cut and publish the release", and "publish it". Equivalent wording counts. These examples are not a fixed list. Resolve pronouns and omitted product names from context. A request that names Kernel runtime, the Mac app, Telekit, or the inference engine follows that product's release. Installing an existing version, a proposal, or writing the skill does not start a release. This routes the user's words. It leaves the autonomous-build rule above in force.
 
 ## Required reading before similar work
 
