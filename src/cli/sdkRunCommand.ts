@@ -5,8 +5,9 @@ import { loadSettings } from '@yevgetman/sov-sdk/config/loader';
 import type { Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import { PersistBeforeRunError, UnknownToolsetError } from '@yevgetman/sov-sdk/providers/errors';
 import { type ModelRecord, findModel } from '@yevgetman/sov-sdk/providers/models/index';
-import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
 import {
+  RouteError,
+  getRoute,
   resolveRouteProvider,
   routeErrorCodeFor,
   routeSupportsImages,
@@ -55,6 +56,17 @@ const ERRORS: Record<string, string> = {
 };
 function string(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+/** A rejected `routes.<id>.defaultModel` names the setting; other model errors stay generic. */
+function turnErrorText(code: string, err: unknown): string {
+  if (
+    code === 'model_unsupported' &&
+    err instanceof RouteError &&
+    /routes\.[A-Za-z0-9-]+\.defaultModel/.test(err.message)
+  ) {
+    return err.message;
+  }
+  return ERRORS[code] ?? ERRORS.provider_failed;
 }
 function interrupted(signal: AbortSignal): Promise<never> {
   return new Promise((_, reject) => {
@@ -329,7 +341,7 @@ export async function runSdkRunCommand(
       sessionId,
       ...metadata(),
       code,
-      error: ERRORS[code],
+      error: turnErrorText(code, err),
       recoverable: ['rate_limited', 'interrupted'].includes(code),
     });
     return code === 'interrupted'

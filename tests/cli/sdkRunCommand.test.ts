@@ -583,6 +583,74 @@ test('stored encrypted reasoning resumes on grok subscription and is refused els
   }
 });
 
+test('rejected grok route default is named; explicit grok-4.7 runs; other unsupported models stay generic', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'sdk-run-grok-default-'));
+  dirs.push(home);
+  const configPath = join(home, 'config.json');
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      routes: { 'grok-subscription': { defaultModel: 'grok-4.5' } },
+    }),
+  );
+  const prevConfig = process.env.HARNESS_CONFIG;
+  const prevHome = process.env.HARNESS_HOME;
+  process.env.HARNESS_CONFIG = configPath;
+  process.env.HARNESS_HOME = home;
+  const base = {
+    json: true,
+    stdin: true,
+    route: 'grok-subscription',
+    inputFormat: 'json',
+    toolset: 'chat',
+  };
+  const restore = () => {
+    if (prevConfig === undefined) Reflect.deleteProperty(process.env, 'HARNESS_CONFIG');
+    else process.env.HARNESS_CONFIG = prevConfig;
+    if (prevHome === undefined) Reflect.deleteProperty(process.env, 'HARNESS_HOME');
+    else process.env.HARNESS_HOME = prevHome;
+  };
+  try {
+    const omitted = capture();
+    expect(await runSdkRunCommand(base, omitted.io)).toBe(2);
+    const omittedError = omitted.events.at(-1);
+    expect(omittedError).toMatchObject({ type: 'turn.error', code: 'model_unsupported' });
+    expect(String(omittedError?.error)).toContain('routes.grok-subscription.defaultModel');
+
+    const unknown = capture();
+    expect(await runSdkRunCommand({ ...base, model: 'not-a-grok' }, unknown.io)).toBe(2);
+    expect(unknown.events.at(-1)).toMatchObject({
+      type: 'turn.error',
+      code: 'model_unsupported',
+      error: 'Model is not supported by the selected route.',
+    });
+
+    const provider: LLMProvider = {
+      name: 'grok',
+      async *stream() {
+        yield { type: 'message_start' };
+        const message: AssistantMessage = {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'ok' }],
+        };
+        yield { type: 'assistant_message', message };
+        return message;
+      },
+    };
+    const f = fixture(provider, undefined, {
+      routeId: 'grok-subscription',
+      model: 'grok-4.7',
+      effort: 'high',
+    });
+    const allowed = capture();
+    expect(await runSdkRunCommand({ ...base, model: 'grok-4.7' }, allowed.io, f.deps)).toBe(0);
+    expect(allowed.events.some((event) => event.type === 'turn.completed')).toBe(true);
+    expect(JSON.stringify(allowed.events)).not.toContain('routes.grok-subscription.defaultModel');
+  } finally {
+    restore();
+  }
+});
+
 test('unknown model budget refuses oversized standing instructions before inference with a useful diagnostic', async () => {
   let calls = 0;
   const provider: LLMProvider = {
