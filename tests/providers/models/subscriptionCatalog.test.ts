@@ -1292,7 +1292,83 @@ describe('subscription catalog disk isolation', () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  test('a rejected listedAt is not cacheable and small skew still reads back as current', async () => {
+    const body = {
+      models: [
+        {
+          id: 'gpt-5.3-codex',
+          output_modalities: ['text'],
+          context_window: 8192,
+          capabilities: { tools: true, reasoning_effort: ['high'] },
+        },
+      ],
+    };
+    for (const listedAt of [
+      new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      'not-a-timestamp',
+    ]) {
+      const rejected = applySubscriptionAccountCatalog('chatgpt-subscription', {
+        status: 200,
+        listedAt,
+        body,
+      });
+      expect(rejected.cacheableCurrent).toBe(false);
+      expect(rejected.state).not.toBe('current');
+    }
+
+    const home = mkdtempSync(join(tmpdir(), 'sov-sub-listed-at-'));
+    try {
+      const cache = diskModelCache(join(home, 'model-catalog'));
+      const source = createSubscriptionModelSource('chatgpt-subscription');
+      const key = `${source.routeId}:${source.cacheKey}`;
+      const readBack = async (at: string) => {
+        const applied = applySubscriptionAccountCatalog('chatgpt-subscription', {
+          status: 200,
+          listedAt: at,
+          body,
+        });
+        expect(applied.state).toBe('current');
+        expect(applied.cacheableCurrent).toBe(true);
+        const catalog = subscriptionAccountModelCatalog(applied);
+        expect(catalog.state).toBe('current');
+        expect(catalog.fetchedAt).toBeDefined();
+        const fetchedAt = Date.parse(catalog.fetchedAt ?? '');
+        expect(Number.isFinite(fetchedAt)).toBe(true);
+        expect(fetchedAt).toBeLessThanOrEqual(Date.now());
+        await cache.set(key, catalog);
+        return readModelCatalogSnapshot('chatgpt-subscription', {}, home);
+      };
+
+      for (const at of [
+        new Date(Date.now()).toISOString(),
+        new Date(Date.now() + 5_000).toISOString(),
+        new Date(Date.now() + 3 * 60 * 1000).toISOString(),
+      ]) {
+        const snapshot = await readBack(at);
+        const row = snapshot.models.find((model) => model.id === 'gpt-5.3-codex');
+        expect(snapshot.state).toBe('current');
+        expect(row?.capabilities.tools).toBe('supported');
+        expect(row?.efforts).toContain('high');
+        expect(row?.contextWindow).toBe(8192);
+        expect(row?.availability).toBe('account');
+        expect(row?.metadata.stale).toBe(false);
+      }
+
+      const expired = await readBack(new Date(Date.now() - 3_600_000 - 1_000).toISOString());
+      const aged = expired.models.find((model) => model.id === 'gpt-5.3-codex');
+      expect(expired.state).not.toBe('current');
+      expect(aged?.capabilities.tools).not.toBe('supported');
+      expect(aged?.efforts?.includes('high')).not.toBe(true);
+      expect(aged?.contextWindow).toBeUndefined();
+      expect(aged?.availability).not.toBe('account');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
 });
+
 
 test('a live text row keeps the subscription pin available beside a dropped duplicate', () => {
   const text = {

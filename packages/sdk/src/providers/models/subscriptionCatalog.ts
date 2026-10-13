@@ -79,10 +79,19 @@ function cleanLabel(value: string): string | undefined {
   return value;
 }
 
-function listedAt(value: string | undefined): string | undefined {
+/** Farther ahead than this is not clock skew. A few minutes is enough. */
+const LISTED_AT_SKEW_MS = 5 * 60 * 1000;
+
+/**
+ * Usable observation time. A timestamp only slightly ahead of the local clock is
+ * clamped so readers' `fetchedAt <= now` and TTL checks both accept it. Far-future
+ * and unparseable values are unusable.
+ */
+function listedAt(value: string | undefined, now = Date.now()): string | undefined {
   if (!value || TOKEN_MATERIAL.test(value)) return undefined;
   const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed) || parsed > Date.now()) return undefined;
+  if (!Number.isFinite(parsed) || parsed > now + LISTED_AT_SKEW_MS) return undefined;
+  if (parsed > now) return new Date(now).toISOString();
   return value;
 }
 
@@ -183,6 +192,7 @@ export function applySubscriptionAccountCatalog(
   routeId: SubscriptionCatalogRoute,
   input: { status?: number; body?: unknown; listedAt?: string } = {},
 ): AppliedSubscriptionCatalog {
+  const observed = listedAt(input.listedAt);
   if (input.status === 401 || input.status === 403) return unavailable(routeId);
   if (input.status !== undefined && input.status !== 200) return unavailable(routeId);
   const rows = rowsOf(input.body);
@@ -196,7 +206,7 @@ export function applySubscriptionAccountCatalog(
     if (raw.id === pin) pinSeen = true;
     const model = normalizeSubscriptionCatalogRow(row, routeId, {
       accountCatalog: true,
-      ...(input.listedAt ? { listedAt: input.listedAt } : {}),
+      ...(observed ? { listedAt: observed } : {}),
     });
     if (!model || seen.has(model.id)) continue;
     seen.add(model.id);
@@ -213,7 +223,17 @@ export function applySubscriptionAccountCatalog(
       pinnedDefaultUnavailable: true,
     };
   }
-  const observed = listedAt(input.listedAt);
+  if (input.listedAt !== undefined && !observed) {
+    return {
+      routeId,
+      defaultModel: pin,
+      state: 'unavailable',
+      models,
+      missingPinnedDefault: !pinSeen,
+      pinnedDefaultUnavailable: pinDropped,
+      cacheableCurrent: false,
+    };
+  }
   return {
     routeId,
     defaultModel: pin,
@@ -233,12 +253,24 @@ export function subscriptionAccountModelCatalog(applied: AppliedSubscriptionCata
     : applied.state === 'current' && applied.missingPinnedDefault
       ? 'missing'
       : undefined;
+  // A current catalog always carries a fetchedAt readers accept. Slight skew was
+  // already clamped; a missing observation time is the local clock.
+  const fetchedAt =
+    applied.listedAt ?? (applied.state === 'current' ? new Date().toISOString() : undefined);
+  const models =
+    fetchedAt && applied.state === 'current'
+      ? applied.models.map((model) =>
+          model.metadata.fetchedAt
+            ? model
+            : { ...model, metadata: { ...model.metadata, fetchedAt } },
+        )
+      : applied.models;
   return {
     version: 1,
     routeId: applied.routeId,
     state: applied.state,
-    models: applied.models,
-    ...(applied.listedAt ? { fetchedAt: applied.listedAt } : {}),
+    models,
+    ...(fetchedAt ? { fetchedAt } : {}),
     ...(status ? { pinnedDefault: { id: applied.defaultModel, status } } : {}),
   };
 }
