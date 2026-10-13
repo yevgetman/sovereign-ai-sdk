@@ -1,7 +1,7 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: 2026-10-13T14:37:53Z
+updated_at: 2026-10-13T14:57:12Z
 checkout: .
 last_release: &a1
   version: 0.15.0
@@ -18,7 +18,7 @@ release:
   product: sovereign-ai-sdk
   version: 0.15.1
   cli_version: 0.6.79
-  status: draft
+  status: frozen
   base: *a1
   applied_commits:
     - item_id: sdk-pr-63
@@ -37,9 +37,57 @@ release:
       review: releases/sdk-0151-preparation-review.json
   build_commit: 85350f48cc726f62b7b6396919015960d810b2f5
   frozen_manifest_commit: null
-  authorization: null
-  validation: []
-  artifacts: []
+  authorization:
+    kind: owner-approval
+    reference: "Authenticated Owner Telegram request 2026-10-13: cut SOV/SDK from the release manifest, publish the public channel, and pin kernel runtime, the Mac app, and Telekit."
+    at: 2026-10-13T14:57:12Z
+    build_commit: 85350f48cc726f62b7b6396919015960d810b2f5
+  validation:
+    - check: complete source lint/boundary/types/strict build/tests/Go/audit/canary
+      result: pass
+      build_commit: 85350f48cc726f62b7b6396919015960d810b2f5
+      evidence: releases/sdk-0151-cut/source-qa.json
+    - check: exact assembly mapping and preparation conflict review
+      result: pass
+      build_commit: 85350f48cc726f62b7b6396919015960d810b2f5
+      evidence: releases/sdk-0151-cut/assembly-review.json
+    - check: packed SDK tarball, install guide, and floor Node/Bun consumers
+      result: pass
+      build_commit: 85350f48cc726f62b7b6396919015960d810b2f5
+      evidence: releases/sdk-0151-cut/packed-qa.json
+    - check: all five platform CI artifacts, version metadata, and downloaded Mac smoke
+      result: pass
+      build_commit: 85350f48cc726f62b7b6396919015960d810b2f5
+      evidence: releases/sdk-0151-cut/ci-artifact-identities.json
+    - check: independent public download of every promised artifact and checksum
+      result: pass
+      build_commit: 85350f48cc726f62b7b6396919015960d810b2f5
+      evidence: releases/sdk-0151-cut/public-download.json
+  artifacts:
+    - arch: darwin-arm64
+      filename: sov-darwin-arm64.tar.gz
+      sha256: 30dde305d969567f5cb42451ef361781a39876a51a4620ade1bd2a243ef99c19
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.79/sov-darwin-arm64.tar.gz
+    - arch: darwin-x64
+      filename: sov-darwin-x64.tar.gz
+      sha256: c53eb70c8ead92ffa43dc80bda95600b7c12474a250b71fc7815668bae005ffc
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.79/sov-darwin-x64.tar.gz
+    - arch: linux-arm64
+      filename: sov-linux-arm64.tar.gz
+      sha256: f649848e4d673d2272b96f8d63dd00f056ab8e539602e1651f3f3cd687bbcc77
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.79/sov-linux-arm64.tar.gz
+    - arch: linux-x64
+      filename: sov-linux-x64.tar.gz
+      sha256: dc08cebf2c4b0ddee58a46e1332660453fad7113281f29373e8d479a87c8664c
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.79/sov-linux-x64.tar.gz
+    - arch: windows-x64
+      filename: sov-windows-x64.zip
+      sha256: 7ec9b432a99efd9ca63be82e9ceb832d4c86e7dfbbf1152865671a15ca1bbe51
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.79/sov-windows-x64.zip
+    - arch: package
+      filename: yevgetman-sov-sdk-0.15.1.tgz
+      sha256: a584471d1f282ada2048cf63f8f85390d4f3bb2794b9df59ea243e1f857c3e0b
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.79/yevgetman-sov-sdk-0.15.1.tgz
   published_at: null
   publication_evidence: null
-  manifest_sha256: null
+  manifest_sha256: 8f52822ca7109b65d2ca572c5aae4b6bee96ea0a1a568fccf3ed4b751c4edcba

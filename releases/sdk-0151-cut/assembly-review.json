@@ -1,0 +1,21 @@
+{
+  "result": "pass",
+  "checked_at": "2026-10-13T14:57:12Z",
+  "build_commit": "85350f48cc726f62b7b6396919015960d810b2f5",
+  "baseline": "486c58f5d2fee5478c9f7c5088f9f8bbdc859c11",
+  "log": [
+    "ad21dbb8d22e1adaee6d151391e5170c191c906e cherry-pick -m 1 of 9bccdda996a57be2c73c0a707600bdf4740b0916",
+    "52373d8fab261c9193c5f060e5ea6e03fa5e211b cherry-pick -m 1 of 59aecc941e6139f58d713fdf147f38c1fe71ef0d",
+    "85350f48cc726f62b7b6396919015960d810b2f5 cherry-pick of preparation d17875cd86e6b952a03269f18d245beb1513684b"
+  ],
+  "checks": [
+    "git log 486c58f5..HEAD is exactly those three commits.",
+    "packages/sdk/src, packages/protocol, packages/tui, src and tests match origin/master except tests/release, which belongs to the unlisted release:validate bookkeeping and stays out of the build.",
+    "docs/06-testing/testing-log.md differs by the already published 0.15.0 entry on master, which stays out of the build.",
+    "PUBLISHING.md, README.md, docs/05-conventions/release-manifest.md, CHANGELOG.md, packages/sdk/README.md and packages/sdk/package.json match preparation commit d17875cd byte-for-byte.",
+    "package.json and bun.lock differ from d17875cd only by omitting release:validate, ajv and ajv-formats. Those arrived through unlisted master bookkeeping.",
+    "Root version is 0.6.79. SDK is 0.15.1. Protocol remains 0.1.0. Debug console remains 0.3.0."
+  ],
+  "conflicts": "releases/sdk-0151-conflicts.json",
+  "findings_above_low": 0
+}
