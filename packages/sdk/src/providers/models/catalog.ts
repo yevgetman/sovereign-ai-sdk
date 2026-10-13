@@ -92,17 +92,24 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
   }
   const keyFor = (source: ModelDiscoverySource) =>
     `${source.routeId}:${source.cacheKey ?? 'public'}`;
-  async function read(source: ModelDiscoverySource): Promise<ModelCatalog> {
-    let saved: ModelCatalog | undefined;
+  function catalogStamp(catalog: ModelCatalog | undefined): string {
+    if (!catalog) return '';
+    return `${catalog.fetchedAt ?? ''}\n${catalog.models.map((model) => model.id).join('\0')}`;
+  }
+  async function cacheEntry(source: ModelDiscoverySource): Promise<ModelCatalog | undefined> {
     try {
-      saved =
-        (failedSnapshots.has(keyFor(source))
-          ? structuredClone(failedSnapshots.get(keyFor(source)))
-          : undefined) ??
-        validateModelCatalog(await bounded(() => cache.get(keyFor(source))), source.routeId, now());
+      return (
+        validateModelCatalog(
+          await bounded(() => cache.get(keyFor(source))),
+          source.routeId,
+          now(),
+        ) ?? undefined
+      );
     } catch {
-      /* corrupt/unavailable cache is an offline fallback */
+      return undefined;
     }
+  }
+  function view(saved: ModelCatalog | undefined, source: ModelDiscoverySource): ModelCatalog {
     if (!saved || saved.version !== 1 || saved.routeId !== source.routeId)
       return fallbackModelCatalog(source.routeId);
     const stale =
@@ -119,13 +126,19 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
       })),
     };
   }
+  async function read(source: ModelDiscoverySource): Promise<ModelCatalog> {
+    const remembered = failedSnapshots.get(keyFor(source));
+    return view(remembered ? structuredClone(remembered) : await cacheEntry(source), source);
+  }
   async function refresh(source: ModelDiscoverySource): Promise<ModelCatalog> {
     const key = keyFor(source);
     const existing = pending.get(key);
     if (existing) return existing;
     const operation = (async (): Promise<ModelCatalog> => {
       const controller = new AbortController();
-      const previous = await read(source);
+      const remembered = failedSnapshots.get(key);
+      const observed = remembered ? structuredClone(remembered) : await cacheEntry(source);
+      const previous = view(observed, source);
       try {
         const rawModels = await bounded(
           () =>
@@ -164,7 +177,10 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
         });
         failedSnapshots.set(key, structuredClone(failed));
         try {
-          await persist(key, failed);
+          // Login can delete this entry after the read. Do not write that
+          // account back. An empty cache on both reads was never stored.
+          const current = await cacheEntry(source);
+          if (catalogStamp(observed) === catalogStamp(current)) await persist(key, failed);
         } catch {
           /* in-memory invalidation remains */
         }

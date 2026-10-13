@@ -938,6 +938,37 @@ describe('subscription catalog disk isolation', () => {
     }
   });
 
+  test('a refresh does not restore an account catalog deleted before the failed write', async () => {
+    const applied = applySubscriptionAccountCatalog('chatgpt-subscription', {
+      listedAt: listedAt(),
+      body: {
+        models: [
+          { id: 'gpt-account-a', output_modalities: ['text'], capabilities: { tools: true } },
+        ],
+      },
+    });
+    const original = subscriptionAccountModelCatalog(applied);
+    expect(original.models[0]?.id).toBe('gpt-account-a');
+    let remaining: ModelCatalog | undefined = original;
+    let writes = 0;
+    const cache = {
+      async get() {
+        const value = remaining;
+        remaining = undefined;
+        return value ? structuredClone(value) : undefined;
+      },
+      async set(_key: string, value: ModelCatalog) {
+        writes += 1;
+        remaining = structuredClone(value);
+      },
+    };
+    const source = createSubscriptionModelSource('chatgpt-subscription');
+    await createModelDiscovery({ cache }).refresh(source);
+    expect(writes).toBe(0);
+    expect(remaining).toBeUndefined();
+    expect(JSON.stringify(remaining ?? {})).not.toContain('gpt-account-a');
+  });
+
   test('accounts, owners, logout, and API caches stay apart', async () => {
     const homeA = mkdtempSync(join(tmpdir(), 'sov-sub-a-'));
     const homeB = mkdtempSync(join(tmpdir(), 'sov-sub-b-'));
