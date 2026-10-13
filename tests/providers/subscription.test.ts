@@ -68,6 +68,80 @@ const req: ProviderRequest = {
   maxTokens: 16,
 };
 
+function orderedPort(
+  order: string[],
+  initial: SubscriptionRecord | null,
+): SubscriptionCredentialPort {
+  let current = initial ? { ...initial } : null;
+  return {
+    async read() {
+      return current ? { ...current } : null;
+    },
+    async write(_service, next) {
+      order.push('write');
+      current = { ...next };
+    },
+    async delete() {
+      order.push('delete');
+      current = null;
+    },
+  };
+}
+
+function silentLoginIo(fetchImpl: SubscriptionFetch) {
+  return {
+    stdout: () => {},
+    stderr: () => {},
+    openUrl: () => {},
+    sleep: async () => {},
+    now: () => NOW,
+    fetchImpl,
+  };
+}
+
+function chatgptLoginIo() {
+  let step = 0;
+  return silentLoginIo(async () => {
+    step += 1;
+    if (step === 1) {
+      return jsonResponse(200, { user_code: 'ABCD-EFGH', device_auth_id: 'dev1', interval: 1 });
+    }
+    if (step === 2) return new Response('pending', { status: 404 });
+    if (step === 3) {
+      return jsonResponse(200, { authorization_code: 'code1', code_verifier: 'ver1' });
+    }
+    return jsonResponse(200, {
+      access_token: SECRET,
+      refresh_token: 'refresh-token',
+      expires_in: 3600,
+    });
+  });
+}
+
+function grokLoginIo() {
+  let step = 0;
+  return silentLoginIo(async () => {
+    step += 1;
+    if (step === 1) {
+      return jsonResponse(200, { token_endpoint: 'https://auth.x.ai/oauth2/token' });
+    }
+    if (step === 2) {
+      return jsonResponse(200, {
+        device_code: 'device1',
+        user_code: 'GROK-CODE',
+        verification_uri: 'https://auth.x.ai/device',
+        interval: 1,
+        expires_in: 60,
+      });
+    }
+    return jsonResponse(200, {
+      access_token: SECRET,
+      refresh_token: 'grok-refresh',
+      expires_in: 3600,
+    });
+  });
+}
+
 function jsonResponse(status: number, body: unknown, headers?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -350,6 +424,42 @@ describe('login and logout', () => {
     expect(urls.some((url) => url.includes('api.openai.com'))).toBe(false);
     const saved = await port.read('SOV_SUB_CHATGPT');
     expect(saved?.accessToken).toBe(SECRET);
+  });
+
+  test('a throwing identity hook does not store the new chatgpt or grok credential', async () => {
+    const order: string[] = [];
+    const port = orderedPort(order, {
+      accessToken: 'old-token',
+      refreshToken: 'old-refresh',
+      expiresAt: NOW + 1000,
+    });
+    const code = await loginSubscription('chatgpt', port, chatgptLoginIo(), {
+      onIdentityChanged() {
+        order.push('hook');
+        throw new Error('catalog clear failed');
+      },
+    });
+    expect(code).toBe(1);
+    expect(order[0]).toBe('hook');
+    expect(order).not.toContain('write');
+    expect((await port.read('SOV_SUB_CHATGPT'))?.accessToken).toBe('old-token');
+
+    const grokOrder: string[] = [];
+    const grokPort = orderedPort(grokOrder, {
+      accessToken: 'old-grok',
+      refreshToken: 'old-grok-refresh',
+      expiresAt: NOW + 1000,
+    });
+    const grokCode = await loginSubscription('grok', grokPort, grokLoginIo(), {
+      onIdentityChanged() {
+        grokOrder.push('hook');
+        throw new Error('catalog clear failed');
+      },
+    });
+    expect(grokCode).toBe(1);
+    expect(grokOrder[0]).toBe('hook');
+    expect(grokOrder).not.toContain('write');
+    expect((await grokPort.read('SOV_SUB_GROK'))?.accessToken).toBe('old-grok');
   });
 
   test('logout during attended login prevents a late approval from restoring credentials', async () => {

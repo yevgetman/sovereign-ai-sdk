@@ -212,8 +212,9 @@ async function loginChatGpt(
     return 1;
   }
   const record = recordFromTokenJson('chatgpt', await tokenRes.json(), io.now(), '');
-  await port.write(KEYCHAIN_SERVICE.chatgpt, record);
+  // A hook throw must not leave the new credential stored.
   await hooks?.onIdentityChanged?.('chatgpt');
+  await port.write(KEYCHAIN_SERVICE.chatgpt, record);
   io.stdout('signed in to chatgpt\n');
   return 0;
 }
@@ -285,8 +286,9 @@ async function loginGrok(
     });
     if (poll.ok) {
       const record = recordFromTokenJson('grok', await poll.json(), io.now(), '');
-      await port.write(KEYCHAIN_SERVICE.grok, record);
+      // A hook throw must not leave the new credential stored.
       await hooks?.onIdentityChanged?.('grok');
+      await port.write(KEYCHAIN_SERVICE.grok, record);
       io.stdout('signed in to grok\n');
       return 0;
     }
