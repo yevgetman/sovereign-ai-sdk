@@ -22,6 +22,7 @@ import {
   reportSubscriptionPin,
   subscriptionDiskRoute,
   subscriptionPinNotice,
+  withSelectableSubscriptionEfforts,
 } from '@yevgetman/sov-sdk/providers/models/subscriptionCatalog';
 import { validateModelCatalog } from '@yevgetman/sov-sdk/providers/models/validate';
 import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
@@ -226,12 +227,13 @@ export function modelPage(catalog: ModelCatalog, query: ModelQuery) {
   if ((query.search?.length ?? 0) > 256 || (query.author?.length ?? 0) > 256)
     throw new Error('Invalid filter');
   const search = query.search?.toLowerCase();
-  const models = catalog.models.filter(
+  const viewed = withSelectableSubscriptionEfforts(catalog);
+  const models = viewed.models.filter(
     (model) =>
       (!query.author || modelAuthor(model) === query.author) &&
       (!search || `${model.id} ${model.displayName}`.toLowerCase().includes(search)),
   );
-  const pin = reportSubscriptionPin(catalog);
+  const pin = reportSubscriptionPin(viewed);
   return {
     schemaVersion: 1,
     route: catalog.routeId,
@@ -294,14 +296,16 @@ export function readModelCatalogSnapshot(
       catalog.state !== 'current' ||
       !catalog.fetchedAt ||
       Date.now() - Date.parse(catalog.fetchedAt) >= 3600000;
-    const presented = presentSubscriptionCatalog({
-      ...catalog,
-      state: catalog.state === 'current' && stale ? 'stale' : catalog.state,
-      models: catalog.models.map((model) => ({
-        ...model,
-        metadata: { ...model.metadata, stale: stale || model.metadata.stale },
-      })),
-    });
+    const presented = withSelectableSubscriptionEfforts(
+      presentSubscriptionCatalog({
+        ...catalog,
+        state: catalog.state === 'current' && stale ? 'stale' : catalog.state,
+        models: catalog.models.map((model) => ({
+          ...model,
+          metadata: { ...model.metadata, stale: stale || model.metadata.stale },
+        })),
+      }),
+    );
     const pin = reportSubscriptionPin(presented);
     if (!pin) return presented;
     return { ...presented, pinnedDefault: pin, error: subscriptionPinNotice(pin) };

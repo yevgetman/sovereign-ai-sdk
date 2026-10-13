@@ -287,6 +287,18 @@ export function selectableSubscriptionEfforts(record: ModelRecord): ReasoningEff
   return transport.filter((level) => record.efforts?.includes(level));
 }
 
+/** Operator copy. Published levels stay on the normalized record. */
+export function withSelectableSubscriptionEfforts(catalog: ModelCatalog): ModelCatalog {
+  return {
+    ...catalog,
+    models: catalog.models.map((model) => {
+      if (model.metadata.source !== SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE) return model;
+      const efforts = selectableSubscriptionEfforts(model);
+      return efforts.length ? { ...model, efforts } : { ...model, efforts: undefined };
+    }),
+  };
+}
+
 export function subscriptionToolsSelectable(
   record: ModelRecord,
   state: ModelCatalog['state'],

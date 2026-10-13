@@ -511,6 +511,54 @@ describe('subscription catalog policy', () => {
     ).toBe('high');
   });
 
+  test('the operator catalog lists selectable grok efforts and keeps published levels stored', async () => {
+    const applied = applySubscriptionAccountCatalog('grok-subscription', {
+      listedAt: listedAt(),
+      body: {
+        models: [
+          {
+            id: 'grok-4.7',
+            output_modalities: ['text'],
+            capabilities: { reasoning_effort: ['low', 'high', 'xhigh'] },
+          },
+        ],
+      },
+    });
+    const row = applied.models[0];
+    if (!row?.efforts) throw new Error('missing grok efforts');
+    expect(row.efforts).toContain('high');
+    expect(row.efforts).toContain('max');
+    expect(selectableSubscriptionEfforts(row)).toEqual(['off']);
+    const catalog = subscriptionAccountModelCatalog(applied);
+    const page = modelPage(catalog, { route: 'grok-subscription' });
+    expect(page.models[0]?.efforts).not.toContain('high');
+    expect(page.models[0]?.efforts).toEqual(['off']);
+    const route = getRoute('grok-subscription');
+    expect(
+      validateRouteSelection(route, { model: row.id, effort: 'off', modelMetadata: row }).effort,
+    ).toBe('off');
+    expect(() =>
+      validateRouteSelection(route, { model: row.id, effort: 'high', modelMetadata: row }),
+    ).toThrow(/effort_unsupported|not supported/);
+    expect(row.efforts).toEqual(['off', 'low', 'high', 'max']);
+
+    const home = mkdtempSync(join(tmpdir(), 'sov-sub-efforts-'));
+    try {
+      const cache = diskModelCache(join(home, 'model-catalog'));
+      const source = createSubscriptionModelSource('grok-subscription');
+      await cache.set(`${source.routeId}:${source.cacheKey}`, catalog);
+      const snapshot = readModelCatalogSnapshot('grok-subscription', {}, home);
+      expect(snapshot.models.find((model) => model.id === 'grok-4.7')?.efforts).not.toContain(
+        'high',
+      );
+      expect(snapshot.models.find((model) => model.id === 'grok-4.7')?.efforts).toEqual(['off']);
+      const stored = await cache.get(`${source.routeId}:${source.cacheKey}`);
+      expect(stored?.models[0]?.efforts).toContain('high');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test('a grok payload level absent from SUBSCRIPTION_ROUTE_EFFORTS.grok is not selectable', () => {
     expect(SUBSCRIPTION_ROUTE_EFFORTS.grok).toEqual(['off']);
     const row = normalizeSubscriptionCatalogRow(
