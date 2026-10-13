@@ -42,7 +42,7 @@ Policy already in this SDK (`packages/sdk/src/providers/modelReasoning.ts`): exa
 
 ## Decision
 
-Sibling for this release: `specs/2026-10-12-grok-subscription-current-model-design.md` is the reviewed Grok pin. It sets the default to exact id `grok-4.7`, keeps `grok-4.6` on that route's allowlist, and makes `grok-subscription` model-authoritative for those two ids only. This catalog spec does not shrink that pin back to a one-id list. Further ids, including `grok-4.5`, `grok-4.7-build-fast`, and any ChatGPT id past `gpt-5.3-codex`, still need one of the two ways below. Once that sibling lands, the Grok probe uses the efforts that transport honors (`low`, `medium`, `high`, `max`), not `off`.
+This branch's reviewed Grok pin is exact id `grok-4.6` (`SUBSCRIPTION_DEFAULT_MODEL.grok` and the one-element `knownModels` list). `grok-4.7` is not a reviewed pin and not a proven read on this branch. PR 63 owns any move of that pin; this catalog spec does not perform it. Further ids, including `grok-4.5`, `grok-4.7-build-fast`, and any ChatGPT id past `gpt-5.3-codex`, still need one of the two ways below. Until a separate Grok request-body change lands, a Grok probe on this branch still uses only `off`.
 
 Two ways an ID may be used on a subscription route. Nothing else.
 
