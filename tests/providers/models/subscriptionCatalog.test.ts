@@ -1505,9 +1505,7 @@ describe('subscription catalog disk isolation', () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
-
 });
-
 
 test('a live text row keeps the subscription pin available beside a dropped duplicate', () => {
   const text = {
