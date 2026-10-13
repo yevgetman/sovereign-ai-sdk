@@ -71,7 +71,10 @@ export interface ModelCatalogCache {
 }
 export interface ModelDiscoverySource {
   routeId: string;
-  /** Caller-scoped identity without credentials, so accounts never share cached availability. */
+  /**
+   * Subscription default is `${service}:${service}`. Accounts on that service
+   * share the slot, and an account change deletes the route directory.
+   */
   cacheKey?: string | undefined;
   discover(options: { fetch: ModelFetch; signal: AbortSignal }): Promise<ModelRecord[]>;
 }
