@@ -214,11 +214,21 @@ export function modelAuthor(model: ModelRecord): string | undefined {
   );
 }
 
-/** Operator view only. ChatGPT and Grok transports have no image serializer. */
+/**
+ * Operator JSON keeps the normalized image capability.
+ * A subscription transport with no image serializer does not rewrite supported or unknown.
+ */
 export function subscriptionOperatorModel(model: ModelRecord): ModelRecord {
-  if (model.provider !== 'chatgpt' && model.provider !== 'grok') return model;
-  if (model.capabilities.images === 'unsupported') return model;
-  return { ...model, capabilities: { ...model.capabilities, images: 'unsupported' } };
+  return model;
+}
+
+function subscriptionRefreshError(catalog: ModelCatalog): string {
+  const subscription =
+    catalog.routeId === 'chatgpt-subscription' || catalog.routeId === 'grok-subscription';
+  if (subscription && catalog.fetchedAt && catalog.state === 'stale') {
+    return 'Subscription refresh cannot fetch a catalog. The stored timestamped catalog was left stale and tightened.';
+  }
+  return 'Model discovery unavailable.';
 }
 
 export function modelPage(catalog: ModelCatalog, query: ModelQuery) {
@@ -259,7 +269,12 @@ export function modelPage(catalog: ModelCatalog, query: ModelQuery) {
           },
         }
       : catalog.error
-        ? { error: { code: 'catalog_unavailable', message: 'Model discovery unavailable.' } }
+        ? {
+            error: {
+              code: 'catalog_unavailable',
+              message: subscriptionRefreshError(catalog),
+            },
+          }
         : {}),
     total: models.length,
     offset,

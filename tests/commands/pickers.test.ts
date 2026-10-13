@@ -14,7 +14,6 @@ import { createSubscriptionModelSource } from '@yevgetman/sov-sdk/providers/mode
 import {
   applySubscriptionAccountCatalog,
   subscriptionAccountModelCatalog,
-  subscriptionPinNotice,
 } from '@yevgetman/sov-sdk/providers/models/subscriptionCatalog';
 import { SUBSCRIPTION_DEFAULT_MODEL } from '@yevgetman/sov-sdk/providers/subscription/names';
 import chalk from 'chalk';
@@ -193,23 +192,44 @@ describe('/model — inline argument path', () => {
           catalog,
         );
         const opened: PickerOpenConfig[] = [];
+        const switched: string[] = [];
         const ctx = makeCtx({
           providerName: entry.providerName,
           model: entry.pin,
           harnessHome: home,
+          setModel: (next) => switched.push(next),
           requestPicker: (config) => opened.push(config),
         });
         const result = await dispatchSlashCommand('/model', ctx);
         if (result.kind !== 'local') throw new Error('expected local');
-        const notice = subscriptionPinNotice({ id: entry.pin, status: entry.status });
         const picker = opened[0];
         if (!picker) throw new Error('expected a model picker');
-        expect(picker.subtitle).toContain(notice);
+        expect(picker.subtitle).toContain('route default');
+        expect(picker.subtitle).toContain(entry.pin);
+        expect(picker.subtitle).toContain('not in the account list');
+        expect(picker.subtitle).toContain('Confirming another row will change it');
+        expect(picker.subtitle).toMatch(/cannot fetch/i);
+        expect(picker.subtitle).not.toContain(
+          `refresh: sov models --route ${entry.routeId} --refresh`,
+        );
+        expect(picker.subtitle).not.toMatch(/--refresh Pinned/);
+        expect(picker.subtitle).not.toContain('remains the default.');
         expect(picker.items.map((item) => item.value)).toContain(entry.kept);
         expect(picker.items.map((item) => item.value)).not.toContain(entry.pin);
         expect(picker.items.some((item) => item.hint?.includes('availability:unknown'))).toBe(
           false,
         );
+        const highlighted = picker.items[picker.initial ?? 0];
+        if (!highlighted) throw new Error('expected a default picker row');
+        expect(highlighted.value).not.toBe(entry.kept);
+        expect(
+          highlighted.value === entry.pin ||
+            /keep/i.test(`${highlighted.label} ${highlighted.value}`),
+        ).toBe(true);
+        const activated = await dispatchSlashCommand(`/model ${highlighted.value}`, ctx);
+        if (activated.kind !== 'local') throw new Error('expected local');
+        expect(switched.every((id) => id === entry.pin)).toBe(true);
+        expect(ctx.model).toBe(entry.pin);
       } finally {
         rmSync(home, { recursive: true, force: true });
       }

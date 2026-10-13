@@ -648,8 +648,10 @@ describe('subscription catalog policy', () => {
       expect(row.capabilities.images).toBe('supported');
       const catalog = subscriptionAccountModelCatalog(applied);
       const page = modelPage(catalog, { route: entry.routeId });
-      expect(page.models[0]?.capabilities.images).toBe('unsupported');
-      expect(modelDetails(row)).toContain('images:unsupported');
+      expect(page.models[0]?.capabilities.images).toBe('supported');
+      expect(modelDetails(row)).toContain('images:supported');
+      expect(modelDetails(row)).toMatch(/transport has no image serializer/i);
+      expect(modelDetails(row)).toMatch(/cannot send images/i);
       expect(row.capabilities.images).toBe('supported');
       expect(catalog.models[0]?.capabilities.images).toBe('supported');
       expect(() => validateModelRequest(imageRequest(row.id), entry.provider, row)).toThrow(
@@ -672,6 +674,48 @@ describe('subscription catalog policy', () => {
       metadata: { source: 'direct-api', stale: false },
     };
     expect(modelDetails(direct)).toContain('images:supported');
+    expect(modelDetails(direct)).not.toContain('no image serializer');
+    const empty = modelPage(fallbackModelCatalog('chatgpt-subscription'), {
+      route: 'chatgpt-subscription',
+    });
+    expect(empty.models.length).toBeGreaterThan(0);
+    expect(empty.models.every((model) => model.capabilities.images === 'unknown')).toBe(true);
+  });
+
+  test('a failed refresh of a timestamped subscription catalog says it was left stale', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'sov-sub-refresh-copy-'));
+    try {
+      const cache = diskModelCache(join(home, 'model-catalog'));
+      const source = createSubscriptionModelSource('chatgpt-subscription');
+      const at = listedAt();
+      const applied = applySubscriptionAccountCatalog('chatgpt-subscription', {
+        listedAt: at,
+        body: {
+          models: [
+            {
+              id: 'gpt-5.3-codex',
+              output_modalities: ['text'],
+              input_modalities: ['text', 'image'],
+              capabilities: { tools: true },
+            },
+          ],
+        },
+      });
+      const key = `${source.routeId}:${source.cacheKey}`;
+      await cache.set(key, diskShape('chatgpt-subscription', applied.models, at));
+      const refreshed = await readModelCatalog('chatgpt-subscription', {}, true, cache);
+      const page = modelPage(refreshed, { route: 'chatgpt-subscription' });
+      const message = (page as { error?: { message?: string } }).error?.message ?? '';
+      expect(message).toMatch(/cannot fetch/i);
+      expect(message).toMatch(/stored timestamped catalog was left stale/i);
+      expect(message).not.toBe('Model discovery unavailable.');
+      const saved = await cache.get(key);
+      expect(saved?.state).toBe('stale');
+      expect(saved?.state).not.toBe('current');
+      expect(saved?.fetchedAt).toBe(at);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test('an empty selectable account-catalog list is efforts none only in the operator view', async () => {

@@ -17,10 +17,7 @@
 import type { CommandContext, LocalCommand } from '@yevgetman/sov-sdk/commands/types';
 import { readConfig, resolveConfigPath, setAt, writeConfig } from '@yevgetman/sov-sdk/config/store';
 import { findModel } from '@yevgetman/sov-sdk/providers/models/index';
-import {
-  reportSubscriptionPin,
-  subscriptionPinNotice,
-} from '@yevgetman/sov-sdk/providers/models/subscriptionCatalog';
+import { reportSubscriptionPin } from '@yevgetman/sov-sdk/providers/models/subscriptionCatalog';
 import {
   commandModelSettings,
   modelAuthor,
@@ -189,6 +186,7 @@ async function runModelPicker(args: string, ctx: CommandContext): Promise<string
       });
       return '';
     }
+    if (explicit === '--keep-current') return `model unchanged (current: ${ctx.model}).`;
     ctx.setModel(explicit);
     return `model set to ${explicit} (persisted to session ${ctx.sessionId.slice(0, 8)}).`;
   }
@@ -200,7 +198,11 @@ async function runModelPicker(args: string, ctx: CommandContext): Promise<string
   const state = catalog.state === 'current' ? 'cached metadata' : 'offline/stale suggestions';
   const pin = reportSubscriptionPin(catalog);
   const records = [...catalog.models];
-  // A missing or unavailable pin stays the default. Do not invent an unknown row for it.
+  const sessionOutsideAccount =
+    pin !== undefined &&
+    ctx.model === pin.id &&
+    !catalog.models.some((model) => model.id === ctx.model);
+  // A missing or unavailable pin stays the route default. Do not invent an account row for it.
   if (!records.some((model) => model.id === ctx.model) && ctx.model !== pin?.id)
     records.unshift(findModel(catalog, ctx.model));
   const author = modelAuthor;
@@ -228,17 +230,40 @@ async function runModelPicker(args: string, ctx: CommandContext): Promise<string
         hint: `${model.id === ctx.model ? '(current) · ' : ''}${modelDetails(model)}`,
       }));
   if (ctx.requestInput) items.push({ label: 'type custom model ID…', value: '--custom' });
-  const pinNotice = pin ? ` ${subscriptionPinNotice(pin)}` : '';
-  const subtitle = `provider: ${ctx.providerName} · ${state}. Search: /model --search text; refresh: sov models --route ${catalog.routeId} --refresh${pinNotice}`;
+  if (!rootGroups && sessionOutsideAccount) {
+    items.unshift({
+      label: `keep ${ctx.model}`,
+      value: '--keep-current',
+      hint: 'session model is not in the account list',
+    });
+  }
+  const subscription =
+    catalog.routeId === 'chatgpt-subscription' || catalog.routeId === 'grok-subscription';
+  const pinSentence = pin
+    ? `Pinned route default ${pin.id} is ${pin.status === 'missing' ? 'missing from the account list' : 'unavailable'} and remains the route default.`
+    : '';
+  const sessionSentence = sessionOutsideAccount
+    ? `Session model ${ctx.model} is not in the account list. Confirming another row will change it.`
+    : '';
+  const subtitle = subscription
+    ? [
+        `provider: ${ctx.providerName} · ${state}. Search: /model --search text. Subscription refresh cannot fetch a catalog. A stored timestamped catalog is left stale and tightened.`,
+        pinSentence,
+        sessionSentence,
+      ]
+        .filter((part) => part.length > 0)
+        .join(' ')
+    : `provider: ${ctx.providerName} · ${state}. Search: /model --search text; refresh: sov models --route ${catalog.routeId} --refresh`;
+  const initial = Math.max(
+    0,
+    items.findIndex((item) => item.value === ctx.model || item.value === '--keep-current'),
+  );
   if (ctx.requestPicker) {
     ctx.requestPicker({
       title: rootGroups ? 'model author' : 'switch model',
       subtitle,
       items,
-      initial: Math.max(
-        0,
-        items.findIndex((item) => item.value === ctx.model),
-      ),
+      initial,
       onSelect: { command: 'model' },
       ...(authorFilter ? { onBack: { command: 'model' } } : {}),
     });
@@ -250,11 +275,12 @@ async function runModelPicker(args: string, ctx: CommandContext): Promise<string
     title: rootGroups ? 'model author' : 'switch model',
     subtitle,
     items,
-    initial: 0,
+    initial,
   });
   if (chosen === null) return `model unchanged (current: ${ctx.model}).`;
   if (chosen.startsWith('--author ')) return runModelPicker(chosen, ctx);
-  if (chosen === ctx.model) return `model unchanged (already on ${ctx.model}).`;
+  if (chosen === '--keep-current' || chosen === ctx.model)
+    return `model unchanged (already on ${ctx.model}).`;
   ctx.setModel(chosen);
   return `model set to ${chosen} (persisted to session ${ctx.sessionId.slice(0, 8)}).`;
 }

@@ -48,7 +48,11 @@ export function modelDetails(
       ? 'none'
       : model.efforts.join('/');
   const shown = subscriptionOperatorModel(model);
-  return `tools:${shown.capabilities.tools} · images:${shown.capabilities.images} · efforts:${efforts} · context:${shown.contextWindow ?? 'unknown'} · availability:${shown.availability}`;
+  const images =
+    shown.routeId === 'chatgpt-subscription' || shown.routeId === 'grok-subscription'
+      ? `${shown.capabilities.images}; the transport has no image serializer and cannot send images`
+      : shown.capabilities.images;
+  return `tools:${shown.capabilities.tools} · images:${images} · efforts:${efforts} · context:${shown.contextWindow ?? 'unknown'} · availability:${shown.availability}`;
 }
 export function modelProviderForSetting(path: string, settings: Settings): string | undefined {
   if (path === 'defaultModel') return settings.defaultProvider ?? 'anthropic';

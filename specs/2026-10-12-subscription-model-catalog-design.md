@@ -10,7 +10,7 @@ SOV subscription catalogs for Grok and ChatGPT stay current only from a per-acco
 
 Verified on `origin/master` unless noted.
 
-`createSubscriptionModelSource` (`packages/sdk/src/providers/models/direct.ts`) always throws `Subscription model discovery unavailable`. Its comment states that no subscription discovery endpoint is known and that no API credential or login is touched. `refresh` therefore stays `unavailable`, with no `fetchedAt`. The offline fallback (`fallbackModelCatalog`) returns bundled suggestions only: stale, `availability: unknown`, `auth: subscription`, capabilities unknown. Those suggestions are not a successful discovery timestamp. The direct-discovery test forbids any fetch on this path.
+`createSubscriptionModelSource` (`packages/sdk/src/providers/models/direct.ts`) always throws `Subscription model discovery unavailable`. Its comment states that no subscription discovery endpoint is known and that no API credential or login is touched. No prior `fetchedAt` yields unavailable bundled suggestions: the offline fallback (`fallbackModelCatalog`) returns bundled suggestions only, with stale metadata, `availability: unknown`, `auth: subscription`, and capabilities unknown. A prior timestamp yields stale, the same `fetchedAt`, and tightened account rows. Those suggestions are not a successful discovery timestamp. The direct-discovery test forbids any fetch on this path.
 
 API-key discovery already exists and remains the mechanism for API routes:
 
@@ -87,7 +87,7 @@ Static `modelsAuthoritative` stays false. Account-catalog authority applies only
 
 | Condition | Result |
 |---|---|
-| Endpoint missing or unproven | Throw `Subscription model discovery unavailable`. No network, no login, no API credential. Offline bundled suggestions only. |
+| Endpoint missing or unproven | Throw `Subscription model discovery unavailable`. No network, no login, no API credential. No prior fetchedAt yields unavailable bundled suggestions; a prior timestamp yields stale, the same fetchedAt, and tightened account rows. |
 | 401 / 403 | Not a current catalog. Do not cache an empty success, do not retry with an API key, do not copy the API-key catalog, do not start login from discovery, do not log the token. Keep the reviewed pin and stale bundled suggestions. |
 | Empty list | Not a successful current catalog. Do not clear the pin and do not treat emptiness as a new default. |
 | Retired or non-text row | Omit from the selectable list, same as `normalizeDirectModel`. If the pinned default is retired, keep the pin, mark it unavailable, and do not substitute. |
