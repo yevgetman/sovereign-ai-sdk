@@ -1,4 +1,6 @@
 import type { AssistantMessage, StreamEvent } from '../core/types.js';
+import { type ReasoningEffort, mapMaxEffort } from './effort.js';
+import { isGrokSubscriptionModelId } from './models/grokPin.js';
 import { responsesInput, responsesTools, translateResponsesSse } from './responses.js';
 import { RouteError } from './routes/errors.js';
 import {
@@ -43,6 +45,8 @@ export class GrokSubscriptionProvider implements LLMProvider {
   }
 
   async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+    // Refuse before subscriptionAttempt so a bad id or `off` performs no fetch.
+    assertGrokSubscriptionRequest(req);
     let sentRecord: SubscriptionRecord | undefined;
     const response = await subscriptionAttempt({
       provider: this.name,
@@ -62,6 +66,7 @@ export class GrokSubscriptionProvider implements LLMProvider {
     req: ProviderRequest,
     remember: (record: SubscriptionRecord) => void,
   ): Promise<Response> {
+    assertGrokSubscriptionRequest(req);
     const record = await loadFreshRecord(
       this.name,
       KEYCHAIN_SERVICE.grok,
@@ -71,17 +76,16 @@ export class GrokSubscriptionProvider implements LLMProvider {
       req.signal ? { signal: req.signal } : {},
     );
     remember(record);
-    if (req.effort !== undefined && req.effort !== 'off') {
-      throw new RouteError('effort_unsupported', 'Grok subscription does not support this effort');
-    }
     const tools = responsesTools(req.tools);
     const body: Record<string, unknown> = {
       model: req.model,
-      input: responsesInput(req),
+      input: responsesInput(req, { replayEncryptedReasoning: true }),
       instructions: req.system.map((segment) => segment.text).join('\n'),
       max_output_tokens: req.maxTokens,
       stream: true,
       store: false,
+      reasoning: { effort: grokWireEffort(req.effort) },
+      include: ['reasoning.encrypted_content'],
     };
     if (tools) body.tools = tools;
     if (req.toolChoice)
@@ -132,4 +136,22 @@ export class GrokSubscriptionProvider implements LLMProvider {
     }
     return recordFromTokenJson(this.name, await response.json(), this.deps.now(), refreshToken);
   }
+}
+
+function assertGrokSubscriptionRequest(req: ProviderRequest): void {
+  if (!isGrokSubscriptionModelId(req.model)) {
+    throw new RouteError(
+      'model_unsupported',
+      `model ${JSON.stringify(req.model)} is not supported by grok subscription`,
+    );
+  }
+  grokWireEffort(req.effort);
+}
+
+/** Absent effort means high. `off` is not a disable, so it is refused. */
+function grokWireEffort(effort: ReasoningEffort | undefined): string {
+  if (effort === 'off') {
+    throw new RouteError('effort_unsupported', 'Grok subscription cannot disable reasoning');
+  }
+  return mapMaxEffort(effort ?? 'high', 'xhigh');
 }

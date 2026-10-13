@@ -28,7 +28,7 @@ export interface ModelRecord {
   /** Verified adapter mapping. Capability=true alone does not establish depth controls. */
   reasoningControl?:
     | {
-        parameter: 'openrouter' | 'openai' | 'xai';
+        parameter: 'openrouter' | 'openai' | 'xai' | 'grok';
         disableSupported: boolean;
         binary?: boolean;
         maxWireValue?: string;

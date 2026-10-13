@@ -1757,7 +1757,22 @@ Direct xAI `grok-4.6` accepts low/medium/high and maps max to `xhigh`. Off omits
 control; it **does not disable** the model's default reasoning. OpenRouter Grok4.6
 also cannot disable reasoning. OpenRouter KimiK2.5 supports a binary switch: off sends
 `reasoning.enabled=false`, high sends true. Other depth levels are refused because
-they would falsely imply a verified depth control. Grok subscription remains off-only.
+they would falsely imply a verified depth control.
+
+Grok subscription (`grok-subscription`) sends Responses `reasoning.effort` for
+`grok-4.7` and `grok-4.6`. It does not send `reasoning_effort`. `auto`, or an
+omitted effort, resolves to `high`. `off` is rejected (`effort_unsupported`);
+omitting the field is not called off, because these models cannot disable reasoning.
+
+| Caller value | This route | Wire `reasoning.effort` |
+|---|---|---|
+| `low` | send | `low` |
+| `medium` | send | `medium` |
+| `high` | send | `high` |
+| `max` | send | `xhigh` |
+| `auto`, or effort omitted at route resolution | resolve to `high`, then send | `high` |
+| `off` | `effort_unsupported` | do not omit the field and call that off |
+
 These mappings follow [xAI's reasoning contract](https://docs.x.ai/developers/model-capabilities/text/reasoning)
 and [OpenRouter's normalized reasoning contract](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens);
 offline request-body tests do not certify account availability or live latency.

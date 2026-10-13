@@ -2,6 +2,10 @@
 
 This file records runtime-local design choices. Larger product and architecture ADRs still live in `~/code/sovereign-ai-docs/`.
 
+## 2026-10-12 — Grok subscription uses the documented grok-4.7 pin
+
+Decision: `grok-subscription` defaults to `grok-4.7` and allowlists `grok-4.6`. Effort is Responses `reasoning.effort` (`max` wires to `xhigh`; absent and `auto` resolve to `high`; `off` is refused). Encrypted reasoning replays only on this route. The §8 live probe is unrun. Plan: `plans/2026-10-12-grok-subscription-current-model.md`. Spec: `specs/2026-10-12-grok-subscription-current-model-design.md`.
+
 ## 2026-10-06 — Kernel calls this loop in-process. Hermes is the reference, not the runtime.
 
 Decision: recorded in the apex, not re-decided here. Canon is `~/code/me/ops/sov-headless-loop.md`. Kernel's headless turns call `createAgent().run()`. They do not adopt Hermes and they do not shell out to `claude -p`, Codex, Grok Build, `sov run`, or `hermes -z`. The three gaps are specified in `specs/2026-10-06-headless-subscription-loop-design.md` (spec only; not green-lit to code): subscription HTTP providers (`chatgpt`, `claude-max`, `grok`), a closed toolset on `PerTurn`, and persist-before-run plus the existing `maxTurns` budget. `src/runtime/subprocessExecutor.ts` stays the attended opt-in it already is.

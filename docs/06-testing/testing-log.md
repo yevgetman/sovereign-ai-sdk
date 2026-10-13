@@ -1,3 +1,17 @@
+## 2026-10-12 — Grok subscription two-id pin, offline
+
+Scope: draft PR 63 on `docs/grok-subscription-current-model-20261012`. Exact `grok-4.7` / `grok-4.6` pin, Responses `reasoning.effort`, and encrypted-reasoning replay. No Telekit edits. No catalog-endpoint discovery.
+
+Environment: macOS, Bun 1.3.13 at `/Users/julie/.bun/bin/bun`. Worktree `/private/tmp/spec-prs/sdk-grok`. No live xAI or OAuth call. No Keychain read. No `XAI_API_KEY` read.
+
+Commands:
+
+- `bun test tests/providers/routes.test.ts tests/providers/modelReasoning.test.ts tests/providers/subscription.test.ts tests/providers/responses.test.ts tests/providers/modelLimits.test.ts tests/providers/models/catalog.test.ts tests/providers/models/direct.test.ts tests/providers/model-modalities.test.ts tests/cli/sdkRunCommand.test.ts tests/cli/routes-discovery.test.ts tests/compact/contextManagement.test.ts tests/core/tokenEstimate.test.ts`
+- `bunx biome check` on the touched TypeScript files
+- `bun run typecheck`
+
+Result: 150 passed, 0 failed, 1002 assertions, 12 files. Biome check passed after formatting 7 files. `tsc --noEmit` and the debug-console project passed. The §8 live subscription probe has not been run.
+
 ## 2026-10-11 — Current review final combined checks and report receipt
 
 Functional source `76c21ac1f66c00251b991691c8ee983afdae9930` passes 6,072 tests / 19 existing skips / zero failures, 25,988 assertions across all 593 discovered files, plus configured lint/boundary, root types and strict SDK build. Final `go test ./...` in packages/tui passes all six test packages. `bun run canary` passes actual packed protocol/SDK Node/Bun consumers, public types and artifact-purity checks. `bun run release:validate` passes the unchanged two-item documentation-only SDK0.14.1/CLI0.6.78 draft. Local TUI built first. These final passes use macOS arm64, Bun1.3.13 and Node25.9.0. Logs reside under `/private/tmp/sdk-skills-review8-20261011/final-*.log`.

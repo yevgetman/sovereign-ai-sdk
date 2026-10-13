@@ -495,6 +495,7 @@ function renderBlock(block: ContentBlock): string {
   }
   if (block.type === 'tool_result') return `[tool_result id=${block.tool_use_id}] ${block.content}`;
   if (block.type === 'redacted_thinking') return '[redacted_thinking]';
+  if (block.type === 'encrypted_reasoning') return '[encrypted_reasoning]';
   return `[image ${block.source.media_type}, ${block.source.data.length} base64 chars]`;
 }
 

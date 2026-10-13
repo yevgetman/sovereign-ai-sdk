@@ -105,7 +105,9 @@ describe('route catalog', () => {
     for (const route of listRoutes(settings)) {
       expect(route.models).toContain(route.defaultModel);
       expect(route.efforts.length).toBeGreaterThan(0);
-      if (route.id !== 'chatgpt-subscription') expect(route.efforts).toContain('off');
+      if (route.id !== 'chatgpt-subscription' && route.id !== 'grok-subscription')
+        expect(route.efforts).toContain('off');
+      expect(route.modelsAuthoritative).toBe(route.id === 'grok-subscription');
       for (const [model, efforts] of Object.entries(route.modelEfforts)) {
         expect(route.models).toContain(model);
         expect(efforts.length).toBeGreaterThan(0);
@@ -133,7 +135,7 @@ describe('route catalog', () => {
     expect(getRoute('openai-api', settings).defaultModel).toBe('gpt-4o');
     expect(getRoute('grok-api', settings).defaultModel).toBe('grok-4.6');
     expect(getRoute('chatgpt-subscription').defaultModel).toBe('gpt-5.3-codex');
-    expect(getRoute('grok-subscription').defaultModel).toBe('grok-4.6');
+    expect(getRoute('grok-subscription').defaultModel).toBe('grok-4.7');
   });
 
   test('an incompatible explicit route or provider default is refused without fallback', () => {
@@ -153,6 +155,37 @@ describe('route catalog', () => {
     expect(getRoute('anthropic-api', settings).defaultEffort).toBe('high');
     expect(getRoute('openai-api', settings).defaultEffort).toBe('off');
     expect(getRoute('chatgpt-subscription', settings).defaultEffort).toBe('high');
+    expect(getRoute('grok-subscription', settings).defaultEffort).toBe('high');
+    expect(getRoute('grok-subscription').defaultEffort).toBe('high');
+    expect(getRoute('grok-subscription', { thinking: { effort: 'off' } }).defaultEffort).toBe(
+      'high',
+    );
+    expect(getRoute('grok-subscription', { thinking: { effort: 'low' } }).defaultEffort).toBe(
+      'low',
+    );
+    expect(getRoute('chatgpt-subscription').defaultEffort).toBe('low');
+    expect(getRoute('chatgpt-subscription', { thinking: { effort: 'off' } }).defaultEffort).toBe(
+      'low',
+    );
+  });
+
+  test('grok subscription is an exact two-id pin', () => {
+    const route = getRoute('grok-subscription');
+    expect(route.defaultModel).toBe('grok-4.7');
+    expect(route.models).toEqual(['grok-4.7', 'grok-4.6']);
+    expect(route.modelsAuthoritative).toBe(true);
+    expect(route.efforts).toEqual(['low', 'medium', 'high', 'max']);
+    expect(route.modelEfforts['grok-4.7']).toEqual(['low', 'medium', 'high', 'max']);
+    expect(route.modelEfforts['grok-4.6']).toEqual(['low', 'medium', 'high', 'max']);
+    expect(routeSupportsImages('grok-subscription')).toBe(false);
+    for (const other of listRoutes()) {
+      if (other.id !== 'grok-subscription') expect(other.modelsAuthoritative).toBe(false);
+    }
+    expect(() =>
+      getRoute('grok-subscription', {
+        routes: { 'grok-subscription': { defaultModel: 'grok-4.5' } },
+      }),
+    ).toThrow('configured default model');
   });
 
   test('unknown route id is a typed route_unavailable error', () => {
@@ -168,6 +201,7 @@ describe('route catalog', () => {
   test('image support is declared per route', () => {
     expect(imageRoutes()).toEqual(['openrouter-api', 'anthropic-api', 'openai-api', 'grok-api']);
     expect(routeSupportsImages('chatgpt-subscription')).toBe(false);
+    expect(routeSupportsImages('grok-subscription')).toBe(false);
     expect(routeSupportsImages('nope')).toBe(false);
   });
 });
@@ -196,6 +230,9 @@ describe('validateRouteSelection', () => {
 
   test('unknown-but-plausible models pass through', () => {
     expect(validateRouteSelection(getRoute('grok-api'), { model: 'grok-5' }).model).toBe('grok-5');
+    expect(validateRouteSelection(getRoute('grok-subscription'), { model: 'grok-4.6' }).model).toBe(
+      'grok-4.6',
+    );
     expect(
       validateRouteSelection(getRoute('openrouter-api'), { model: 'qwen/qwen3-max' }).model,
     ).toBe('qwen/qwen3-max');
@@ -222,12 +259,31 @@ describe('validateRouteSelection', () => {
     expect(code(() => validateRouteSelection(getRoute('openai-api'), { model: 'a b' }))).toBe(
       'model_unsupported',
     );
+    for (const model of ['grok-4.7-build-fast', 'grok-4.5', 'grok-foo', 'not-a-grok']) {
+      expect(code(() => validateRouteSelection(getRoute('grok-subscription'), { model }))).toBe(
+        'model_unsupported',
+      );
+    }
   });
 
   test('unsupported or unknown effort is effort_unsupported, never dropped', () => {
     expect(
       code(() => validateRouteSelection(getRoute('chatgpt-subscription'), { effort: 'off' })),
     ).toBe('effort_unsupported');
+    expect(validateRouteSelection(getRoute('grok-subscription'), { effort: 'auto' }).effort).toBe(
+      'high',
+    );
+    expect(validateRouteSelection(getRoute('grok-subscription')).effort).toBe('high');
+    expect(validateRouteSelection(getRoute('grok-subscription'), { effort: 'low' }).effort).toBe(
+      'low',
+    );
+    expect(
+      code(() => validateRouteSelection(getRoute('grok-subscription'), { effort: 'off' })),
+    ).toBe('effort_unsupported');
+    expect(validateRouteSelection(getRoute('chatgpt-subscription')).effort).toBe('low');
+    expect(
+      validateRouteSelection(getRoute('chatgpt-subscription'), { effort: 'auto' }).effort,
+    ).toBe('low');
     expect(
       code(() =>
         validateRouteSelection(getRoute('openai-api'), { model: 'gpt-4o', effort: 'low' }),

@@ -2,13 +2,12 @@
 
 Build map for the two-id pin in
 `specs/2026-10-12-grok-subscription-current-model-design.md`. Not a second spec.
-The §8 live probe is out of scope and stays unrun. Do not write that the pin
-is qualified.
+The §8 live probe is out of scope and stays unrun.
 
-> **Status:** planned 2026-10-12. Publisher-documented route behavior only.
+> **Status:** implemented 2026-10-12. Publisher-documented route behavior only. The live probe is unrun.
 
 ### Phase 1 — Exact two-id pin
-**Status:** planned
+**Status:** implemented
 
 `grok-4.7` becomes the default. `knownModels` is exactly `grok-4.7` and
 `grok-4.6`. `modelsAuthoritative` is true only for `grok-subscription`. Pin
@@ -25,10 +24,12 @@ Files: `packages/sdk/src/providers/subscription/names.ts`,
 `packages/sdk/src/providers/models/grokPin.ts`,
 `packages/sdk/src/providers/models/catalog.ts`,
 `packages/sdk/src/providers/models/index.ts`,
-`src/cli/modelDiscovery.ts`, route and catalog tests.
+`src/cli/modelDiscovery.ts`, route and catalog tests. The pin helpers stay
+off the SDK barrel (`models/index.ts` is unchanged) so the public export
+snapshot does not grow.
 
 ### Phase 2 — Effort
-**Status:** planned
+**Status:** implemented
 
 Route efforts are `low` / `medium` / `high` / `max`. Absent or configured `off`
 selects `high` on this route only. `auto` resolves to `high`. Explicit `off`
@@ -47,7 +48,7 @@ Files: `packages/sdk/src/providers/grok.ts`,
 `packages/sdk/src/providers/models/validate.ts`, effort tests.
 
 ### Phase 3 — Encrypted reasoning replay
-**Status:** planned
+**Status:** implemented
 
 Add assistant content `{ type: 'encrypted_reasoning'; encryptedContent; id?; status? }`.
 Capture it from the terminal Responses `output` and from `output_item.done`,
@@ -67,13 +68,13 @@ Files: `packages/sdk/src/core/types.ts`,
 replay and resume tests.
 
 ### Phase 4 — Docs
-**Status:** planned
+**Status:** implemented
 
 Replace the usage sentence "Grok subscription remains off-only" with the §2.3
 effort table. Keep the direct-xAI `grok-4.6` sentence. No Telekit edits. No
-INDEX edits. A factual Unreleased changelog line is allowed only if it does not
-say verified or qualified. One short `DECISIONS.md` row points at this plan and
-states the probe is unrun.
+INDEX edits. A factual Unreleased changelog line may state that the live probe
+has not been run. One short `DECISIONS.md` row points at this plan and states
+the probe is unrun.
 
 Files: `docs/03-cli-reference/usage.md`, `CHANGELOG.md`, `DECISIONS.md`.
 

@@ -433,6 +433,11 @@ function blockToSdk(block: ContentBlock): ContentBlockParam {
       };
     case 'redacted_thinking':
       return { type: 'redacted_thinking', data: block.data };
+    case 'encrypted_reasoning':
+      throw new RouteError(
+        'unsupported_input',
+        'encrypted reasoning history cannot be replayed on this route',
+      );
     case 'tool_use':
       return {
         type: 'tool_use',

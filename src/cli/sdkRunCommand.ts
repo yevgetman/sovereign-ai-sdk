@@ -238,6 +238,15 @@ export async function runSdkRunCommand(
     ) {
       throw new SdkInputError('unsupported_input', 'stored signed thinking cannot cross backends');
     }
+    if (
+      routeId !== 'grok-subscription' &&
+      stored.some((m) => m.content.some((b) => b.type === 'encrypted_reasoning'))
+    ) {
+      throw new SdkInputError(
+        'unsupported_input',
+        'stored encrypted reasoning cannot cross backends',
+      );
+    }
     const sessionCtx = runtime.getSessionContext(sessionId);
     sessionCtx.effort = selected.effort;
     const canUseTool = buildTurnCanUseTool(runtime, {

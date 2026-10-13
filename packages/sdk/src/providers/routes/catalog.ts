@@ -23,6 +23,7 @@ import {
 } from '../effort.js';
 import { reasoningControlFor } from '../modelReasoning.js';
 import { PROVIDER_REGISTRY } from '../models.js';
+import { GROK_SUBSCRIPTION_MODELS } from '../models/grokPin.js';
 import { SUBSCRIPTION_DEFAULT_MODEL } from '../subscription/names.js';
 import { RouteError } from './errors.js';
 import {
@@ -37,14 +38,15 @@ import {
 const NO_EFFORT: readonly ReasoningEffort[] = ['off'];
 
 /**
- * Effort levels the subscription transports honor today. The ChatGPT Codex body maps max to xhigh.
- * Grok currently has no verified effort parameter, so only off is supported.
+ * Effort levels the subscription transports honor today. Both map max to xhigh.
+ * ChatGPT has no off. Grok subscription refuses off because reasoning cannot be
+ * disabled, and an absent effort resolves to high rather than the first level.
  */
 export const SUBSCRIPTION_ROUTE_EFFORTS: Readonly<
   Record<'chatgpt' | 'grok', readonly ReasoningEffort[]>
 > = {
   chatgpt: ['low', 'medium', 'high', 'max'],
-  grok: NO_EFFORT,
+  grok: ['low', 'medium', 'high', 'max'],
 };
 
 /**
@@ -91,6 +93,8 @@ type RouteDefinition = {
   effortsFor: (model: string) => readonly ReasoningEffort[];
   /** True when `model` is KNOWN not to work on this backend. */
   isKnownIncompatible: (model: string) => boolean;
+  /** Unknown ids are refused. Default false. True only for grok-subscription. */
+  modelsAuthoritative?: boolean;
 };
 
 function allOrOff(supports: boolean): readonly ReasoningEffort[] {
@@ -170,8 +174,9 @@ const DEFINITIONS: Readonly<Record<RouteId, RouteDefinition>> = {
     auth: 'subscription',
     displayName: 'Grok (subscription)',
     builtinDefaultModel: SUBSCRIPTION_DEFAULT_MODEL.grok,
-    knownModels: [SUBSCRIPTION_DEFAULT_MODEL.grok],
-    effortsFor: () => SUBSCRIPTION_ROUTE_EFFORTS.grok,
+    knownModels: GROK_SUBSCRIPTION_MODELS,
+    modelsAuthoritative: true,
+    effortsFor: (model) => reasoningControlFor('grok', model)?.efforts ?? NO_EFFORT,
     isKnownIncompatible: directFamilyRule('xai'),
   },
 };
@@ -208,7 +213,9 @@ function buildRecord(def: RouteDefinition, settings: Settings): RouteRecord {
   const override = configuredDefaultModel(def, settings)?.trim();
   if (
     override !== undefined &&
-    (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(override) || def.isKnownIncompatible(override))
+    (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(override) ||
+      def.isKnownIncompatible(override) ||
+      (def.modelsAuthoritative === true && !def.knownModels.includes(override)))
   ) {
     throw new RouteError(
       'model_unsupported',
@@ -224,7 +231,11 @@ function buildRecord(def: RouteDefinition, settings: Settings): RouteRecord {
     models.map((model) => [model, orderedEfforts(def.effortsFor(model))]),
   );
   const efforts = orderedEfforts(Object.values(modelEfforts).flat());
-  const configuredEffort = settings.thinking?.effort ?? 'off';
+  const configured = settings.thinking?.effort;
+  const configuredEffort =
+    def.id === 'grok-subscription' && (configured === undefined || configured === 'off')
+      ? 'high'
+      : (configured ?? 'off');
   const defaultEffort = modelEfforts[defaultModel]?.includes(configuredEffort)
     ? configuredEffort
     : (modelEfforts[defaultModel]?.[0] ?? 'off');
@@ -235,7 +246,7 @@ function buildRecord(def: RouteDefinition, settings: Settings): RouteRecord {
     displayName: def.displayName,
     defaultModel,
     models,
-    modelsAuthoritative: false,
+    modelsAuthoritative: def.modelsAuthoritative === true,
     efforts,
     modelEfforts,
     defaultEffort,
