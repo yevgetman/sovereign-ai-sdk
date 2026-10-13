@@ -73,8 +73,9 @@ names may be attempted on the selected backend. Known foreign-provider names fai
 A backend model refusal does not change the model or payment path.
 
 ChatGPT Codex effort levels are `low`, `medium`, `high` and `max` (`xhigh` on the wire).
-`off` is refused for this backend. Grok subscription currently exposes only `off`,
-which sends no effort override. Other values fail explicitly.
+`off` is refused for this backend. Grok subscription exposes the same four levels
+(`xhigh` on the wire for `max`). `auto` resolves to `high`. `off` is refused.
+The route accepts only `grok-4.7` and `grok-4.6`.
 
 ## One native turn
 
