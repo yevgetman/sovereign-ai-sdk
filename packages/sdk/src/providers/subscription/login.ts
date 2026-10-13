@@ -25,10 +25,11 @@ export type LoginIo = {
 };
 
 /**
- * Logout and completed login. The catalog cache key is the Keychain service
- * name (`SOV_SUB_CHATGPT` / `SOV_SUB_GROK`), not token bytes. An account change
- * under that same service name must clear the route's catalog files. The hook
- * receives the provider name only.
+ * Logout and completed login. The catalog cache key is `${service}:${identity}`,
+ * default `SOV_SUB_CHATGPT:SOV_SUB_CHATGPT` or `SOV_SUB_GROK:SOV_SUB_GROK`.
+ * The disk id is the route id plus that string, not token bytes. An account
+ * change under that same service name must clear the route's catalog files.
+ * The hook receives the provider name only.
  */
 export type SubscriptionIdentityHooks = {
   onIdentityChanged?: (name: 'chatgpt' | 'grok') => Promise<void> | void;

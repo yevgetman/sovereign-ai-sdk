@@ -66,9 +66,11 @@ export function diskModelCache(
 }
 
 /**
- * Delete one owner's subscription catalog for a route. The cache identity is the
- * Keychain service name, so an account change under that same name must clear
- * the whole route directory. Does not read credential bytes or API-key caches.
+ * Delete one owner's subscription catalog for a route. The cache key is
+ * `${service}:${identity}` (default `SOV_SUB_CHATGPT:SOV_SUB_CHATGPT` or
+ * `SOV_SUB_GROK:SOV_SUB_GROK`). The disk id is the route id plus that string.
+ * An account change under that same service name must clear the whole route
+ * directory. Does not read credential bytes or API-key caches.
  */
 export function clearSubscriptionCatalogCache(
   root: string,

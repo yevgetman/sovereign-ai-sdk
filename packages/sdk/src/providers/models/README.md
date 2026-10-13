@@ -5,9 +5,10 @@ uses memory only by default. `read(source)` never fetches or reads credentials;
 `refresh(source)` explicitly invokes an injected source with cancellation and a
 bounded deadline. Hosts can inject fetch, clock and cache ports. Cache keys must
 include a caller-scoped, non-secret account identity when account availability is
-returned. Subscription catalogs use the Keychain service name (`SOV_SUB_CHATGPT`
-or `SOV_SUB_GROK`) as that key, not a separate per-account id. Do not put tokens
-in cache keys or records.
+returned. Subscription catalogs use `${service}:${identity}`. `service` is the
+Keychain service name and `identity` defaults to that name, so the default key
+is `SOV_SUB_CHATGPT:SOV_SUB_CHATGPT` or `SOV_SUB_GROK:SOV_SUB_GROK`. The disk id
+is the route id plus that string. Do not put tokens in cache keys or records.
 
 Exact model ID, authentication route, model author and inference host are separate
 fields. Public catalog membership means advertised availability, not entitlement
@@ -58,8 +59,10 @@ subscription suggestions separate. No subscription catalog endpoint is known, so
 `discover` still throws `Subscription model discovery unavailable` and does not
 fetch. Explicit refresh returns unavailable with stale offline suggestions, never
 a current discovery timestamp. It does not borrow API records, start login, or
-add Claude-Max HTTP support. The cache key is the non-secret Keychain service
-name (`SOV_SUB_CHATGPT` or `SOV_SUB_GROK`), never a token and never `public`.
+add Claude-Max HTTP support. The cache key is `${service}:${identity}`
+(default `SOV_SUB_CHATGPT:SOV_SUB_CHATGPT` or `SOV_SUB_GROK:SOV_SUB_GROK`).
+The disk id is the route id plus that string. It is never a token and never
+`public`.
 `applySubscriptionAccountCatalog` normalizes a payload the caller already holds.
 It does not move `SUBSCRIPTION_DEFAULT_MODEL`. Custom sources can implement other
 SDK providers without changing the six built-in authentication routes.
