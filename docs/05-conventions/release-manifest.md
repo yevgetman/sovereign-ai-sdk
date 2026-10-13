@@ -21,12 +21,12 @@ release when the selected work also changes the wrapper. A library-only cut may
 retain the published CLI version. Protocol/debug-console versions remain unchanged
 unless explicitly selected work requires their own release preparation.
 
-The verified baseline is SDK **0.15.0** and CLI **0.6.78**. This cut targets
-SDK **0.15.1** and CLI **0.6.79**. Reviewed PR63 and PR64 are included once, with
-each PR's exact master merge SHA and `mainline: 1`. Contained branch commits and
-review fixes are covered by their merge unit. `encrypted_reasoning` is a new
-content-block member on existing message types. Additive public export names
-still require a minor version.
+The verified cut released SDK **0.15.1** and CLI **0.6.79**. The active empty
+draft now plans SDK **0.15.2** and CLI **0.6.80** from that published baseline.
+Reviewed PR63 and PR64 shipped once, with each PR's exact master merge SHA and
+`mainline: 1`. Contained branch commits and review fixes are covered by their
+merge unit. `encrypted_reasoning` is a new content-block member on existing
+message types. Additive public export names still require a minor version.
 The list preserves dependency order. Version, lockfile and release documentation
 preparation is an explicit reviewed item. Immutable history records the published
 result; active records then name the next draft.
