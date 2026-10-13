@@ -18,6 +18,7 @@ import {
   selectableSubscriptionEfforts,
   subscriptionAccountModelCatalog,
   subscriptionToolsSelectable,
+  withSelectableSubscriptionEfforts,
 } from '@yevgetman/sov-sdk/providers/models/subscriptionCatalog';
 import type { ModelCatalog, ModelRecord } from '@yevgetman/sov-sdk/providers/models/types';
 import { validateModelRequest } from '@yevgetman/sov-sdk/providers/models/validateRequest';
@@ -41,6 +42,7 @@ import {
   readModelCatalogSnapshot,
   subscriptionSessionHooks,
 } from '../../../src/cli/modelDiscovery.js';
+import { modelDetails } from '../../../src/config/modelSuggestions.js';
 
 const TOKEN_MATERIAL = /authorization|bearer|\bsk-|access_token|refresh_token/i;
 const listedAt = () => new Date(Date.now() - 60_000).toISOString();
@@ -554,6 +556,53 @@ describe('subscription catalog policy', () => {
       expect(snapshot.models.find((model) => model.id === 'grok-4.7')?.efforts).toEqual(['off']);
       const stored = await cache.get(`${source.routeId}:${source.cacheKey}`);
       expect(stored?.models[0]?.efforts).toContain('high');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('an empty selectable account-catalog list is efforts none only in the operator view', async () => {
+    const applied = applySubscriptionAccountCatalog('chatgpt-subscription', {
+      listedAt: listedAt(),
+      body: {
+        models: [
+          {
+            id: 'gpt-6.1-sol',
+            output_modalities: ['text'],
+            capabilities: { reasoning_effort: ['off'] },
+          },
+        ],
+      },
+    });
+    const row = applied.models[0];
+    if (!row) throw new Error('missing chatgpt row');
+    expect(row.metadata.source).toBe(SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE);
+    expect(row.efforts).toEqual(['off']);
+    expect(selectableSubscriptionEfforts(row)).toEqual([]);
+    const catalog = subscriptionAccountModelCatalog(applied);
+    const viewed = withSelectableSubscriptionEfforts(catalog);
+    expect(viewed).not.toBe(catalog);
+    expect(viewed.models[0]?.efforts).toEqual([]);
+    expect(modelDetails(viewed.models[0] as ModelRecord)).toContain('efforts:none');
+    expect(modelDetails({ ...row, efforts: undefined })).toContain('efforts:unknown');
+    expect(row.efforts).toEqual(['off']);
+    const route = getRoute('chatgpt-subscription');
+    expect(omittedEffort(route, { model: row.id, modelMetadata: row })).toBe('effort_unsupported');
+
+    const home = mkdtempSync(join(tmpdir(), 'sov-sub-empty-efforts-'));
+    try {
+      const cache = diskModelCache(join(home, 'model-catalog'));
+      const source = createSubscriptionModelSource('chatgpt-subscription');
+      await cache.set(`${source.routeId}:${source.cacheKey}`, catalog);
+      const stored = await cache.get(`${source.routeId}:${source.cacheKey}`);
+      expect(stored?.models[0]?.efforts).toEqual(['off']);
+      const snapshot = readModelCatalogSnapshot('chatgpt-subscription', {}, home);
+      const shown = snapshot.models.find((model) => model.id === 'gpt-6.1-sol');
+      expect(shown?.efforts).toEqual([]);
+      expect(shown ? modelDetails(shown) : '').toContain('efforts:none');
+      expect((await cache.get(`${source.routeId}:${source.cacheKey}`))?.models[0]?.efforts).toEqual(
+        ['off'],
+      );
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

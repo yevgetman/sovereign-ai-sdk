@@ -38,7 +38,12 @@ export function modelAuthor(
 export function modelDetails(
   model: import('@yevgetman/sov-sdk/providers/models/index').ModelRecord,
 ): string {
-  return `tools:${model.capabilities.tools} · images:${model.capabilities.images} · efforts:${model.efforts?.join('/') ?? 'unknown'} · context:${model.contextWindow ?? 'unknown'} · availability:${model.availability}`;
+  const efforts = !model.efforts
+    ? 'unknown'
+    : model.efforts.length === 0
+      ? 'none'
+      : model.efforts.join('/');
+  return `tools:${model.capabilities.tools} · images:${model.capabilities.images} · efforts:${efforts} · context:${model.contextWindow ?? 'unknown'} · availability:${model.availability}`;
 }
 export function modelProviderForSetting(path: string, settings: Settings): string | undefined {
   if (path === 'defaultModel') return settings.defaultProvider ?? 'anthropic';

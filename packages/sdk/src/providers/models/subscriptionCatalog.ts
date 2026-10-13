@@ -293,8 +293,8 @@ export function withSelectableSubscriptionEfforts(catalog: ModelCatalog): ModelC
     ...catalog,
     models: catalog.models.map((model) => {
       if (model.metadata.source !== SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE) return model;
-      const efforts = selectableSubscriptionEfforts(model);
-      return efforts.length ? { ...model, efforts } : { ...model, efforts: undefined };
+      // Empty stays [] so operator copy says none. Do not write this view to disk.
+      return { ...model, efforts: selectableSubscriptionEfforts(model) };
     }),
   };
 }
