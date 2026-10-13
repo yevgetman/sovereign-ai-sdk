@@ -230,7 +230,7 @@ export function applySubscriptionAccountCatalog(
       state: 'unavailable',
       models,
       missingPinnedDefault: !pinSeen,
-      pinnedDefaultUnavailable: pinDropped,
+      pinnedDefaultUnavailable: pinUnavailable,
       cacheableCurrent: false,
     };
   }
