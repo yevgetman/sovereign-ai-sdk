@@ -330,6 +330,37 @@ describe('validateRouteSelection', () => {
       }).effort,
     ).toBe('max');
   });
+
+  test('fresh grok efforts that omit the route default do not resolve to off', () => {
+    const modelMetadata = {
+      id: 'grok-4.7',
+      provider: 'grok',
+      routeId: 'grok-subscription',
+      auth: 'subscription' as const,
+      displayName: 'grok-4.7',
+      availability: 'account' as const,
+      capabilities: {
+        reasoning: 'supported' as const,
+        tools: 'unknown' as const,
+        images: 'unknown' as const,
+        textOutput: 'supported' as const,
+      },
+      metadata: { source: 'subscription-account-catalog', stale: false },
+      efforts: ['low' as const],
+    };
+    let selection: { model: string; effort: string } | undefined;
+    let codeSeen = 'ok';
+    try {
+      selection = validateRouteSelection(getRoute('grok-subscription'), {
+        model: 'grok-4.7',
+        modelMetadata,
+      });
+    } catch (err) {
+      codeSeen = err instanceof RouteError ? err.code : 'other';
+    }
+    expect(selection?.effort).not.toBe('off');
+    expect(codeSeen).toBe('effort_unsupported');
+  });
 });
 
 describe('inspectRouteCredential', () => {

@@ -28,7 +28,8 @@ export type RouteSelectionInput = {
  * Validate a model/effort request for `route` and resolve `auto`.
  * Throws `RouteError` with code `model_unsupported` or `effort_unsupported`.
  * With no explicit effort, the route default is used when the chosen model
- * supports it, otherwise `off` (always supported).
+ * supports it. `off` is used only when that model supports it. If neither is
+ * supported, this throws `effort_unsupported`.
  */
 export function validateRouteSelection(
   route: RouteRecord,
@@ -99,7 +100,13 @@ function resolveEffort(
   requested: string | undefined,
 ): ReasoningEffort {
   if (requested === undefined || requested === AUTO_SELECTION) {
-    return supported.includes(route.defaultEffort) ? route.defaultEffort : 'off';
+    if (supported.includes(route.defaultEffort)) return route.defaultEffort;
+    if (supported.includes('off')) return 'off';
+    throw new RouteError(
+      'effort_unsupported',
+      `effort ${JSON.stringify(route.defaultEffort)} is not supported by route ${route.id} with model ${JSON.stringify(model)}`,
+      { routeId: route.id },
+    );
   }
   const level = requested as ReasoningEffort;
   if (!(REASONING_EFFORTS as readonly string[]).includes(requested) || !supported.includes(level)) {
