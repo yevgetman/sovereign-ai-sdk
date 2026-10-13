@@ -707,6 +707,7 @@ describe('subscription catalog disk isolation', () => {
       await cache.set(key, diskShape('chatgpt-subscription', applied.models, applied.listedAt));
       await createModelDiscovery({ cache }).refresh(source);
       const saved = await diskModelCache(root).get(key);
+      expect(saved).toBeDefined();
       if (!saved) return;
       expect(saved.state).not.toBe('current');
       const kept = saved.models.find((model) => model.id === row.id);
