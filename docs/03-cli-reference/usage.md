@@ -1675,7 +1675,7 @@ Available config fields (top-level unless noted):
 | `defaultProvider` | string | `anthropic` | `anthropic` \| `openai` \| `openrouter` \| `ollama` |
 | `defaultModel` | string | provider default | scoped by `defaultProvider` in the picker |
 | `permissionMode` | enum | `default` | `default` \| `ask` \| `bypass` |
-| `thinking.effort` | enum | `off` | `off` \| `low` \| `medium` \| `high` \| `max` — boot default for reasoning depth (extended thinking). `off` ⇒ request byte-identical. Overridden per session by `/effort`. See [`/effort` — reasoning depth](#effort--reasoning-depth). |
+| `thinking.effort` | enum | `off` | `off` \| `low` \| `medium` \| `high` \| `max` — boot default for reasoning depth (extended thinking). `off` ⇒ request byte-identical, except `grok-subscription`, where a stored or absent `off` selects `high`. `--effort off` on that route throws `effort_unsupported` and does not fetch. Overridden per session by `/effort`. See [`/effort` — reasoning depth](#effort--reasoning-depth). |
 | `maxTurns` | int | `100` | runaway-loop circuit breaker, not a task ceiling |
 | `loop.mode` | enum | `enforce` | `enforce` \| `warn` \| `off` — loop-guard policy. See [The `loop` block — progress-aware loop guard](#the-loop-block--progress-aware-loop-guard). |
 | `loop.noProgressWindow` | int > 0 | `8` | fire when the last K tool calls all came back with nothing new |
@@ -1763,9 +1763,11 @@ Grok subscription (`grok-subscription`) sends Responses `reasoning.effort` for
 `grok-4.7` and `grok-4.6`. `grok-4.7` keeps the documented context window of
 500000. `grok-4.6` has no published window and stays on the 32768 unknown floor.
 A subscription refresh does not fill that window. It does not send
-`reasoning_effort`. `auto`, or an omitted effort, resolves to `high`. `off` is
-rejected (`effort_unsupported`); omitting the field is not called off, because
-these models cannot disable reasoning.
+`reasoning_effort`. `auto`, or an omitted effort, resolves to `high`. A stored
+or absent `thinking.effort` of `off` selects `high` on this route and is not a
+byte-identical request. `--effort off` throws `effort_unsupported` and does not
+fetch. Omitting the field is not called off, because these models cannot disable
+reasoning.
 
 | Caller value | This route | Wire `reasoning.effort` |
 |---|---|---|
@@ -1774,7 +1776,8 @@ these models cannot disable reasoning.
 | `high` | send | `high` |
 | `max` | send | `xhigh` |
 | `auto`, or effort omitted at route resolution | resolve to `high`, then send | `high` |
-| `off` | `effort_unsupported` | do not omit the field and call that off |
+| stored or absent `thinking.effort` of `off` | select `high`, then send | `high` |
+| `--effort off` | `effort_unsupported`; do not fetch | do not omit the field and call that off |
 
 These mappings follow [xAI's reasoning contract](https://docs.x.ai/developers/model-capabilities/text/reasoning)
 and [OpenRouter's normalized reasoning contract](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens);
@@ -2633,6 +2636,6 @@ sov auth status --route chatgpt-subscription --json
 
 Each response has `schemaVersion: 1`. Status performs no login, refresh, network request, or credential write. `present` means a local credential exists; it does not prove service entitlement. A locked or unavailable Keychain reports `unavailable`. Model catalogs are offline known examples and may be non-exhaustive. Known incompatible models or unsupported effort are refused. A backend rejection does not change route, payment method, or model.
 
-Set a route default with `sov config set routes.<route-id>.defaultModel <model>`. This overrides an API route's existing `providers.<provider>.model` setting. Subscription routes have their own defaults. ChatGPT supports low, medium, high, and max reasoning effort; max maps to xhigh. Grok subscription supports the same four levels; max maps to xhigh, auto resolves to high, and off is refused. The route catalog reports the effective model and effort defaults.
+Set a route default with `sov config set routes.<route-id>.defaultModel <model>`. This overrides an API route's existing `providers.<provider>.model` setting. Subscription routes have their own defaults. ChatGPT supports low, medium, high, and max reasoning effort; max maps to xhigh. Grok subscription supports the same four levels; max maps to xhigh and auto resolves to high. A stored or absent `thinking.effort` of `off` selects high on this route. `--effort off` throws `effort_unsupported` and does not fetch. The route catalog reports the effective model and effort defaults.
 
 Login writes, refresh, and logout share an OS-account-and-service mutex under `~/.sov/auth-locks`. Profiles and `HARNESS_HOME` do not split the identity. Concurrent 401 replies rotate one rejected token generation only. Logout waits for a pending refresh and then deletes the credential. A delayed attended-login approval cannot restore a credential after logout. Waits and exchanges are bounded and cancellable. Dead process owners are recovered; live owners are never evicted merely because an exchange is slow. Injected credential ports must supply `lockDirectory` and `lockIdentity` for cross-process coordination; ports without them retain only an in-process mutex.
