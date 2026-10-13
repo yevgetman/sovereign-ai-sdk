@@ -1,3 +1,7 @@
+## 2026-10-13 — Subscription catalog review follow-up gate
+
+Same worktree and branch. `bun run lint` passed (Biome, 1110 files, no fixes; dependency-cruiser, no violations, 244 modules). `bun run typecheck` passed. Touched files `bun test tests/providers/models/subscriptionCatalog.test.ts tests/providers/routes.test.ts tests/providers/modelReasoning.test.ts tests/providers/models/catalog.test.ts tests/cli/modelDiscovery.test.ts tests/cli/routes-discovery.test.ts tests/providers/subscription.test.ts` passed 90 / 0 fail / 790 assertions across 7 files. Full `bun test --timeout 20000` did not pass: 6013 pass / 31 skip / 63 fail / 23514 assertions across 594 files. The failures are missing compiled SDK modules (`packages/sdk/dist` and `node_modules/@yevgetman/sov-sdk/dist`), not the subscription catalog tests. Dist was not rebuilt. The useful-task probe was not run. No release or installed-host change.
+
 ## 2026-10-13 — Subscription catalog review fixes
 
 Worktree `/private/tmp/spec-prs/sdk-catalog` on `docs/subscription-model-catalog-20261012`. Focused Bun tests only. The useful-task probe was not run. No live network login and no Keychain read.
