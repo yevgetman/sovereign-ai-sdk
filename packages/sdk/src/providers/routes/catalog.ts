@@ -11,8 +11,11 @@
 //   settings.routes.<routeId>.defaultModel
 //   > settings.providers.<provider>.model   (API-key routes only; existing key)
 //   > built-in default.
-// An incompatible explicit default is refused; configuration cannot silently
-// change the requested model to the built-in default.
+// A malformed or known-incompatible explicit default is refused at catalog
+// build. An authoritative allowlist miss is not: listRoutes and getRoute stay
+// usable, and an explicit allowlisted model still resolves. Selecting that
+// bad default (omitted model or auto) throws model_unsupported and names
+// routes.<id>.defaultModel. A run does not silently use the built-in instead.
 
 import type { Settings } from '../../config/schema.js';
 import {
@@ -210,20 +213,28 @@ function orderedEfforts(levels: Iterable<ReasoningEffort>): ReasoningEffort[] {
 }
 
 function buildRecord(def: RouteDefinition, settings: Settings): RouteRecord {
-  const override = configuredDefaultModel(def, settings)?.trim();
-  if (
-    override !== undefined &&
-    (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(override) ||
-      def.isKnownIncompatible(override) ||
-      (def.modelsAuthoritative === true && !def.knownModels.includes(override)))
-  ) {
+  const configuredModel = configuredDefaultModel(def, settings)?.trim();
+  const wellFormed =
+    configuredModel !== undefined && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(configuredModel);
+  const incompatible = configuredModel !== undefined && def.isKnownIncompatible(configuredModel);
+  // A bad authoritative default must not take down listRoutes/getRoute or
+  // block an explicit allowlisted model. Malformed and known-incompatible
+  // defaults still fail here, and a valid configured model still wins.
+  const allowlistMiss =
+    wellFormed &&
+    !incompatible &&
+    configuredModel !== undefined &&
+    def.modelsAuthoritative === true &&
+    !def.knownModels.includes(configuredModel);
+  if (configuredModel !== undefined && !allowlistMiss && (!wellFormed || incompatible)) {
     throw new RouteError(
       'model_unsupported',
       `configured default model is not supported by route ${def.id}`,
       { routeId: def.id },
     );
   }
-  const defaultModel = override ?? def.builtinDefaultModel;
+  const defaultModel =
+    !allowlistMiss && configuredModel !== undefined ? configuredModel : def.builtinDefaultModel;
   const models = def.knownModels.includes(defaultModel)
     ? [...def.knownModels]
     : [defaultModel, ...def.knownModels];
@@ -252,6 +263,9 @@ function buildRecord(def: RouteDefinition, settings: Settings): RouteRecord {
     defaultEffort,
     credentialRef: `${def.auth}:${def.provider}`,
     enabled: true,
+    ...(allowlistMiss && configuredModel !== undefined
+      ? { rejectedConfiguredDefault: configuredModel }
+      : {}),
   };
 }
 

@@ -181,11 +181,39 @@ describe('route catalog', () => {
     for (const other of listRoutes()) {
       if (other.id !== 'grok-subscription') expect(other.modelsAuthoritative).toBe(false);
     }
-    expect(() =>
+  });
+
+  test('a bad authoritative default does not block the catalog or an explicit allowlisted model', () => {
+    const settings = {
+      routes: { 'grok-subscription': { defaultModel: 'grok-4.5' as const } },
+    };
+    expect(listRoutes(settings).map((route) => route.id)).toEqual([...ROUTE_IDS]);
+    const route = getRoute('grok-subscription', settings);
+    expect(route.defaultModel).toBe('grok-4.7');
+    expect(route.models).toEqual(['grok-4.7', 'grok-4.6']);
+    for (const requested of [undefined, 'auto'] as const) {
+      try {
+        validateRouteSelection(route, requested === undefined ? {} : { model: requested });
+        throw new Error('expected throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(RouteError);
+        expect((err as RouteError).code).toBe('model_unsupported');
+        expect((err as RouteError).message).toContain('routes.grok-subscription.defaultModel');
+        expect((err as RouteError).message).toContain('grok-4.5');
+      }
+    }
+    expect(validateRouteSelection(route, { model: 'grok-4.7' }).model).toBe('grok-4.7');
+    expect(validateRouteSelection(route, { model: 'grok-4.6' }).model).toBe('grok-4.6');
+    expect(
       getRoute('grok-subscription', {
-        routes: { 'grok-subscription': { defaultModel: 'grok-4.5' } },
-      }),
-    ).toThrow('configured default model');
+        routes: { 'grok-subscription': { defaultModel: 'grok-4.6' } },
+      }).defaultModel,
+    ).toBe('grok-4.6');
+    expect(
+      getRoute('chatgpt-subscription', {
+        routes: { 'chatgpt-subscription': { defaultModel: 'gpt-5.9-codex' } },
+      }).defaultModel,
+    ).toBe('gpt-5.9-codex');
   });
 
   test('unknown route id is a typed route_unavailable error', () => {
@@ -484,6 +512,32 @@ describe('resolveRouteProvider', () => {
     });
     expect(result.resolved.model).toBe('x-ai/grok-4');
     expect(result.provider.name).toBe('openrouter');
+  });
+
+  test('grok-4.7 resolves when the configured default is outside the allowlist', async () => {
+    const settings = {
+      routes: { 'grok-subscription': { defaultModel: 'grok-4.5' as const } },
+    };
+    const port = fakePort(LIVE);
+    const result = await resolveRouteProvider('grok-subscription', {
+      ...base,
+      settings,
+      model: 'grok-4.7',
+      subscriptionPort: port,
+    });
+    expect(result.model).toBe('grok-4.7');
+    expect(result.provider.name).toBe('grok');
+    const omitted = fakePort(LIVE);
+    const err = await resolveRouteProvider('grok-subscription', {
+      ...base,
+      settings,
+      subscriptionPort: omitted,
+    }).catch((error: unknown) => error);
+    expect(err).toBeInstanceOf(RouteError);
+    expect((err as RouteError).code).toBe('model_unsupported');
+    expect((err as RouteError).message).toContain('routes.grok-subscription.defaultModel');
+    expect((err as RouteError).message).toContain('grok-4.5');
+    expect(omitted.reads).toEqual([]);
   });
 });
 

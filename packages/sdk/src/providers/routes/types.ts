@@ -40,6 +40,13 @@ export type RouteRecord = {
   models: string[];
   /** False: unknown-but-plausible model ids pass validation (spec §4.2). */
   modelsAuthoritative: boolean;
+  /**
+   * Set when `routes.<id>.defaultModel` is outside an authoritative allowlist.
+   * `defaultModel` stays the built-in id so listing the catalog does not throw.
+   * Selecting `auto` or an omitted model throws `model_unsupported` and names
+   * that setting; the rejected id is not used and is not silently replaced.
+   */
+  rejectedConfiguredDefault?: string;
   /** Effort levels supported by at least one known model. Always contains `off`. */
   efforts: ReasoningEffort[];
   /** Supported effort levels per known model. */

@@ -65,7 +65,17 @@ export function effortsForModel(
 }
 
 function resolveModel(route: RouteRecord, requested: string | undefined): string {
-  if (requested === undefined || requested === AUTO_SELECTION) return route.defaultModel;
+  if (requested === undefined || requested === AUTO_SELECTION) {
+    const rejected = route.rejectedConfiguredDefault;
+    if (rejected !== undefined) {
+      throw new RouteError(
+        'model_unsupported',
+        `configured default model ${JSON.stringify(rejected)} in routes.${route.id}.defaultModel is not supported by route ${route.id}`,
+        { routeId: route.id },
+      );
+    }
+    return route.defaultModel;
+  }
   if (!MODEL_ID.test(requested)) {
     throw new RouteError('model_unsupported', `model id is not valid for route ${route.id}`, {
       routeId: route.id,
