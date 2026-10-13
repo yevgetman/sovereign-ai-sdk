@@ -56,7 +56,9 @@ suggestions separate. It still throws `Subscription model discovery unavailable`
 and does not fetch, borrow API records, start login, or add Claude-Max HTTP
 support. ChatGPT metadata stays a stale offline suggestion. After that failure,
 Grok re-applies an exact local pin for `grok-4.7` and `grok-4.6`; availability
-stays `unknown`. The pin is not a live account probe. Custom sources can implement
+stays `unknown`. The pin is not a live account probe. The grok-4.7 / grok-4.6
+publisher pin is re-applied with `stale: false` and the documented window
+(`grok-4.7` is 500000; `grok-4.6` stays on the 32768 floor), and other rows stay stale. Custom sources can implement
 other SDK providers without changing the six built-in authentication routes.
 
 Provider references: [Anthropic models](https://platform.claude.com/docs/en/api/models/list),
