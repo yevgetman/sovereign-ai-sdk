@@ -101,11 +101,12 @@ function resolveEffort(
   if (requested === undefined || requested === AUTO_SELECTION) {
     if (supported.includes(route.defaultEffort)) return route.defaultEffort;
     if (supported.includes('off')) return 'off';
-    throw new RouteError(
-      'effort_unsupported',
-      `effort ${JSON.stringify(route.defaultEffort)} is not supported by route ${route.id} with model ${JSON.stringify(model)}`,
-      { routeId: route.id },
-    );
+    // Empty means this transport can send nothing, not that its default level lost.
+    const message =
+      supported.length === 0
+        ? 'this model has no subscription effort this transport can send'
+        : `effort ${JSON.stringify(route.defaultEffort)} is not supported by route ${route.id} with model ${JSON.stringify(model)}`;
+    throw new RouteError('effort_unsupported', message, { routeId: route.id });
   }
   const level = requested as ReasoningEffort;
   if (!(REASONING_EFFORTS as readonly string[]).includes(requested) || !supported.includes(level)) {

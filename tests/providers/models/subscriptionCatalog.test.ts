@@ -1210,6 +1210,88 @@ describe('subscription catalog disk isolation', () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  test('a chatgpt pin that published only off stays empty when projected again', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'sov-sub-pin-off-'));
+    try {
+      const applied = applySubscriptionAccountCatalog('chatgpt-subscription', {
+        listedAt: listedAt(),
+        body: {
+          models: [
+            {
+              id: 'gpt-5.3-codex',
+              output_modalities: ['text'],
+              capabilities: { reasoning_effort: ['off'] },
+            },
+          ],
+        },
+      });
+      const catalog = subscriptionAccountModelCatalog(applied);
+      const stored = catalog.models.find((model) => model.id === 'gpt-5.3-codex');
+      if (!stored) throw new Error('missing pin');
+      expect(stored.efforts).toEqual(['off']);
+      expect(selectableSubscriptionEfforts(stored)).toEqual([]);
+
+      const cache = diskModelCache(join(home, 'model-catalog'));
+      const source = createSubscriptionModelSource('chatgpt-subscription');
+      const key = `${source.routeId}:${source.cacheKey}`;
+      await cache.set(key, catalog);
+      const snapshot = readModelCatalogSnapshot('chatgpt-subscription', {}, home);
+      const pin = snapshot.models.find((model) => model.id === 'gpt-5.3-codex');
+      if (!pin) throw new Error('missing snapshot pin');
+      expect(pin.efforts).toEqual([]);
+      expect(modelDetails(pin)).toContain('efforts:none');
+      const route = getRoute('chatgpt-subscription');
+      let rejected: unknown;
+      try {
+        validateRouteSelection(route, { model: pin.id, modelMetadata: pin });
+      } catch (error) {
+        rejected = error;
+      }
+      expect(rejected).toBeInstanceOf(RouteError);
+      if (!(rejected instanceof RouteError)) throw new Error('expected RouteError');
+      expect(rejected.code).toBe('effort_unsupported');
+      expect(rejected.message).toBe(
+        'this model has no subscription effort this transport can send',
+      );
+      for (const effort of ['high', 'max'] as const) {
+        expect(() =>
+          validateRouteSelection(route, { model: pin.id, effort, modelMetadata: pin }),
+        ).toThrow(/not supported/);
+      }
+      const again = withSelectableSubscriptionEfforts(snapshot);
+      expect(again.models.find((model) => model.id === 'gpt-5.3-codex')?.efforts).toEqual([]);
+      expect(selectableSubscriptionEfforts(pin)).toEqual([]);
+      expect((await cache.get(key))?.models[0]?.efforts).toEqual(['off']);
+
+      const omitted = applySubscriptionAccountCatalog('chatgpt-subscription', {
+        listedAt: listedAt(),
+        body: { models: [{ id: 'gpt-5.3-codex', output_modalities: ['text'] }] },
+      });
+      const bare = omitted.models[0];
+      if (!bare) throw new Error('missing omitted pin');
+      expect(bare.efforts).toBeUndefined();
+      expect(modelDetails(bare)).toContain('efforts:unknown');
+      expect(selectableSubscriptionEfforts(bare)).toEqual(['low', 'medium', 'high', 'max']);
+      await cache.set(key, subscriptionAccountModelCatalog(omitted));
+      const omittedSnapshot = readModelCatalogSnapshot('chatgpt-subscription', {}, home);
+      const omittedPin = omittedSnapshot.models.find((model) => model.id === 'gpt-5.3-codex');
+      if (!omittedPin) throw new Error('missing omitted snapshot pin');
+      expect(omittedPin.efforts).toBeUndefined();
+      expect(modelDetails(omittedPin)).toContain('efforts:unknown');
+      expect(selectableSubscriptionEfforts(omittedPin)).toEqual(['low', 'medium', 'high', 'max']);
+      expect(
+        validateRouteSelection(route, { model: omittedPin.id, modelMetadata: omittedPin }).effort,
+      ).toBe(route.defaultEffort);
+      expect(
+        selectableSubscriptionEfforts(
+          withSelectableSubscriptionEfforts(omittedSnapshot).models[0] as ModelRecord,
+        ),
+      ).toEqual(['low', 'medium', 'high', 'max']);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
 
 test('a live text row keeps the subscription pin available beside a dropped duplicate', () => {

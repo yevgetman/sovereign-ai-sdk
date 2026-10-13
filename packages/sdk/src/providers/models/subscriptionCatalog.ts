@@ -275,10 +275,11 @@ export function subscriptionPinNotice(pin: {
  * Payload efforts are selectable only when this transport already honors them.
  * Both routes use `SUBSCRIPTION_ROUTE_EFFORTS`. An all-`off` transport stays `off`
  * (Grok today). ChatGPT never invents `off`: Codex rejects it. A non-stale pin
- * with no published efforts keeps the ChatGPT transport list. Stale rows keep
- * only the intersection still published, or no levels after those were cleared.
- * A non-pin with no usable published efforts returns no levels. A later
- * Grok-constant change should keep this function.
+ * whose efforts were omitted (`undefined`) keeps the ChatGPT transport list.
+ * An empty array is an already-computed selectable set and stays empty, including for that pin.
+ * Stale rows keep only the intersection still published, or no levels after
+ * those were cleared. A non-pin with no usable published efforts returns no
+ * levels. A later Grok-constant change should keep this function.
  */
 export function selectableSubscriptionEfforts(record: ModelRecord): ReasoningEffort[] {
   if (record.routeId !== 'grok-subscription' && record.routeId !== 'chatgpt-subscription') {
@@ -293,7 +294,7 @@ export function selectableSubscriptionEfforts(record: ModelRecord): ReasoningEff
   if (record.metadata.stale) return published;
   if (
     record.id === subscriptionPinnedDefault(record.routeId) &&
-    (record.metadata.source !== SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE || !record.efforts?.length)
+    (record.metadata.source !== SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE || record.efforts === undefined)
   ) {
     return [...transport];
   }
@@ -307,7 +308,9 @@ export function withSelectableSubscriptionEfforts(catalog: ModelCatalog): ModelC
     ...catalog,
     models: catalog.models.map((model) => {
       if (model.metadata.source !== SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE) return model;
-      // Empty stays [] so operator copy says none. Do not write this view to disk.
+      // Omitted stays omitted so operator copy can say unknown. Empty stays []
+      // so it says none. Do not write this view to disk.
+      if (model.efforts === undefined) return model;
       return { ...model, efforts: selectableSubscriptionEfforts(model) };
     }),
   };
