@@ -20,7 +20,7 @@ The same runtime drives several run modes — pick by how you want to reach it:
 
 Current state lives in [`docs/07-history/state/`](docs/07-history/state/) — newest dated file is canonical.
 
-- **Latest snapshot:** [SDK 0.15.0 / SOV 0.6.78](docs/07-history/state/2026-10-12-sdk-release-015.md) — verified public artifacts, permissioned skills runtime, immutable manifest provenance and consumer source pins.
+- **Current cut:** SDK 0.15.1 / SOV 0.6.79 — [release manifest](docs/05-conventions/release-manifest.md), Grok subscription pin and subscription catalog policy. The previous published baseline is [SDK 0.15.0 / SOV 0.6.78](docs/07-history/state/2026-10-12-sdk-release-015.md).
 - **Release history:** [`CHANGELOG.md`](CHANGELOG.md) records SDK and harness changes separately. Dated build snapshots and older phase/revert records remain in [`docs/07-history/state/`](docs/07-history/state/).
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).
@@ -33,7 +33,7 @@ For day-to-day operation see [`docs/03-cli-reference/usage.md`](docs/03-cli-refe
 
 ## Install the SDK
 
-For an embedded library, use the [SDK package installation and quickstart](packages/sdk/README.md). SDK **0.15.0** is published as a checksummed tarball in SOV v0.6.78; CLI installation below installs the application, not a library dependency. The SDK supports Node >=20.19.0 and Bun >=1.2.0.
+For an embedded library, use the [SDK package installation and quickstart](packages/sdk/README.md). SDK **0.15.1** is selected for the checksummed SOV v0.6.79 release tarball; CLI installation below installs the application, not a library dependency. The SDK supports Node >=20.19.0 and Bun >=1.2.0.
 
 ## Install on a new machine
 
