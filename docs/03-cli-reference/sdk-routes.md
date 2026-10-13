@@ -74,8 +74,9 @@ A backend model refusal does not change the model or payment path.
 
 ChatGPT Codex effort levels are `low`, `medium`, `high` and `max` (`xhigh` on the wire).
 `off` is refused for this backend. Grok subscription exposes the same four levels
-(`xhigh` on the wire for `max`). `auto` resolves to `high`. A stored or absent
-`thinking.effort` of `off` selects `high` on this route. `--effort off` throws
+(`xhigh` on the wire for `max`). `auto` or an omitted effort uses the route
+default. That default is `high` only when `thinking.effort` is missing or `off`.
+A stored `low`, `medium`, or `max` wins. `--effort off` throws
 `effort_unsupported` and does not fetch.
 The route accepts only `grok-4.7` and `grok-4.6`. `grok-4.7` keeps the documented
 context window of 500000. `grok-4.6` has no published window and stays on the

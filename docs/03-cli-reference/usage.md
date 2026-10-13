@@ -1763,11 +1763,11 @@ Grok subscription (`grok-subscription`) sends Responses `reasoning.effort` for
 `grok-4.7` and `grok-4.6`. `grok-4.7` keeps the documented context window of
 500000. `grok-4.6` has no published window and stays on the 32768 unknown floor.
 A subscription refresh does not fill that window. It does not send
-`reasoning_effort`. `auto`, or an omitted effort, resolves to `high`. A stored
-or absent `thinking.effort` of `off` selects `high` on this route and is not a
-byte-identical request. `--effort off` throws `effort_unsupported` and does not
-fetch. Omitting the field is not called off, because these models cannot disable
-reasoning.
+`reasoning_effort`. `auto`, or an omitted effort, uses the route default. That
+default is `high` only when `thinking.effort` is missing or `off`, and that
+selection is not a byte-identical request. A stored `low`, `medium`, or `max`
+wins. `--effort off` throws `effort_unsupported` and does not fetch. Omitting
+the field is not called off, because these models cannot disable reasoning.
 
 | Caller value | This route | Wire `reasoning.effort` |
 |---|---|---|
@@ -1775,7 +1775,7 @@ reasoning.
 | `medium` | send | `medium` |
 | `high` | send | `high` |
 | `max` | send | `xhigh` |
-| `auto`, or effort omitted at route resolution | resolve to `high`, then send | `high` |
+| `auto`, or effort omitted at route resolution | use the route default: `high` when `thinking.effort` is missing or `off`; a stored `low`, `medium`, or `max` wins | that default (`max` is `xhigh`) |
 | stored or absent `thinking.effort` of `off` | select `high`, then send | `high` |
 | `--effort off` | `effort_unsupported`; do not fetch | do not omit the field and call that off |
 
@@ -2636,6 +2636,6 @@ sov auth status --route chatgpt-subscription --json
 
 Each response has `schemaVersion: 1`. Status performs no login, refresh, network request, or credential write. `present` means a local credential exists; it does not prove service entitlement. A locked or unavailable Keychain reports `unavailable`. Model catalogs are offline known examples and may be non-exhaustive. Known incompatible models or unsupported effort are refused. A backend rejection does not change route, payment method, or model.
 
-Set a route default with `sov config set routes.<route-id>.defaultModel <model>`. This overrides an API route's existing `providers.<provider>.model` setting. Subscription routes have their own defaults. ChatGPT supports low, medium, high, and max reasoning effort; max maps to xhigh. Grok subscription supports the same four levels; max maps to xhigh and auto resolves to high. A stored or absent `thinking.effort` of `off` selects high on this route. `--effort off` throws `effort_unsupported` and does not fetch. The route catalog reports the effective model and effort defaults.
+Set a route default with `sov config set routes.<route-id>.defaultModel <model>`. This overrides an API route's existing `providers.<provider>.model` setting. Subscription routes have their own defaults. ChatGPT supports low, medium, high, and max reasoning effort; max maps to xhigh. Grok subscription supports the same four levels; max maps to xhigh. `auto` or an omitted effort uses the route default, which is high only when `thinking.effort` is missing or `off`. A stored low, medium, or max wins. `--effort off` throws `effort_unsupported` and does not fetch. The route catalog reports the effective model and effort defaults.
 
 Login writes, refresh, and logout share an OS-account-and-service mutex under `~/.sov/auth-locks`. Profiles and `HARNESS_HOME` do not split the identity. Concurrent 401 replies rotate one rejected token generation only. Logout waits for a pending refresh and then deletes the credential. A delayed attended-login approval cannot restore a credential after logout. Waits and exchanges are bounded and cancellable. Dead process owners are recovered; live owners are never evicted merely because an exchange is slow. Injected credential ports must supply `lockDirectory` and `lockIdentity` for cross-process coordination; ports without them retain only an in-process mutex.
