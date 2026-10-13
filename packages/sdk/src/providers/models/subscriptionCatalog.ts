@@ -224,8 +224,11 @@ export function applySubscriptionAccountCatalog(
 
 /**
  * Payload efforts are selectable only when this transport already honors them.
- * Both routes use `SUBSCRIPTION_ROUTE_EFFORTS`. A list of only `off` stays `off`.
- * A later change to the Grok constant should keep this function.
+ * Both routes use `SUBSCRIPTION_ROUTE_EFFORTS`. An all-`off` transport stays `off`
+ * (Grok today). ChatGPT never invents `off`: Codex rejects it. A pin with no
+ * published efforts keeps the ChatGPT transport list. A non-pin with no usable
+ * published efforts returns no levels. A later Grok-constant change should keep
+ * this function.
  */
 export function selectableSubscriptionEfforts(record: ModelRecord): ReasoningEffort[] {
   if (record.routeId !== 'grok-subscription' && record.routeId !== 'chatgpt-subscription') {
@@ -239,7 +242,7 @@ export function selectableSubscriptionEfforts(record: ModelRecord): ReasoningEff
   const verified = record.id === subscriptionPinnedDefault(record.routeId) ? [...transport] : [];
   const unknown =
     record.metadata.stale || record.metadata.source !== SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE;
-  if (unknown || !record.efforts?.length) return verified.length ? verified : ['off'];
+  if (unknown || !record.efforts?.length) return verified;
   return transport.filter((level) => record.efforts?.includes(level));
 }
 

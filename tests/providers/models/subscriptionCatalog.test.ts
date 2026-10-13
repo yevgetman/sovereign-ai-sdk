@@ -20,6 +20,7 @@ import {
 } from '@yevgetman/sov-sdk/providers/models/subscriptionCatalog';
 import type { ModelCatalog, ModelRecord } from '@yevgetman/sov-sdk/providers/models/types';
 import { validateModelRequest } from '@yevgetman/sov-sdk/providers/models/validateRequest';
+import { RouteError } from '@yevgetman/sov-sdk/providers/routes/errors';
 import {
   SUBSCRIPTION_ROUTE_EFFORTS,
   getRoute,
@@ -41,6 +42,18 @@ import {
 
 const TOKEN_MATERIAL = /authorization|bearer|\bsk-|access_token|refresh_token/i;
 const listedAt = () => new Date(Date.now() - 60_000).toISOString();
+
+function omittedEffort(
+  route: ReturnType<typeof getRoute>,
+  input: Parameters<typeof validateRouteSelection>[1],
+): string {
+  try {
+    return validateRouteSelection(route, input).effort;
+  } catch (error) {
+    if (error instanceof RouteError) return error.code;
+    throw error;
+  }
+}
 
 function request(model: string, extras: Record<string, unknown> = {}) {
   return {
@@ -415,6 +428,57 @@ describe('subscription catalog policy', () => {
     };
     expect(settings.routes['grok-subscription'].defaultModel).toBe('grok-4.6');
     expect(settings.providers.xai.model).toBe('grok-4.6');
+  });
+
+  test('a non-pin chatgpt account row does not resolve an omitted effort to off', () => {
+    const applied = applySubscriptionAccountCatalog('chatgpt-subscription', {
+      status: 200,
+      body: { models: [{ id: 'gpt-6.1-sol', output_modalities: ['text'] }] },
+    });
+    const row = applied.models.find((model) => model.id === 'gpt-6.1-sol');
+    if (!row) throw new Error('missing chatgpt row');
+    expect(selectableSubscriptionEfforts(row)).not.toEqual(['off']);
+    const route = getRoute('chatgpt-subscription');
+    const codex = ['low', 'medium', 'high', 'max'] as const;
+    const resolved = omittedEffort(route, { model: row.id, modelMetadata: row });
+    expect(
+      resolved === 'effort_unsupported' || (codex as readonly string[]).includes(resolved),
+    ).toBe(true);
+    expect(resolved).not.toBe('off');
+
+    const partial = applySubscriptionAccountCatalog('chatgpt-subscription', {
+      status: 200,
+      body: {
+        models: [
+          {
+            id: 'gpt-6.1-sol',
+            output_modalities: ['text'],
+            capabilities: { reasoning_effort: ['low'] },
+          },
+        ],
+      },
+    });
+    const partialRow = partial.models[0];
+    if (!partialRow) throw new Error('missing partial chatgpt row');
+    const missedDefault = omittedEffort(route, {
+      model: partialRow.id,
+      modelMetadata: partialRow,
+    });
+    expect(
+      missedDefault === 'effort_unsupported' ||
+        (codex as readonly string[]).includes(missedDefault),
+    ).toBe(true);
+    expect(missedDefault).not.toBe('off');
+
+    const pin = applySubscriptionAccountCatalog('chatgpt-subscription', {
+      status: 200,
+      body: { models: [{ id: 'gpt-5.3-codex', output_modalities: ['text'] }] },
+    }).models[0];
+    if (!pin) throw new Error('missing pin');
+    expect(selectableSubscriptionEfforts(pin)).toEqual(['low', 'medium', 'high', 'max']);
+    expect(validateRouteSelection(route, { model: pin.id, modelMetadata: pin }).effort).toBe(
+      route.defaultEffort,
+    );
   });
 
   test('a grok payload level absent from SUBSCRIPTION_ROUTE_EFFORTS.grok is not selectable', () => {
