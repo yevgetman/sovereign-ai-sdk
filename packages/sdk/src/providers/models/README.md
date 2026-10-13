@@ -57,8 +57,10 @@ are account-listed availability, not proof of a successful generation request.
 `createSubscriptionModelSource(routeId, accountKey?)` keeps ChatGPT and Grok
 subscription suggestions separate. No subscription catalog endpoint is known, so
 `discover` still throws `Subscription model discovery unavailable` and does not
-fetch. Explicit refresh returns unavailable with stale offline suggestions, never
-a current discovery timestamp. It does not borrow API records, start login, or
+fetch. Explicit refresh of a cold cache still returns unavailable bundled
+suggestions. When a timestamped account catalog already exists, failure returns
+that catalog as stale, keeps its `fetchedAt`, and tightens the rows. Failure
+does not mark the catalog current. It does not borrow API records, start login, or
 add Claude-Max HTTP support. The cache key is `${service}:${identity}`
 (default `SOV_SUB_CHATGPT:SOV_SUB_CHATGPT` or `SOV_SUB_GROK:SOV_SUB_GROK`).
 The disk id is the route id plus that string. It is never a token and never
