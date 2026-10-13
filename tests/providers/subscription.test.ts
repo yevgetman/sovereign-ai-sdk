@@ -1,6 +1,9 @@
 // Subscription logins: fake HTTP and a fake Keychain. No live OAuth.
 
 import { describe, expect, test } from 'bun:test';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { ChatGptSubscriptionProvider } from '@yevgetman/sov-sdk/providers/chatgpt';
 import { assertCodexUrl } from '@yevgetman/sov-sdk/providers/chatgpt';
 import { ClaudeMaxSubscriptionProvider } from '@yevgetman/sov-sdk/providers/claudeMax';
@@ -431,7 +434,7 @@ describe('login and logout', () => {
     expect(saved?.accessToken).toBe(SECRET);
   });
 
-  test('a throwing identity hook does not store the new chatgpt or grok credential', async () => {
+  test('a throwing identity hook does not roll back a committed chatgpt or grok credential', async () => {
     const order: string[] = [];
     const port = orderedPort(order, {
       accessToken: 'old-token',
@@ -445,9 +448,8 @@ describe('login and logout', () => {
       },
     });
     expect(code).toBe(1);
-    expect(order[0]).toBe('hook');
-    expect(order).not.toContain('write');
-    expect((await port.read('SOV_SUB_CHATGPT'))?.accessToken).toBe('old-token');
+    expect(order).toEqual(['write', 'hook']);
+    expect((await port.read('SOV_SUB_CHATGPT'))?.accessToken).toBe(SECRET);
 
     const grokOrder: string[] = [];
     const grokPort = orderedPort(grokOrder, {
@@ -462,9 +464,8 @@ describe('login and logout', () => {
       },
     });
     expect(grokCode).toBe(1);
-    expect(grokOrder[0]).toBe('hook');
-    expect(grokOrder).not.toContain('write');
-    expect((await grokPort.read('SOV_SUB_GROK'))?.accessToken).toBe('old-grok');
+    expect(grokOrder).toEqual(['write', 'hook']);
+    expect((await grokPort.read('SOV_SUB_GROK'))?.accessToken).toBe(SECRET);
   });
 
   test('a generation change before the login write commits does not clear the catalog', async () => {
@@ -514,6 +515,49 @@ describe('login and logout', () => {
     expect(catalog.cleared).toBe(false);
     expect(catalog.id).toBe('gpt-5.3-codex');
     expect((await port.read(KEYCHAIN_SERVICE.chatgpt))?.accessToken).toBe('old-token');
+  });
+
+  test('a credential write failure after device approval does not clear the catalog', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sov-login-catalog-'));
+    const catalogFile = join(
+      root,
+      'model-catalog',
+      'subscription',
+      'chatgpt-subscription',
+      'seed.json',
+    );
+    mkdirSync(dirname(catalogFile), { recursive: true });
+    writeFileSync(catalogFile, '{"id":"gpt-5.3-codex"}\n');
+    const backing = memoryPort({
+      accessToken: 'old-token',
+      refreshToken: 'old-refresh',
+      expiresAt: NOW + 1000,
+    });
+    let writes = 0;
+    let hookCalls = 0;
+    const port: SubscriptionCredentialPort = {
+      read: (key) => backing.read(key),
+      delete: (key) => backing.delete(key),
+      write: async () => {
+        writes += 1;
+        throw new Error('keychain write failed');
+      },
+    };
+    try {
+      const code = await loginSubscription('chatgpt', port, chatgptLoginIo(), {
+        onIdentityChanged() {
+          hookCalls += 1;
+          rmSync(dirname(catalogFile), { recursive: true, force: true });
+        },
+      });
+      expect(writes).toBe(1);
+      expect(code).toBe(1);
+      expect(hookCalls).toBe(0);
+      expect(existsSync(catalogFile)).toBe(true);
+      expect((await port.read(KEYCHAIN_SERVICE.chatgpt))?.accessToken).toBe('old-token');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test('logout during attended login prevents a late approval from restoring credentials', async () => {

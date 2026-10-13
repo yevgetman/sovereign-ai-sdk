@@ -90,11 +90,11 @@ export async function loginSubscription(
             if ((await credentialGeneration(port, key)) !== generation)
               throw new Error('login changed during device approval');
             if (io.signal?.aborted) throw abortError(io.signal);
-            // Under the credential lock. The hook must not take it again.
-            // A throw leaves the previous credential stored.
-            if (name === 'chatgpt' || name === 'grok') await hooks?.onIdentityChanged?.(name);
             await advanceCredentialGeneration(port, key);
             await port.write(key, record);
+            // Under the credential lock, after the write commits. The hook must
+            // not take the lock again, and a throw must not roll the write back.
+            if (name === 'chatgpt' || name === 'grok') await hooks?.onIdentityChanged?.(name);
           },
           io.signal ? { signal: io.signal } : {},
         ),
