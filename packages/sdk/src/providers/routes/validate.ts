@@ -1,7 +1,8 @@
-// Route model/effort validation (spec 2026-10-08 §4.2). Rejects KNOWN
-// incompatible choices before inference; unknown-but-plausible model ids pass
-// through so a backend rejection can surface as `model_unsupported` later.
-// `auto` (or an absent value) selects the route default.
+// Route model/effort validation (spec 2026-10-08 §4.2). Authoritative routes
+// refuse ids outside the allowlist. Other routes still reject known-incompatible
+// ids; unknown-but-plausible ids pass through so a backend rejection can surface
+// as `model_unsupported` later. `auto` or an omitted model selects the route
+// default only when `rejectedConfiguredDefault` is absent.
 
 import { REASONING_EFFORTS, type ReasoningEffort } from '../effort.js';
 import {
@@ -32,8 +33,8 @@ export type RouteSelectionInput = {
  * Validate a model/effort request for `route` and resolve `auto`.
  * Throws `RouteError` with code `model_unsupported` or `effort_unsupported`.
  * With no explicit effort, the route default is used when the chosen model
- * supports it. `off` is used only when `off` is actually supported. If neither
- * is supported, the selection is `effort_unsupported`.
+ * supports it. `off` is used only when that model supports it. If neither is
+ * supported, this throws `effort_unsupported`.
  */
 export function validateRouteSelection(
   route: RouteRecord,
@@ -56,6 +57,12 @@ export function effortsForModel(
   if (metadata?.metadata.source === SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE) {
     if (metadata.id !== model || metadata.provider !== route.provider)
       throw new RouteError('effort_unsupported', 'model metadata does not match request');
+    if (route.provider === 'grok') {
+      const grok = reasoningControlFor('grok', model, metadata);
+      if (metadata.capabilities.reasoning === 'unsupported') return [];
+      if (metadata.efforts?.length === 0) return [];
+      if (grok && grok.efforts.length === 0 && (metadata.efforts?.length ?? 0) > 0) return [];
+    }
     return selectableSubscriptionEfforts(metadata);
   }
   if (route.provider === 'anthropic')
@@ -75,7 +82,17 @@ export function effortsForModel(
 }
 
 function resolveModel(route: RouteRecord, requested: string | undefined): string {
-  if (requested === undefined || requested === AUTO_SELECTION) return route.defaultModel;
+  if (requested === undefined || requested === AUTO_SELECTION) {
+    const rejected = route.rejectedConfiguredDefault;
+    if (rejected !== undefined) {
+      throw new RouteError(
+        'model_unsupported',
+        `configured default model ${JSON.stringify(rejected)} in routes.${route.id}.defaultModel is not supported by route ${route.id}`,
+        { routeId: route.id },
+      );
+    }
+    return route.defaultModel;
+  }
   if (!MODEL_ID.test(requested)) {
     throw new RouteError('model_unsupported', `model id is not valid for route ${route.id}`, {
       routeId: route.id,

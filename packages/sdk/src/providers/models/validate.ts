@@ -79,7 +79,7 @@ export function validateModelRecords(
       const control = row.reasoningControl;
       if (
         !control ||
-        !['openrouter', 'openai', 'xai'].includes(control.parameter) ||
+        !['openrouter', 'openai', 'xai', 'grok'].includes(control.parameter) ||
         typeof control.disableSupported !== 'boolean' ||
         (control.binary !== undefined && typeof control.binary !== 'boolean') ||
         (control.maxWireValue !== undefined &&
@@ -174,7 +174,7 @@ export function validateModelRecords(
       const control = row.reasoningControl;
       if (
         !control ||
-        !['openrouter', 'openai', 'xai'].includes(control.parameter) ||
+        !['openrouter', 'openai', 'xai', 'grok'].includes(control.parameter) ||
         typeof control.disableSupported !== 'boolean' ||
         (control.binary !== undefined && typeof control.binary !== 'boolean') ||
         (control.maxWireValue !== undefined && !safeText(control.maxWireValue))

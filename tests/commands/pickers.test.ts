@@ -171,11 +171,11 @@ describe('/model — inline argument path', () => {
         status: 'unavailable' as const,
         body: {
           models: [
-            { id: 'grok-4.6', lifecycle: 'retired', output_modalities: ['text'] },
-            { id: 'grok-4.7', output_modalities: ['text'] },
+            { id: 'grok-4.7', lifecycle: 'retired', output_modalities: ['text'] },
+            { id: 'grok-4.6', output_modalities: ['text'] },
           ],
         },
-        kept: 'grok-4.7',
+        kept: 'grok-4.6',
       },
     ];
     for (const entry of cases) {

@@ -17,7 +17,7 @@ export const KEYCHAIN_SERVICE: Record<SubscriptionName, string> = {
  */
 export const SUBSCRIPTION_DEFAULT_MODEL: Record<Exclude<SubscriptionName, 'claude-max'>, string> = {
   chatgpt: 'gpt-5.3-codex',
-  grok: 'grok-4.6',
+  grok: 'grok-4.7',
 };
 
 export function isSubscriptionName(name: string): name is SubscriptionName {

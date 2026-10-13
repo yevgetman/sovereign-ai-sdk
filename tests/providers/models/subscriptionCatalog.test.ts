@@ -32,6 +32,10 @@ import {
 import { SUBSCRIPTION_DEFAULT_MODEL } from '@yevgetman/sov-sdk/providers/subscription/names';
 import type { SubscriptionCredentialPort } from '@yevgetman/sov-sdk/providers/subscription/port';
 import {
+  GROK_SUBSCRIPTION_PIN_SOURCE,
+  grokSubscriptionPin,
+} from '../../../packages/sdk/src/providers/models/grokPin.js';
+import {
   createModelDiscovery,
   fallbackModelCatalog,
 } from '../../../packages/sdk/src/providers/models/index.js';
@@ -123,9 +127,16 @@ describe('subscription catalog policy', () => {
       const catalog = await createModelDiscovery({ fetch }).refresh(source);
       expect(catalog.state).toBe('unavailable');
       expect(catalog.fetchedAt).toBeUndefined();
-      expect(catalog.models.every((model) => model.metadata.source === 'bundled-suggestions')).toBe(
-        true,
-      );
+      if (routeId === 'grok-subscription') {
+        expect(catalog.models.map((model) => model.id)).toEqual(['grok-4.7', 'grok-4.6']);
+        expect(
+          catalog.models.every((model) => model.metadata.source === GROK_SUBSCRIPTION_PIN_SOURCE),
+        ).toBe(true);
+      } else {
+        expect(
+          catalog.models.every((model) => model.metadata.source === 'bundled-suggestions'),
+        ).toBe(true);
+      }
       await expect(
         source.discover({ fetch, signal: new AbortController().signal }),
       ).rejects.toThrow('Subscription model discovery unavailable');
@@ -174,12 +185,12 @@ describe('subscription catalog policy', () => {
       });
       expect(applied.state).not.toBe('current');
       expect(applied.cacheableCurrent).toBe(false);
-      expect(applied.defaultModel).toBe('grok-4.6');
-      expect(applied.models.map((model) => model.id)).toEqual(['grok-4.6']);
+      expect(applied.defaultModel).toBe('grok-4.7');
+      expect(applied.models.map((model) => model.id)).toEqual(['grok-4.7', 'grok-4.6']);
       expect(applied.models.every((model) => model.auth === 'subscription')).toBe(true);
-      expect(applied.models.every((model) => model.metadata.source === 'bundled-suggestions')).toBe(
-        true,
-      );
+      expect(
+        applied.models.every((model) => model.metadata.source === GROK_SUBSCRIPTION_PIN_SOURCE),
+      ).toBe(true);
       expect(applied.models.every((model) => model.availability === 'unknown')).toBe(true);
       expect(JSON.stringify(applied)).not.toContain('grok-9');
       expect(TOKEN_MATERIAL.test(JSON.stringify(applied))).toBe(false);
@@ -197,33 +208,34 @@ describe('subscription catalog policy', () => {
   });
 
   test('a retired pin that is the only row is unavailable and not listed again', () => {
-    expect(SUBSCRIPTION_DEFAULT_MODEL.grok).toBe('grok-4.6');
+    expect(SUBSCRIPTION_DEFAULT_MODEL.grok).toBe('grok-4.7');
     const retired = applySubscriptionAccountCatalog('grok-subscription', {
       status: 200,
       listedAt: listedAt(),
       body: {
-        models: [{ id: 'grok-4.6', lifecycle: 'retired', output_modalities: ['text'] }],
+        models: [{ id: 'grok-4.7', lifecycle: 'retired', output_modalities: ['text'] }],
       },
     });
     expect(retired.state).toBe('unavailable');
     expect(retired.pinnedDefaultUnavailable).toBe(true);
-    expect(retired.models.map((model) => model.id)).not.toContain('grok-4.6');
+    expect(retired.models.map((model) => model.id)).not.toContain('grok-4.7');
+    expect(retired.models.map((model) => model.id)).toContain('grok-4.6');
     const stored = subscriptionAccountModelCatalog(retired);
-    expect(stored.pinnedDefault).toEqual({ id: 'grok-4.6', status: 'unavailable' });
-    expect(stored.models.map((model) => model.id)).not.toContain('grok-4.6');
-    expect(reportSubscriptionPin(stored)).toEqual({ id: 'grok-4.6', status: 'unavailable' });
+    expect(stored.pinnedDefault).toEqual({ id: 'grok-4.7', status: 'unavailable' });
+    expect(stored.models.map((model) => model.id)).not.toContain('grok-4.7');
+    expect(reportSubscriptionPin(stored)).toEqual({ id: 'grok-4.7', status: 'unavailable' });
     const page = modelPage(stored, { route: 'grok-subscription' });
     expect((page as { error?: { code?: string } }).error?.code).toBe('pinned_default_unavailable');
-    expect(page.models.map((model) => model.id)).not.toContain('grok-4.6');
+    expect(page.models.map((model) => model.id)).not.toContain('grok-4.7');
 
     for (const input of [
-      { status: 401, body: { models: [{ id: 'grok-4.6', output_modalities: ['text'] }] } },
+      { status: 401, body: { models: [{ id: 'grok-4.7', output_modalities: ['text'] }] } },
       { status: 200, body: { models: [] } },
     ]) {
       const ordinary = applySubscriptionAccountCatalog('grok-subscription', input);
       expect(ordinary.state).toBe('unavailable');
       expect(ordinary.pinnedDefaultUnavailable).toBe(false);
-      expect(ordinary.models.map((model) => model.id)).toContain('grok-4.6');
+      expect(ordinary.models.map((model) => model.id)).toEqual(['grok-4.7', 'grok-4.6']);
       const catalog = subscriptionAccountModelCatalog(ordinary);
       expect(catalog.pinnedDefault).toBeUndefined();
       expect(reportSubscriptionPin(catalog)).toBeUndefined();
@@ -239,10 +251,10 @@ describe('subscription catalog policy', () => {
       listedAt: listedAt(),
       body: {
         models: [
-          { id: 'grok-4.6', lifecycle: 'retired', output_modalities: ['text'] },
+          { id: 'grok-4.7', lifecycle: 'retired', output_modalities: ['text'] },
           { id: 'grok-video', output_modalities: ['video'], capabilities: { tools: true } },
           {
-            id: 'grok-4.7',
+            id: 'grok-4.6',
             output_modalities: ['text'],
             capabilities: { tools: true },
             max_input_tokens: 128_000,
@@ -251,8 +263,8 @@ describe('subscription catalog policy', () => {
       },
     });
     expect(applied.state).toBe('current');
-    expect(applied.models.map((model) => model.id)).toEqual(['grok-4.7']);
-    expect(applied.defaultModel).toBe('grok-4.6');
+    expect(applied.models.map((model) => model.id)).toEqual(['grok-4.6']);
+    expect(applied.defaultModel).toBe('grok-4.7');
     expect(applied.pinnedDefaultUnavailable).toBe(true);
     expect(applied.missingPinnedDefault).toBe(false);
     expect(applied.models[0]?.contextWindow).toBe(128_000);
@@ -395,17 +407,21 @@ describe('subscription catalog policy', () => {
     });
     const row = grok.models[0];
     if (!row) throw new Error('missing grok row');
-    expect(grok.missingPinnedDefault).toBe(true);
+    expect(grok.missingPinnedDefault).toBe(false);
     expect(grok.defaultModel).toBe(SUBSCRIPTION_DEFAULT_MODEL.grok);
     expect(row.efforts).toEqual(['off', 'low', 'high', 'max']);
     expect(row.capabilities.images).toBe('supported');
-    expect(selectableSubscriptionEfforts(row)).toEqual(['off']);
+    expect(selectableSubscriptionEfforts(row)).toEqual(['low', 'high', 'max']);
     const route = getRoute('grok-subscription');
     expect(validateRouteSelection(route, { model: 'grok-4.7', modelMetadata: row }).effort).toBe(
-      'off',
+      'high',
     );
+    expect(
+      validateRouteSelection(route, { model: 'grok-4.7', effort: 'high', modelMetadata: row })
+        .effort,
+    ).toBe('high');
     expect(() =>
-      validateRouteSelection(route, { model: 'grok-4.7', effort: 'high', modelMetadata: row }),
+      validateRouteSelection(route, { model: 'grok-4.7', effort: 'off', modelMetadata: row }),
     ).toThrow(/effort_unsupported|not supported/);
     expect(() =>
       validateModelRequest(
@@ -461,11 +477,11 @@ describe('subscription catalog policy', () => {
       validateRouteSelection(chat, { model: next.id, effort: 'high', modelMetadata: next }),
     ).toThrow();
     expect(validateRouteSelection(chat, { effort: 'high' }).effort).toBe('high');
-    expect(getRoute('grok-subscription').modelsAuthoritative).toBe(false);
+    expect(getRoute('grok-subscription').modelsAuthoritative).toBe(true);
     expect(getRoute('chatgpt-subscription').modelsAuthoritative).toBe(false);
-    expect(getRoute('grok-subscription').models).toEqual(['grok-4.6']);
+    expect(getRoute('grok-subscription').models).toEqual(['grok-4.7', 'grok-4.6']);
     expect(getRoute('chatgpt-subscription').models).toEqual(['gpt-5.3-codex']);
-    expect(SUBSCRIPTION_DEFAULT_MODEL).toEqual({ chatgpt: 'gpt-5.3-codex', grok: 'grok-4.6' });
+    expect(SUBSCRIPTION_DEFAULT_MODEL).toEqual({ chatgpt: 'gpt-5.3-codex', grok: 'grok-4.7' });
     const settings = {
       routes: { 'grok-subscription': { defaultModel: 'grok-4.6' } },
       providers: { xai: { model: 'grok-4.6' }, openai: { model: 'gpt-5.3-codex' } },
@@ -570,18 +586,17 @@ describe('subscription catalog policy', () => {
     if (!row?.efforts) throw new Error('missing grok efforts');
     expect(row.efforts).toContain('high');
     expect(row.efforts).toContain('max');
-    expect(selectableSubscriptionEfforts(row)).toEqual(['off']);
+    expect(selectableSubscriptionEfforts(row)).toEqual(['low', 'high', 'max']);
     const catalog = subscriptionAccountModelCatalog(applied);
     const page = modelPage(catalog, { route: 'grok-subscription' });
-    expect(page.models[0]?.efforts).not.toContain('high');
-    expect(page.models[0]?.efforts).toEqual(['off']);
+    expect(page.models[0]?.efforts).toEqual(['low', 'high', 'max']);
     const route = getRoute('grok-subscription');
-    expect(
-      validateRouteSelection(route, { model: row.id, effort: 'off', modelMetadata: row }).effort,
-    ).toBe('off');
     expect(() =>
-      validateRouteSelection(route, { model: row.id, effort: 'high', modelMetadata: row }),
+      validateRouteSelection(route, { model: row.id, effort: 'off', modelMetadata: row }),
     ).toThrow(/effort_unsupported|not supported/);
+    expect(
+      validateRouteSelection(route, { model: row.id, effort: 'high', modelMetadata: row }).effort,
+    ).toBe('high');
     expect(row.efforts).toEqual(['off', 'low', 'high', 'max']);
 
     const home = mkdtempSync(join(tmpdir(), 'sov-sub-efforts-'));
@@ -590,10 +605,11 @@ describe('subscription catalog policy', () => {
       const source = createSubscriptionModelSource('grok-subscription');
       await cache.set(`${source.routeId}:${source.cacheKey}`, catalog);
       const snapshot = readModelCatalogSnapshot('grok-subscription', {}, home);
-      expect(snapshot.models.find((model) => model.id === 'grok-4.7')?.efforts).not.toContain(
+      expect(snapshot.models.find((model) => model.id === 'grok-4.7')?.efforts).toEqual([
+        'low',
         'high',
-      );
-      expect(snapshot.models.find((model) => model.id === 'grok-4.7')?.efforts).toEqual(['off']);
+        'max',
+      ]);
       const stored = await cache.get(`${source.routeId}:${source.cacheKey}`);
       expect(stored?.models[0]?.efforts).toContain('high');
     } finally {
@@ -767,7 +783,7 @@ describe('subscription catalog policy', () => {
   });
 
   test('a grok payload level absent from SUBSCRIPTION_ROUTE_EFFORTS.grok is not selectable', () => {
-    expect(SUBSCRIPTION_ROUTE_EFFORTS.grok).toEqual(['off']);
+    expect(SUBSCRIPTION_ROUTE_EFFORTS.grok).toEqual(['low', 'medium', 'high', 'max']);
     const row = normalizeSubscriptionCatalogRow(
       {
         id: 'grok-4.7',
@@ -779,22 +795,22 @@ describe('subscription catalog policy', () => {
     );
     if (!row?.efforts) throw new Error('missing grok efforts');
     const selectable = selectableSubscriptionEfforts(row);
-    expect(selectable).toEqual(['off']);
+    expect(selectable).toEqual(['low', 'medium', 'high', 'max']);
+    expect(selectable).not.toContain('off');
     for (const level of row.efforts) {
       if (!SUBSCRIPTION_ROUTE_EFFORTS.grok.includes(level)) expect(selectable).not.toContain(level);
     }
     const highOnly: ModelRecord = { ...row, efforts: ['high'] };
-    expect(selectableSubscriptionEfforts(highOnly)).toEqual(['off']);
-    expect(selectableSubscriptionEfforts(highOnly)).not.toContain('high');
+    expect(selectableSubscriptionEfforts(highOnly)).toEqual(['high']);
     const stale: ModelRecord = { ...row, metadata: { ...row.metadata, stale: true } };
-    expect(selectableSubscriptionEfforts(stale)).toEqual(['off']);
-    expect(selectableSubscriptionEfforts(stale)).not.toContain('low');
+    expect(selectableSubscriptionEfforts(stale)).toEqual(['low', 'medium', 'high', 'max']);
+    expect(selectableSubscriptionEfforts(stale)).not.toContain('off');
     const bundled: ModelRecord = {
       ...row,
       metadata: { source: 'bundled-suggestions', stale: false },
     };
-    expect(selectableSubscriptionEfforts(bundled)).toEqual(['off']);
-    expect(selectableSubscriptionEfforts(bundled)).not.toContain('max');
+    expect(selectableSubscriptionEfforts(bundled)).toEqual(['low', 'medium', 'high', 'max']);
+    expect(selectableSubscriptionEfforts(bundled)).toContain('max');
   });
 
   test('stale subscription rows do not keep expanded tools, effort, or context', () => {
@@ -825,7 +841,7 @@ describe('subscription catalog policy', () => {
     expect(aged.models[0]?.contextWindow).toBeUndefined();
     expect(aged.models[0]?.efforts).toBeUndefined();
     expect(aged.models[0]?.metadata.source).toBe(SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE);
-    expect(selectableSubscriptionEfforts(aged.models[0] as ModelRecord)).toEqual(['off']);
+    expect(selectableSubscriptionEfforts(aged.models[0] as ModelRecord)).toEqual([]);
   });
 
   test('a stale chatgpt pin does not regain cleared efforts', () => {
@@ -896,47 +912,49 @@ describe('subscription catalog disk isolation', () => {
       const missing = applySubscriptionAccountCatalog('grok-subscription', {
         status: 200,
         listedAt: listedAt(),
-        body: { models: [{ id: 'grok-4.7', output_modalities: ['text'] }] },
+        body: { models: [{ id: 'grok-account', output_modalities: ['text'] }] },
       });
-      expect(missing.defaultModel).toBe('grok-4.6');
+      expect(missing.defaultModel).toBe('grok-4.7');
       expect(missing.missingPinnedDefault).toBe(true);
       await cache.set(key, diskShape('grok-subscription', missing.models, missing.listedAt));
       const missingSnapshot = readModelCatalogSnapshot('grok-subscription', {}, home);
       const missingPage = modelPage(missingSnapshot, { route: 'grok-subscription' });
-      expect(JSON.stringify(missingPage)).toContain('grok-4.6');
+      expect(JSON.stringify(missingPage)).toContain('grok-4.7');
       expect(JSON.stringify(missingPage).toLowerCase()).toContain('missing');
       expect(JSON.stringify(missingPage).toLowerCase()).toContain('default');
       expect(missingPage).toHaveProperty('error');
-      expect(JSON.stringify(missingSnapshot)).toContain('grok-4.6');
+      expect(JSON.stringify(missingSnapshot)).toContain('grok-4.7');
       expect(JSON.stringify(missingSnapshot).toLowerCase()).toContain('missing');
-      expect(SUBSCRIPTION_DEFAULT_MODEL.grok).toBe('grok-4.6');
+      expect(missingSnapshot.models.map((model) => model.id)).toEqual(['grok-account']);
+      expect(SUBSCRIPTION_DEFAULT_MODEL.grok).toBe('grok-4.7');
 
       const retired = applySubscriptionAccountCatalog('grok-subscription', {
         status: 200,
         listedAt: listedAt(),
         body: {
           models: [
-            { id: 'grok-4.6', lifecycle: 'retired', output_modalities: ['text'] },
-            { id: 'grok-4.7', output_modalities: ['text'] },
+            { id: 'grok-4.7', lifecycle: 'retired', output_modalities: ['text'] },
+            { id: 'grok-4.6', output_modalities: ['text'] },
           ],
         },
       });
-      expect(retired.defaultModel).toBe('grok-4.6');
+      expect(retired.defaultModel).toBe('grok-4.7');
       expect(retired.pinnedDefaultUnavailable).toBe(true);
-      expect(retired.models.map((model) => model.id)).toEqual(['grok-4.7']);
+      expect(retired.models.map((model) => model.id)).toEqual(['grok-4.6']);
       const retiredStored = subscriptionAccountModelCatalog(retired);
-      expect(retiredStored.pinnedDefault).toEqual({ id: 'grok-4.6', status: 'unavailable' });
-      expect(retiredStored.models.map((model) => model.id)).toEqual(['grok-4.7']);
+      expect(retiredStored.pinnedDefault).toEqual({ id: 'grok-4.7', status: 'unavailable' });
+      expect(retiredStored.models.map((model) => model.id)).toEqual(['grok-4.6']);
       await cache.set(key, retiredStored);
       const retiredSnapshot = readModelCatalogSnapshot('grok-subscription', {}, home);
       const retiredPage = modelPage(retiredSnapshot, { route: 'grok-subscription' });
       const retiredText = JSON.stringify({ retiredSnapshot, retiredPage });
-      expect(retiredText).toContain('grok-4.6');
+      expect(retiredText).toContain('grok-4.7');
       expect(retiredText.toLowerCase()).toContain('unavailable');
-      expect(retiredText).not.toContain('"defaultModel":"grok-4.7"');
+      expect(retiredText).toContain('"defaultModel":"grok-4.7"');
       expect(retiredPage).toHaveProperty('error');
-      expect((retiredPage as { defaultModel?: string }).defaultModel).toBe('grok-4.6');
-      expect(SUBSCRIPTION_DEFAULT_MODEL.grok).toBe('grok-4.6');
+      expect((retiredPage as { defaultModel?: string }).defaultModel).toBe('grok-4.7');
+      expect(retiredSnapshot.models.map((model) => model.id)).not.toContain('grok-4.7');
+      expect(SUBSCRIPTION_DEFAULT_MODEL.grok).toBe('grok-4.7');
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -1026,7 +1044,7 @@ describe('subscription catalog disk isolation', () => {
         body: {
           models: [
             {
-              id: 'grok-4.7',
+              id: 'grok-account-a',
               output_modalities: ['text'],
               capabilities: { tools: true },
             },
@@ -1035,7 +1053,7 @@ describe('subscription catalog disk isolation', () => {
       });
       const stored = subscriptionAccountModelCatalog(applied);
       expect(stored.state).toBe('current');
-      expect(stored.models.some((model) => model.id === 'grok-4.7')).toBe(true);
+      expect(stored.models.some((model) => model.id === 'grok-account-a')).toBe(true);
       await disk.set(key, stored);
 
       let gets = 0;
@@ -1055,18 +1073,29 @@ describe('subscription catalog disk isolation', () => {
 
       await createModelDiscovery({ cache }).refresh(source);
       const later = await disk.get(key);
-      expect(JSON.stringify(later ?? {})).not.toContain('grok-4.7');
+      expect(JSON.stringify(later ?? {})).not.toContain('grok-account-a');
       const routeDir = join(root, 'subscription', 'grok-subscription');
       try {
         for (const name of readdirSync(routeDir)) {
           if (!name.endsWith('.json')) continue;
-          expect(readFileSync(join(routeDir, name), 'utf8')).not.toContain('grok-4.7');
+          expect(readFileSync(join(routeDir, name), 'utf8')).not.toContain('grok-account-a');
         }
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
       const reread = await createModelDiscovery({ cache: disk }).read(source);
-      expect(reread.models.some((model) => model.id === 'grok-4.7')).toBe(false);
+      expect(
+        reread.models.some(
+          (model) => model.metadata.source === SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE,
+        ),
+      ).toBe(false);
+      expect(reread.models.some((model) => model.id === 'grok-account-a')).toBe(false);
+      expect(
+        reread.models.some(
+          (model) =>
+            model.id === 'grok-4.7' && model.metadata.source === GROK_SUBSCRIPTION_PIN_SOURCE,
+        ),
+      ).toBe(true);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -1132,15 +1161,28 @@ describe('subscription catalog disk isolation', () => {
       }).refresh(source);
       expect(fetches).toBe(0);
       expect(refreshed.state).not.toBe('current');
+      expect(refreshed.models.some((model) => model.id === 'grok-4.7')).toBe(true);
       expect(refreshed.models.some((model) => model.id === 'grok-4.6')).toBe(true);
       expect(fallbackModelCatalog('grok-subscription').models.map((model) => model.id)).toEqual([
+        'grok-4.7',
         'grok-4.6',
       ]);
       const negative = await readModelCatalog('grok-subscription', {}, true, cacheA);
       expect(negative.state).not.toBe('current');
-      expect(negative.models.every((model) => model.capabilities.tools !== 'supported')).toBe(true);
-      expect(negative.models.every((model) => model.contextWindow === undefined)).toBe(true);
-      expect(negative.models.some((model) => model.id === 'grok-4.6')).toBe(true);
+      const negativePins = negative.models.filter(
+        (model) => model.metadata.source === GROK_SUBSCRIPTION_PIN_SOURCE,
+      );
+      const negativeAccounts = negative.models.filter(
+        (model) => model.metadata.source === SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE,
+      );
+      expect(negativePins.map((model) => model.id)).toEqual(['grok-4.7', 'grok-4.6']);
+      expect(negativePins.find((model) => model.id === 'grok-4.7')?.contextWindow).toBe(500_000);
+      expect(negativePins.find((model) => model.id === 'grok-4.6')?.contextWindow).toBeUndefined();
+      expect(negativePins.every((model) => model.capabilities.tools === 'supported')).toBe(true);
+      expect(negativeAccounts.every((model) => model.capabilities.tools !== 'supported')).toBe(
+        true,
+      );
+      expect(negativeAccounts.every((model) => model.contextWindow === undefined)).toBe(true);
       const negativeFiles = readdirSync(join(rootA, 'subscription', 'grok-subscription'));
       for (const name of negativeFiles) {
         const text = readFileSync(join(rootA, 'subscription', 'grok-subscription', name), 'utf8');
@@ -1173,10 +1215,13 @@ describe('subscription catalog disk isolation', () => {
       const seenA = readModelCatalogSnapshot('grok-subscription', {}, homeA);
       expect(seenA.models.some((model) => model.id === 'grok-4.7')).toBe(true);
       const seenB = readModelCatalogSnapshot('grok-subscription', {}, homeB);
-      expect(seenB.models.some((model) => model.id === 'grok-4.7')).toBe(false);
-      expect(seenB.models.every((model) => model.metadata.source === 'bundled-suggestions')).toBe(
-        true,
-      );
+      expect(seenB.models.map((model) => model.id)).toEqual(['grok-4.7', 'grok-4.6']);
+      expect(
+        seenB.models.every((model) => model.metadata.source === GROK_SUBSCRIPTION_PIN_SOURCE),
+      ).toBe(true);
+      expect(
+        seenB.models.some((model) => model.metadata.source === SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE),
+      ).toBe(false);
 
       const apiCatalog = fallbackModelCatalog('openai-api');
       apiCatalog.state = 'current';
@@ -1505,16 +1550,56 @@ describe('subscription catalog disk isolation', () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  test('a non-current grok catalog keeps the publisher pin and rejects an expanded account row', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'sov-sub-pin-guard-'));
+    try {
+      const root = join(home, 'model-catalog');
+      const cache = diskModelCache(root);
+      const source = createSubscriptionModelSource('grok-subscription');
+      const key = `${source.routeId}:${source.cacheKey}`;
+      const pin = grokSubscriptionPin('grok-4.7');
+      await cache.set(key, {
+        version: 1,
+        routeId: 'grok-subscription',
+        state: 'unavailable',
+        models: [pin],
+      });
+      const stored = await cache.get(key);
+      expect(stored?.models.map((model) => model.id)).toEqual(['grok-4.7']);
+      expect(stored?.models[0]?.capabilities.tools).toBe('supported');
+      expect(stored?.models[0]?.contextWindow).toBe(500_000);
+      const account = applySubscriptionAccountCatalog('grok-subscription', {
+        listedAt: listedAt(),
+        body: {
+          models: [
+            { id: 'grok-account', output_modalities: ['text'], capabilities: { tools: true } },
+          ],
+        },
+      }).models[0];
+      if (!account) throw new Error('missing account row');
+      await expect(
+        cache.set(key, {
+          version: 1,
+          routeId: 'grok-subscription',
+          state: 'unavailable',
+          models: [{ ...account, metadata: { ...account.metadata, stale: true } }],
+        }),
+      ).rejects.toThrow('Negative subscription cache cannot expand capabilities');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
 
 test('a live text row keeps the subscription pin available beside a dropped duplicate', () => {
   const text = {
-    id: 'grok-4.6',
+    id: 'grok-4.7',
     output_modalities: ['text'],
     capabilities: { tools: true },
   };
-  const retired = { id: 'grok-4.6', lifecycle: 'retired', output_modalities: ['text'] };
-  const video = { id: 'grok-4.6', output_modalities: ['video'] };
+  const retired = { id: 'grok-4.7', lifecycle: 'retired', output_modalities: ['text'] };
+  const video = { id: 'grok-4.7', output_modalities: ['video'] };
   for (const models of [
     [text, retired],
     [retired, text],
@@ -1524,7 +1609,7 @@ test('a live text row keeps the subscription pin available beside a dropped dupl
     const applied = applySubscriptionAccountCatalog('grok-subscription', { body: { models } });
     expect(applied.state).toBe('current');
     expect(applied.pinnedDefaultUnavailable).toBe(false);
-    expect(applied.models.map((model) => model.id)).toEqual(['grok-4.6']);
+    expect(applied.models.map((model) => model.id)).toEqual(['grok-4.7']);
     expect(applied.models[0]?.capabilities.tools).toBe('supported');
     const stored = subscriptionAccountModelCatalog(applied);
     expect(stored.pinnedDefault).toBeUndefined();
@@ -1532,19 +1617,20 @@ test('a live text row keeps the subscription pin available beside a dropped dupl
     expect(
       reportSubscriptionPin({
         ...stored,
-        pinnedDefault: { id: 'grok-4.6', status: 'unavailable' },
+        pinnedDefault: { id: 'grok-4.7', status: 'unavailable' },
       }),
     ).toBeUndefined();
   }
 
   const retiredOnly = applySubscriptionAccountCatalog('grok-subscription', {
-    body: { models: [{ id: 'grok-4.6', lifecycle: 'retired', output_modalities: ['text'] }] },
+    body: { models: [{ id: 'grok-4.7', lifecycle: 'retired', output_modalities: ['text'] }] },
   });
   expect(retiredOnly.state).toBe('unavailable');
   expect(retiredOnly.pinnedDefaultUnavailable).toBe(true);
-  expect(retiredOnly.models.map((model) => model.id)).not.toContain('grok-4.6');
+  expect(retiredOnly.models.map((model) => model.id)).not.toContain('grok-4.7');
+  expect(retiredOnly.models.map((model) => model.id)).toContain('grok-4.6');
   expect(reportSubscriptionPin(subscriptionAccountModelCatalog(retiredOnly))).toEqual({
-    id: 'grok-4.6',
+    id: 'grok-4.7',
     status: 'unavailable',
   });
 });

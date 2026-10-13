@@ -17,24 +17,31 @@ const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
-function fixture(provider: LLMProvider, mutate?: (r: Runtime) => void) {
+function fixture(
+  provider: LLMProvider,
+  mutate?: (r: Runtime) => void,
+  selection?: { routeId?: string; model?: string; effort?: 'off' | 'high' },
+) {
   const home = mkdtempSync(join(tmpdir(), 'sdk-run-'));
   dirs.push(home);
   const db = join(home, 'sessions.db');
-  const route = getRoute('openai-api', {});
+  const routeId = selection?.routeId ?? 'openai-api';
+  const model = selection?.model ?? 'gpt-4.1';
+  const effort = selection?.effort ?? 'off';
+  const route = getRoute(routeId, {});
   const resolve: NonNullable<SdkRunDependencies['resolve']> = async () => ({
     route,
-    model: 'gpt-4.1',
-    effort: 'off',
+    model,
+    effort,
     provider,
     resolved: {
       transport: provider as Transport,
       client: provider,
       baseUrl: 'mock://',
-      model: 'gpt-4.1',
+      model,
       contextLength: 200000,
       authType: 'api_key',
-      metadata: { provider: 'openai', apiMode: 'openai', purpose: 'main' },
+      metadata: { provider: provider.name, apiMode: 'openai', purpose: 'main' },
     },
   });
   const runtime: NonNullable<SdkRunDependencies['runtime']> = async (opts) => {
@@ -511,6 +518,178 @@ test('incompatible signed Anthropic history is refused before new user row or in
     expect(reopened.loadMessages(id)).toHaveLength(1);
   } finally {
     reopened.close();
+  }
+});
+
+test('stored encrypted reasoning resumes on grok subscription and is refused elsewhere', async () => {
+  const block = {
+    type: 'encrypted_reasoning' as const,
+    encryptedContent: 'cipher-value',
+    id: 'rs_1',
+  };
+  async function resume(route: string, providerName: string, model: string) {
+    let calls = 0;
+    const seen: string[] = [];
+    const provider: LLMProvider = {
+      name: providerName,
+      async *stream(req) {
+        calls += 1;
+        seen.push(JSON.stringify(req.messages));
+        yield { type: 'message_start' };
+        const message: AssistantMessage = {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'ok' }],
+        };
+        yield { type: 'assistant_message', message };
+        return message;
+      },
+    };
+    const f = fixture(provider, undefined, {
+      routeId: route,
+      model,
+      effort: route === 'grok-subscription' ? 'high' : 'off',
+    });
+    const db = SessionDb.open({ path: f.db });
+    const id = db.createSession({ provider: providerName, model });
+    db.saveMessage(id, {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'earlier' }, block],
+    });
+    db.close();
+    const c = capture();
+    const code = await runSdkRunCommand({ ...opts, route, resume: id }, c.io, f.deps);
+    const reopened = SessionDb.open({ path: f.db });
+    let stored = 0;
+    try {
+      stored = reopened.loadMessages(id).length;
+    } finally {
+      reopened.close();
+    }
+    return { code, calls, seen, events: c.events, stored };
+  }
+  const allowed = await resume('grok-subscription', 'grok', 'grok-4.7');
+  expect(allowed.code).toBe(0);
+  expect(allowed.calls).toBe(1);
+  expect(allowed.seen[0]).toContain('cipher-value');
+  for (const [route, name, model] of [
+    ['chatgpt-subscription', 'chatgpt', 'gpt-5.3-codex'],
+    ['grok-api', 'xai', 'grok-4.6'],
+  ] as const) {
+    const refused = await resume(route, name, model);
+    expect(refused.calls).toBe(0);
+    expect(refused.code).toBe(2);
+    expect(refused.stored).toBe(1);
+    expect(refused.events.at(-1)).toMatchObject({ code: 'unsupported_input' });
+  }
+});
+
+test('rejected grok route default is named; explicit grok-4.7 runs; other unsupported models stay generic', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'sdk-run-grok-default-'));
+  dirs.push(home);
+  const configPath = join(home, 'config.json');
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      routes: { 'grok-subscription': { defaultModel: 'grok-4.5' } },
+    }),
+  );
+  const prevConfig = process.env.HARNESS_CONFIG;
+  const prevHome = process.env.HARNESS_HOME;
+  process.env.HARNESS_CONFIG = configPath;
+  process.env.HARNESS_HOME = home;
+  const base = {
+    json: true,
+    stdin: true,
+    route: 'grok-subscription',
+    inputFormat: 'json',
+    toolset: 'chat',
+  };
+  const restore = () => {
+    if (prevConfig === undefined) Reflect.deleteProperty(process.env, 'HARNESS_CONFIG');
+    else process.env.HARNESS_CONFIG = prevConfig;
+    if (prevHome === undefined) Reflect.deleteProperty(process.env, 'HARNESS_HOME');
+    else process.env.HARNESS_HOME = prevHome;
+  };
+  try {
+    const omitted = capture();
+    expect(await runSdkRunCommand(base, omitted.io)).toBe(2);
+    const omittedError = omitted.events.at(-1);
+    expect(omittedError).toMatchObject({ type: 'turn.error', code: 'model_unsupported' });
+    expect(String(omittedError?.error)).toContain('routes.grok-subscription.defaultModel');
+
+    const unknown = capture();
+    expect(await runSdkRunCommand({ ...base, model: 'not-a-grok' }, unknown.io)).toBe(2);
+    expect(unknown.events.at(-1)).toMatchObject({
+      type: 'turn.error',
+      code: 'model_unsupported',
+      error: 'Model is not supported by the selected route.',
+    });
+
+    const provider: LLMProvider = {
+      name: 'grok',
+      async *stream() {
+        yield { type: 'message_start' };
+        const message: AssistantMessage = {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'ok' }],
+        };
+        yield { type: 'assistant_message', message };
+        return message;
+      },
+    };
+    const f = fixture(provider, undefined, {
+      routeId: 'grok-subscription',
+      model: 'grok-4.7',
+      effort: 'high',
+    });
+    const allowed = capture();
+    expect(await runSdkRunCommand({ ...base, model: 'grok-4.7' }, allowed.io, f.deps)).toBe(0);
+    expect(allowed.events.some((event) => event.type === 'turn.completed')).toBe(true);
+    expect(JSON.stringify(allowed.events)).not.toContain('routes.grok-subscription.defaultModel');
+  } finally {
+    restore();
+  }
+});
+
+test('grok subscription --effort off names the refused level and route', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'sdk-run-grok-effort-'));
+  dirs.push(home);
+  const prevConfig = process.env.HARNESS_CONFIG;
+  const prevHome = process.env.HARNESS_HOME;
+  process.env.HARNESS_CONFIG = join(home, 'missing-config.json');
+  process.env.HARNESS_HOME = home;
+  const restore = () => {
+    if (prevConfig === undefined) Reflect.deleteProperty(process.env, 'HARNESS_CONFIG');
+    else process.env.HARNESS_CONFIG = prevConfig;
+    if (prevHome === undefined) Reflect.deleteProperty(process.env, 'HARNESS_HOME');
+    else process.env.HARNESS_HOME = prevHome;
+  };
+  try {
+    const off = capture();
+    expect(
+      await runSdkRunCommand(
+        {
+          json: true,
+          stdin: true,
+          route: 'grok-subscription',
+          model: 'grok-4.7',
+          effort: 'off',
+          inputFormat: 'json',
+          toolset: 'chat',
+        },
+        off.io,
+      ),
+    ).toBe(2);
+    const error = off.events.at(-1);
+    expect(error).toMatchObject({ type: 'turn.error', code: 'effort_unsupported' });
+    const text = String(error?.error);
+    expect(text).toBe(
+      'effort "off" is not supported by route grok-subscription with model "grok-4.7"',
+    );
+    expect(text).not.toContain('not supported by the selected model');
+    expect(off.events.some((event) => event.type === 'session.started')).toBe(false);
+  } finally {
+    restore();
   }
 });
 

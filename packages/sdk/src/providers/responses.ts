@@ -1,7 +1,7 @@
 // Responses wire shared by the two explicitly selected subscription backends.
 // No account/provider fallback. A truncated or failed response is never success.
 import type { AssistantMessage, ContentBlock, StreamEvent, TokenUsage } from '../core/types.js';
-import type { ReasoningEffort } from './effort.js';
+import { type ReasoningEffort, mapMaxEffort } from './effort.js';
 import { ContextOverflowError, ProviderHttpError } from './errors.js';
 import { RouteError } from './routes/errors.js';
 import type { ProviderRequest, ToolSchema } from './types.js';
@@ -9,7 +9,7 @@ import type { ProviderRequest, ToolSchema } from './types.js';
 export function codexReasoning(effort?: ReasoningEffort): { effort: string; summary: string } {
   if (effort === 'off')
     throw new RouteError('effort_unsupported', 'ChatGPT subscription does not support off effort');
-  return { effort: effort === 'max' ? 'xhigh' : (effort ?? 'low'), summary: 'auto' };
+  return { effort: mapMaxEffort(effort ?? 'low', 'xhigh'), summary: 'auto' };
 }
 
 export function responsesTools(tools?: ToolSchema[]): unknown[] | undefined {
@@ -22,7 +22,10 @@ export function responsesTools(tools?: ToolSchema[]): unknown[] | undefined {
   }));
 }
 
-export function responsesInput(req: ProviderRequest): unknown[] {
+export function responsesInput(
+  req: ProviderRequest,
+  options: { replayEncryptedReasoning?: boolean } = {},
+): unknown[] {
   const items: unknown[] = [];
   for (const message of req.messages) {
     let content: unknown[] = [];
@@ -63,6 +66,29 @@ export function responsesInput(req: ProviderRequest): unknown[] {
             output: block.content,
           });
           break;
+        case 'encrypted_reasoning': {
+          if (message.role !== 'assistant' || options.replayEncryptedReasoning !== true) {
+            throw new RouteError(
+              'unsupported_input',
+              'encrypted reasoning history cannot be replayed on this route',
+            );
+          }
+          if (block.encryptedContent.length === 0) {
+            throw new RouteError(
+              'unsupported_input',
+              'encrypted reasoning history cannot be replayed on this route',
+            );
+          }
+          flush();
+          const replayed: Record<string, unknown> = {
+            type: 'reasoning',
+            encrypted_content: block.encryptedContent,
+          };
+          if (block.id !== undefined) replayed.id = block.id;
+          if (block.status !== undefined) replayed.status = block.status;
+          items.push(replayed);
+          break;
+        }
         // Thinking is internal provider state, not a user instruction or a
         // reusable encrypted reasoning item on another backend.
         case 'thinking':
@@ -82,6 +108,37 @@ export function responsesInput(req: ProviderRequest): unknown[] {
     flush();
   }
   return items;
+}
+
+type EncryptedReasoningBlock = Extract<ContentBlock, { type: 'encrypted_reasoning' }>;
+
+/** Copy server ciphertext. Ignore empty values and summary text. */
+function encryptedReasoningBlock(
+  item: Record<string, unknown> | undefined,
+): EncryptedReasoningBlock | undefined {
+  if (!item || item.type !== 'reasoning') return undefined;
+  if (typeof item.encrypted_content !== 'string' || item.encrypted_content.length === 0)
+    return undefined;
+  const block: EncryptedReasoningBlock = {
+    type: 'encrypted_reasoning',
+    encryptedContent: item.encrypted_content,
+  };
+  if (typeof item.id === 'string' && item.id.length > 0) block.id = item.id;
+  if (typeof item.status === 'string' && item.status.length > 0) block.status = item.status;
+  return block;
+}
+
+function rememberReasoning(
+  blocks: EncryptedReasoningBlock[],
+  seen: Set<string>,
+  block: EncryptedReasoningBlock | undefined,
+): void {
+  if (!block) return;
+  if (block.id) {
+    if (seen.has(block.id)) return;
+    seen.add(block.id);
+  }
+  blocks.push(block);
 }
 
 function object(value: unknown): Record<string, unknown> | undefined {
@@ -142,6 +199,9 @@ export async function* translateResponsesSse(
 ): AsyncGenerator<StreamEvent, AssistantMessage> {
   yield { type: 'message_start' };
   const content: ContentBlock[] = [];
+  const streamedReasoning: EncryptedReasoningBlock[] = [];
+  const streamedReasoningIds = new Set<string>();
+  let placedReasoning = false;
   const toolIds = new Set<string>();
   const pendingCalls = new Set<string>();
   let text = '';
@@ -188,6 +248,8 @@ export async function* translateResponsesSse(
         toolIds.add(item.call_id);
         content.push({ type: 'tool_use', id: item.call_id, name: item.name, input });
         yield { type: 'tool_use_delta', id: item.call_id, partial: input };
+      } else if (item?.type === 'reasoning') {
+        rememberReasoning(streamedReasoning, streamedReasoningIds, encryptedReasoningBlock(item));
       }
     } else if (event.type === 'response.failed' || event.type === 'error') {
       const row = object(event.response);
@@ -217,13 +279,27 @@ export async function* translateResponsesSse(
       }
       if (Array.isArray(row?.output)) {
         let fallbackText = '';
+        const sequence: ContentBlock[] = [];
+        let pendingText = '';
+        const flushPending = () => {
+          if (!pendingText) return;
+          sequence.push({ type: 'text', text: pendingText });
+          pendingText = '';
+        };
+        const terminalReasoningIds = new Set<string>();
         for (const rawItem of row.output) {
           const item = object(rawItem);
           if (item?.type === 'message' && Array.isArray(item.content)) {
+            let messageText = '';
             for (const rawBlock of item.content) {
               const block = object(rawBlock);
               if (block?.type === 'output_text' && typeof block.text === 'string')
-                fallbackText += block.text;
+                messageText += block.text;
+            }
+            fallbackText += messageText;
+            if (messageText) {
+              flushPending();
+              pendingText = messageText;
             }
           } else if (item?.type === 'function_call') {
             if (event.type === 'response.incomplete')
@@ -259,13 +335,50 @@ export async function* translateResponsesSse(
               content.push({ type: 'tool_use', id: item.call_id, name: item.name, input });
               yield { type: 'tool_use_delta', id: item.call_id, partial: input };
             }
+            flushPending();
+            sequence.push({ type: 'tool_use', id: item.call_id, name: item.name, input });
+          } else if (item?.type === 'reasoning') {
+            const reasoning = encryptedReasoningBlock(item);
+            if (reasoning && !(reasoning.id && terminalReasoningIds.has(reasoning.id))) {
+              if (reasoning.id) terminalReasoningIds.add(reasoning.id);
+              flushPending();
+              sequence.push(reasoning);
+            }
           }
         }
+        flushPending();
         if (!text && fallbackText) {
           text = fallbackText;
           yield { type: 'text_delta', text };
         } else if (fallbackText && fallbackText !== text)
           throw new Error('inconsistent subscription text');
+        if (sequence.some((block) => block.type === 'encrypted_reasoning')) {
+          for (const block of streamedReasoning) {
+            if (block.id && terminalReasoningIds.has(block.id)) continue;
+            if (
+              block.id === undefined &&
+              sequence.some(
+                (entry) =>
+                  entry.type === 'encrypted_reasoning' &&
+                  entry.encryptedContent === block.encryptedContent &&
+                  entry.id === undefined,
+              )
+            )
+              continue;
+            sequence.push(block);
+          }
+          for (const block of content) {
+            if (
+              block.type === 'tool_use' &&
+              !sequence.some((entry) => entry.type === 'tool_use' && entry.id === block.id)
+            )
+              sequence.push(block);
+          }
+          if (text && !sequence.some((block) => block.type === 'text'))
+            sequence.unshift({ type: 'text', text });
+          content.splice(0, content.length, ...sequence);
+          placedReasoning = true;
+        }
       }
       if (pendingCalls.size) throw new Error('subscription response has unfinished tool calls');
       const rawUsage = object(row?.usage);
@@ -283,7 +396,13 @@ export async function* translateResponsesSse(
   }
   if (!complete) throw new Error('subscription stream ended without a terminal response');
   if (usage) yield { type: 'usage_delta', usage };
-  if (text) content.unshift({ type: 'text', text });
+  if (!placedReasoning) {
+    if (text) content.unshift({ type: 'text', text });
+    if (streamedReasoning.length) {
+      const toolAt = content.findIndex((block) => block.type === 'tool_use');
+      content.splice(toolAt === -1 ? content.length : toolAt, 0, ...streamedReasoning);
+    }
+  }
   if (toolIds.size && stopReason === 'end_turn') stopReason = 'tool_use';
   const message: AssistantMessage = { role: 'assistant', content };
   yield { type: 'message_stop', stop_reason: stopReason };

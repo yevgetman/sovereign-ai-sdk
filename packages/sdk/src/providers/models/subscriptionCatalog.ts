@@ -3,6 +3,11 @@ import { REASONING_EFFORTS, type ReasoningEffort } from '../effort.js';
 import { SUBSCRIPTION_ROUTE_EFFORTS } from '../routes/catalog.js';
 import { KEYCHAIN_SERVICE, SUBSCRIPTION_DEFAULT_MODEL } from '../subscription/names.js';
 import { fallbackModelCatalog } from './catalog.js';
+import {
+  GROK_SUBSCRIPTION_PIN_SOURCE,
+  grokSubscriptionPin,
+  isGrokSubscriptionModelId,
+} from './grokPin.js';
 import { object, positiveNumber } from './http.js';
 import type { CapabilitySupport, ModelCatalog, ModelRecord } from './types.js';
 
@@ -282,7 +287,11 @@ export function reportSubscriptionPin(
   if (catalog.routeId !== 'chatgpt-subscription' && catalog.routeId !== 'grok-subscription')
     return undefined;
   const id = subscriptionPinnedDefault(catalog.routeId);
-  const present = catalog.models.some((model) => model.id === id);
+  // A re-applied publisher pin is not an account row. Missing and unavailable
+  // stay reported when the account list itself does not contain the id.
+  const present = catalog.models.some(
+    (model) => model.id === id && model.metadata.source !== GROK_SUBSCRIPTION_PIN_SOURCE,
+  );
   if (
     catalog.pinnedDefault?.id === id &&
     catalog.pinnedDefault.status === 'unavailable' &&
@@ -305,8 +314,8 @@ export function subscriptionPinNotice(pin: {
 
 /**
  * Payload efforts are selectable only when this transport already honors them.
- * Both routes use `SUBSCRIPTION_ROUTE_EFFORTS`. An all-`off` transport stays `off`
- * (Grok today). ChatGPT never invents `off`: Codex rejects it. A non-stale pin
+ * Both routes use `SUBSCRIPTION_ROUTE_EFFORTS`. An all-off transport stays `off`.
+ * ChatGPT never invents `off`: Codex rejects it. A non-stale pin
  * whose efforts were omitted (`undefined`) keeps the ChatGPT transport list.
  * An empty array is an already-computed selectable set and stays empty, including for that pin.
  * Stale rows keep only the intersection still published, or no levels after
@@ -396,6 +405,12 @@ export function presentSubscriptionCatalog(catalog: ModelCatalog): ModelCatalog 
   };
 }
 
+function isExactGrokPublisherPin(model: ModelRecord): boolean {
+  if (!isGrokSubscriptionModelId(model.id)) return false;
+  if (model.metadata.source !== GROK_SUBSCRIPTION_PIN_SOURCE) return false;
+  return JSON.stringify(model) === JSON.stringify(grokSubscriptionPin(model.id));
+}
+
 /** Disk guard. API-key cache ids are ignored. Rejected writes must not include credential text. */
 export function assertSubscriptionDiskCatalog(cacheId: string, catalog: ModelCatalog): void {
   const gated =
@@ -422,6 +437,7 @@ export function assertSubscriptionDiskCatalog(cacheId: string, catalog: ModelCat
     return;
   }
   for (const model of catalog.models) {
+    if (isExactGrokPublisherPin(model)) continue;
     if (
       model.capabilities.tools === 'supported' ||
       model.capabilities.images === 'supported' ||

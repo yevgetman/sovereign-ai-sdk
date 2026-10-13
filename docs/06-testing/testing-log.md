@@ -17,6 +17,95 @@ Same worktree and branch. `bun run lint` passed (Biome, 1110 files, no fixes; de
 Worktree `/private/tmp/spec-prs/sdk-catalog` on `docs/subscription-model-catalog-20261012`. Focused Bun tests only. The useful-task probe was not run. No live network login and no Keychain read.
 
 Each code regression failed on the reported behavior before the edit. After the fix: omitted ChatGPT effort is not `off` (`bun test tests/providers/models/subscriptionCatalog.test.ts tests/providers/routes.test.ts tests/providers/modelReasoning.test.ts`, 48 pass / 0 fail / 554 assertions); a pin row does not authorize another model (same three files, 49 pass / 0 fail / 558 assertions); a failed refresh does not leave a current account catalog (`bun test tests/providers/models/subscriptionCatalog.test.ts tests/providers/models/catalog.test.ts`, 22 pass / 0 fail / 228 assertions); a missing or retired pin stays named (those catalog files plus `tests/cli/modelDiscovery.test.ts`, 32 pass / 0 fail / 332 assertions, and `bun test tests/cli/routes-discovery.test.ts`, 1 pass / 0 fail / 22 assertions); the operator list shows selectable Grok efforts (`bun test tests/providers/models/subscriptionCatalog.test.ts tests/cli/modelDiscovery.test.ts`, 24 pass / 0 fail / 312 assertions); a throwing login identity hook stores no new ChatGPT or Grok credential (`bun test tests/providers/subscription.test.ts`, 19 pass / 0 fail / 57 assertions). The decision text now names `grok-4.6` as this branch's pin. Code pins were not moved. `bun run lint`, `bun run typecheck`, and a full `bun test` were not run for this entry. No release or installed-host change.
+## 2026-10-13 — Agent Casa canary on the grok subscription head
+
+Scope: `encrypted_reasoning` on `ContentBlock`, so `Message` and `AssistantMessage` changed shape. Packed `@yevgetman/sov-sdk` from `docs/grok-subscription-current-model-20261012` at `6535fa12`. Consumer `real-estate-agent-runtime` revision `521a2ee` via `git archive HEAD` (the dirty checkout was not packed). Scratch directory removed by the runner. No SDK source change in this entry. No live xAI or OAuth call. No Keychain read.
+
+Environment: macOS. Worktree `/private/tmp/spec-prs/sdk-grok`. Runner `node scripts/canary/run-agent-casa-canary.mjs`.
+
+Commands:
+
+- `node scripts/canary/run-agent-casa-canary.mjs /Users/julie/code/real-estate-agent-runtime /tmp/agent-casa-canary-pr63.log`
+- The runner runs `npm ci --ignore-scripts`, `npm pack` of `packages/sdk`, installs that tarball, `npm run typecheck`, then `npm test -- --reporter=json`. The log file receives only the failing command's output.
+
+Result: fail. The thrown error is `Agent Casa compatibility failed: npm test -- --reporter=json (exit 1)`, so typecheck had already exited 0. Vitest JSON: 332 suites (294 passed / 38 failed), 1193 tests, 1174 pass / 19 fail / 0 pending. All 19 failures are `AssertionError: expected 0 to be greater than 0` at `tests/httpConsole.test.ts:689` (`expect(after.sessions[0].inputTokens).toBeGreaterThan(0)`), title `usage: empty before any turn, populated per side+role after a client turn`. The reporter attached that same stack to 19 suite filenames. This log does not show the failure is caused by `encrypted_reasoning`. The canary did not pass. The §8 live subscription probe has not been run.
+
+## 2026-10-13 — Empty grok effort lists do not resolve to off
+
+Scope: verified `grok-4.7` / `grok-4.6` controls. Fresh metadata whose efforts do not intersect the pin (`efforts: ['off']`, or `capabilities.reasoning: 'unsupported'`) keeps the verified control with `efforts: []`. Omitted effort throws `effort_unsupported` and does not select `off`. Explicit `low` still throws. The pin record and `efforts: ['low']` are unchanged. No live xAI or OAuth call. No Keychain read.
+
+Environment: macOS, Bun 1.3.13 at `/Users/julie/.bun/bin/bun`. Worktree `/private/tmp/pr-fixes/pr63-effort-intersect` on `fix/pr63-effort-intersect`. Root `node_modules` is a symlink to `/private/tmp/spec-prs/sdk-grok/node_modules`, so `@yevgetman/sov-sdk` otherwise resolves to that tree. Focused tests used a temporary `tests/node_modules/@yevgetman/sov-sdk` link to this worktree's `packages/sdk`, removed after the run. The root symlink was not deleted and `bun install` was not run.
+
+Commands:
+
+- Before the fix, `bun -e` against the linked tree: `validateRouteSelection(getRoute('grok-subscription'), { model: 'grok-4.7', modelMetadata })` returned `{ effort: 'off' }` for fresh `efforts: ['off']` and for `reasoning: 'unsupported'`. Explicit `low` already threw `effort_unsupported`.
+- `bun test --timeout 20000 tests/providers/modelReasoning.test.ts -t "fresh grok metadata intersects"` before the fix: 0 pass / 1 fail. `reasoningControlFor` was `undefined`.
+- After the fix, with the temporary package link: `bun test --timeout 20000 tests/providers/modelReasoning.test.ts tests/providers/routes.test.ts`: 42 pass / 0 fail, 467 expect() calls.
+- `bunx biome check packages/sdk/src/providers/modelReasoning.ts tests/providers/modelReasoning.test.ts`: passed, no fixes.
+- `bun run typecheck` fails in this worktree because `tsc` loads both this checkout and the symlinked `sdk-grok` package (`exactOptionalPropertyTypes` private `profiles` mismatch in unrelated tool tests). Not caused by this effort change. Full `bun run lint` and `bun run test` were not run.
+
+Result: omitted grok effort on an empty intersection throws `effort_unsupported`. The §8 live subscription probe has not been run.
+
+## 2026-10-13 — Rejected grok subscription default is not the built-in id
+
+Scope: `routes.grok-subscription.defaultModel` outside the allowlist (`grok-4.5`) no longer makes `listRoutes` / `getRoute` present built-in `grok-4.7` as `defaultModel`. The record keeps the rejected id and `defaultModelNotice` says omission and auto fail until `routes.grok-subscription.defaultModel` is changed. Explicit `grok-4.7` still resolves. No live xAI or OAuth call. No Keychain read.
+
+Environment: macOS, Bun 1.3.13. Worktree `/private/tmp/pr-fixes/pr63-rejected-default`. Root `node_modules` is a symlink into another checkout, so the focused run temporarily resolved `@yevgetman/sov-sdk` to this worktree and restored the symlink. Full `bun run lint`, `bun run typecheck`, and `bun run test` were not run.
+
+Commands:
+
+- `bun test --timeout 20000 tests/providers/routes.test.ts -t "a rejected grok subscription default is not presented"` before the catalog change: 0 pass / 1 fail. Expected `defaultModel` `grok-4.5`; received `grok-4.7`.
+- After the change, `bunx biome check` on `packages/sdk/src/providers/routes/catalog.ts`, `packages/sdk/src/providers/routes/types.ts`, and `tests/providers/routes.test.ts`: no fixes.
+- `bun test --timeout 20000 tests/providers/routes.test.ts tests/cli/sdkRunCommand.test.ts`: 48 pass / 0 fail, 395 expect() calls.
+
+Result: pass for the focused files. The §8 live subscription probe has not been run.
+
+## 2026-10-13 — Grok review follow-up fixes on 818825f4
+
+Scope: follow-up fixes on `docs/grok-subscription-current-model-20261012` at `818825f4` (parent of this log). SDK run names a rejected `routes.<id>.defaultModel`. Omitted Grok effort docs match `buildRecord` (missing or `off` becomes `high`; stored `low`/`medium`/`max` wins). `resolveEffort` returns `off` only when that level is supported. Validation and Anthropic comments only. SDK changelog notes `encrypted_reasoning` on `AssistantMessage`/`Message` as a minor. No live xAI or OAuth call. No Keychain read. Agent Casa canary was not run.
+
+Environment: macOS, Bun 1.3.13 at `/Users/julie/.bun/bin/bun`. Worktree `/private/tmp/spec-prs/sdk-grok`.
+
+Commands:
+
+- `bun test --timeout 20000 tests/cli/sdkRunCommand.test.ts -t "rejected grok route default"` before the message fix: 0 pass / 1 fail. Received `Model is not supported by the selected route.`; expected `routes.grok-subscription.defaultModel`.
+- Same filter after the fix: 1 pass / 0 fail, 8 expect() calls. Then the whole `tests/cli/sdkRunCommand.test.ts` file: 16 pass / 0 fail, 82 expect() calls.
+- `bun test --timeout 20000 tests/providers/routes.test.ts -t "fresh grok efforts that omit"` before the effort fix: 0 pass / 1 fail (`effort` was `off`).
+- After that fix, `bun test --timeout 20000 tests/providers/routes.test.ts tests/providers/modelReasoning.test.ts`: 42 pass / 0 fail, 458 expect() calls.
+- On the pre-typecheck-fix tree: `bun run lint` passed (Biome 1109 files; dependency-cruiser 244 modules, 962 dependencies, no violations). `bun run typecheck` failed: `src/cli/sdkRunCommand.ts(69,3)` TS2322 (`string | undefined` not assignable to `string`).
+- After `fix: type sdk run error text as a string`, `bunx biome check --write src/cli/sdkRunCommand.ts` fixed that file, then `bun run typecheck` passed (`tsc --noEmit` and `packages/debug-console`).
+- Focused, still before that type-only commit: `bun test --timeout 20000 tests/cli/sdkRunCommand.test.ts tests/providers/routes.test.ts tests/providers/modelReasoning.test.ts`: 58 pass / 0 fail, 540 expect() calls, 3 files, 2.44s.
+- On `818825f4`: `bun run lint` passed again (Biome 1109 files, no fixes; dependency-cruiser 244 modules, 962 dependencies, no violations). `bun run build` passed (protocol and SDK `tsc -p tsconfig.build.json`, 1.95s). `bun run test` (`bun test --timeout 20000`): **6070 pass / 31 skip / 5 fail**, 23637 expect() calls, 6106 tests across 593 files, 126.07s, exit 1.
+
+Result: the 5 failures are Node `NO_COLOR`/`FORCE_COLOR` stderr warnings, not grok route or effort assertions. `tests/host/sqliteRestart.test.ts` expected empty stderr. The same warning failed `tests/skills/continuity.test.ts`, `tests/skills/runtimeLoaderObserverSafety.test.ts`, `tests/skills/storeObserverSafety.test.ts` (`COMMIT_RETAINED` plus ANSI color), and `tests/skills/runtime.test.ts`. Building first removed the earlier missing-dist `ERR_MODULE_NOT_FOUND` failures from the 2026-10-13 gate on `a987d9e1`. These five were not changed here. The §8 live subscription probe has not been run.
+
+## 2026-10-13 — Grok subscription review fixes, full gate
+
+Scope: review fixes on `docs/grok-subscription-current-model-20261012` after `372aea01`. A bad authoritative default no longer throws from `listRoutes` or `getRoute`. Fresh grok effort metadata intersects the verified set. Docs state the grok-4.6 32768 floor, distinguish stored `off` from `--effort off`, and say the publisher pin is re-applied with `stale: false`. No live xAI or OAuth call. No Keychain read.
+
+Environment: macOS, Bun 1.3.13 at `/Users/julie/.bun/bin/bun`. Worktree `/private/tmp/spec-prs/sdk-grok`.
+
+Commands:
+
+- `bun test --timeout 20000 tests/providers/routes.test.ts`
+- `bun test --timeout 20000 tests/providers/modelReasoning.test.ts tests/providers/routes.test.ts`
+- `bun run lint && bun run typecheck && bun run test`
+
+Result: route catalog 30 pass / 0 fail / 298 expect() calls. Reasoning plus routes 41 pass / 0 fail / 456 expect() calls. Lint passed (`biome check` 1109 files; dependency-cruiser 244 modules, no violations). `tsc --noEmit` and `packages/debug-console` typecheck passed. Full test: **6010 pass / 31 skip / 63 fail**, 23444 expect() calls, 6104 tests across 593 files, 155.88s. The 63 failures are pre-existing and were not weakened. Node skill-store and host tests report `ERR_MODULE_NOT_FOUND` for compiled SDK dist modules (`packages/sdk/dist/skills/storeWorkerEntry.js`, `node_modules/@yevgetman/sov-sdk/dist/sdk.js`, and the loader, discovery, and registry entries). `tests/host/sqliteRestart.test.ts` fails because stderr is a Node `NO_COLOR`/`FORCE_COLOR` warning instead of empty. None of these assert the grok route, effort, or pin changes. The §8 live subscription probe has not been run.
+
+## 2026-10-12 — Grok subscription two-id pin, offline
+
+Scope: draft PR 63 on `docs/grok-subscription-current-model-20261012`. Exact `grok-4.7` / `grok-4.6` pin, Responses `reasoning.effort`, and encrypted-reasoning replay. No Telekit edits. No catalog-endpoint discovery.
+
+Environment: macOS, Bun 1.3.13 at `/Users/julie/.bun/bin/bun`. Worktree `/private/tmp/spec-prs/sdk-grok`. No live xAI or OAuth call. No Keychain read. No `XAI_API_KEY` read.
+
+Commands:
+
+- `bun test tests/providers/routes.test.ts tests/providers/modelReasoning.test.ts tests/providers/subscription.test.ts tests/providers/responses.test.ts tests/providers/modelLimits.test.ts tests/providers/models/catalog.test.ts tests/providers/models/direct.test.ts tests/providers/model-modalities.test.ts tests/cli/sdkRunCommand.test.ts tests/cli/routes-discovery.test.ts tests/compact/contextManagement.test.ts tests/core/tokenEstimate.test.ts`
+- `bunx biome check` on the touched TypeScript files
+- `bun run typecheck`
+
+Result: 150 passed, 0 failed, 1002 assertions, 12 files. Biome check passed after formatting 7 files. `tsc --noEmit` and the debug-console project passed. The §8 live subscription probe has not been run.
 
 ## 2026-10-11 — Current review final combined checks and report receipt
 

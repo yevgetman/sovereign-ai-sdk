@@ -26,9 +26,11 @@ export const AUTO_SELECTION = 'auto';
 
 /**
  * Versioned, non-secret route record. Invariants (checked by tests, relied on
- * by Telekit): `defaultModel` is an element of `models`; `efforts` is non-empty;
- * every `modelEfforts` value is a non-empty subset of `efforts`; `defaultEffort`
- * is an element of `modelEfforts[defaultModel]`.
+ * by Telekit): when `rejectedConfiguredDefault` is absent, `defaultModel` is an
+ * element of `models` and `defaultEffort` is an element of
+ * `modelEfforts[defaultModel]`. `efforts` is non-empty; every `modelEfforts`
+ * value is a non-empty subset of `efforts`. A rejected configured default is
+ * not a member of `models` and is not the built-in id.
  */
 export type RouteRecord = {
   id: RouteId;
@@ -40,6 +42,18 @@ export type RouteRecord = {
   models: string[];
   /** False: unknown-but-plausible model ids pass validation (spec §4.2). */
   modelsAuthoritative: boolean;
+  /**
+   * Set when `routes.<id>.defaultModel` is outside an authoritative allowlist.
+   * `defaultModel` is this rejected id, not the built-in. Selecting `auto` or
+   * an omitted model throws `model_unsupported` and names that setting; the
+   * rejected id is not used and is not silently replaced.
+   */
+  rejectedConfiguredDefault?: string;
+  /**
+   * Present only with `rejectedConfiguredDefault`. Tells the operator that
+   * omission and `auto` fail until `routes.<id>.defaultModel` is changed.
+   */
+  defaultModelNotice?: string;
   /** Effort levels supported by at least one known model. Always contains `off`. */
   efforts: ReasoningEffort[];
   /** Supported effort levels per known model. */

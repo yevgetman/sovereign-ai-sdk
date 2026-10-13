@@ -57,14 +57,17 @@ are account-listed availability, not proof of a successful generation request.
 `createSubscriptionModelSource(routeId, accountKey?)` keeps ChatGPT and Grok
 subscription suggestions separate. No subscription catalog endpoint is known, so
 `discover` still throws `Subscription model discovery unavailable` and does not
-fetch. Explicit refresh of a cold cache still returns unavailable bundled
-suggestions. When a timestamped account catalog already exists, failure returns
-that catalog as stale, keeps its `fetchedAt`, and tightens the rows. Failure
-does not mark the catalog current. It does not borrow API records, start login, or
-add Claude-Max HTTP support. The cache key is `${service}:${identity}`
-(default `SOV_SUB_CHATGPT:SOV_SUB_CHATGPT` or `SOV_SUB_GROK:SOV_SUB_GROK`).
-The disk id is the route id plus that string. It is never a token and never
-`public`.
+fetch. A cold Grok cache returns the unavailable publisher pin for `grok-4.7`
+and `grok-4.6`; availability stays `unknown`. The pin is not a live account
+probe. It is re-applied with `stale: false` and the documented window
+(`grok-4.7` is 500000; `grok-4.6` stays on the 32768 floor). ChatGPT stays on
+unavailable bundled suggestions. When a timestamped account catalog already
+exists, failure returns that catalog as stale, keeps its `fetchedAt`, and
+tightens the account rows. Failure does not mark the catalog current. It does
+not borrow API records, start login, or add Claude-Max HTTP support. The cache
+key is `${service}:${identity}` (default `SOV_SUB_CHATGPT:SOV_SUB_CHATGPT` or
+`SOV_SUB_GROK:SOV_SUB_GROK`). The disk id is the route id plus that string. It
+is never a token and never `public`.
 `applySubscriptionAccountCatalog` normalizes a payload the caller already holds.
 It does not move `SUBSCRIPTION_DEFAULT_MODEL`. Custom sources can implement other
 SDK providers without changing the six built-in authentication routes.

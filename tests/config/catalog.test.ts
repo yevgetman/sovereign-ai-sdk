@@ -77,6 +77,17 @@ describe('config catalog', () => {
     if (parent) expect(parent.id).toBe('general');
   });
 
+  // Config UI copies item.description (hint and picker subtitle). Keep it
+  // aligned with docs/03-cli-reference/usage.md: stored or absent off is not
+  // "no thinking" on grok-subscription.
+  test('thinking.effort says grok-subscription off selects high', () => {
+    const item = findItem('thinking.effort');
+    expect(findGroupForItem('thinking.effort')?.id).toBe('general');
+    expect(item?.description).toBe(
+      'off | low | medium | high | max — boot default for reasoning depth (extended thinking). off ⇒ request byte-identical, except grok-subscription, where a stored or absent off selects high. --effort off on that route throws effort_unsupported and does not fetch. Overridden per session by /effort.',
+    );
+  });
+
   // T4 (progress-aware loop guard, 2026-08-25) — the four operator-facing
   // knobs of the `loop` block are reachable from /config. The remaining
   // LoopSchema fields (content-loop tuning, sideEffectTools) are deliberately
