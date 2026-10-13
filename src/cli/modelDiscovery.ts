@@ -1,10 +1,9 @@
 /** SOV-owned disk adapter. SDK discovery remains portable and disk-free. */
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import type { Settings } from '@yevgetman/sov-sdk/config/schema';
-import { applyGrokSubscriptionPins } from '@yevgetman/sov-sdk/providers/models/grokPin';
 import {
   type ModelCatalog,
   type ModelCatalogCache,
@@ -17,31 +16,133 @@ import {
   findModel,
 } from '@yevgetman/sov-sdk/providers/models/index';
 import { fallbackModelCatalog } from '@yevgetman/sov-sdk/providers/models/index';
+import {
+  assertSubscriptionDiskCatalog,
+  presentSubscriptionCatalog,
+  reportSubscriptionPin,
+  subscriptionDiskRoute,
+  subscriptionPinNotice,
+  withSelectableSubscriptionEfforts,
+} from '@yevgetman/sov-sdk/providers/models/subscriptionCatalog';
 import { validateModelCatalog } from '@yevgetman/sov-sdk/providers/models/validate';
 import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
+
+function subscriptionCacheId(key: string): boolean {
+  return key.startsWith('chatgpt-subscription:') || key.startsWith('grok-subscription:');
+}
+
+/** API-key catalogs stay flat. Subscription catalogs are per route under this root. */
+export function modelCatalogCacheFile(root: string, key: string): string {
+  const digest = createHash('sha256').update(key).digest('hex');
+  const route = subscriptionDiskRoute(key);
+  if (route) return join(root, 'subscription', route, `${digest}.json`);
+  return join(root, `${digest}.json`);
+}
+
+const CATALOG_FILE_LIMIT = 16 * 1024 * 1024;
+
+function readCatalogIdentity(
+  file: string,
+): { dev: number; ino: number; text: string; parsed: unknown } | undefined {
+  try {
+    const info = statSync(file);
+    if (!info.isFile() || info.size > CATALOG_FILE_LIMIT) return undefined;
+    const text = readFileSync(file, 'utf8');
+    return { dev: info.dev, ino: info.ino, text, parsed: JSON.parse(text) as unknown };
+  } catch {
+    return undefined;
+  }
+}
+
+function sameCatalogPayload(parsed: unknown, expected: ModelCatalog): boolean {
+  const validated = validateModelCatalog(parsed, expected.routeId, Number.MAX_SAFE_INTEGER);
+  // Same canonical payload as modelCatalogIdentity. fetchedAt and ids are not enough.
+  return JSON.stringify(validated ?? null) === JSON.stringify(expected);
+}
 
 export function diskModelCache(
   root = join(resolveHarnessHome(), 'model-catalog'),
 ): ModelCatalogCache {
-  const path = (key: string) =>
-    join(root, `${createHash('sha256').update(key).digest('hex')}.json`);
   return {
     async get(key) {
-      try {
-        const file = path(key);
-        if (statSync(file).size > 16 * 1024 * 1024) return undefined;
-        return JSON.parse(readFileSync(file, 'utf8')) as ModelCatalog;
-      } catch {
-        return undefined;
-      }
+      if (subscriptionCacheId(key) && !subscriptionDiskRoute(key)) return undefined;
+      const stored = readCatalogIdentity(modelCatalogCacheFile(root, key));
+      return stored ? (stored.parsed as ModelCatalog) : undefined;
     },
-    async set(key, catalog) {
+    async set(key, catalog, expected) {
+      assertSubscriptionDiskCatalog(key, catalog);
+      const file = modelCatalogCacheFile(root, key);
+      // Failure writes are conditional. Check inode and payload in this same
+      // section as rename, so a removed route directory is not recreated.
+      if (expected) {
+        const seen = readCatalogIdentity(file);
+        if (!seen || !sameCatalogPayload(seen.parsed, expected)) return;
+        mkdirSync(root, { recursive: true, mode: 0o700 });
+        mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+        const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+        try {
+          const again = readCatalogIdentity(file);
+          if (
+            !again ||
+            again.dev !== seen.dev ||
+            again.ino !== seen.ino ||
+            again.text !== seen.text
+          )
+            return;
+          writeFileSync(tmp, JSON.stringify(catalog), { mode: 0o600 });
+          const ready = readCatalogIdentity(file);
+          if (
+            !ready ||
+            ready.dev !== seen.dev ||
+            ready.ino !== seen.ino ||
+            ready.text !== seen.text
+          )
+            return;
+          renameSync(tmp, file);
+        } finally {
+          rmSync(tmp, { force: true });
+        }
+        return;
+      }
       mkdirSync(root, { recursive: true, mode: 0o700 });
-      const file = path(key);
+      mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
       const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
       writeFileSync(tmp, JSON.stringify(catalog), { mode: 0o600 });
       renameSync(tmp, file);
     },
+  };
+}
+
+/**
+ * Delete one owner's subscription catalog for a route. The cache key is
+ * `${service}:${identity}` (default `SOV_SUB_CHATGPT:SOV_SUB_CHATGPT` or
+ * `SOV_SUB_GROK:SOV_SUB_GROK`). The disk id is the route id plus that string.
+ * An account change under that same service name must clear the whole route
+ * directory. Does not read credential bytes or API-key caches.
+ */
+export function clearSubscriptionCatalogCache(
+  root: string,
+  routeId: 'chatgpt-subscription' | 'grok-subscription',
+): void {
+  rmSync(join(root, 'subscription', routeId), { recursive: true, force: true });
+}
+
+export function resetSubscriptionCatalogForProvider(
+  name: 'chatgpt' | 'grok',
+  harnessHome = resolveHarnessHome(),
+): void {
+  clearSubscriptionCatalogCache(
+    join(harnessHome, 'model-catalog'),
+    name === 'chatgpt' ? 'chatgpt-subscription' : 'grok-subscription',
+  );
+}
+
+/** Host hook for login and logout. Provider name only; no credential bytes. */
+export function subscriptionSessionHooks(harnessHome = resolveHarnessHome()): {
+  onIdentityChanged: (name: 'chatgpt' | 'grok') => void;
+} {
+  return {
+    onIdentityChanged: (name) => resetSubscriptionCatalogForProvider(name, harnessHome),
   };
 }
 
@@ -134,7 +235,8 @@ export async function readModelCatalog(
 ): Promise<ModelCatalog> {
   const source = modelSource(routeId, settings);
   const service = createModelDiscovery({ cache });
-  return refresh ? service.refresh(source) : service.read(source);
+  const catalog = refresh ? await service.refresh(source) : await service.read(source);
+  return presentSubscriptionCatalog(catalog);
 }
 
 export async function selectedModelRecord(
@@ -160,6 +262,23 @@ export function modelAuthor(model: ModelRecord): string | undefined {
   );
 }
 
+/**
+ * Operator JSON keeps the normalized image capability.
+ * A subscription transport with no image serializer does not rewrite supported or unknown.
+ */
+export function subscriptionOperatorModel(model: ModelRecord): ModelRecord {
+  return model;
+}
+
+function subscriptionRefreshError(catalog: ModelCatalog): string {
+  const subscription =
+    catalog.routeId === 'chatgpt-subscription' || catalog.routeId === 'grok-subscription';
+  if (subscription && catalog.fetchedAt && catalog.state === 'stale') {
+    return 'Subscription refresh cannot fetch a catalog. The stored timestamped catalog was left stale and tightened.';
+  }
+  return 'Model discovery unavailable.';
+}
+
 export function modelPage(catalog: ModelCatalog, query: ModelQuery) {
   const offset = query.offset ?? 0;
   const limit = query.limit ?? 50;
@@ -175,24 +294,41 @@ export function modelPage(catalog: ModelCatalog, query: ModelQuery) {
   if ((query.search?.length ?? 0) > 256 || (query.author?.length ?? 0) > 256)
     throw new Error('Invalid filter');
   const search = query.search?.toLowerCase();
-  const models = catalog.models.filter(
+  const viewed = withSelectableSubscriptionEfforts(catalog);
+  const models = viewed.models.filter(
     (model) =>
       (!query.author || modelAuthor(model) === query.author) &&
       (!search || `${model.id} ${model.displayName}`.toLowerCase().includes(search)),
   );
+  const pin = reportSubscriptionPin(viewed);
   return {
     schemaVersion: 1,
     route: catalog.routeId,
     state: catalog.state,
     ...(catalog.fetchedAt ? { fetchedAt: catalog.fetchedAt } : {}),
-    ...(catalog.error
-      ? { error: { code: 'catalog_unavailable', message: 'Model discovery unavailable.' } }
-      : {}),
+    ...(pin
+      ? {
+          defaultModel: pin.id,
+          pinnedDefault: pin,
+          error: {
+            code:
+              pin.status === 'missing' ? 'pinned_default_missing' : 'pinned_default_unavailable',
+            message: subscriptionPinNotice(pin),
+          },
+        }
+      : catalog.error
+        ? {
+            error: {
+              code: 'catalog_unavailable',
+              message: subscriptionRefreshError(catalog),
+            },
+          }
+        : {}),
     total: models.length,
     offset,
     limit,
     nextOffset: offset + limit < models.length ? offset + limit : null,
-    models: models.slice(offset, offset + limit),
+    models: models.slice(offset, offset + limit).map(subscriptionOperatorModel),
   };
 }
 
@@ -218,7 +354,8 @@ export function readModelCatalogSnapshot(
   const source = modelSource(routeId, settings);
   const root = join(harnessHome, 'model-catalog');
   const key = `${source.routeId}:${source.cacheKey ?? 'public'}`;
-  const file = join(root, `${createHash('sha256').update(key).digest('hex')}.json`);
+  if (subscriptionCacheId(key) && !subscriptionDiskRoute(key)) return fallbackModelCatalog(routeId);
+  const file = modelCatalogCacheFile(root, key);
   try {
     if (statSync(file).size > 16 * 1024 * 1024) return fallbackModelCatalog(routeId);
     const catalog = validateModelCatalog(
@@ -231,14 +368,19 @@ export function readModelCatalogSnapshot(
       catalog.state !== 'current' ||
       !catalog.fetchedAt ||
       Date.now() - Date.parse(catalog.fetchedAt) >= 3600000;
-    return applyGrokSubscriptionPins({
-      ...catalog,
-      state: catalog.state === 'current' && stale ? 'stale' : catalog.state,
-      models: catalog.models.map((model) => ({
-        ...model,
-        metadata: { ...model.metadata, stale: stale || model.metadata.stale },
-      })),
-    });
+    const presented = withSelectableSubscriptionEfforts(
+      presentSubscriptionCatalog({
+        ...catalog,
+        state: catalog.state === 'current' && stale ? 'stale' : catalog.state,
+        models: catalog.models.map((model) => ({
+          ...model,
+          metadata: { ...model.metadata, stale: stale || model.metadata.stale },
+        })),
+      }),
+    );
+    const pin = reportSubscriptionPin(presented);
+    if (!pin) return presented;
+    return { ...presented, pinnedDefault: pin, error: subscriptionPinNotice(pin) };
   } catch {
     return fallbackModelCatalog(routeId);
   }

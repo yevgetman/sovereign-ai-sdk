@@ -4,6 +4,7 @@ import {
   grokSubscriptionPin,
   isGrokSubscriptionModelId,
 } from './grokPin.js';
+import { presentSubscriptionCatalog } from './subscriptionCatalog.js';
 import type {
   ModelCatalog,
   ModelCatalogCache,
@@ -12,6 +13,12 @@ import type {
   ModelRecord,
 } from './types.js';
 import { validateModelCatalog, validateModelRecords } from './validate.js';
+
+/** Full canonical payload. fetchedAt and model ids alone do not identify an entry. */
+function modelCatalogIdentity(catalog: ModelCatalog | undefined): string {
+  if (!catalog) return '';
+  return JSON.stringify(catalog);
+}
 
 /** Offline suggestions only; no credential reads, provider creation or network. */
 export function fallbackModelCatalog(routeId: string): ModelCatalog {
@@ -42,7 +49,16 @@ export function createMemoryModelCatalogCache(): ModelCatalogCache {
       const value = values.get(key);
       return value ? structuredClone(value) : undefined;
     },
-    async set(key, value) {
+    async set(key, value, expected) {
+      if (expected) {
+        const validated = validateModelCatalog(
+          values.get(key),
+          expected.routeId,
+          Number.MAX_SAFE_INTEGER,
+        );
+        // Same exclusive section as the insert: a removed entry stays removed.
+        if (modelCatalogIdentity(validated) !== modelCatalogIdentity(expected)) return;
+      }
       values.set(key, structuredClone(value));
     },
   };
@@ -77,12 +93,33 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
       clearTimeout(timer);
     }
   }
-  async function persist(key: string, catalog: ModelCatalog): Promise<void> {
+  async function persist(
+    key: string,
+    catalog: ModelCatalog,
+    expected?: ModelCatalog,
+  ): Promise<void> {
     // Serialize even ports that ignore timeout: a late old write cannot overwrite
     // a later successful refresh. A stuck port never starts additional writes.
     const prior = writes.get(key);
     if (prior) await bounded(() => prior);
-    const write = Promise.resolve().then(() => cache.set(key, structuredClone(catalog)));
+    const write = (async () => {
+      const payload = structuredClone(catalog);
+      if (!expected) {
+        // The promise must stay pending if set ignores the timeout, so a later
+        // refresh cannot start a second write over the late one.
+        await cache.set(key, payload);
+        return;
+      }
+      let current: ModelCatalog | undefined;
+      try {
+        current = validateModelCatalog(await cache.get(key), catalog.routeId, now()) ?? undefined;
+      } catch {
+        current = undefined;
+      }
+      // Re-check inside this write. fetchedAt plus ids is not the stored entry.
+      if (modelCatalogIdentity(current) !== modelCatalogIdentity(expected)) return;
+      await cache.set(key, payload, structuredClone(expected));
+    })();
     writes.set(key, write);
     void write.then(
       () => {
@@ -96,17 +133,20 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
   }
   const keyFor = (source: ModelDiscoverySource) =>
     `${source.routeId}:${source.cacheKey ?? 'public'}`;
-  async function read(source: ModelDiscoverySource): Promise<ModelCatalog> {
-    let saved: ModelCatalog | undefined;
+  async function cacheEntry(source: ModelDiscoverySource): Promise<ModelCatalog | undefined> {
     try {
-      saved =
-        (failedSnapshots.has(keyFor(source))
-          ? structuredClone(failedSnapshots.get(keyFor(source)))
-          : undefined) ??
-        validateModelCatalog(await bounded(() => cache.get(keyFor(source))), source.routeId, now());
+      return (
+        validateModelCatalog(
+          await bounded(() => cache.get(keyFor(source))),
+          source.routeId,
+          now(),
+        ) ?? undefined
+      );
     } catch {
-      /* corrupt/unavailable cache is an offline fallback */
+      return undefined;
     }
+  }
+  function view(saved: ModelCatalog | undefined, source: ModelDiscoverySource): ModelCatalog {
     if (!saved || saved.version !== 1 || saved.routeId !== source.routeId)
       return fallbackModelCatalog(source.routeId);
     const stale =
@@ -114,14 +154,20 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
       !saved.fetchedAt ||
       now() - Date.parse(saved.fetchedAt) >= ttl ||
       !Number.isFinite(Date.parse(saved.fetchedAt));
-    return applyGrokSubscriptionPins({
-      ...saved,
-      state: saved.state === 'current' && stale ? 'stale' : saved.state,
-      models: saved.models.map((model) => ({
-        ...model,
-        metadata: { ...model.metadata, stale: stale || model.metadata.stale },
-      })),
-    });
+    return applyGrokSubscriptionPins(
+      presentSubscriptionCatalog({
+        ...saved,
+        state: saved.state === 'current' && stale ? 'stale' : saved.state,
+        models: saved.models.map((model) => ({
+          ...model,
+          metadata: { ...model.metadata, stale: stale || model.metadata.stale },
+        })),
+      }),
+    );
+  }
+  async function read(source: ModelDiscoverySource): Promise<ModelCatalog> {
+    const remembered = failedSnapshots.get(keyFor(source));
+    return view(remembered ? structuredClone(remembered) : await cacheEntry(source), source);
   }
   async function refresh(source: ModelDiscoverySource): Promise<ModelCatalog> {
     const key = keyFor(source);
@@ -129,7 +175,9 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
     if (existing) return existing;
     const operation = (async (): Promise<ModelCatalog> => {
       const controller = new AbortController();
-      const previous = await read(source);
+      const remembered = failedSnapshots.get(key);
+      const observed = remembered ? structuredClone(remembered) : await cacheEntry(source);
+      const previous = view(observed, source);
       try {
         const rawModels = await bounded(
           () =>
@@ -156,18 +204,25 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
         failedSnapshots.delete(key);
         return structuredClone(catalog);
       } catch {
-        const failed: ModelCatalog = applyGrokSubscriptionPins({
-          ...previous,
-          state: previous.fetchedAt ? 'stale' : 'unavailable',
-          error: 'Model discovery unavailable',
-          models: previous.models.map((model) => ({
-            ...model,
-            metadata: { ...model.metadata, stale: true },
-          })),
-        });
+        // Account rows tighten before the publisher pin is put back. Disk still
+        // rejects a stale account row that expands tools or effort.
+        const failed = applyGrokSubscriptionPins(
+          presentSubscriptionCatalog({
+            ...previous,
+            state: previous.fetchedAt ? 'stale' : 'unavailable',
+            error: 'Model discovery unavailable',
+            models: previous.models.map((model) => ({
+              ...model,
+              metadata: { ...model.metadata, stale: true },
+            })),
+          }),
+        );
         failedSnapshots.set(key, structuredClone(failed));
         try {
-          await persist(key, failed);
+          // Login can rmSync the route directory after the read. Do not write
+          // that account back. An empty cache on both reads was never stored.
+          if (observed) await persist(key, failed, observed);
+          else if (!(await cacheEntry(source))) await persist(key, failed);
         } catch {
           /* in-memory invalidation remains */
         }

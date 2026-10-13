@@ -3,7 +3,11 @@ import type { Settings } from '@yevgetman/sov-sdk/config/schema';
 import { readConfig } from '@yevgetman/sov-sdk/config/store';
 import { PROVIDER_REGISTRY } from '@yevgetman/sov-sdk/providers/models';
 import { type ModelCatalog, findModel } from '@yevgetman/sov-sdk/providers/models/index';
-import { readModelCatalogSnapshot, routeForProvider } from '../cli/modelDiscovery.js';
+import {
+  readModelCatalogSnapshot,
+  routeForProvider,
+  subscriptionOperatorModel,
+} from '../cli/modelDiscovery.js';
 
 /** Config/lane/REPL/TUI all read one current offline snapshot. */
 export function providerModelCatalog(
@@ -38,7 +42,17 @@ export function modelAuthor(
 export function modelDetails(
   model: import('@yevgetman/sov-sdk/providers/models/index').ModelRecord,
 ): string {
-  return `tools:${model.capabilities.tools} · images:${model.capabilities.images} · efforts:${model.efforts?.join('/') ?? 'unknown'} · context:${model.contextWindow ?? 'unknown'} · availability:${model.availability}`;
+  const efforts = !model.efforts
+    ? 'unknown'
+    : model.efforts.length === 0
+      ? 'none'
+      : model.efforts.join('/');
+  const shown = subscriptionOperatorModel(model);
+  const images =
+    shown.routeId === 'chatgpt-subscription' || shown.routeId === 'grok-subscription'
+      ? `${shown.capabilities.images}; the transport has no image serializer and cannot send images`
+      : shown.capabilities.images;
+  return `tools:${shown.capabilities.tools} · images:${images} · efforts:${efforts} · context:${shown.contextWindow ?? 'unknown'} · availability:${shown.availability}`;
 }
 export function modelProviderForSetting(path: string, settings: Settings): string | undefined {
   if (path === 'defaultModel') return settings.defaultProvider ?? 'anthropic';

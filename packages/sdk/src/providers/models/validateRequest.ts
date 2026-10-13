@@ -1,6 +1,7 @@
 import { listRoutes } from '../routes/catalog.js';
 import { RouteError } from '../routes/errors.js';
 import type { ProviderRequest } from '../types.js';
+import { SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE } from './subscriptionCatalog.js';
 import type { ModelRecord } from './types.js';
 
 /** Verified serializer support, separate from a publisher's model claims.
@@ -90,6 +91,18 @@ export function validateModelRequest(
       metadata.capabilities.images === 'unknown'
         ? 'Image support for the selected model is unknown.'
         : 'The selected model does not support image input.',
+    );
+  }
+  if (
+    tools &&
+    metadata?.metadata.source === SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE &&
+    (metadata.metadata.stale || metadata.capabilities.tools !== 'supported')
+  ) {
+    throw new RouteError(
+      'unsupported_input',
+      metadata.capabilities.tools === 'unsupported'
+        ? 'The selected model does not support tools.'
+        : 'Tool support for the selected model is unknown.',
     );
   }
   if (
