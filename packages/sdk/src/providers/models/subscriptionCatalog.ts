@@ -207,7 +207,14 @@ export function applySubscriptionAccountCatalog(
     models.push(model);
   }
   if (!models.length || containsCredentialMaterial(models)) {
-    return { ...unavailable(routeId), pinnedDefaultUnavailable: pinDropped };
+    const fallback = unavailable(routeId);
+    if (!pinDropped) return fallback;
+    // The fallback list is the pin itself. Do not put that retired id back.
+    return {
+      ...fallback,
+      models: fallback.models.filter((model) => model.id !== pin),
+      pinnedDefaultUnavailable: true,
+    };
   }
   const observed = listedAt(input.listedAt);
   return {
@@ -224,12 +231,11 @@ export function applySubscriptionAccountCatalog(
 
 /** ModelCatalog for a payload the caller already applied. Keeps the pin status. */
 export function subscriptionAccountModelCatalog(applied: AppliedSubscriptionCatalog): ModelCatalog {
-  const status =
-    applied.state === 'current' && applied.pinnedDefaultUnavailable
-      ? 'unavailable'
-      : applied.state === 'current' && applied.missingPinnedDefault
-        ? 'missing'
-        : undefined;
+  const status = applied.pinnedDefaultUnavailable
+    ? 'unavailable'
+    : applied.state === 'current' && applied.missingPinnedDefault
+      ? 'missing'
+      : undefined;
   return {
     version: 1,
     routeId: applied.routeId,
@@ -240,17 +246,17 @@ export function subscriptionAccountModelCatalog(applied: AppliedSubscriptionCata
   };
 }
 
-/** Missing or unavailable reviewed pin on a current subscription catalog. */
+/** Missing pin on a current catalog, or an unavailable pin in any state. */
 export function reportSubscriptionPin(
   catalog: ModelCatalog,
 ): { id: string; status: 'missing' | 'unavailable' } | undefined {
   if (catalog.routeId !== 'chatgpt-subscription' && catalog.routeId !== 'grok-subscription')
     return undefined;
-  if (catalog.state !== 'current') return undefined;
   const id = subscriptionPinnedDefault(catalog.routeId);
-  if (catalog.models.some((model) => model.id === id)) return undefined;
   if (catalog.pinnedDefault?.id === id && catalog.pinnedDefault.status === 'unavailable')
     return { id, status: 'unavailable' };
+  if (catalog.state !== 'current') return undefined;
+  if (catalog.models.some((model) => model.id === id)) return undefined;
   return { id, status: 'missing' };
 }
 

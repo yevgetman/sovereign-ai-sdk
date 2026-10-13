@@ -15,6 +15,7 @@ import {
   applySubscriptionAccountCatalog,
   normalizeSubscriptionCatalogRow,
   presentSubscriptionCatalog,
+  reportSubscriptionPin,
   selectableSubscriptionEfforts,
   subscriptionAccountModelCatalog,
   subscriptionToolsSelectable,
@@ -192,6 +193,44 @@ describe('subscription catalog policy', () => {
     expect(empty.models.map((model) => model.id)).toEqual(['gpt-5.3-codex']);
     expect(fetch).toBeTypeOf('function');
     expect(calls).toBe(0);
+  });
+
+  test('a retired pin that is the only row is unavailable and not listed again', () => {
+    expect(SUBSCRIPTION_DEFAULT_MODEL.grok).toBe('grok-4.6');
+    const retired = applySubscriptionAccountCatalog('grok-subscription', {
+      status: 200,
+      listedAt: listedAt(),
+      body: {
+        models: [{ id: 'grok-4.6', lifecycle: 'retired', output_modalities: ['text'] }],
+      },
+    });
+    expect(retired.state).toBe('unavailable');
+    expect(retired.pinnedDefaultUnavailable).toBe(true);
+    expect(retired.models.map((model) => model.id)).not.toContain('grok-4.6');
+    const stored = subscriptionAccountModelCatalog(retired);
+    expect(stored.pinnedDefault).toEqual({ id: 'grok-4.6', status: 'unavailable' });
+    expect(stored.models.map((model) => model.id)).not.toContain('grok-4.6');
+    expect(reportSubscriptionPin(stored)).toEqual({ id: 'grok-4.6', status: 'unavailable' });
+    const page = modelPage(stored, { route: 'grok-subscription' });
+    expect((page as { error?: { code?: string } }).error?.code).toBe('pinned_default_unavailable');
+    expect(page.models.map((model) => model.id)).not.toContain('grok-4.6');
+
+    for (const input of [
+      { status: 401, body: { models: [{ id: 'grok-4.6', output_modalities: ['text'] }] } },
+      { status: 200, body: { models: [] } },
+    ]) {
+      const ordinary = applySubscriptionAccountCatalog('grok-subscription', input);
+      expect(ordinary.state).toBe('unavailable');
+      expect(ordinary.pinnedDefaultUnavailable).toBe(false);
+      expect(ordinary.models.map((model) => model.id)).toContain('grok-4.6');
+      const catalog = subscriptionAccountModelCatalog(ordinary);
+      expect(catalog.pinnedDefault).toBeUndefined();
+      expect(reportSubscriptionPin(catalog)).toBeUndefined();
+      const ordinaryPage = modelPage(catalog, { route: 'grok-subscription' });
+      expect((ordinaryPage as { error?: { code?: string } }).error?.code).not.toBe(
+        'pinned_default_unavailable',
+      );
+    }
   });
 
   test('retired and non-text rows drop and a retired pin is not replaced', () => {
