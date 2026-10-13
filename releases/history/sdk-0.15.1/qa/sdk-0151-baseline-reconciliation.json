@@ -1,0 +1,13 @@
+{
+  "checked_at": "2026-10-13T14:37:53Z",
+  "baseline": {
+    "version": "0.15.0",
+    "cli_version": "0.6.78",
+    "source_commit": "486c58f5d2fee5478c9f7c5088f9f8bbdc859c11",
+    "evidence": "releases/history/sdk-0.15.0/publication.json",
+    "public_release": "https://github.com/yevgetman/sov-releases/releases/tag/v0.6.78"
+  },
+  "through_main_commit": "f573f63248aac5ae27a4108d5f2d5f73bcc80f93",
+  "assembly_build_commit": "85350f48cc726f62b7b6396919015960d810b2f5",
+  "note": "Assembly starts at the published baseline and applies the three listed merge units. Master bookkeeping between the baseline and PR63 stays out of the build."
+}
