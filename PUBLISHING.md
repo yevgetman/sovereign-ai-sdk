@@ -23,19 +23,20 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
 
 ---
 
-## Selected public cut — 2026-10-11
+## Selected public cut — 2026-10-13
 
-SDK **0.15.0** and SOV **0.6.78** are selected for the combined public
-[SOV v0.6.78](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.78) cut.
-Source tags are `sdk-v0.15.0` and `v0.6.78` at the exact assembled build in the
+SDK **0.15.1** and SOV **0.6.79** are selected for the combined public
+[SOV v0.6.79](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.79) cut.
+Source tags are `sdk-v0.15.1` and `v0.6.79` at the exact assembled build in the
 frozen plan. Publication is established only by archived public-byte evidence.
+The previous verified channel remains [SOV v0.6.78](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.78)
+(SDK 0.15.0, source `486c58f5d2fee5478c9f7c5088f9f8bbdc859c11`).
 SDK and binary checksums are separate. See [package install](packages/sdk/README.md#install).
 
-The SDK tarball is `yevgetman-sov-sdk-0.15.0.tgz`; its own packed README uses
+The SDK tarball is `yevgetman-sov-sdk-0.15.1.tgz`; its own packed README uses
 that version and the companion SOV tag. Earlier published bytes remain immutable.
-The cut includes both queued documentation items and PR52–59 with all their
-contained commits and review fixes. SDK public API additions require a minor
-version. Protocol remains **0.1.0** and debug console **0.3.0**.
+The cut includes PR63 and PR64 with all contained commits and review fixes.
+`encrypted_reasoning` is the reviewed SDK content-block addition. Protocol remains **0.1.0** and debug console **0.3.0**.
 
 The registry procedure below remains a separate owner gate. This GitHub release
 does not establish npm publication. Protocol remains **0.1.0**, debug console

@@ -10,15 +10,15 @@ Runs on **Node ≥ 20.19** and **Bun ≥ 1.2**.
 
 ## Install
 
-SDK **0.15.0** is published as a tarball in [SOV v0.6.78](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.78), with `SDK-SHA256SUMS`. Download both assets, verify the checksum, then install the local tarball:
+SDK **0.15.1** is published as a tarball in [SOV v0.6.79](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.79), with `SDK-SHA256SUMS`. Download both assets, verify the checksum, then install the local tarball:
 
 ```sh
-curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.78/yevgetman-sov-sdk-0.15.0.tgz
-curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.78/SDK-SHA256SUMS
+curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.79/yevgetman-sov-sdk-0.15.1.tgz
+curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.79/SDK-SHA256SUMS
 shasum -a 256 -c SDK-SHA256SUMS
-npm install ./yevgetman-sov-sdk-0.15.0.tgz   # Node
+npm install ./yevgetman-sov-sdk-0.15.1.tgz   # Node
 # Or:
-bun add ./yevgetman-sov-sdk-0.15.0.tgz       # Bun
+bun add ./yevgetman-sov-sdk-0.15.1.tgz       # Bun
 ```
 
 For repeatable builds, vendor the verified file and commit the dependency lockfile.
@@ -518,6 +518,11 @@ reasoning adapter that requires a larger minimum reservation still refuses an
 insufficient cap before contacting the provider.
 
 ## Skills runtime APIs
+
+SDK 0.15.1 keeps the 0.15.0 skill ports and adds Grok subscription
+`encrypted_reasoning` content. Callers must keep that block on rehydration and must
+not send it to other providers. Subscription catalogs move only by a reviewed pin
+or a proven read.
 
 SDK 0.15.0 adds explicit discovery, transactional stores,
 permissioned activation, live registries, composed runtimes, complete catalogs and
