@@ -9,6 +9,7 @@ import { normalizeOpenRouterModel } from '@yevgetman/sov-sdk/providers/models/op
 import type { ModelRecord } from '@yevgetman/sov-sdk/providers/models/types';
 import { OpenAIProvider } from '@yevgetman/sov-sdk/providers/openai';
 import { getRoute } from '@yevgetman/sov-sdk/providers/routes/catalog';
+import { RouteError } from '@yevgetman/sov-sdk/providers/routes/errors';
 import {
   effortsForModel,
   validateRouteSelection,
@@ -236,10 +237,52 @@ test('fresh grok metadata intersects verified efforts and does not prepend off',
     'max',
   ]);
   const empty = { ...base, efforts: ['off' as const] };
-  expect(reasoningControlFor('grok', 'grok-4.7', empty)).toBeUndefined();
+  expect(reasoningControlFor('grok', 'grok-4.7', empty)).toMatchObject({
+    parameter: 'grok',
+    efforts: [],
+  });
+  expect(effortsForModel(route, 'grok-4.7', empty)).toEqual([]);
+  let selection: { model: string; effort: string } | undefined;
+  let codeSeen = 'ok';
+  try {
+    selection = validateRouteSelection(route, { model: 'grok-4.7', modelMetadata: empty });
+  } catch (err) {
+    codeSeen = err instanceof RouteError ? err.code : 'other';
+  }
+  expect(selection?.effort).not.toBe('off');
+  expect(codeSeen).toBe('effort_unsupported');
   expect(() =>
     validateRouteSelection(route, { model: 'grok-4.7', effort: 'low', modelMetadata: empty }),
   ).toThrow();
+  const unsupported = {
+    ...base,
+    capabilities: { ...base.capabilities, reasoning: 'unsupported' as const },
+  };
+  expect(reasoningControlFor('grok', 'grok-4.7', unsupported)).toMatchObject({
+    parameter: 'grok',
+    efforts: [],
+  });
+  expect(effortsForModel(route, 'grok-4.7', unsupported)).toEqual([]);
+  selection = undefined;
+  codeSeen = 'ok';
+  try {
+    selection = validateRouteSelection(route, {
+      model: 'grok-4.7',
+      modelMetadata: unsupported,
+    });
+  } catch (err) {
+    codeSeen = err instanceof RouteError ? err.code : 'other';
+  }
+  expect(selection?.effort).not.toBe('off');
+  expect(codeSeen).toBe('effort_unsupported');
+  expect(() =>
+    validateRouteSelection(route, {
+      model: 'grok-4.7',
+      effort: 'low',
+      modelMetadata: unsupported,
+    }),
+  ).toThrow();
+  expect(reasoningControlFor('grok', 'grok-4.5', { ...empty, id: 'grok-4.5' })).toBeUndefined();
 });
 
 describe('metadata reasoning and exact transport controls', () => {

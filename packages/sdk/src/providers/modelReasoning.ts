@@ -86,8 +86,10 @@ export function reasoningControlFor(
   if (metadata && (metadata.id !== model || metadata.provider !== provider))
     throw new RouteError('effort_unsupported', 'model metadata does not match request');
   // The pin must not collapse to off when reasoning metadata is present.
-  // Fresh narrower published efforts still intersect the verified set. Do not
-  // prepend off or switch the Responses parameter to reasoning_effort.
+  // Fresh narrower published efforts still intersect the verified set. An empty
+  // intersection, including only off or unsupported reasoning, keeps this
+  // control with no levels so selection cannot synthesize off. Do not prepend
+  // off or switch the Responses parameter to reasoning_effort.
   if (provider === 'grok') {
     const verified = VERIFIED[`${provider}:${model}`];
     if (!verified) return undefined;
@@ -96,7 +98,7 @@ export function reasoningControlFor(
       hasReasoningMetadata(metadata) &&
       metadata.capabilities.reasoning === 'unsupported'
     )
-      return undefined;
+      return { ...verified, efforts: [] };
     const freshEfforts =
       metadata &&
       hasReasoningMetadata(metadata) &&
@@ -110,7 +112,6 @@ export function reasoningControlFor(
     const efforts = verified.efforts.filter(
       (level) => level !== 'off' && freshEfforts.includes(level),
     );
-    if (efforts.length === 0) return undefined;
     return { ...verified, efforts };
   }
   if (hasReasoningMetadata(metadata) && metadata) {

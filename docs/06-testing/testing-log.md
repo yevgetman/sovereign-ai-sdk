@@ -1,3 +1,19 @@
+## 2026-10-13 — Empty grok effort lists do not resolve to off
+
+Scope: verified `grok-4.7` / `grok-4.6` controls. Fresh metadata whose efforts do not intersect the pin (`efforts: ['off']`, or `capabilities.reasoning: 'unsupported'`) keeps the verified control with `efforts: []`. Omitted effort throws `effort_unsupported` and does not select `off`. Explicit `low` still throws. The pin record and `efforts: ['low']` are unchanged. No live xAI or OAuth call. No Keychain read.
+
+Environment: macOS, Bun 1.3.13 at `/Users/julie/.bun/bin/bun`. Worktree `/private/tmp/pr-fixes/pr63-effort-intersect` on `fix/pr63-effort-intersect`. Root `node_modules` is a symlink to `/private/tmp/spec-prs/sdk-grok/node_modules`, so `@yevgetman/sov-sdk` otherwise resolves to that tree. Focused tests used a temporary `tests/node_modules/@yevgetman/sov-sdk` link to this worktree's `packages/sdk`, removed after the run. The root symlink was not deleted and `bun install` was not run.
+
+Commands:
+
+- Before the fix, `bun -e` against the linked tree: `validateRouteSelection(getRoute('grok-subscription'), { model: 'grok-4.7', modelMetadata })` returned `{ effort: 'off' }` for fresh `efforts: ['off']` and for `reasoning: 'unsupported'`. Explicit `low` already threw `effort_unsupported`.
+- `bun test --timeout 20000 tests/providers/modelReasoning.test.ts -t "fresh grok metadata intersects"` before the fix: 0 pass / 1 fail. `reasoningControlFor` was `undefined`.
+- After the fix, with the temporary package link: `bun test --timeout 20000 tests/providers/modelReasoning.test.ts tests/providers/routes.test.ts`: 42 pass / 0 fail, 467 expect() calls.
+- `bunx biome check packages/sdk/src/providers/modelReasoning.ts tests/providers/modelReasoning.test.ts`: passed, no fixes.
+- `bun run typecheck` fails in this worktree because `tsc` loads both this checkout and the symlinked `sdk-grok` package (`exactOptionalPropertyTypes` private `profiles` mismatch in unrelated tool tests). Not caused by this effort change. Full `bun run lint` and `bun run test` were not run.
+
+Result: omitted grok effort on an empty intersection throws `effort_unsupported`. The §8 live subscription probe has not been run.
+
 ## 2026-10-13 — Rejected grok subscription default is not the built-in id
 
 Scope: `routes.grok-subscription.defaultModel` outside the allowlist (`grok-4.5`) no longer makes `listRoutes` / `getRoute` present built-in `grok-4.7` as `defaultModel`. The record keeps the rejected id and `defaultModelNotice` says omission and auto fail until `routes.grok-subscription.defaultModel` is changed. Explicit `grok-4.7` still resolves. No live xAI or OAuth call. No Keychain read.
