@@ -24,6 +24,16 @@ export type LoginIo = {
   signal?: AbortSignal;
 };
 
+/**
+ * Logout and completed login. The catalog cache key is the Keychain service
+ * name (`SOV_SUB_CHATGPT` / `SOV_SUB_GROK`), not token bytes. An account change
+ * under that same service name must clear the route's catalog files. The hook
+ * receives the provider name only.
+ */
+export type SubscriptionIdentityHooks = {
+  onIdentityChanged?: (name: 'chatgpt' | 'grok') => Promise<void> | void;
+};
+
 /** Open the system browser. A failure does not fail login; the URL is printed. */
 export function openSystemBrowser(url: string): void {
   try {
@@ -50,6 +60,7 @@ export async function loginSubscription(
   name: string,
   port: SubscriptionCredentialPort,
   io: LoginIo,
+  hooks?: SubscriptionIdentityHooks,
 ): Promise<number> {
   if (!isSubscriptionName(name)) {
     io.stderr(`unknown subscription provider ${name}\n`);
@@ -89,8 +100,8 @@ export async function loginSubscription(
       fetchImpl: boundedLoginFetch(io),
       sleep: (ms: number) => boundedLoginSleep(io, ms),
     };
-    if (name === 'chatgpt') return await loginChatGpt(guardedPort, boundedIo);
-    return await loginGrok(guardedPort, boundedIo);
+    if (name === 'chatgpt') return await loginChatGpt(guardedPort, boundedIo, hooks);
+    return await loginGrok(guardedPort, boundedIo, hooks);
   } catch {
     io.stderr(`${name} login failed\n`);
     return 1;
@@ -102,6 +113,7 @@ export async function logoutSubscription(
   name: string,
   port: SubscriptionCredentialPort,
   io: LoginIo,
+  hooks?: SubscriptionIdentityHooks,
 ): Promise<number> {
   if (!isSubscriptionName(name)) {
     io.stderr(`unknown subscription provider ${name}\n`);
@@ -114,6 +126,7 @@ export async function logoutSubscription(
       async () => {
         await advanceCredentialGeneration(port, KEYCHAIN_SERVICE[name]);
         await port.delete(KEYCHAIN_SERVICE[name]);
+        if (name === 'chatgpt' || name === 'grok') await hooks?.onIdentityChanged?.(name);
       },
       io.signal ? { signal: io.signal } : {},
     );
@@ -125,7 +138,11 @@ export async function logoutSubscription(
   return 0;
 }
 
-async function loginChatGpt(port: SubscriptionCredentialPort, io: LoginIo): Promise<number> {
+async function loginChatGpt(
+  port: SubscriptionCredentialPort,
+  io: LoginIo,
+  hooks?: SubscriptionIdentityHooks,
+): Promise<number> {
   const deviceRes = await io.fetchImpl(`${CODEX_ISSUER}/api/accounts/deviceauth/usercode`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
@@ -196,11 +213,16 @@ async function loginChatGpt(port: SubscriptionCredentialPort, io: LoginIo): Prom
   }
   const record = recordFromTokenJson('chatgpt', await tokenRes.json(), io.now(), '');
   await port.write(KEYCHAIN_SERVICE.chatgpt, record);
+  await hooks?.onIdentityChanged?.('chatgpt');
   io.stdout('signed in to chatgpt\n');
   return 0;
 }
 
-async function loginGrok(port: SubscriptionCredentialPort, io: LoginIo): Promise<number> {
+async function loginGrok(
+  port: SubscriptionCredentialPort,
+  io: LoginIo,
+  hooks?: SubscriptionIdentityHooks,
+): Promise<number> {
   const discoveryRes = await io.fetchImpl(XAI_DISCOVERY, {
     headers: { accept: 'application/json' },
   });
@@ -264,6 +286,7 @@ async function loginGrok(port: SubscriptionCredentialPort, io: LoginIo): Promise
     if (poll.ok) {
       const record = recordFromTokenJson('grok', await poll.json(), io.now(), '');
       await port.write(KEYCHAIN_SERVICE.grok, record);
+      await hooks?.onIdentityChanged?.('grok');
       io.stdout('signed in to grok\n');
       return 0;
     }

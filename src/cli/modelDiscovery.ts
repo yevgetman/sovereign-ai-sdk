@@ -1,7 +1,7 @@
 /** SOV-owned disk adapter. SDK discovery remains portable and disk-free. */
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import type { Settings } from '@yevgetman/sov-sdk/config/schema';
 import {
@@ -16,18 +16,34 @@ import {
   findModel,
 } from '@yevgetman/sov-sdk/providers/models/index';
 import { fallbackModelCatalog } from '@yevgetman/sov-sdk/providers/models/index';
+import {
+  assertSubscriptionDiskCatalog,
+  presentSubscriptionCatalog,
+  subscriptionDiskRoute,
+} from '@yevgetman/sov-sdk/providers/models/subscriptionCatalog';
 import { validateModelCatalog } from '@yevgetman/sov-sdk/providers/models/validate';
 import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
+
+function subscriptionCacheId(key: string): boolean {
+  return key.startsWith('chatgpt-subscription:') || key.startsWith('grok-subscription:');
+}
+
+/** API-key catalogs stay flat. Subscription catalogs are per route under this root. */
+export function modelCatalogCacheFile(root: string, key: string): string {
+  const digest = createHash('sha256').update(key).digest('hex');
+  const route = subscriptionDiskRoute(key);
+  if (route) return join(root, 'subscription', route, `${digest}.json`);
+  return join(root, `${digest}.json`);
+}
 
 export function diskModelCache(
   root = join(resolveHarnessHome(), 'model-catalog'),
 ): ModelCatalogCache {
-  const path = (key: string) =>
-    join(root, `${createHash('sha256').update(key).digest('hex')}.json`);
   return {
     async get(key) {
+      if (subscriptionCacheId(key) && !subscriptionDiskRoute(key)) return undefined;
       try {
-        const file = path(key);
+        const file = modelCatalogCacheFile(root, key);
         if (statSync(file).size > 16 * 1024 * 1024) return undefined;
         return JSON.parse(readFileSync(file, 'utf8')) as ModelCatalog;
       } catch {
@@ -35,12 +51,45 @@ export function diskModelCache(
       }
     },
     async set(key, catalog) {
+      assertSubscriptionDiskCatalog(key, catalog);
       mkdirSync(root, { recursive: true, mode: 0o700 });
-      const file = path(key);
+      const file = modelCatalogCacheFile(root, key);
+      mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
       const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
       writeFileSync(tmp, JSON.stringify(catalog), { mode: 0o600 });
       renameSync(tmp, file);
     },
+  };
+}
+
+/**
+ * Delete one owner's subscription catalog for a route. The cache identity is the
+ * Keychain service name, so an account change under that same name must clear
+ * the whole route directory. Does not read credential bytes or API-key caches.
+ */
+export function clearSubscriptionCatalogCache(
+  root: string,
+  routeId: 'chatgpt-subscription' | 'grok-subscription',
+): void {
+  rmSync(join(root, 'subscription', routeId), { recursive: true, force: true });
+}
+
+export function resetSubscriptionCatalogForProvider(
+  name: 'chatgpt' | 'grok',
+  harnessHome = resolveHarnessHome(),
+): void {
+  clearSubscriptionCatalogCache(
+    join(harnessHome, 'model-catalog'),
+    name === 'chatgpt' ? 'chatgpt-subscription' : 'grok-subscription',
+  );
+}
+
+/** Host hook for login and logout. Provider name only; no credential bytes. */
+export function subscriptionSessionHooks(harnessHome = resolveHarnessHome()): {
+  onIdentityChanged: (name: 'chatgpt' | 'grok') => void;
+} {
+  return {
+    onIdentityChanged: (name) => resetSubscriptionCatalogForProvider(name, harnessHome),
   };
 }
 
@@ -133,7 +182,8 @@ export async function readModelCatalog(
 ): Promise<ModelCatalog> {
   const source = modelSource(routeId, settings);
   const service = createModelDiscovery({ cache });
-  return refresh ? service.refresh(source) : service.read(source);
+  const catalog = refresh ? await service.refresh(source) : await service.read(source);
+  return presentSubscriptionCatalog(catalog);
 }
 
 export async function selectedModelRecord(
@@ -217,7 +267,8 @@ export function readModelCatalogSnapshot(
   const source = modelSource(routeId, settings);
   const root = join(harnessHome, 'model-catalog');
   const key = `${source.routeId}:${source.cacheKey ?? 'public'}`;
-  const file = join(root, `${createHash('sha256').update(key).digest('hex')}.json`);
+  if (subscriptionCacheId(key) && !subscriptionDiskRoute(key)) return fallbackModelCatalog(routeId);
+  const file = modelCatalogCacheFile(root, key);
   try {
     if (statSync(file).size > 16 * 1024 * 1024) return fallbackModelCatalog(routeId);
     const catalog = validateModelCatalog(
@@ -230,14 +281,14 @@ export function readModelCatalogSnapshot(
       catalog.state !== 'current' ||
       !catalog.fetchedAt ||
       Date.now() - Date.parse(catalog.fetchedAt) >= 3600000;
-    return {
+    return presentSubscriptionCatalog({
       ...catalog,
       state: catalog.state === 'current' && stale ? 'stale' : catalog.state,
       models: catalog.models.map((model) => ({
         ...model,
         metadata: { ...model.metadata, stale: stale || model.metadata.stale },
       })),
-    };
+    });
   } catch {
     return fallbackModelCatalog(routeId);
   }

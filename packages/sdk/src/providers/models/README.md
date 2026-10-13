@@ -51,11 +51,15 @@ Missing provider fields stay unknown. Available IDs from an authenticated list
 are account-listed availability, not proof of a successful generation request.
 `resolveModelAlias(id, aliases)` follows only explicit aliases and rejects cycles.
 
-`createSubscriptionModelSource(routeId)` keeps ChatGPT and Grok subscription
-suggestions separate. Without a supported subscription discovery interface, their
-metadata and availability remain unknown. Explicit refresh returns unavailable
-with stale offline suggestions, never a current discovery timestamp. It does not fetch, borrow API records,
-start login or add Claude-Max HTTP support. Custom sources can implement other
+`createSubscriptionModelSource(routeId, accountKey?)` keeps ChatGPT and Grok
+subscription suggestions separate. No subscription catalog endpoint is known, so
+`discover` still throws `Subscription model discovery unavailable` and does not
+fetch. Explicit refresh returns unavailable with stale offline suggestions, never
+a current discovery timestamp. It does not borrow API records, start login, or
+add Claude-Max HTTP support. The cache key is the non-secret Keychain service
+name (`SOV_SUB_CHATGPT` or `SOV_SUB_GROK`), never a token and never `public`.
+`applySubscriptionAccountCatalog` normalizes a payload the caller already holds.
+It does not move `SUBSCRIPTION_DEFAULT_MODEL`. Custom sources can implement other
 SDK providers without changing the six built-in authentication routes.
 
 Provider references: [Anthropic models](https://platform.claude.com/docs/en/api/models/list),

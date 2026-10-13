@@ -6,11 +6,13 @@ Grok pin to `grok-4.7` belongs to sibling PR 63. This branch keeps
 `SUBSCRIPTION_DEFAULT_MODEL.grok` at `grok-4.6`, leaves `knownModels` one id
 wide, and does not edit the Grok request body, effort wire, or reasoning replay.
 
-> **Status:** planned 2026-10-12. `createSubscriptionModelSource` still throws
-> `Subscription model discovery unavailable` and performs zero fetches.
+> **Status:** implemented 2026-10-12. `createSubscriptionModelSource` still throws
+> `Subscription model discovery unavailable` and performs zero fetches. No
+> endpoint is named. The probe gate has not been run. The Grok pin move belongs
+> to PR 63.
 
 ### Phase 1 — Pure account-catalog normalization
-**Status:** planned
+**Status:** complete (2026-10-12)
 
 Normalize a caller-supplied payload only. Same drop and capability rules as
 `normalizeDirectModel`: retired and non-text rows drop; missing capability
@@ -28,7 +30,7 @@ not replaced. 401, 403, and empty lists are not current and are not cached as
 success.
 
 ### Phase 2 — Disk cache isolation
-**Status:** planned
+**Status:** complete (2026-10-12)
 
 The durable key is the non-secret Keychain service name (`SOV_SUB_GROK` or
 `SOV_SUB_CHATGPT`), never the access token, refresh token, API key, or
@@ -44,7 +46,7 @@ a current subscription catalog and must not drop the reviewed pin from
 cannot expand tools, effort, or context. Records are model metadata only.
 
 ### Phase 3 — Fixture tests
-**Status:** planned
+**Status:** complete (2026-10-12)
 
 No live model probe. Cover the spec's validation list and keep the existing
 direct-discovery tests, including the subscription path that forbids any fetch.
