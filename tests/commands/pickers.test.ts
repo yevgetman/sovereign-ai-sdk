@@ -9,7 +9,16 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { PickerOpenConfig } from '@yevgetman/sov-sdk/commands/types';
+import { createSubscriptionModelSource } from '@yevgetman/sov-sdk/providers/models/direct';
+import {
+  applySubscriptionAccountCatalog,
+  subscriptionAccountModelCatalog,
+  subscriptionPinNotice,
+} from '@yevgetman/sov-sdk/providers/models/subscriptionCatalog';
+import { SUBSCRIPTION_DEFAULT_MODEL } from '@yevgetman/sov-sdk/providers/subscription/names';
 import chalk from 'chalk';
+import { diskModelCache } from '../../src/cli/modelDiscovery.js';
 import { __test__ } from '../../src/commands/pickers.js';
 import { dispatchSlashCommand } from '../../src/commands/registry.js';
 import { __resetForTests, getTheme } from '../../src/ui/theme.js';
@@ -143,6 +152,68 @@ describe('/model — inline argument path', () => {
     // the provider-not-registered branch is what the live picker hits.
     // Confirm the message at minimum mentions the model.
     expect(strip(result.output)).toContain('current model');
+  });
+
+  test('a missing or unavailable subscription pin is a notice, not an unknown model', async () => {
+    const listedAt = new Date(Date.now() - 60_000).toISOString();
+    const cases = [
+      {
+        providerName: 'chatgpt',
+        routeId: 'chatgpt-subscription' as const,
+        pin: SUBSCRIPTION_DEFAULT_MODEL.chatgpt,
+        status: 'missing' as const,
+        body: { models: [{ id: 'gpt-6.1-sol', output_modalities: ['text'] }] },
+        kept: 'gpt-6.1-sol',
+      },
+      {
+        providerName: 'grok',
+        routeId: 'grok-subscription' as const,
+        pin: SUBSCRIPTION_DEFAULT_MODEL.grok,
+        status: 'unavailable' as const,
+        body: {
+          models: [
+            { id: 'grok-4.6', lifecycle: 'retired', output_modalities: ['text'] },
+            { id: 'grok-4.7', output_modalities: ['text'] },
+          ],
+        },
+        kept: 'grok-4.7',
+      },
+    ];
+    for (const entry of cases) {
+      const home = mkdtempSync(join(tmpdir(), 'sov-model-pin-'));
+      try {
+        const applied = applySubscriptionAccountCatalog(entry.routeId, {
+          listedAt,
+          body: entry.body,
+        });
+        const catalog = subscriptionAccountModelCatalog(applied);
+        const source = createSubscriptionModelSource(entry.routeId);
+        await diskModelCache(join(home, 'model-catalog')).set(
+          `${source.routeId}:${source.cacheKey}`,
+          catalog,
+        );
+        const opened: PickerOpenConfig[] = [];
+        const ctx = makeCtx({
+          providerName: entry.providerName,
+          model: entry.pin,
+          harnessHome: home,
+          requestPicker: (config) => opened.push(config),
+        });
+        const result = await dispatchSlashCommand('/model', ctx);
+        if (result.kind !== 'local') throw new Error('expected local');
+        const notice = subscriptionPinNotice({ id: entry.pin, status: entry.status });
+        const picker = opened[0];
+        if (!picker) throw new Error('expected a model picker');
+        expect(picker.subtitle).toContain(notice);
+        expect(picker.items.map((item) => item.value)).toContain(entry.kept);
+        expect(picker.items.map((item) => item.value)).not.toContain(entry.pin);
+        expect(picker.items.some((item) => item.hint?.includes('availability:unknown'))).toBe(
+          false,
+        );
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    }
   });
 });
 

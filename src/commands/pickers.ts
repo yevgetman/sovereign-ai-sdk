@@ -18,6 +18,10 @@ import type { CommandContext, LocalCommand } from '@yevgetman/sov-sdk/commands/t
 import { readConfig, resolveConfigPath, setAt, writeConfig } from '@yevgetman/sov-sdk/config/store';
 import { findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import {
+  reportSubscriptionPin,
+  subscriptionPinNotice,
+} from '@yevgetman/sov-sdk/providers/models/subscriptionCatalog';
+import {
   commandModelSettings,
   modelAuthor,
   modelDetails,
@@ -194,8 +198,10 @@ async function runModelPicker(args: string, ctx: CommandContext): Promise<string
     ctx.harnessHome,
   );
   const state = catalog.state === 'current' ? 'cached metadata' : 'offline/stale suggestions';
+  const pin = reportSubscriptionPin(catalog);
   const records = [...catalog.models];
-  if (!records.some((model) => model.id === ctx.model))
+  // A missing or unavailable pin stays the default. Do not invent an unknown row for it.
+  if (!records.some((model) => model.id === ctx.model) && ctx.model !== pin?.id)
     records.unshift(findModel(catalog, ctx.model));
   const author = modelAuthor;
   const openrouter = ctx.providerName === 'openrouter';
@@ -222,7 +228,8 @@ async function runModelPicker(args: string, ctx: CommandContext): Promise<string
         hint: `${model.id === ctx.model ? '(current) · ' : ''}${modelDetails(model)}`,
       }));
   if (ctx.requestInput) items.push({ label: 'type custom model ID…', value: '--custom' });
-  const subtitle = `provider: ${ctx.providerName} · ${state}. Search: /model --search text; refresh: sov models --route ${catalog.routeId} --refresh`;
+  const pinNotice = pin ? ` ${subscriptionPinNotice(pin)}` : '';
+  const subtitle = `provider: ${ctx.providerName} · ${state}. Search: /model --search text; refresh: sov models --route ${catalog.routeId} --refresh${pinNotice}`;
   if (ctx.requestPicker) {
     ctx.requestPicker({
       title: rootGroups ? 'model author' : 'switch model',
