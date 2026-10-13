@@ -561,6 +561,80 @@ describe('subscription catalog policy', () => {
     }
   });
 
+  test('subscription operator copy does not claim a verified image serializer', () => {
+    const imageRequest = (model: string) => ({
+      ...request(model),
+      messages: [
+        {
+          role: 'user' as const,
+          content: [
+            {
+              type: 'image' as const,
+              source: {
+                type: 'base64' as const,
+                media_type: 'image/png' as const,
+                data: 'aGVsbG8=',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    for (const entry of [
+      {
+        routeId: 'grok-subscription' as const,
+        provider: 'grok',
+        id: 'grok-4.7',
+      },
+      {
+        routeId: 'chatgpt-subscription' as const,
+        provider: 'chatgpt',
+        id: 'gpt-6.1-sol',
+      },
+    ]) {
+      const applied = applySubscriptionAccountCatalog(entry.routeId, {
+        listedAt: listedAt(),
+        body: {
+          models: [
+            {
+              id: entry.id,
+              output_modalities: ['text'],
+              input_modalities: ['image'],
+            },
+          ],
+        },
+      });
+      const row = applied.models[0];
+      if (!row) throw new Error('missing row');
+      expect(row.capabilities.images).toBe('supported');
+      const catalog = subscriptionAccountModelCatalog(applied);
+      const page = modelPage(catalog, { route: entry.routeId });
+      expect(page.models[0]?.capabilities.images).toBe('unsupported');
+      expect(modelDetails(row)).toContain('images:unsupported');
+      expect(row.capabilities.images).toBe('supported');
+      expect(catalog.models[0]?.capabilities.images).toBe('supported');
+      expect(() => validateModelRequest(imageRequest(row.id), entry.provider, row)).toThrow(
+        /no verified image serializer/,
+      );
+    }
+    const direct: ModelRecord = {
+      id: 'gpt-4o',
+      displayName: 'gpt-4o',
+      routeId: 'openai-api',
+      provider: 'openai',
+      auth: 'api_key',
+      capabilities: {
+        textOutput: 'supported',
+        tools: 'supported',
+        images: 'supported',
+        reasoning: 'unknown',
+      },
+      availability: 'advertised',
+      metadata: { source: 'direct-api', stale: false },
+    };
+    expect(modelDetails(direct)).toContain('images:supported');
+  });
+
   test('an empty selectable account-catalog list is efforts none only in the operator view', async () => {
     const applied = applySubscriptionAccountCatalog('chatgpt-subscription', {
       listedAt: listedAt(),

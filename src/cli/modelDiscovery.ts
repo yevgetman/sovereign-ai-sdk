@@ -212,6 +212,13 @@ export function modelAuthor(model: ModelRecord): string | undefined {
   );
 }
 
+/** Operator view only. ChatGPT and Grok transports have no image serializer. */
+export function subscriptionOperatorModel(model: ModelRecord): ModelRecord {
+  if (model.provider !== 'chatgpt' && model.provider !== 'grok') return model;
+  if (model.capabilities.images === 'unsupported') return model;
+  return { ...model, capabilities: { ...model.capabilities, images: 'unsupported' } };
+}
+
 export function modelPage(catalog: ModelCatalog, query: ModelQuery) {
   const offset = query.offset ?? 0;
   const limit = query.limit ?? 50;
@@ -256,7 +263,7 @@ export function modelPage(catalog: ModelCatalog, query: ModelQuery) {
     offset,
     limit,
     nextOffset: offset + limit < models.length ? offset + limit : null,
-    models: models.slice(offset, offset + limit),
+    models: models.slice(offset, offset + limit).map(subscriptionOperatorModel),
   };
 }
 

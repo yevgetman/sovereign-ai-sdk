@@ -3,7 +3,11 @@ import type { Settings } from '@yevgetman/sov-sdk/config/schema';
 import { readConfig } from '@yevgetman/sov-sdk/config/store';
 import { PROVIDER_REGISTRY } from '@yevgetman/sov-sdk/providers/models';
 import { type ModelCatalog, findModel } from '@yevgetman/sov-sdk/providers/models/index';
-import { readModelCatalogSnapshot, routeForProvider } from '../cli/modelDiscovery.js';
+import {
+  readModelCatalogSnapshot,
+  routeForProvider,
+  subscriptionOperatorModel,
+} from '../cli/modelDiscovery.js';
 
 /** Config/lane/REPL/TUI all read one current offline snapshot. */
 export function providerModelCatalog(
@@ -43,7 +47,8 @@ export function modelDetails(
     : model.efforts.length === 0
       ? 'none'
       : model.efforts.join('/');
-  return `tools:${model.capabilities.tools} · images:${model.capabilities.images} · efforts:${efforts} · context:${model.contextWindow ?? 'unknown'} · availability:${model.availability}`;
+  const shown = subscriptionOperatorModel(model);
+  return `tools:${shown.capabilities.tools} · images:${shown.capabilities.images} · efforts:${efforts} · context:${shown.contextWindow ?? 'unknown'} · availability:${shown.availability}`;
 }
 export function modelProviderForSetting(path: string, settings: Settings): string | undefined {
   if (path === 'defaultModel') return settings.defaultProvider ?? 'anthropic';
