@@ -1,7 +1,7 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: 2026-10-13T14:16:30Z
+updated_at: 2026-10-13T14:37:53Z
 checkout: .
 last_release: &a1
   version: 0.15.0
@@ -10,9 +10,9 @@ last_release: &a1
   evidence: releases/history/sdk-0.15.0/publication.json
 reconciliation:
   history_start_commit: 486c58f5d2fee5478c9f7c5088f9f8bbdc859c11
-  through_main_commit: 59aecc941e6139f58d713fdf147f38c1fe71ef0d
-  checked_at: 2026-10-13T14:16:30Z
-  evidence: releases/history/sdk-0.15.0/publication.json
+  through_main_commit: f573f63248aac5ae27a4108d5f2d5f73bcc80f93
+  checked_at: 2026-10-13T14:37:53Z
+  evidence: releases/sdk-0151-baseline-reconciliation.json
 release:
   id: sdk-0.15.1
   product: sovereign-ai-sdk
@@ -20,9 +20,22 @@ release:
   cli_version: 0.6.79
   status: draft
   base: *a1
-  applied_commits: []
-  preparation_commits: []
-  build_commit: null
+  applied_commits:
+    - item_id: sdk-pr-63
+      source_commit: 9bccdda996a57be2c73c0a707600bdf4740b0916
+      release_commit: ad21dbb8d22e1adaee6d151391e5170c191c906e
+    - item_id: sdk-pr-64
+      source_commit: 59aecc941e6139f58d713fdf147f38c1fe71ef0d
+      release_commit: 52373d8fab261c9193c5f060e5ea6e03fa5e211b
+    - item_id: sdk-prep-0151
+      source_commit: f573f63248aac5ae27a4108d5f2d5f73bcc80f93
+      release_commit: 85350f48cc726f62b7b6396919015960d810b2f5
+  preparation_commits:
+    - item_id: sdk-prep-0151
+      commit: 85350f48cc726f62b7b6396919015960d810b2f5
+      reason: Explicit reviewed version, lockfile and packed install guide preparation.
+      review: releases/sdk-0151-preparation-review.json
+  build_commit: 85350f48cc726f62b7b6396919015960d810b2f5
   frozen_manifest_commit: null
   authorization: null
   validation: []

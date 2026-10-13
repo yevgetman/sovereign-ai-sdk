@@ -29,3 +29,17 @@ items:
     qa:
       - docs/06-testing/testing-log.md
       - plans/2026-10-12-subscription-model-catalog.md
+  - id: sdk-prep-0151
+    product: sovereign-ai-sdk
+    title: Prepare SDK 0.15.1 and SOV 0.6.79 release
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/66
+    merged_at: 2026-10-13T14:34:51Z
+    commits:
+      - sha: f573f63248aac5ae27a4108d5f2d5f73bcc80f93
+        mainline: 1
+    requires:
+      - sdk-pr-64
+    reason: null
+    qa:
+      - releases/sdk-0151-preparation-review.json
+      - docs/06-testing/testing-log.md
