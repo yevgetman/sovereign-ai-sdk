@@ -53,8 +53,11 @@ export function effortsForModel(
 ): ReasoningEffort[] {
   if (metadata && metadata.routeId !== route.id)
     throw new RouteError('effort_unsupported', 'model metadata belongs to another route');
-  if (metadata?.metadata.source === SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE)
+  if (metadata?.metadata.source === SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE) {
+    if (metadata.id !== model || metadata.provider !== route.provider)
+      throw new RouteError('effort_unsupported', 'model metadata does not match request');
     return selectableSubscriptionEfforts(metadata);
+  }
   if (route.provider === 'anthropic')
     return [...anthropicReasoningControlFor(model, metadata).efforts];
   const control = reasoningControlFor(route.provider, model, metadata);

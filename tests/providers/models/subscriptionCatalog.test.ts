@@ -481,6 +481,34 @@ describe('subscription catalog policy', () => {
     );
   });
 
+  test('a subscription pin row does not authorize efforts for a different model', () => {
+    const applied = applySubscriptionAccountCatalog('chatgpt-subscription', {
+      status: 200,
+      body: { models: [{ id: 'gpt-5.3-codex', output_modalities: ['text'] }] },
+    });
+    const pin = applied.models.find((model) => model.id === 'gpt-5.3-codex');
+    if (!pin) throw new Error('missing pin');
+    expect(pin.efforts).toBeUndefined();
+    const route = getRoute('chatgpt-subscription');
+    expect(() =>
+      validateRouteSelection(route, {
+        model: 'gpt-6.1-sol',
+        effort: 'high',
+        modelMetadata: pin,
+      }),
+    ).toThrow(/model metadata does not match request/);
+    expect(() =>
+      validateRouteSelection(route, {
+        model: pin.id,
+        effort: 'high',
+        modelMetadata: { ...pin, provider: 'openai' },
+      }),
+    ).toThrow(/model metadata does not match request/);
+    expect(
+      validateRouteSelection(route, { model: pin.id, effort: 'high', modelMetadata: pin }).effort,
+    ).toBe('high');
+  });
+
   test('a grok payload level absent from SUBSCRIPTION_ROUTE_EFFORTS.grok is not selectable', () => {
     expect(SUBSCRIPTION_ROUTE_EFFORTS.grok).toEqual(['off']);
     const row = normalizeSubscriptionCatalogRow(
