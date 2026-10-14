@@ -1,3 +1,15 @@
+## 2026-10-14 — Packed consumer check for Grok reasoning PR (#69)
+
+Root checked functional commit `1d7b92262d212cd5340540613e2d8d1ef9d1e320` with
+`bun run canary`. All packed protocol and SDK consumers passed under Node and Bun.
+The SDK consumer type shapes compile, and the installed packages pass the purity
+check for forbidden Bun SQLite and wrapper imports. The command rebuilds and
+packs the actual public packages; it does not publish them. This receipt adds no
+runtime change. The final source gate and bounded live two-turn evidence are
+recorded in the following entry. Root reran `bun run lint`, `bun run typecheck`
+and `env -u FORCE_COLOR bun run test` before this receipt commit: **6134 pass /
+19 existing skips / 0 fail**, 26747 assertions, 595 files, 118.99s.
+
 ## 2026-10-14 — Complete Grok reasoning replay and safe upstream diagnostics (#69)
 
 Scope: isolated `fix/69-grok-reasoning-replay` worktree based on `origin/master`
