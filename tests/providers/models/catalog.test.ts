@@ -238,7 +238,7 @@ test('failed grok subscription discovery keeps the pin instead of caller metadat
   };
   const catalog = await createModelDiscovery({ fetch }).refresh(source);
   const pinned = findModel(catalog, 'grok-4.7');
-  expect(pinned.metadata).toMatchObject({ source: 'xai-docs-2026-10-10', stale: false });
+  expect(pinned.metadata).toMatchObject({ source: 'xai-docs-2026-10-14', stale: false });
   expect(pinned.contextWindow).toBe(500_000);
   expect(pinned.capabilities.tools).toBe('supported');
   expect(pinned.metadata.source).not.toBe('caller');
@@ -257,7 +257,7 @@ test('failed grok subscription discovery keeps the pin instead of caller metadat
   };
   expect(findModel(overwritten, 'grok-4.7').contextWindow).toBe(500_000);
   expect(findModel(overwritten, 'grok-4.7').metadata).toMatchObject({
-    source: 'xai-docs-2026-10-10',
+    source: 'xai-docs-2026-10-14',
     stale: false,
   });
   expect(findModel(fallbackModelCatalog('openrouter-api'), 'grok-4.7').metadata.source).toBe(

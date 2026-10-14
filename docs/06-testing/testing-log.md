@@ -1,3 +1,7 @@
+## 2026-10-14 — Grok registry inherits merged critical reasoning confinement
+
+Ordinary merge of critical master `216cf716` into owner-registry PR82 preserves both complete testing histories and both native regression tests. Only additive log/test conflicts required resolution; no runtime conflict occurred. On the combined source, `bun run build`, `bun run lint`, `bun run typecheck`, and `env -u FORCE_COLOR bun run test` pass: 6163 passed, 19 existing skips, zero failures, 26882 assertions, 598 files, 123.05s. The worktree's existing TUI artifact was already present. Root independently ran the critical 27-test replay suite and packed critical Node/Bun consumers before its PR81 merge; all pass. No owner settings, credentials, release or installed-host change.
+
 ## 2026-10-14 — Exact Grok reasoning model and login confinement (#69 follow-up)
 
 Scope: isolated PR81 branch `fix/69-grok-reasoning-replay`, based on `3912e719`.
@@ -110,6 +114,149 @@ requires a new session. A reasoning stream without authoritative terminal output
 fails safely rather than guessing order. No learned-context recall was involved
 in these provider fixtures or direct live adapter probes; this is not evidence
 for the ongoing learning-loop soak.
+
+## 2026-10-14 — Packed and combined verification after the startup correction (#68/#69)
+
+Root reran `bun run canary` on corrected functional commit
+`fc129bf821b655583ef4eb94b6baf7213260e9ff`. Every packed protocol/SDK Node and Bun
+consumer, consumer-type check and artifact-purity check passed. No package
+was published. Build, lint/boundary, typecheck and the full source gate already
+passed on this same frozen code: **6144 pass / 19 existing skips / 0 fail**.
+Only this testing receipt changes afterward.
+
+Root combined that source with reasoning PR #81 (`3912e719`) in an isolated
+checkout, preserving both appended test sets and all test imports. The combined
+SDK/protocol build, lint/boundary, typecheck and **131 affected tests / 852
+assertions** passed. Separately, `bun test tests/providers/modelImportOrder.test.ts`
+passed all **10 fresh Bun/Node startup checks** on the same combined tree. The
+previous entry records the CI failure and the failed-before startup witness.
+The two PRs still target master separately. Their only textual merge conflicts
+are the appended native-run tests and testing-log entries; no runtime code
+conflict was resolved. No master merge, release or installed upgrade occurs.
+
+## 2026-10-14 — Issue #68 follow-up: fresh-process provider startup
+
+PR #82 Ubuntu CI on `44d8f36f` exposed a module-initialization failure:
+`PROVIDER_REGISTRY` was read before initialization in `routes/catalog.ts`.
+The full owner-registry validator created a cycle from provider defaults through
+catalog validation and route defaults. Favorable module-cache ordering had
+concealed it in earlier local full-suite runs.
+
+Before editing, fresh Bun import of `providers/models.ts` and Node import of
+built `providers/models.js` both reproduced the same temporal-dead-zone error.
+The new regression `bun test tests/providers/modelImportOrder.test.ts` ran five
+first-import orders in each engine (resolver, models, modelReasoning, routes
+catalog, owner registry): **8 pass / 2 fail** on `44d8f36f`. Both failures imported
+models first. After extracting the identity predicate into `ownerModelPolicy.ts`,
+which has only a type import, all ten fresh-process probes pass. All six runtime
+predicate consumers use that pure module. The former deep-module predicate
+export remains compatible; registry validation and publisher modalities are
+unchanged.
+
+`bun run build` passed. Focused
+`bun test tests/providers/modelImportOrder.test.ts tests/providers/resolver.test.ts tests/providers/models/ownerRegistry.test.ts`
+passed **37 / 0 fail**, 156 assertions. Independent review additionally passed
+26 fresh entry imports (13 Bun source + 13 Node dist) and the original CI startup
+order with
+`bun test tests/docsDefaults.test.ts tests/providers/resolver.test.ts tests/providers/models/ownerRegistry.test.ts tests/providers/models/issue68-regression.test.ts`:
+**30 / 0 fail**. Final review reported no remaining findings.
+
+Final `bun run lint` passed (1118 files; 248 modules, 990 dependencies; no boundary
+violations), `bun run typecheck` passed, and `env -u FORCE_COLOR bun run test`
+passed **6144 / 19 skip / 0 fail**, 26780 assertions, 6163 tests across 597 files
+(117.49s). No test was weakened or disabled. Environment: isolated issue worktree,
+macOS arm64, Bun 1.3.13 and Node v25.9.0. Startup probes perform no credential
+reads or inference. No release, installed upgrade, master merge or push.
+
+## 2026-10-14 — Packed registry consumers and exact publisher modalities (#68)
+
+Root reviewed `a19731e7bdf615fa332de15ed347a98575396e44` and corrected the
+remaining Grok 4.7 pin modality fields. Both pins now report publisher-supported
+text output and image input, verified against
+[xAI release notes](https://docs.x.ai/developers/release-notes) and the
+[Grok 4.6 model page](https://docs.x.ai/developers/models/grok-4.6).
+The subscription route still refuses image input because its transport has no
+image serializer. Publisher model facts and transport support remain separate.
+The focused `bun test tests/providers/models/direct.test.ts tests/providers/models/ownerRegistry.test.ts`
+check passed **20 tests / 176 assertions**. `bun run canary` passed all actual
+packed SDK/protocol consumers under Node and Bun, consumer type shapes and the
+artifact purity check. No package was published. Root ran the full publication
+gate on this corrected source before committing this receipt; its result is
+recorded below. Its first pass reported 6133 pass / 19 skip / 1 fail
+from one remaining old Grok 4.7 image-capability expectation in
+`modelLimits.test.ts`. The assertion now matches the verified publisher metadata.
+The implementation gate and root live unbundled-model evidence
+remain in the following entry.
+
+Final corrected-source publication gate passed: `bun run lint`,
+`bun run typecheck`, and `env -u FORCE_COLOR bun run test`: **6134 pass /
+19 existing skips / 0 fail**, 26750 assertions, 596 files, 118.62s.
+Root also combined this fix with reasoning PR #81 (`3912e719`) in an isolated
+checkout. Only appended tests and testing-log entries conflicted. Both test
+sets and imports were retained. An initial manual test union missed three
+imports; typecheck caught this before tests, and the union was corrected.
+The combined SDK/protocol build, lint/boundary, typecheck and **131 affected
+tests / 852 assertions** across 11 files passed. No runtime code conflict was
+resolved or changed for that combination. These integration checks do not
+merge either PR into master.
+
+## 2026-10-14 — Issue #68: owner-managed Grok subscription model registry
+
+Scope: exact unbundled Grok subscription selection, verified Grok 4.6 limits,
+owner metadata validation, retired tombstones, offline freshness and login isolation.
+Branch `fix/68-grok-owner-model-registry`, isolated worktree
+`/tmp/sdk-issue68-20261014`, baseline `71e25677`; macOS arm64, Bun 1.3.13.
+No package release, installed SOV upgrade, master merge or API-key fallback.
+
+Failed-before evidence: archived baseline `71e25677` with installed dependencies,
+`bun test /tmp/sdk68-baseline-20261014/tests/providers/models/issue68-regression.test.ts`
+returned **0 pass / 2 fail**: Grok 4.6 context was undefined, and an exact future ID
+with explicit owner evidence threw `model_unsupported`. The same two tests pass
+on the fixed source. Initial dependencies were prepared with
+`bun install --frozen-lockfile` (including the TUI build); `bun run build` passes.
+
+Focused passes cover all acceptance boundaries: source CLI `--registry` import,
+subsequent `models`/`routes` reads and unsupported subscription `--refresh`;
+model/config pickers; frozen native `sdk-run` owner metadata with a system prompt
+above 32768 tokens; actual Grok request serialization with a new exact ID and
+max→xhigh; unknown facts, invalid dates/shapes/limits, credential-shaped input,
+normalized JSON growing beyond the 16MiB disk limit; retired shipped IDs;
+stale per-row review dates; foreign-route stale-budget counterexamples; token
+refresh preserving the epoch; login A→B→A and logout invalidation without optional
+hooks. `bun test tests/providers/models/ownerRegistry.test.ts` passes all 10 tests
+(the final full suite also covers them). Final independent review ran
+`bun test tests/providers/models/ownerRegistry.test.ts tests/providers/models/issue68-regression.test.ts tests/cli/sdkRunCommand.test.ts`:
+**30 pass / 0 fail**, with no remaining confirmed findings.
+
+The first full gate returned 6130 pass / 19 skip / 3 fail: two old publisher-source
+assertions and an added barrel export that violated the pinned public-surface
+snapshot. The assertions were updated and the unnecessary barrel export removed;
+the registry validator remains available through the existing deep-module export
+contract. Final `bun run lint` passed (247 modules, 988 dependencies, no boundary
+violations), `bun run typecheck` passed, and `env -u FORCE_COLOR bun run test`
+passed **6134 / 19 skip / 0 fail**, 26749 assertions, 6153 tests across 596 files
+(118.91s). Unsetting FORCE_COLOR avoids the known Node subprocess warning when
+NO_COLOR is also present; no flaky-test opt-out was used.
+
+Fixture isolation correction: Bun caches `os.homedir()` at process start. An
+initial in-process HOME override bootstrapped one non-secret Grok login-epoch
+file in the real auth-lock directory through a fake credential port. It read no
+real Keychain item and wrote no credentials. The exact test-created UUID marker
+was verified and removed; existing credentials/generations were preserved.
+Native-run and picker fixtures now start child processes with isolated HOME.
+The real Grok epoch file was confirmed absent after the final fixtures.
+
+Root's bounded live proof used `/tmp/grok-registry-live-20261014.ts`: import exact
+unbundled `grok-4.5` into a temporary owner registry and temporary auth-lock epoch,
+then read the registry, validate selection and send one subscription Responses
+request (`store:false`, low). Existing unexpired credentials were read only.
+The turn completed the requested marker. Receipt: exact ID `grok-4.5`, context
+500000, inference calls 1, credential writes 0; no refresh, real epoch/config/
+session writes or API-key route. Temporary data was deleted. This proves that
+exact subscription model on the tested account at this time; it does not certify
+all future models or account entitlement. Root verified Grok 4.6 publisher facts
+at https://docs.x.ai/developers/models/grok-4.6: 500000 context, text/image input,
+function calling and low/medium/high/xhigh reasoning. Output limit remains unknown.
 
 ## 2026-10-13 — SDK 0.15.1 / SOV 0.6.79 public cut
 

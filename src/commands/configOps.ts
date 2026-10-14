@@ -560,12 +560,15 @@ function openCatalogModelEditor(
     ctx.harnessHome,
   );
   const current = typeof currentRaw === 'string' ? currentRaw : '';
-  const records = [...catalog.models];
-  if (current && !records.some((model) => model.id === current))
+  const retiredCurrent = catalog.models.some(
+    (model) => model.id === current && model.metadata.retired,
+  );
+  const records = catalog.models.filter((model) => !model.metadata.retired);
+  if (current && !retiredCurrent && !records.some((model) => model.id === current))
     records.unshift(findModel(catalog, current));
   const grouped = provider === 'openrouter' && selectedAuthor === undefined && search === undefined;
   const notice = catalog.state === 'current' ? 'cached metadata' : 'offline/stale suggestions';
-  const subtitle = `route:${catalog.routeId} · ${notice}. Search: /config edit ${item.path} --search text`;
+  const subtitle = `route:${catalog.routeId} · ${notice}${retiredCurrent ? `; current ${current} is retired and remains saved until changed` : ''}. Search: /config edit ${item.path} --search text`;
   if (!ctx.requestPicker)
     return `${item.path}\ncurrent: ${current || '(unset)'}\n${subtitle}\nset: /config set ${item.path} <exact ID>`;
   if (grouped) {

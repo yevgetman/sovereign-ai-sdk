@@ -3,11 +3,14 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import { validateRouteSelection } from '@yevgetman/sov-sdk/providers/routes/index';
 import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
+import { macKeychainPort } from '@yevgetman/sov-sdk/providers/subscription/keychain';
 import type { LLMProvider, ProviderRequest, Transport } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import { z } from 'zod';
 import { SessionDb } from '../../src/agent/sessionDb.js';
+import { importOwnerGrokRegistry } from '../../src/cli/ownerModelRegistry.js';
 import { MAX_INPUT_BYTES } from '../../src/cli/sdkInput.js';
 import { runSdkRunCommand } from '../../src/cli/sdkRunCommand.js';
 import type { SdkRunDependencies } from '../../src/cli/sdkRunCommand.js';
@@ -714,6 +717,144 @@ test('unknown model budget refuses oversized standing instructions before infere
   expect(calls).toBe(0);
   expect(c.events.at(-1)).toMatchObject({ type: 'turn.error', code: 'context_overflow' });
   expect(c.events.at(-1)?.error).toContain('Reduce instructions');
+});
+
+test('owner registry reaches native sdk-run and stale exact limits fit a normal oversized Kernel prompt', async () => {
+  if (process.env.SOV_OWNER_NATIVE_FIXTURE !== '1') {
+    const isolatedHome = mkdtempSync(join(tmpdir(), 'sov-owner-native-process-'));
+    try {
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          'test',
+          import.meta.path,
+          '--test-name-pattern',
+          'owner registry reaches native sdk-run',
+        ],
+        {
+          env: { ...process.env, HOME: isolatedHome, SOV_OWNER_NATIVE_FIXTURE: '1' },
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+      );
+      const output = await new Response(child.stdout).text();
+      const errors = await new Response(child.stderr).text();
+      if ((await child.exited) !== 0) throw new Error(output + errors);
+      return;
+    } finally {
+      rmSync(isolatedHome, { recursive: true, force: true });
+    }
+  }
+
+  const calls: ProviderRequest[] = [];
+  const model = 'grok-owner-native-test';
+  const provider: LLMProvider = {
+    name: 'grok',
+    async *stream(req): AsyncGenerator<StreamEvent, AssistantMessage> {
+      calls.push(req);
+      const message: AssistantMessage = {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'registry answer' }],
+      };
+      yield { type: 'assistant_message', message };
+      return message;
+    },
+  };
+  const f = fixture(
+    provider,
+    (runtime) => {
+      runtime.systemSegments.splice(0, runtime.systemSegments.length, {
+        text: 'Kernel standing instructions '.repeat(2000),
+        cacheable: false,
+      });
+    },
+    { routeId: 'grok-subscription', model, effort: 'high' },
+  );
+  const saved = {
+    HOME: process.env.HOME,
+    HARNESS_HOME: process.env.HARNESS_HOME,
+    HARNESS_CONFIG: process.env.HARNESS_CONFIG,
+  };
+  process.env.HOME = f.home;
+  process.env.HARNESS_HOME = f.home;
+  process.env.HARNESS_CONFIG = join(f.home, 'config.json');
+  const reviewedAt = new Date(Date.now() - 7200000).toISOString();
+  try {
+    const fake = macKeychainPort({
+      exec: async () => ({
+        code: 0,
+        stdout: JSON.stringify({
+          accessToken: 'FIXTURE-ONLY',
+          refreshToken: 'FIXTURE-ONLY',
+          expiresAt: Date.now() + 100000,
+        }),
+      }),
+    });
+    await importOwnerGrokRegistry(
+      {
+        version: 1,
+        routeId: 'grok-subscription',
+        fetchedAt: reviewedAt,
+        models: [
+          {
+            id: model,
+            displayName: model,
+            provider: 'grok',
+            auth: 'subscription',
+            routeId: 'grok-subscription',
+            capabilities: {
+              textOutput: 'supported',
+              tools: 'supported',
+              images: 'unknown',
+              reasoning: 'supported',
+            },
+            contextWindow: 500000,
+            efforts: ['high'],
+            availability: 'unknown',
+            metadata: { source: 'owner-reviewed-fixture', fetchedAt: reviewedAt, stale: false },
+          },
+        ],
+      },
+      { harnessHome: f.home, port: fake },
+    );
+    const originalResolve = f.deps.resolve;
+    f.deps.resolve = async (routeId, options) => {
+      if (!options?.modelMetadata) throw new Error('Expected owner model evidence');
+      expect(options.modelMetadata.metadata).toMatchObject({ ownerManaged: true, stale: true });
+      expect(
+        validateRouteSelection(getRoute(routeId), {
+          model,
+          effort: 'high',
+          modelMetadata: options.modelMetadata,
+        }).model,
+      ).toBe(model);
+      return originalResolve(routeId, options);
+    };
+    const c = capture();
+    expect(
+      await runSdkRunCommand(
+        { ...opts, route: 'grok-subscription', model, effort: 'high' },
+        c.io,
+        f.deps,
+      ),
+    ).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.modelMetadata).toMatchObject({
+      id: model,
+      contextWindow: 500000,
+      metadata: { ownerManaged: true, stale: true },
+    });
+    expect(c.events.at(-1)).toMatchObject({
+      type: 'turn.completed',
+      model,
+      route: 'grok-subscription',
+    });
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) Reflect.deleteProperty(process.env, key);
+      else process.env[key] = value;
+    }
+  }
 });
 
 test('native owner error distinguishes sanitized upstream rejection from expired login and overflow', async () => {

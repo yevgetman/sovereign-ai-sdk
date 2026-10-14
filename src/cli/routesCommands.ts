@@ -9,7 +9,13 @@ import {
 import { macKeychainPort } from '@yevgetman/sov-sdk/providers/subscription/keychain';
 // The machine discovery surface is read-only. It never creates a provider,
 // refreshes a token, starts a listener, or performs a network request.
-import { modelPage, readModelCatalog } from './modelDiscovery.js';
+import {
+  modelPage,
+  readModelCatalog,
+  readModelCatalogSnapshot,
+  routeWithOwnerModels,
+} from './modelDiscovery.js';
+import { importOwnerGrokRegistry, readOwnerGrokRegistryFile } from './ownerModelRegistry.js';
 
 export const SOV_ROUTE_CAPABILITIES = {
   schemaVersion: 1,
@@ -19,6 +25,7 @@ export const SOV_ROUTE_CAPABILITIES = {
     command: 'models',
     explicitRefresh: true,
     offlineDefault: true,
+    ownerRegistry: { route: 'grok-subscription', importOption: '--registry', schemaVersion: 1 },
   },
   routes: true,
   structuredInput: true,
@@ -43,13 +50,25 @@ export function registerRouteCommands(program: Command): void {
     .description('List built-in authentication routes, models, and efforts (no network).')
     .option('--json', 'emit non-secret versioned JSON')
     .action(() => {
-      print({ schemaVersion: 1, routes: listRoutes(loadSettings()) });
+      const settings = loadSettings();
+      print({
+        schemaVersion: 1,
+        routes: listRoutes(settings).map((route) =>
+          route.id === 'grok-subscription'
+            ? routeWithOwnerModels(route, readModelCatalogSnapshot(route.id, settings))
+            : route,
+        ),
+      });
     });
   program
     .command('models')
     .description('Discover route-scoped models; offline unless --refresh is explicit.')
     .requiredOption('--route <id>', 'authentication route')
     .option('--json', 'versioned JSON')
+    .option(
+      '--registry <file>',
+      'replace owner-reviewed Grok subscription registry (requires login)',
+    )
     .option('--refresh', 'refresh metadata without inference or subscription-token refresh')
     .option('--search <text>', 'filter ID and display name')
     .option('--author <id>', 'filter OpenRouter author (not inference host)')
@@ -66,12 +85,21 @@ export function registerRouteCommands(program: Command): void {
         };
         // Validate pagination before a possible explicit network refresh.
         modelPage({ version: 1, routeId: opts.route, models: [], state: 'unavailable' }, query);
-        const catalog = await readModelCatalog(opts.route, loadSettings(), !!opts.refresh);
+        if (opts.registry && (opts.route !== 'grok-subscription' || opts.refresh))
+          throw new Error('Invalid registry request');
+        const catalog = opts.registry
+          ? await importOwnerGrokRegistry(readOwnerGrokRegistryFile(opts.registry))
+          : await readModelCatalog(opts.route, loadSettings(), !!opts.refresh);
         print(modelPage(catalog, query));
       } catch {
         print({
           schemaVersion: 1,
-          error: { code: 'invalid_model_query', message: 'Invalid route or model query.' },
+          error: {
+            code: 'invalid_model_query',
+            message: opts.registry
+              ? 'Invalid Grok owner registry or subscription login unavailable. No registry changes were saved.'
+              : 'Invalid route or model query.',
+          },
         });
         process.exitCode = 2;
       }
