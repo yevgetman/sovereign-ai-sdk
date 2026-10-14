@@ -1,3 +1,9 @@
+## 2026-10-14 — Medium workset testing-history integration
+
+Restores the complete prior Select-nine release-planning section by moving #79's disjoint-stage receipt above it. All old and new receipt text remains; this is a documentation-order correction only. Root compares the entire baseline testing log byte-for-byte as a retained substring after the correction. Runtime source and tests are unchanged from5b201aa. Required checks on this branch pass again: lint/boundary, root/browser types, and full6408passed/19existing skips/0fail/27986assertions/615files145.99s. Logs: `/private/tmp/sdk-medium80-doc-lint.log`, `sdk-medium80-doc-types.log`, `sdk-medium80-doc-full.log`.
+
+Separate combined73+78+79+80 QA passes6459tests/19existing skips/0fail/28349assertions/617files165.85s, plus build/lint/types, Go, actual packed Node/Bun consumers/types/purity and unchanged release-plan validation. The only runtime merge conflict retains #80's conservative malformed-response guidance and computed recovery flag together with #73's safe refreshReason/retryAfterMs. Exact typed combined witnesses and final24-stream Telekit0.64.23 parser checks pass. This does not merge SDK master, schedule additional release items or publish an installed update.
+
 ## 2026-10-14 — #80 truthful native outcomes and durable recovery
 
 **Scope:** Issue #80 on `review-fix/80`, based on final #79 parent `1e8f8aa6`
@@ -229,8 +235,6 @@ are not measured for every native route. Unknown image/reasoning costs stay
 explicit. Provider validation and one bounded overflow-compaction retry remain
 authoritative. No production auth/config changes, upgrade or release ran.
 
-## 2026-10-14 — Select nine merged Critical/High fixes for the next manifest
-
 ## 2026-10-14 — Issue 79: exact-model image certification (disjoint stage)
 
 Scope: exact subscription image evidence, model/cache normalization, safe bounded
@@ -271,6 +275,7 @@ account entitlement or exact tokenizer proof. Native pre-credential gates,
 compaction/pivot preservation and full-suite acceptance remain pending the
 coordinated #78 parent integration. No commit/push/release/upgrade has occurred.
 
+## 2026-10-14 — Select nine merged Critical/High fixes for the next manifest
 
 Owner asked to add all fixed and merged items from this run. Editable SDK0.15.2 /
 CLI0.6.80 draft now lists PR81,82,88,83,85,87,84,86,89 once in dependency order,
