@@ -53,7 +53,7 @@ bun run chat --bundle ~/code/sovereign-ai-docs
 | `--provider <name>` | Provider: `anthropic`, `openai`, `openrouter`, `ollama`, or `manifest` (the [model-router lane](#model-router-lane-manifest)). |
 | `--model <name>` | Model override for the selected provider. |
 | `--max-tokens <n>` | Max output tokens per provider turn. Default: `12000`. |
-| `--permission-mode <mode>` | Tool permission mode: `default`, `ask`, or `bypass`. |
+| `--permission-mode <mode>` | Explicit tool permission override: `default`, `ask`, or `bypass`. Omitted uses layered settings and user configuration. Explicit `default` uses rules and tool self-checks, even when configuration says `bypass`. |
 | `--resume <uuid>` | Resume a stored session. |
 | `--db <path>` | Override the session DB path. Default: `~/.harness/sessions.db`. |
 | `--no-cache` | Disable provider prompt-cache markers for testing. |

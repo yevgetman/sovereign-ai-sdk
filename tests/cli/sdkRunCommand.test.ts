@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Settings } from '@yevgetman/sov-sdk/config/schema';
 import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
 import type { LLMProvider, ProviderRequest, Transport } from '@yevgetman/sov-sdk/providers/types';
@@ -21,6 +22,7 @@ function fixture(
   provider: LLMProvider,
   mutate?: (r: Runtime) => void,
   selection?: { routeId?: string; model?: string; effort?: 'off' | 'high' },
+  settings?: Pick<Settings, 'permissionMode'>,
 ) {
   const home = mkdtempSync(join(tmpdir(), 'sdk-run-'));
   dirs.push(home);
@@ -50,6 +52,7 @@ function fixture(
       harnessHome: home,
       dbPath: db,
       settings: {
+        ...settings,
         learning: { disabled: true, recall: { enabled: false, maxLessons: 8, tokenBudget: 1200 } },
         review: { disabled: true },
       },
@@ -74,6 +77,83 @@ function capture() {
   };
 }
 const opts = { json: true, stdin: true, route: 'openai-api', inputFormat: 'json', toolset: 'chat' };
+for (const requested of [undefined, 'default', 'ask', 'bypass'] as const) {
+  test(`native configured bypass: ${requested ?? 'omitted'} has audited mode and tool rights`, async () => {
+    let calls = 0;
+    let ran = 0;
+    let denied = false;
+    const provider: LLMProvider = {
+      name: 'openai',
+      async *stream(req): AsyncGenerator<StreamEvent, AssistantMessage> {
+        calls++;
+        const message: AssistantMessage = {
+          role: 'assistant',
+          content:
+            calls === 1
+              ? [{ type: 'tool_use', id: 'sensitive-call', name: 'permission_probe', input: {} }]
+              : [{ type: 'text', text: 'finished' }],
+        };
+        if (calls > 1) {
+          denied = req.messages.some((m) =>
+            m.content.some((b) => b.type === 'tool_result' && b.is_error === true),
+          );
+        }
+        yield { type: 'assistant_message', message };
+        return message;
+      },
+    };
+    const f = fixture(
+      provider,
+      (runtime) => {
+        runtime.toolPool.splice(
+          0,
+          runtime.toolPool.length,
+          buildTool<unknown, unknown>({
+            name: 'permission_probe',
+            description: () => 'requires approval before execution',
+            inputSchema: z.unknown(),
+            renderResult: () => ({ content: 'executed' }),
+            checkPermissions: async () => ({ behavior: 'ask' }),
+            async call() {
+              ran++;
+              return { data: 'executed' };
+            },
+          }),
+        );
+      },
+      undefined,
+      { permissionMode: 'bypass' },
+    );
+    const c = capture();
+    expect(
+      await runSdkRunCommand(
+        {
+          ...opts,
+          toolset: 'coding',
+          ...(requested !== undefined ? { permissionMode: requested } : {}),
+        },
+        c.io,
+        f.deps,
+      ),
+    ).toBe(0);
+    const effective = requested ?? 'bypass';
+    expect(ran).toBe(effective === 'bypass' ? 1 : 0);
+    expect(denied).toBe(effective !== 'bypass');
+    const started = c.events.find((e) => e.type === 'session.started');
+    expect(started).toMatchObject({
+      permissionMode: effective,
+      requestedPermissionMode: requested ?? null,
+    });
+    const db = SessionDb.open({ path: f.db });
+    try {
+      expect(db.getSession(String(started?.sessionId))?.metadata.sdkTurns).toMatchObject([
+        { permissionMode: effective, requestedPermissionMode: requested ?? null },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+}
 test('native runs direct SDK with no preflight; preserves instructions/base and saves one user/assistant per resumed turn', async () => {
   const calls: ProviderRequest[] = [];
   const provider: LLMProvider = {

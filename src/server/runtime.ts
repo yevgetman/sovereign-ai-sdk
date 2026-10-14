@@ -302,7 +302,7 @@ export type RuntimeOptions = {
   /** Cache markers default-on; pass false in tests that exercise the
    *  no-cache path. */
   cacheEnabled?: boolean;
-  /** Explicit permission-mode override. When omitted (or `'default'`),
+  /** Explicit permission-mode override, including `'default'`. When omitted,
    *  buildRuntime falls back to the layered cascade:
    *  layered permission settings → user `config.json` → `'default'`. */
   permissionMode?: PermissionMode;
@@ -1395,7 +1395,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     ...(opts.settings !== undefined ? { settings: opts.settings } : {}),
   });
   const permissionMode: PermissionMode =
-    opts.permissionMode !== undefined && opts.permissionMode !== 'default'
+    opts.permissionMode !== undefined
       ? opts.permissionMode
       : permissionSettings.mode !== 'default'
         ? permissionSettings.mode

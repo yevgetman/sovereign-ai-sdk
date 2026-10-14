@@ -219,7 +219,16 @@ export async function runSdkRunCommand(
       return built;
     });
     runtime = await Promise.race([runtimeBoot, canceled]);
-    const turnMetadata = { ...metadata(), at: new Date().toISOString(), toolset };
+    const permissionMetadata = {
+      requestedPermissionMode: opts.permissionMode ?? null,
+      permissionMode: runtime.permissionMode,
+    };
+    const turnMetadata = {
+      ...metadata(),
+      ...permissionMetadata,
+      at: new Date().toISOString(),
+      toolset,
+    };
     sessionId =
       string(opts.resume) ??
       runtime.sessionDb.createSession({
@@ -298,7 +307,7 @@ export async function runSdkRunCommand(
       resumed: !!string(opts.resume),
       ...metadata(),
       toolset,
-      permissionMode: runtime.permissionMode,
+      ...permissionMetadata,
     });
     stage = 'provider';
     activeStream = composed.agent.run(
