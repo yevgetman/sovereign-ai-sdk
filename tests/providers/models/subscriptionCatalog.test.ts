@@ -667,12 +667,16 @@ describe('subscription catalog policy', () => {
       const page = modelPage(catalog, { route: entry.routeId });
       expect(page.models[0]?.capabilities.images).toBe('supported');
       expect(modelDetails(row)).toContain('images:supported');
-      expect(modelDetails(row)).toMatch(/transport has no image serializer/i);
+      expect(modelDetails(row)).toMatch(
+        entry.provider === 'grok'
+          ? /image certification unavailable or stale/i
+          : /transport has no image serializer/i,
+      );
       expect(modelDetails(row)).toMatch(/cannot send images/i);
       expect(row.capabilities.images).toBe('supported');
       expect(catalog.models[0]?.capabilities.images).toBe('supported');
       expect(() => validateModelRequest(imageRequest(row.id), entry.provider, row)).toThrow(
-        /no verified image serializer/,
+        entry.provider === 'grok' ? /not live-certified/ : /no verified image serializer/,
       );
     }
     const direct: ModelRecord = {

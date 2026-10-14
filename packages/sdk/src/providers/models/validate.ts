@@ -1,4 +1,5 @@
 import { listRoutes } from '../routes/catalog.js';
+import { parseImageInputCertification } from './imageInput.js';
 import type { ModelCatalog, ModelRecord } from './types.js';
 
 const supports = new Set(['supported', 'unsupported', 'unknown']);
@@ -57,6 +58,11 @@ export function validateModelRecords(
     )
       return undefined;
     if (!['advertised', 'account', 'unknown'].includes(row.availability)) return undefined;
+    const imageInputCertification =
+      row.imageInputCertification === undefined
+        ? undefined
+        : parseImageInputCertification(row.imageInputCertification, routeId, row.id, now);
+    if (row.imageInputCertification !== undefined && !imageInputCertification) return undefined;
     for (const key of ['contextWindow', 'maxOutputTokens']) {
       if (row[key] !== undefined && (!Number.isSafeInteger(row[key]) || row[key] <= 0))
         return undefined;
@@ -125,6 +131,7 @@ export function validateModelRecords(
       routeId,
       provider: row.provider,
       auth: row.auth,
+      ...(imageInputCertification ? { imageInputCertification } : {}),
       author: row.author,
       inferenceHost: row.inferenceHost,
       capabilities: {

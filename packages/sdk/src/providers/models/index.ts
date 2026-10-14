@@ -1,4 +1,5 @@
 export * from './types.js';
+export { verifiedSubscriptionImageInput } from './imageInput.js';
 export {
   createMemoryModelCatalogCache,
   createModelDiscovery,

@@ -4,6 +4,7 @@ import {
   grokSubscriptionPin,
   isGrokSubscriptionModelId,
 } from './grokPin.js';
+import { effectiveSubscriptionImageModel } from './imageInput.js';
 import { presentSubscriptionCatalog } from './subscriptionCatalog.js';
 import type {
   ModelCatalog,
@@ -242,7 +243,7 @@ export function createModelDiscovery(options: ModelDiscoveryOptions = {}) {
 /** Retains caller-entered IDs even when discovery is absent or a model was delisted. */
 export function findModel(catalog: ModelCatalog, id: string): ModelRecord {
   const owned = catalog.models.find((model) => model.id === id && model.metadata.ownerManaged);
-  if (owned) return structuredClone(owned);
+  if (owned) return effectiveSubscriptionImageModel(structuredClone(owned));
   if (catalog.routeId === 'grok-subscription' && isGrokSubscriptionModelId(id)) {
     return grokSubscriptionPin(id);
   }

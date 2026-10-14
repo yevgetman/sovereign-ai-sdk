@@ -33,6 +33,7 @@ export async function parseSdkInput(
   raw: string,
   format: unknown,
   supportsImages: boolean,
+  allowedImageTypes?: readonly string[],
 ): Promise<{ message: UserMessage; instructions?: string }> {
   if (Buffer.byteLength(raw) > MAX_INPUT_BYTES)
     throw new SdkInputError('invalid_input', 'stdin exceeds the input limit');
@@ -79,6 +80,11 @@ export async function parseSdkInput(
     ) {
       throw new SdkInputError('invalid_input', 'invalid local image reference');
     }
+    if (allowedImageTypes && !allowedImageTypes.includes(item.mediaType))
+      throw new SdkInputError(
+        'unsupported_input',
+        'selected model does not support this image type',
+      );
     let file: Awaited<ReturnType<typeof open>> | undefined;
     try {
       file = await open(item.path, constants.O_RDONLY | constants.O_NONBLOCK);

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { query } from '@yevgetman/sov-sdk/core/query';
+import { verifiedSubscriptionImageInput } from '@yevgetman/sov-sdk/providers/models/imageInput';
 import { fallbackModelCatalog, findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import type { ModelRecord } from '@yevgetman/sov-sdk/providers/models/types';
 import {
@@ -214,7 +215,7 @@ describe('model and serializer capabilities', () => {
     ]);
     expect(body.tools?.[0]?.function.name).toBe('run');
     expect(body.tool_choice).toBe('required');
-    expect(() => validateModelRequest(req, 'grok')).toThrow('no verified image');
+    expect(() => validateModelRequest(req, 'grok')).toThrow('not live-certified');
   });
   test('caller-source grok-4.7 still fails tools until the pin record is used', () => {
     const caller: ModelRecord = {
@@ -240,13 +241,15 @@ describe('model and serializer capabilities', () => {
     expect(() => validateModelRequest(tools, 'grok', caller)).toThrow(/unknown/);
     const pin = findModel(fallbackModelCatalog('grok-subscription'), 'grok-4.7');
     expect(() => validateModelRequest(tools, 'grok', pin)).not.toThrow();
-    expect(() =>
+    const imageCheck = expect(() =>
       validateModelRequest(
         { ...tools, messages: [{ role: 'user', content: [image] }] },
         'grok',
         pin,
       ),
-    ).toThrow('no verified image');
+    );
+    if (verifiedSubscriptionImageInput(pin)) imageCheck.not.toThrow();
+    else imageCheck.toThrow('stale');
   });
 });
 

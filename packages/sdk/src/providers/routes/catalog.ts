@@ -56,8 +56,9 @@ export const SUBSCRIPTION_ROUTE_EFFORTS: Readonly<
 /**
  * Routes whose transport sends verified native image content. Anthropic sends
  * native `image` blocks; the OpenAI-compatible transport sends `image_url` data
- * URIs for openai and openrouter. Direct xAI uses the same fixture-verified image_url shape; subscriptions
- * remain fenced (spec §5.2: advertise only verified paths). This is serializer support only,
+ * URIs for openai and openrouter. Direct xAI uses the same fixture-verified image_url shape.
+ * Grok subscription has an exact grok-4.7 live-certified Responses serializer.
+ * ChatGPT remains fenced. This is serializer support only,
  * never a claim that every model has vision. validateModelRequest enforces
  * separately supplied model capabilities before inference.
  */
@@ -67,7 +68,7 @@ export const ROUTE_IMAGE_SUPPORT: Readonly<Record<RouteId, boolean>> = {
   'openai-api': true,
   'grok-api': true,
   'chatgpt-subscription': false,
-  'grok-subscription': false,
+  'grok-subscription': true,
 };
 
 export function routeSupportsImages(routeId: string): boolean {
