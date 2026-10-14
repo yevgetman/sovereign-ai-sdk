@@ -38,12 +38,15 @@ import {
 import {
   type RequestInputTokenEstimate,
   assertRequestFits,
-  requestInputTokenEstimate,
   resolveModelLimits,
 } from '../providers/modelLimits.js';
 import { validateModelRequest } from '../providers/models/validateRequest.js';
 import { listRoutes } from '../providers/routes/catalog.js';
 import { validateRouteSelection } from '../providers/routes/validate.js';
+import {
+  legacyInputTokenAccounting,
+  modelInputTokenAccounting,
+} from '../providers/tokenAccounting.js';
 import type { ProviderRequest } from '../providers/types.js';
 import { createSkillActivationState, createSkillChildPermission } from '../skills/activation.js';
 import { resolveSkillContextBudget } from '../skills/budget.js';
@@ -510,22 +513,35 @@ async function* queryInternal(
     }
   }
 
+  const accountingPort = params.inputTokenAccounting ?? modelInputTokenAccounting(provider.name);
+  const countInput = (request: ProviderRequest): RequestInputTokenEstimate => {
+    const result = params.inputTokenCounter
+      ? legacyInputTokenAccounting(params.inputTokenCounter(request))
+      : accountingPort(request);
+    if (!Number.isSafeInteger(result.tokens) || result.tokens < 1)
+      throw new ContextManagementError('input accounting must return a positive safe integer');
+    return result;
+  };
+  const budgetInput = (request: ProviderRequest): number => {
+    const result = countInput(request);
+    // Advisory bounds must not shrink the skill catalog as if measured.
+    return result.enforce === false ? 0 : result.tokens;
+  };
+
   const refreshSkillCatalog = (): void => {
     if (!toolCtx || !skillsEnabled) return;
     const standing = systemPrompt.filter((segment) => segment.kind !== 'skill-catalog');
     const budget = resolveSkillContextBudget({
       ...(effectiveModelLimits ? { contextWindowTokens: effectiveModelLimits.contextTokens } : {}),
       outputTokens: outputCeiling,
-      reservedInputTokens: params.inputTokenCounter
-        ? params.inputTokenCounter({
-            model,
-            messages: history,
-            system: standing,
-            tools: toToolSchemas(activationState.tools),
-            maxTokens: outputCeiling,
-            ...(modelMetadata ? { modelMetadata } : {}),
-          })
-        : requestInputTokenEstimate(history, standing, toToolSchemas(activationState.tools)).tokens,
+      reservedInputTokens: budgetInput({
+        model,
+        messages: history,
+        system: standing,
+        tools: toToolSchemas(activationState.tools),
+        maxTokens: outputCeiling,
+        ...(modelMetadata ? { modelMetadata } : {}),
+      }),
     });
     toolCtx.skillContextBudget = budget;
     const snapshot = getSkillRegistrySnapshot(toolCtx);
@@ -600,17 +616,14 @@ async function* queryInternal(
     const budget = resolveSkillContextBudget({
       ...(effectiveModelLimits ? { contextWindowTokens: effectiveModelLimits.contextTokens } : {}),
       outputTokens: outputCeiling,
-      reservedInputTokens: params.inputTokenCounter
-        ? params.inputTokenCounter({
-            model,
-            messages: history,
-            system: systemPrompt,
-            tools: toToolSchemas(activationState.tools),
-            maxTokens: outputCeiling,
-            ...(modelMetadata ? { modelMetadata } : {}),
-          })
-        : requestInputTokenEstimate(history, systemPrompt, toToolSchemas(activationState.tools))
-            .tokens,
+      reservedInputTokens: budgetInput({
+        model,
+        messages: history,
+        system: systemPrompt,
+        tools: toToolSchemas(activationState.tools),
+        maxTokens: outputCeiling,
+        ...(modelMetadata ? { modelMetadata } : {}),
+      }),
     });
     const retained = await toolCtx.skillContinuity.guidance({
       budget,
@@ -711,28 +724,24 @@ async function* queryInternal(
         let inputAccounting: RequestInputTokenEstimate | undefined;
         if (effectiveModelLimits) {
           const inputBound = () => {
-            inputAccounting = params.inputTokenCounter
-              ? {
-                  tokens: params.inputTokenCounter({
-                    model,
-                    messages: requestHistory(),
-                    system: systemPrompt,
-                    tools: toToolSchemas(activationState.tools),
-                    maxTokens,
-                    ...(modelMetadata ? { modelMetadata } : {}),
-                  }),
-                  complete: true,
-                  uncountedImages: 0,
-                }
-              : requestInputTokenEstimate(
-                  requestHistory(),
-                  systemPrompt,
-                  toToolSchemas(activationState.tools),
-                );
+            inputAccounting = countInput({
+              model,
+              messages: requestHistory(),
+              system: systemPrompt,
+              tools: toToolSchemas(activationState.tools),
+              maxTokens,
+              ...(modelMetadata ? { modelMetadata } : {}),
+            });
+            inputAccounting = {
+              ...inputAccounting,
+              effectiveLimit: effectiveModelLimits.contextTokens,
+              reservedOutput: maxTokens,
+            };
             return inputAccounting.tokens;
           };
           let inputTokens = inputBound();
           if (
+            inputAccounting?.enforce !== false &&
             inputTokens >= effectiveModelLimits.contextTokens &&
             params.contextManager &&
             contextLimits
@@ -744,13 +753,18 @@ async function* queryInternal(
           // maxTokens is a ceiling, not a promise to consume that many tokens.
           // Preserve all input; reserve only positive remaining context. If the
           // input itself fills the window, compaction or a clear failure is required.
-          const remaining = effectiveModelLimits.contextTokens - inputTokens;
+          const remaining =
+            inputAccounting?.enforce === false
+              ? effectiveModelLimits.contextTokens
+              : effectiveModelLimits.contextTokens - inputTokens;
           if (!Number.isSafeInteger(remaining) || remaining <= 0)
             throw new ContextManagementError(
               'request input leaves no output room in effective model limits',
             );
           maxTokens = Math.min(outputCeiling, remaining);
-          assertRequestFits(inputTokens, maxTokens, effectiveModelLimits);
+          if (inputAccounting?.enforce !== false)
+            assertRequestFits(inputTokens, maxTokens, effectiveModelLimits);
+          if (inputAccounting) inputAccounting.reservedOutput = maxTokens;
         }
         request.messages = requestHistory();
         request.system = systemPrompt;
