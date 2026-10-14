@@ -79,6 +79,8 @@ export type CompactOptions = {
   minTailMessages?: number;
   summarize?: CompactSummarizer;
   warn?: (message: string) => void;
+  /** Host's selected request counter, also used by admission and diagnostics. */
+  estimateHistoryTokens?: (history: readonly Message[]) => number;
 };
 
 // `CompactResult` now lives in open core (`core/compactPort.js`) so the open
@@ -106,6 +108,7 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
   const head = pruned.slice(0, tailStart);
   const tail = options.history.slice(tailStart).map(cloneMessage);
   const estimatedBeforeTokens =
+    options.estimateHistoryTokens?.(options.history) ??
     estimateSystemPromptTokens(options.systemPrompt) + estimateMessagesTokens(options.history);
 
   // Backlog #36: short-circuit when the entire history fits within the tail
@@ -204,9 +207,10 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
   }
 
   const estimatedAfterTokens =
+    options.estimateHistoryTokens?.([summaryMessage, ...guardedTail]) ??
     estimateSystemPromptTokens(options.systemPrompt) +
-    estimateMessageTokens(summaryMessage) +
-    estimateMessagesTokens(guardedTail);
+      estimateMessageTokens(summaryMessage) +
+      estimateMessagesTokens(guardedTail);
   return {
     parentSessionId: options.sessionId,
     newSessionId,

@@ -41,6 +41,7 @@ import type { TranscriptStore } from '@yevgetman/sov-sdk/persistence/transcriptS
 import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { UnknownToolsetError } from '@yevgetman/sov-sdk/providers/errors';
 import type { ModelRecord } from '@yevgetman/sov-sdk/providers/models/index';
+import { modelInputTokenAccounting } from '@yevgetman/sov-sdk/providers/tokenAccounting';
 import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
 import { createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
 import { effectiveToolInventory } from '@yevgetman/sov-sdk/tool/effectiveInventory';
@@ -380,6 +381,9 @@ export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
   // turns, never within one, so these are stable for the whole turn.
   const agent = createAgent({
     provider: opts.provider ?? runtime.resolvedProvider.transport,
+    inputTokenAccounting: modelInputTokenAccounting(
+      (opts.provider ?? runtime.resolvedProvider.transport).name,
+    ),
     model: runtime.model,
     ...(modelSnapshot
       ? { modelMetadata: modelSnapshot.metadata, pricingSnapshot: modelSnapshot.pricing }

@@ -33,6 +33,7 @@ import { validateModelRequest } from '@yevgetman/sov-sdk/providers/models/valida
 import { estimateUsageCost } from '@yevgetman/sov-sdk/providers/pricing';
 import { listRoutes } from '@yevgetman/sov-sdk/providers/routes/catalog';
 import { validateRouteSelection } from '@yevgetman/sov-sdk/providers/routes/validate';
+import { modelInputTokenAccounting } from '@yevgetman/sov-sdk/providers/tokenAccounting';
 import { activateSkill, createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
 import type { SkillActivationEnvelope } from '@yevgetman/sov-sdk/skills/activation';
 import type {
@@ -736,6 +737,11 @@ async function runTurnInBackground(
           effectiveTools,
           modelSnapshot.limits,
           runtime.proactiveCompactThreshold,
+          {
+            counter: modelInputTokenAccounting(modelSnapshot.metadata.provider),
+            model: modelSnapshot.metadata.id,
+            metadata: modelSnapshot.metadata,
+          },
         )
       : shouldCompactProactively({
           messages,

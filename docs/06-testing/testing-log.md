@@ -1,3 +1,60 @@
+## 2026-10-14 — #78 provider-aware request accounting and honest fallback
+
+**Scope:** Issue #78 against master `3c855f87`, on `review-fix/78`. Native and
+SDK admission, proactive compaction, minimal-tail reduction checks, summary
+admission, post-pivot admission, and before/after diagnostics use one selected
+request-accounting port. Known OpenAI model IDs use pinned `js-tiktoken@1.0.21`
+encodings with explicit framing headroom. The summed 1024-character chunk
+measurement is a local serialized-text estimate, not publisher input usage.
+A 512-entry hash-only cache bounds repeated-framing work without retaining text.
+
+**Before/after:** `bun test tests/providers/providerTokenAccounting.test.ts`
+first failed its fitting 75KB English GPT-4o request (terminal `error` instead of
+`completed`). It passed after the fix. Regression checks also cover Unicode,
+JSON schemas, long paths, tool results, special-looking text, 1024-character
+chunk boundaries, image/opaque reasoning uncertainty, fitting native requests
+without a paid summary, and Grok's unknown-tokenizer advisory diagnostics.
+Existing cancellation and one-overflow-retry compaction tests remain green.
+Old byte-derived oversized fixtures were changed to genuinely token-dense
+text; old unknown-tokenizer assertions now expect advisory provider validation.
+
+**Checks:**
+- Focused admission/continuity/model/native checks: 39 passed, zero failed.
+- Final accountant/native/summary checks: 22 passed, zero failed.
+- Native plus built Node import-order checks: 24 passed, zero failed.
+- Native callers, ChatGPT owner registry, public barrel contract: 41 passed,
+  zero failed.
+- `bun run build:sdk` and `bun run tui:build`: passed. These local ignored
+  artifacts were required by the fresh worktree's Node and TUI tests.
+- Final frozen gate `bun run lint && bun run typecheck && bun run test`:
+  passed; **6345 passed, 19 skipped, zero failed**, 6364 tests across 610 files.
+  Typecheck covers the browser console as well as the runtime; boundary lint
+  found no violations. Bun 1.3.13, Node 25.9.0, macOS.
+
+**Intermediate failures:** The first full pass had 6317 passed/28 failed/3
+errors: fresh-worktree SDK/TUI artifacts were absent, two fixtures still treated
+bytes as tokens, and temporary extra barrel exports did not match the pinned
+surface. The artifacts were built, fixtures corrected, and the accountant kept
+on its dedicated module path without changing barrel exports. A second pass
+had 6343 passed/2 failed because it had loaded the old fixture/export namespace
+before those corrections. The final frozen full gate above passed. Initial
+unchunked BPE tests exposed pathological repeated-text cost; those obsolete
+local test processes were stopped and the chunk/cache correction verified.
+
+**Limits:** No live provider call was made for this #78 fix. Publisher sources
+for tokenizer selection: OpenAI's
+[model mapping](https://github.com/openai/tiktoken/blob/main/tiktoken/model.py)
+and the
+[JavaScript port's source](https://github.com/dqbd/tiktoken).
+Cross-model publisher-usage parity across English, Unicode, schemas, paths,
+reasoning and tool results remains unproved. Grok, Claude and other models
+without verified tokenizers keep a labelled conservative text bound, but it is
+advisory: it cannot reject a request, shrink output or buy proactive compaction.
+Proactive thresholds apply only to local or injected complete counters; they
+are not measured for every native route. Unknown image/reasoning costs stay
+explicit. Provider validation and one bounded overflow-compaction retry remain
+authoritative. No production auth/config changes, upgrade or release ran.
+
 ## 2026-10-14 — Medium #73 native refresh result integration
 
 Completes the native portion after SDK core commit `54d8ca8b`. The native host retains the three new provider refresh codes and emits only safe `refreshReason`/bounded `retryAfterMs` scalars. Messages give a retry or provider-status action rather than an unsupported sign-in instruction. Six injected resolver failure cases prove rate-limit, provider outage, connection failure, timeout, malformed response and request rejection survive the native wire without credential bodies, tokens or upstream payloads. The tests use no real credential port or runtime boot.
