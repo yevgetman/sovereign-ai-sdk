@@ -11,6 +11,7 @@ import {
   PersistBeforeRunError,
   SubscriptionAuthExpiredError,
   SubscriptionHttpError,
+  SubscriptionRefreshError,
   SubscriptionStreamError,
   SubscriptionTierBlockedError,
   UnknownToolsetError,
@@ -77,6 +78,10 @@ const ERRORS: Record<string, string> = {
   provider_request_rejected:
     'Selected provider rejected this request. No route fallback was performed.',
   provider_failed: 'Selected provider failed. No route fallback was performed.',
+  provider_unavailable: 'Subscription token service is unavailable. Wait and retry.',
+  provider_timeout: 'Subscription token refresh timed out. Retry when the service is available.',
+  provider_response_invalid:
+    'Subscription token service returned an invalid response. Retry or check provider status.',
 };
 function string(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
@@ -622,6 +627,12 @@ export async function runSdkRunCommand(
         : {}),
       ...(err instanceof SubscriptionStreamError
         ? { deliveryPhase: err.phase, deliveryReason: err.reason }
+        : {}),
+      ...(err instanceof SubscriptionRefreshError
+        ? {
+            refreshReason: err.reason,
+            ...(err.retryAfterMs !== undefined ? { retryAfterMs: err.retryAfterMs } : {}),
+          }
         : {}),
       recoverable:
         !(err instanceof SubscriptionStreamError && err.phase === 'incomplete_delivery') &&

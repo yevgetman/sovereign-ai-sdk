@@ -13,6 +13,8 @@ import {
   SubscriptionAuthExpiredError,
   SubscriptionHttpError,
   SubscriptionLoginMissingError,
+  SubscriptionRecordUnreadableError,
+  SubscriptionRefreshError,
   SubscriptionTierBlockedError,
   ToolStorageError,
   UnknownToolsetError,
@@ -37,6 +39,9 @@ export const ROUTE_ERROR_CODES = [
   'storage_failed',
   'provider_request_rejected',
   'provider_failed',
+  'provider_unavailable',
+  'provider_timeout',
+  'provider_response_invalid',
 ] as const;
 
 export type RouteErrorCode = (typeof ROUTE_ERROR_CODES)[number];
@@ -70,8 +75,16 @@ export function isRouteErrorCode(value: string): value is RouteErrorCode {
 export function routeErrorCodeFor(err: unknown): RouteErrorCode {
   if (err instanceof RouteError) return err.code;
   if (isAbort(err)) return 'interrupted';
+  if (err instanceof SubscriptionRefreshError) {
+    if (err.reason === 'rate_limited') return 'rate_limited';
+    if (err.reason === 'timeout') return 'provider_timeout';
+    if (err.reason === 'malformed_response') return 'provider_response_invalid';
+    if (err.reason === 'request_rejected') return 'provider_request_rejected';
+    return 'provider_unavailable';
+  }
   if (err instanceof SubscriptionLoginMissingError) return 'credential_missing';
   if (err instanceof SubscriptionTierBlockedError) return 'tier_blocked';
+  if (err instanceof SubscriptionRecordUnreadableError) return 'credential_unavailable';
   if (err instanceof SubscriptionAuthExpiredError) return 'auth_expired';
   if (err instanceof CredentialStoreUnavailableError) return 'credential_unavailable';
   if (err instanceof ClaudeMaxTermsError) return 'route_unavailable';
@@ -84,7 +97,8 @@ export function routeErrorCodeFor(err: unknown): RouteErrorCode {
     return 'storage_failed';
   if (err instanceof UnknownToolsetError) return 'invalid_input';
   if (err instanceof ContextOverflowError || isContextOverflowError(err)) return 'context_overflow';
-  if (err instanceof SubscriptionHttpError) return codeForStatus(err.status);
+  if (err instanceof SubscriptionHttpError)
+    return err.status === 401 ? 'provider_request_rejected' : codeForStatus(err.status);
   if (isModelUnavailable(err)) return 'model_unsupported';
   if (err instanceof ProviderHttpError) return codeForStatus(err.status);
   const status = statusOf(err);

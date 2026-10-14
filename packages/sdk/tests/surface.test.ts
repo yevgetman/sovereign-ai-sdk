@@ -251,6 +251,7 @@ import type {
   SubdirectoryHintState,
   SubprocessExecutorResult,
   SubscriptionExecutorConfig,
+  SubscriptionRefreshFailure,
   SystemSegment,
   TaskManagerPort,
   TaskOutput,
@@ -319,6 +320,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'SessionWorkQueueError',
   'SubagentScheduler',
   'SubscriptionAuthExpiredError',
+  'SubscriptionRefreshError',
   'SubscriptionStreamError',
   'SubscriptionTierBlockedError',
   'TOOLSET_NAMES',
@@ -658,6 +660,7 @@ type TypeSurfaceWitness = {
   subdirectoryHintState?: SubdirectoryHintState;
   subprocessExecutorResult?: SubprocessExecutorResult;
   subscriptionExecutorConfig?: SubscriptionExecutorConfig;
+  subscriptionRefreshFailure?: SubscriptionRefreshFailure;
   systemSegment?: SystemSegment;
   taskManagerPort?: TaskManagerPort;
   taskOutput?: TaskOutput;
