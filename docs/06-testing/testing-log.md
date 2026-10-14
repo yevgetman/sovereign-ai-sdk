@@ -1,3 +1,17 @@
+## 2026-10-14 — Owner-approved SDK 0.16.0 / SOV 0.6.80 preparation gate
+
+Scope: `release/prepare-sdk-0160-20261014` from `8519af8c2126495fc379fd6f6e93f3dea268665f`, with source-version/lockfile/install/changelog/migration preparation and matching draft plan. Owner explicitly approved SDK0.16.0/SOV0.6.80. Existing13 selected units and dependencies retained. No runtime code changes; npm remains Owner-only.
+
+macOS arm64 Bun1.3.13. Frozen hoisted install, `bun run build`, `bun run lint`, `bun run typecheck` pass. `env -u FORCE_COLOR bun run test`:6459pass/19existing skips/0fail,28349assertions617files191.51s. `bun run release:validate` passes SDK0.16.0/CLI0.6.80 draft13items after metadata update; `git diff --check` passes. Independent preparation review finds no above-Low issue; YAML addendum verifies retained roster/baseline. These are source preparation checks, not final assembled artifact/public-byte proof. Receipts in `/private/tmp/sov-release-preflight-20261014-receipts/preparation-*.log` and `preparation-review.md`. No paid-provider call or learning recall was exercised.
+
+## 2026-10-14 — Thirteen-item release source preflight (version decision pending)
+
+Selected-source SHA `90d158dd63582bc8eee9a4436dad8bc17a87ed25`, published baseline `85350f48cc726f62b7b6396919015960d810b2f5`, pushed branch `release/source-preflight-20261014`. All13 exact selected mainline1 units applied once. Source packages/src match independently reviewed master; release bookkeeping is excluded. PR81/90 testing-log-only conflicts retained all incoming entries. Independent assembly review found no above-Low issue.
+
+macOS arm64, Bun1.3.13, Go1.26.1. Frozen hoisted install, `bun run build`, `bun run lint`, `bun run typecheck`, TUI `go test ./...`, `bun run canary` and `bun run audit:dependencies` pass. `env -u FORCE_COLOR bun run test`:6447pass/19existing skips/0fail,28330assertions616files168.34s. Source omits12 planning tests on master. Canary covers packed Node/Bun purity and exported types; supported engine floors remain for the final prepared cut. Audit reports0advisories. Source validator at planning8519af8c passes13 items; prior public SDK tarball download matches SDK-SHA256SUMS. No live model or learning recall was exercised.
+
+Receipts: `/private/tmp/sov-release-preflight-20261014-receipts/`. These checks are preflight, with previous release source versions. SDK0.15.2/CLI0.6.80 stay assigned drafts until Owner-directed minor SDK version. Final preparation, exact-build QA/artifacts, freeze, publication, consumers and local update remain. No public tag or artifact was changed.
+
 ## 2026-10-14 — Select the four merged Medium fixes
 
 Owner requested merging PR90–93 and adding all four fixes to the release manifest. All four are now merged to master in dependency order after all24 final-head GitHub CI checks passed. Exact application units:

@@ -1,7 +1,7 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: 2026-10-14T19:41:52.102Z
+updated_at: 2026-10-14T20:50:13.009Z
 checkout: .
 last_release: &a1
   version: 0.15.1
@@ -12,11 +12,11 @@ reconciliation:
   history_start_commit: 85350f48cc726f62b7b6396919015960d810b2f5
   through_main_commit: d8c96f7621088f8f237b934776a6c007635f58d5
   checked_at: 2026-10-14T19:41:52.102Z
-  evidence: "All 13 selected fix merge units verified reachable after SDK0.15.1 baseline 85350f48cc726f62b7b6396919015960d810b2f5; PR90–93 merged in dependency order, each exact master merge once/mainline1. Combined source runtime/test/package inputs match independently reviewed QA8ea82206fb1c8d5e8c0b7017362fea4df440ccfe; source receipt https://github.com/yevgetman/sovereign-ai-sdk/blob/d8c96f7621088f8f237b934776a6c007635f58d5/docs/06-testing/testing-log.md. All requested final PR-head CI checks pass. SDK0.15.2/CLI0.6.80 assigned draft retained; additive APIs require Owner-directed minor SDK version before freeze. Issue #74 live acceptance remains open. Source selection is not assembly, freeze or publication."
+  evidence: "All 13 selected fix merge units verified reachable after SDK0.15.1 baseline 85350f48cc726f62b7b6396919015960d810b2f5; PR90–93 merged in dependency order, each exact master merge once/mainline1. Combined source runtime/test/package inputs match independently reviewed QA8ea82206fb1c8d5e8c0b7017362fea4df440ccfe; source receipt https://github.com/yevgetman/sovereign-ai-sdk/blob/d8c96f7621088f8f237b934776a6c007635f58d5/docs/06-testing/testing-log.md. All requested final PR-head CI checks pass. SDK0.15.2/CLI0.6.80 assigned draft retained; additive APIs require Owner-directed minor SDK version before freeze. Issue #74 live acceptance remains open. Source selection is not assembly, freeze or publication. Owner approved SDK0.16.0 / SOV0.6.80 for the full selected release on 2026-10-14; earlier assigned-version references above are historical. Preparation is not assembly, freeze or publication."
 release:
-  id: sdk-0.15.2
+  id: sdk-0.16.0
   product: sovereign-ai-sdk
-  version: 0.15.2
+  version: 0.16.0
   cli_version: 0.6.80
   status: draft
   base: *a1

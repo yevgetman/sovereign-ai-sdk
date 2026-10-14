@@ -23,6 +23,16 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
 
 ---
 
+## Prepared cut — SDK 0.16.0 / SOV 0.6.80
+
+The Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14. The cut contains
+all 13 selected PR81–93 source fixes plus reviewed version, lockfile and release
+text preparation. The SDK download is `yevgetman-sov-sdk-0.16.0.tgz` in public
+SOV `v0.6.80`, with `SDK-SHA256SUMS`. Binary archives use `SHA256SUMS`.
+Source tags belong to the single assembled build. Freeze, public downloads and
+immutable publication evidence establish completion; preparation alone does not.
+Protocol stays 0.1.0 and debug console stays 0.3.0. npm publication stays Owner-only.
+
 ## Current public channel — verified 2026-10-13
 
 SDK **0.15.1** and SOV **0.6.79** are published in the combined public

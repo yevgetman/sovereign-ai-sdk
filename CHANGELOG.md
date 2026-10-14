@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased — exact subscription image input (#79)
+## SDK 0.16.0 / SOV 0.6.80 — 2026-10-14
+
+- Include all 13 reviewed fixes in PR81–93 once, plus reviewed release preparation.
+- Complete exact-route/model/login reasoning replay for Grok and ChatGPT; owner-managed subscription catalogs; safe refresh errors and bounded stream retry.
+- Durable individual tool receipts, native compaction and context-overflow recovery, provider-aware context estimates, one effective tool inventory and explicit permission precedence.
+- Certified exact Grok 4.7 PNG/JPEG input with durable image history; accurate native terminal outcomes and safe recovery. The bundled image proof expires 2026-11-13.
+- SDK 0.16.0 is an Owner-approved minor release for additive public types, exports and persistence ports. Existing injected stores remain supported; bind the optional journal for individual tool recovery. Legacy unbound reasoning requires a new session. Unknown tool effects require inspection before retry.
+- ChatGPT live replay remains unverified for the available exact-model login. Unknown tokenizers remain advisory. Fixture gates do not certify physical power-loss recovery or general paid-provider eligibility.
+- Protocol stays 0.1.0; debug console stays 0.3.0. Node >=20.19.0 and Bun >=1.2.0 remain supported. SDK tarball and SDK-SHA256SUMS accompany all five SOV platform archives and SHA256SUMS. npm publication stays Owner-operated.
+
+### exact subscription image input (#79)
 
 **SDK:** Add optional `ModelRecord.imageInputCertification` and its public type,
 plus `verifiedSubscriptionImageInput`. Publisher capability and transport proof
@@ -23,9 +33,9 @@ image token costs remain explicit. Compaction's returned summary-plus-tail now
 reconstructs its exact durable child history, including retained images and a
 neutral bridge when needed. Two bounded read-only Grok 4.7 subscription PNG turns
 passed objective visual checks. This does not certify other models or
-general account eligibility. No release or installed-host upgrade is included.
+general account eligibility. Installed host upgrades are separate.
 
-## Unreleased — owner-managed ChatGPT subscription catalog (#75)
+### owner-managed ChatGPT subscription catalog (#75)
 
 ChatGPT now uses the same durable owner-reviewed registry as Grok. Exact model
 IDs, context/output limits, effort levels, capability facts, provenance and review
@@ -39,7 +49,7 @@ Owner records never claim account entitlement or transport image certification.
 Existing Grok imports remain compatible. These deep-subpath helpers are additive;
 the next release already requires an SDK minor for the public #69 surface.
 
-## Unreleased — native context recovery (#70)
+### native context recovery (#70)
 
 **Harness:** `sov run --sdk` now applies model-aware proactive compaction and
 one independent same-route overflow compact/retry. A no-op does not retry; a
@@ -62,9 +72,9 @@ child or bill a cooperative late finalizer twice.
 **SDK:** `CompactResult` gains optional `usage`, `costEstimate` and
 `estimatedCostUsd` fields. The result DTO remains in open core; the compactor and
 same-route summarizer stay in the proprietary host. Existing compaction callers
-remain compatible. No release or installed runtime update is part of this change.
+remain compatible. Installed host upgrades are separate.
 
-## Unreleased — durable individual tool receipts (#71)
+### durable individual tool receipts (#71)
 
 **SDK:** `SessionStore` adds optional `saveToolExecution` and `loadToolExecutions`
 methods. `ToolExecutionStore`, `ToolExecution`, and `ToolStorageError` are additive
@@ -98,9 +108,9 @@ These additive ports and explicit resume migration require a minor SDK release.
 **Harness:** SQLite schema 8 adds the per-tool journal. Both the native SDK writer
 and the gateway's existing callback writer bind it without duplicate messages.
 Resume rehydrates completed receipts and reports unknown outcomes explicitly.
-No release or installed runtime update is part of this change.
+Installed host upgrades are separate.
 
-## Unreleased — subscription stream retry before delivery (#72)
+### subscription stream retry before delivery (#72)
 
 - HTTP 200 subscription streams now share the existing three-request retry budget
   with connection and HTTP-status failures. EOF, reset, malformed first frames and
@@ -115,13 +125,13 @@ No release or installed runtime update is part of this change.
   recovery without duplicate output or tool execution; no live provider probe is claimed.
 
 
-## Unreleased — ChatGPT stateless reasoning continuation (#74)
+### ChatGPT stateless reasoning continuation (#74)
 
 **SDK:** ChatGPT now preserves and replays complete reasoning items with `store:false`, including empty summaries and future fields. The optional provenance route type also accepts `chatgpt-subscription`; exact model and nonsecret login lineage remain mandatory for replay. Refresh retains the lineage, and a new login changes it. Other routes refuse these items before inference. This additive type change belongs to a minor release. Legacy unbound reasoning needs a new session.
 
 **Harness:** Native ChatGPT resume accepts its own bound reasoning and rejects foreign route/model state before writing the next user row. Two-turn rehydration and tool continuation pass offline fixtures. The live probe was unavailable because no usable unexpired SOV ChatGPT login was present; no credential refresh or login change was attempted.
 
-## Unreleased — complete Grok reasoning replay (#69)
+### complete Grok reasoning replay (#69)
 
 **SDK:** `encrypted_reasoning` adds optional `item`, `routeId` and versioned
 `provenance` envelope fields. The public `ResponsesStateProvenance` type binds
@@ -150,7 +160,7 @@ with `store: false`, first `low` effort and then `auto`/`high`. A separate four-
 one pure arithmetic tool call with successful post-tool continuation. No owner
 settings or production credentials were changed. This is one account probe, not a general eligibility claim.
 
-## Unreleased — SDK effective tool inventory
+### SDK effective tool inventory
 
 - SDK: add the deep-import module `@yevgetman/sov-sdk/tool/effectiveInventory` with `effectiveToolInventory` and `projectToolInventory`. This is an additive helper surface.
 - SDK: `createAgent` and `query` project `<available-tools>` from the same effective pool as schemas and execution. Skill activation, ToolSearch discovery and child inheritance follow that pool. Empty pools remove the inventory segment and preserve standing instructions.
