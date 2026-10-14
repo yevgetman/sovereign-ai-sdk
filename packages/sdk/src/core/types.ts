@@ -235,5 +235,14 @@ export type QueryParams = {
    * write. A throw stops the tool batch. The caller maps that throw to
    * `PersistBeforeRunError`.
    */
+  /** Persist individual lifecycle receipts before executing / after completing a tool. */
+  persistToolExecution?: (
+    toolUseId: string,
+    state: 'started' | 'completed' | 'interrupted' | 'unknown',
+    result?: Extract<ContentBlock, { type: 'tool_result' }>,
+    newMessages?: Message[],
+  ) => void;
+  /** Save the canonical batch, including steering and tool additions, before continuation. */
+  persistAfterTools?: (message: Message) => Promise<void> | void;
   persistBeforeTools?: (assistant: AssistantMessage) => Promise<void> | void;
 };

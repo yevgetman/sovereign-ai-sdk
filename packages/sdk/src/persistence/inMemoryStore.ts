@@ -29,7 +29,7 @@ import type {
   StoredMessage,
 } from '../core/sessionPort.js';
 import type { TokenUsage } from '../core/types.js';
-import type { SessionStore } from './sessionStore.js';
+import type { SessionStore, ToolExecution, ToolExecutionStore } from './sessionStore.js';
 
 /** Mirrors `SessionDb`'s current schema version so getSession reports the same
  *  `schemaVersion` an in-memory SQLite open would. The in-memory store has no
@@ -44,13 +44,15 @@ function deepCopy<T>(value: T): T {
 }
 
 /** A pure in-process `SessionStore` (no disk, no SQLite). */
-export type InMemorySessionStore = SessionStore & {
-  truncateMessages(sessionId: string, keep: number): void;
-};
+export type InMemorySessionStore = SessionStore &
+  ToolExecutionStore & {
+    truncateMessages(sessionId: string, keep: number): void;
+  };
 
 export function createInMemorySessionStore(): InMemorySessionStore {
   const sessions = new Map<string, Session>();
   const messagesBySession = new Map<string, StoredMessage[]>();
+  const executions = new Map<string, ToolExecution[]>();
   let nextMessageId = 1;
 
   function createSession(input: CreateSessionInput): string {
@@ -190,7 +192,29 @@ export function createInMemorySessionStore(): InMemorySessionStore {
     });
   }
 
+  function saveToolExecution(sessionId: string, execution: ToolExecution): void {
+    const rows = executions.get(sessionId) ?? [];
+    const index = rows.findIndex(
+      (row) =>
+        row.assistantMessageId === execution.assistantMessageId &&
+        row.toolUseId === execution.toolUseId,
+    );
+    if (index >= 0) {
+      const previous = rows[index];
+      if (previous?.state === 'completed' && execution.state !== 'completed') return;
+      rows[index] = deepCopy(execution);
+    } else rows.push(deepCopy(execution));
+    executions.set(sessionId, rows);
+  }
+  function loadToolExecutions(sessionId: string): ToolExecution[] {
+    const ids = new Set((messagesBySession.get(sessionId) ?? []).map((row) => row.id));
+    return deepCopy(
+      (executions.get(sessionId) ?? []).filter((row) => ids.has(row.assistantMessageId)),
+    );
+  }
   return {
+    saveToolExecution,
+    loadToolExecutions,
     recordUsageEstimate,
     createSession,
     upsertSession,

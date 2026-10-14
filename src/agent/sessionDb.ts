@@ -35,7 +35,7 @@ import type {
   StoredMessage,
 } from '@yevgetman/sov-sdk/core/sessionPort';
 import type { ContentBlock, SystemSegment, TokenUsage } from '@yevgetman/sov-sdk/core/types';
-import type { SessionStore } from '@yevgetman/sov-sdk/persistence/sessionStore';
+import type { SessionStore, ToolExecution } from '@yevgetman/sov-sdk/persistence/sessionStore';
 import { type CostEstimate, estimateUsageCost } from '@yevgetman/sov-sdk/providers/pricing';
 
 /** Default DB path. Resolved at call time so a profile-aware
@@ -50,11 +50,23 @@ export function getDefaultDbPath(): string {
  *  back-compat shim for tests that reference it directly. */
 export const DEFAULT_DB_PATH = join(resolveHarnessHome(), 'sessions.db');
 
-const CURRENT_SCHEMA_VERSION = 7;
+const CURRENT_SCHEMA_VERSION = 8;
 
 type Migration = { from: number; to: number; sql: string };
 
 const MIGRATIONS: Migration[] = [
+  {
+    from: 7,
+    to: 8,
+    sql: `CREATE TABLE tool_executions (
+      session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
+      assistant_message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      tool_use_id TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('started', 'completed', 'interrupted', 'unknown')),
+      receipt TEXT NOT NULL,
+      PRIMARY KEY (session_id, assistant_message_id, tool_use_id)
+    );`,
+  },
   {
     from: 6,
     to: 7,
@@ -669,6 +681,33 @@ export class SessionDb implements SessionStore {
 
   /** Keep the first `keep` messages and drop the rest. The messages DELETE
    *  trigger keeps the search index in step. */
+  saveToolExecution(sessionId: string, execution: ToolExecution): void {
+    this.writeWithRetry(() => {
+      this.db.run(
+        `INSERT INTO tool_executions (session_id, assistant_message_id, tool_use_id, state, receipt)
+        VALUES (?, ?, ?, ?, ?) ON CONFLICT(session_id, assistant_message_id, tool_use_id)
+        DO UPDATE SET state = excluded.state, receipt = excluded.receipt
+        WHERE tool_executions.state != 'completed' OR excluded.state = 'completed'`,
+        [
+          sessionId,
+          execution.assistantMessageId,
+          execution.toolUseId,
+          execution.state,
+          JSON.stringify(execution),
+        ],
+      );
+    });
+  }
+
+  loadToolExecutions(sessionId: string): ToolExecution[] {
+    return this.db
+      .query<{ receipt: string }, [string]>(
+        'SELECT receipt FROM tool_executions WHERE session_id = ? ORDER BY assistant_message_id, rowid',
+      )
+      .all(sessionId)
+      .map((row) => JSON.parse(row.receipt) as ToolExecution);
+  }
+
   truncateMessages(sessionId: string, keep: number): void {
     const retain = keep > 0 ? Math.floor(keep) : 0;
     this.writeWithRetry(() => {
