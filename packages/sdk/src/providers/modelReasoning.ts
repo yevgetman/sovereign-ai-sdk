@@ -5,6 +5,7 @@ import {
   mapMaxEffort,
   modelSupportsReasoning,
 } from './effort.js';
+import { isOwnerGrokModel } from './models/ownerRegistry.js';
 import type { ModelRecord } from './models/types.js';
 import { RouteError } from './routes/errors.js';
 
@@ -91,6 +92,17 @@ export function reasoningControlFor(
   // control with no levels so selection cannot synthesize off. Do not prepend
   // off or switch the Responses parameter to reasoning_effort.
   if (provider === 'grok') {
+    if (isOwnerGrokModel(metadata, model)) {
+      return {
+        parameter: 'grok',
+        efforts:
+          metadata?.metadata.retired || metadata?.capabilities.reasoning !== 'supported'
+            ? []
+            : (metadata?.efforts ?? []).filter((effort) => effort !== 'off'),
+        disableSupported: false,
+        maxWireValue: 'xhigh',
+      };
+    }
     const verified = VERIFIED[`${provider}:${model}`];
     if (!verified) return undefined;
     if (

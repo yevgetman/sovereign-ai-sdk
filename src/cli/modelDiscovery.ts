@@ -25,7 +25,13 @@ import {
   withSelectableSubscriptionEfforts,
 } from '@yevgetman/sov-sdk/providers/models/subscriptionCatalog';
 import { validateModelCatalog } from '@yevgetman/sov-sdk/providers/models/validate';
-import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
+import {
+  type RouteRecord,
+  effortsForModel,
+  getRoute,
+} from '@yevgetman/sov-sdk/providers/routes/index';
+
+import { readOwnerGrokRegistry } from './ownerModelRegistry.js';
 
 function subscriptionCacheId(key: string): boolean {
   return key.startsWith('chatgpt-subscription:') || key.startsWith('grok-subscription:');
@@ -233,6 +239,20 @@ export async function readModelCatalog(
   refresh = false,
   cache: ModelCatalogCache = diskModelCache(),
 ): Promise<ModelCatalog> {
+  const owned = routeId === 'grok-subscription' ? readOwnerGrokRegistry() : undefined;
+  if (owned)
+    return refresh
+      ? {
+          ...owned,
+          state: 'stale',
+          error:
+            'Owner registry requires explicit re-import; subscription discovery is unavailable.',
+          models: owned.models.map((model) => ({
+            ...model,
+            metadata: { ...model.metadata, stale: true },
+          })),
+        }
+      : owned;
   const source = modelSource(routeId, settings);
   const service = createModelDiscovery({ cache });
   const catalog = refresh ? await service.refresh(source) : await service.read(source);
@@ -271,6 +291,8 @@ export function subscriptionOperatorModel(model: ModelRecord): ModelRecord {
 }
 
 function subscriptionRefreshError(catalog: ModelCatalog): string {
+  if (catalog.models.some((model) => model.metadata.ownerManaged))
+    return 'No subscription catalog endpoint is configured. Re-import owner registry metadata. Saved route/model/effort remain in force.';
   const subscription =
     catalog.routeId === 'chatgpt-subscription' || catalog.routeId === 'grok-subscription';
   if (subscription && catalog.fetchedAt && catalog.state === 'stale') {
@@ -297,14 +319,17 @@ export function modelPage(catalog: ModelCatalog, query: ModelQuery) {
   const viewed = withSelectableSubscriptionEfforts(catalog);
   const models = viewed.models.filter(
     (model) =>
+      !model.metadata.retired &&
       (!query.author || modelAuthor(model) === query.author) &&
       (!search || `${model.id} ${model.displayName}`.toLowerCase().includes(search)),
   );
-  const pin = reportSubscriptionPin(viewed);
+  const ownerManaged = viewed.models.some((model) => model.metadata.ownerManaged);
+  const pin = ownerManaged ? undefined : reportSubscriptionPin(viewed);
   return {
     schemaVersion: 1,
     route: catalog.routeId,
     state: catalog.state,
+    sessionReset: { transcriptOnly: true, preserves: ['route', 'model', 'effort'] },
     ...(catalog.fetchedAt ? { fetchedAt: catalog.fetchedAt } : {}),
     ...(pin
       ? {
@@ -324,6 +349,16 @@ export function modelPage(catalog: ModelCatalog, query: ModelQuery) {
             },
           }
         : {}),
+    ...(viewed.models.some((model) => model.metadata.ownerManaged)
+      ? {
+          catalogKind: 'owner-managed',
+          retiredModels: viewed.models
+            .filter((model) => model.metadata.retired)
+            .map((model) => model.id),
+          catalogNotice:
+            'Owner-managed metadata; re-import to review freshness. Saved route/model/effort remain in force after /new.',
+        }
+      : {}),
     total: models.length,
     offset,
     limit,
@@ -351,6 +386,8 @@ export function readModelCatalogSnapshot(
   settings: Settings = {},
   harnessHome = resolveHarnessHome(),
 ): ModelCatalog {
+  const owned = routeId === 'grok-subscription' ? readOwnerGrokRegistry(harnessHome) : undefined;
+  if (owned) return owned;
   const source = modelSource(routeId, settings);
   const root = join(harnessHome, 'model-catalog');
   const key = `${source.routeId}:${source.cacheKey ?? 'public'}`;
@@ -384,4 +421,43 @@ export function readModelCatalogSnapshot(
   } catch {
     return fallbackModelCatalog(routeId);
   }
+}
+
+/** SOV route diagnostics include explicit owner facts while SDK routes stay disk-free. */
+export function routeWithOwnerModels(route: RouteRecord, catalog: ModelCatalog): RouteRecord {
+  if (route.id !== 'grok-subscription' || catalog.routeId !== route.id) return route;
+  const records = catalog.models.filter((model) => model.metadata.ownerManaged);
+  if (!records.length) return route;
+  const retired = new Set(
+    records.filter((model) => model.metadata.retired).map((model) => model.id),
+  );
+  const active = records.filter((model) => !model.metadata.retired);
+  const models = [...new Set([...route.models, ...active.map((model) => model.id)])].filter(
+    (id) => !retired.has(id),
+  );
+  const updated = {
+    ...route,
+    catalogState: catalog.state,
+    catalogKind: 'owner-managed',
+    models,
+    modelEfforts: {
+      ...Object.fromEntries(Object.entries(route.modelEfforts).filter(([id]) => !retired.has(id))),
+      ...Object.fromEntries(
+        active.map((model) => [model.id, effortsForModel(route, model.id, model)]),
+      ),
+    },
+  };
+  if (retired.has(route.defaultModel))
+    return {
+      ...updated,
+      rejectedConfiguredDefault: route.defaultModel,
+      defaultModelNotice: `Owner registry marks saved default ${route.defaultModel} retired. Change the selected model or update the registry; /new preserves saved dials.`,
+    };
+  if (!active.some((model) => model.id === route.rejectedConfiguredDefault)) return updated;
+  const {
+    rejectedConfiguredDefault: _rejected,
+    defaultModelNotice: _notice,
+    ...accepted
+  } = updated;
+  return accepted;
 }

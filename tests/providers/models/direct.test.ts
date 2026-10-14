@@ -60,13 +60,13 @@ test('subscription catalogs never copy API account availability or make credenti
       ).rejects.toThrow('Subscription model discovery unavailable');
       expect(catalog.models.map((model) => model.id).slice(0, 2)).toEqual(['grok-4.7', 'grok-4.6']);
       expect(catalog.models[0]?.metadata).toMatchObject({
-        source: 'xai-docs-2026-10-10',
+        source: 'xai-docs-2026-10-14',
         stale: false,
       });
       expect(catalog.models[0]?.contextWindow).toBe(500_000);
       expect(catalog.models[0]?.capabilities.tools).toBe('supported');
       expect(catalog.models[0]?.capabilities.images).toBe('unsupported');
-      expect(catalog.models[1]?.contextWindow).toBeUndefined();
+      expect(catalog.models[1]?.contextWindow).toBe(500_000);
       expect(catalog.models[1]?.metadata.stale).toBe(false);
     } else {
       expect(catalog.models.every((model) => model.metadata.stale)).toBe(true);

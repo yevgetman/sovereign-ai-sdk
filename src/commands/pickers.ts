@@ -197,13 +197,16 @@ async function runModelPicker(args: string, ctx: CommandContext): Promise<string
   );
   const state = catalog.state === 'current' ? 'cached metadata' : 'offline/stale suggestions';
   const pin = reportSubscriptionPin(catalog);
-  const records = [...catalog.models];
+  const retiredCurrent = catalog.models.some(
+    (model) => model.id === ctx.model && model.metadata.retired,
+  );
+  const records = catalog.models.filter((model) => !model.metadata.retired);
   const sessionOutsideAccount =
     pin !== undefined &&
     ctx.model === pin.id &&
     !catalog.models.some((model) => model.id === ctx.model);
   // A missing or unavailable pin stays the route default. Do not invent an account row for it.
-  if (!records.some((model) => model.id === ctx.model) && ctx.model !== pin?.id)
+  if (!retiredCurrent && !records.some((model) => model.id === ctx.model) && ctx.model !== pin?.id)
     records.unshift(findModel(catalog, ctx.model));
   const author = modelAuthor;
   const openrouter = ctx.providerName === 'openrouter';
@@ -230,11 +233,13 @@ async function runModelPicker(args: string, ctx: CommandContext): Promise<string
         hint: `${model.id === ctx.model ? '(current) · ' : ''}${modelDetails(model)}`,
       }));
   if (ctx.requestInput) items.push({ label: 'type custom model ID…', value: '--custom' });
-  if (!rootGroups && sessionOutsideAccount) {
+  if (!rootGroups && (sessionOutsideAccount || retiredCurrent)) {
     items.unshift({
       label: `keep ${ctx.model}`,
       value: '--keep-current',
-      hint: 'session model is not in the account list',
+      hint: retiredCurrent
+        ? 'current model is retired; keeping it does not authorize inference'
+        : 'session model is not in the account list',
     });
   }
   const subscription =
@@ -245,15 +250,18 @@ async function runModelPicker(args: string, ctx: CommandContext): Promise<string
   const sessionSentence = sessionOutsideAccount
     ? `Session model ${ctx.model} is not in the account list. Confirming another row will change it.`
     : '';
-  const subtitle = subscription
-    ? [
-        `provider: ${ctx.providerName} · ${state}. Search: /model --search text. Subscription refresh cannot fetch a catalog. A stored timestamped catalog is left stale and tightened.`,
-        pinSentence,
-        sessionSentence,
-      ]
-        .filter((part) => part.length > 0)
-        .join(' ')
-    : `provider: ${ctx.providerName} · ${state}. Search: /model --search text; refresh: sov models --route ${catalog.routeId} --refresh`;
+  const ownerManaged = catalog.models.some((model) => model.metadata.ownerManaged);
+  const subtitle = ownerManaged
+    ? `provider: ${ctx.providerName} · ${catalog.state} owner registry. Re-import: sov models --route grok-subscription --registry FILE. /new keeps saved route/model/effort.`
+    : subscription
+      ? [
+          `provider: ${ctx.providerName} · ${state}. Search: /model --search text. Subscription refresh cannot fetch a catalog. A stored timestamped catalog is left stale and tightened. /new keeps saved route/model/effort.`,
+          pinSentence,
+          sessionSentence,
+        ]
+          .filter((part) => part.length > 0)
+          .join(' ')
+      : `provider: ${ctx.providerName} · ${state}. Search: /model --search text; refresh: sov models --route ${catalog.routeId} --refresh`;
   const initial = Math.max(
     0,
     items.findIndex((item) => item.value === ctx.model || item.value === '--keep-current'),

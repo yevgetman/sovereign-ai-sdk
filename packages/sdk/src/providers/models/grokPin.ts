@@ -2,7 +2,7 @@
 import type { ModelCatalog, ModelRecord } from './types.js';
 
 export const GROK_SUBSCRIPTION_MODELS = ['grok-4.7', 'grok-4.6'] as const;
-export const GROK_SUBSCRIPTION_PIN_SOURCE = 'xai-docs-2026-10-10';
+export const GROK_SUBSCRIPTION_PIN_SOURCE = 'xai-docs-2026-10-14';
 export const GROK_SUBSCRIPTION_CONTEXT_TOKENS = 500_000;
 
 export type GrokSubscriptionModelId = (typeof GROK_SUBSCRIPTION_MODELS)[number];
@@ -13,7 +13,7 @@ export function isGrokSubscriptionModelId(id: string): id is GrokSubscriptionMod
   return PIN_IDS.has(id);
 }
 
-/** Publisher-documented record. `grok-4.6` has no context window on purpose. */
+/** Publisher-documented record. Both model windows are documented by xAI. */
 export function grokSubscriptionPin(id: GrokSubscriptionModelId): ModelRecord {
   return {
     id,
@@ -22,12 +22,12 @@ export function grokSubscriptionPin(id: GrokSubscriptionModelId): ModelRecord {
     provider: 'grok',
     auth: 'subscription',
     capabilities: {
-      textOutput: 'unknown',
+      textOutput: id === 'grok-4.6' ? 'supported' : 'unknown',
       tools: 'supported',
-      images: 'unsupported',
+      images: id === 'grok-4.6' ? 'supported' : 'unsupported',
       reasoning: 'supported',
     },
-    ...(id === 'grok-4.7' ? { contextWindow: GROK_SUBSCRIPTION_CONTEXT_TOKENS } : {}),
+    contextWindow: GROK_SUBSCRIPTION_CONTEXT_TOKENS,
     efforts: ['low', 'medium', 'high', 'max'],
     reasoningControl: {
       parameter: 'grok',
@@ -35,7 +35,11 @@ export function grokSubscriptionPin(id: GrokSubscriptionModelId): ModelRecord {
       maxWireValue: 'xhigh',
     },
     availability: 'unknown',
-    metadata: { source: GROK_SUBSCRIPTION_PIN_SOURCE, stale: false },
+    metadata: {
+      source: GROK_SUBSCRIPTION_PIN_SOURCE,
+      stale: false,
+      fetchedAt: '2026-10-14T00:00:00.000Z',
+    },
   };
 }
 

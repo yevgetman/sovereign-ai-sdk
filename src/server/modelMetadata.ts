@@ -7,6 +7,7 @@ import {
   resolveModelLimits,
 } from '@yevgetman/sov-sdk/providers/modelLimits';
 import { type ModelRecord, findModel } from '@yevgetman/sov-sdk/providers/models/index';
+import { isOwnerGrokModel } from '@yevgetman/sov-sdk/providers/models/ownerRegistry';
 import { estimateUsageCost, pricingSnapshotForModel } from '@yevgetman/sov-sdk/providers/pricing';
 import { readModelCatalogSnapshot, routeForProvider } from '../cli/modelDiscovery.js';
 
@@ -45,7 +46,7 @@ export function selectedTurnModel(
     {
       ...(metadata.contextWindow !== undefined ? { contextTokens: metadata.contextWindow } : {}),
       ...(metadata.maxOutputTokens !== undefined ? { outputTokens: metadata.maxOutputTokens } : {}),
-      stale: metadata.metadata.stale,
+      stale: metadata.metadata.stale && !isOwnerGrokModel(metadata, model),
       source: metadata.metadata.source,
     },
     options.maxTokens === undefined ? {} : { outputTokens: options.maxTokens },

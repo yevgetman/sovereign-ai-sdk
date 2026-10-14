@@ -38,6 +38,11 @@ export function validateModelRecords(
     )
       return undefined;
     if (route && (row.provider !== route.provider || row.auth !== route.auth)) return undefined;
+    if (
+      row.metadata?.ownerManaged === true &&
+      (routeId !== 'grok-subscription' || row.auth !== 'subscription')
+    )
+      return undefined;
     if (ids.has(row.id)) return undefined;
     ids.add(row.id);
     if (
@@ -45,6 +50,8 @@ export function validateModelRecords(
       !row.metadata ||
       !safeText(row.metadata.source) ||
       typeof row.metadata.stale !== 'boolean' ||
+      (row.metadata.ownerManaged !== undefined && typeof row.metadata.ownerManaged !== 'boolean') ||
+      (row.metadata.retired !== undefined && typeof row.metadata.retired !== 'boolean') ||
       !validDate(row.metadata.fetchedAt, now)
     )
       return undefined;
@@ -133,6 +140,10 @@ export function validateModelRecords(
         source: row.metadata.source,
         fetchedAt: row.metadata.fetchedAt,
         stale: row.metadata.stale,
+        ...(row.metadata.ownerManaged === undefined
+          ? {}
+          : { ownerManaged: row.metadata.ownerManaged }),
+        ...(row.metadata.retired === undefined ? {} : { retired: row.metadata.retired }),
       },
       pricing: row.pricing
         ? {

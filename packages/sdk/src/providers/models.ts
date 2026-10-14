@@ -1,5 +1,6 @@
 import { ContextManagementError } from '../compact/contextManagement.js';
 import { resolveModelLimits } from './modelLimits.js';
+import { isOwnerGrokModel } from './models/ownerRegistry.js';
 import type { ModelRecord } from './models/types.js';
 // Small built-in model registry. Resolver uses this for defaults and context
 // lengths until config-driven/provider-discovered registries become necessary.
@@ -124,7 +125,7 @@ export function contextLengthFor(
     return resolveModelLimits(
       {
         contextTokens: metadata.contextWindow,
-        stale: metadata.metadata.stale,
+        stale: metadata.metadata.stale && !isOwnerGrokModel(metadata, model),
         source: metadata.metadata.source,
       },
       { contextTokens: hostCap },

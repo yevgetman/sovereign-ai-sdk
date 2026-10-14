@@ -1,3 +1,61 @@
+## 2026-10-14 — Issue #68: owner-managed Grok subscription model registry
+
+Scope: exact unbundled Grok subscription selection, verified Grok 4.6 limits,
+owner metadata validation, retired tombstones, offline freshness and login isolation.
+Branch `fix/68-grok-owner-model-registry`, isolated worktree
+`/tmp/sdk-issue68-20261014`, baseline `71e25677`; macOS arm64, Bun 1.3.13.
+No package release, installed SOV upgrade, master merge or API-key fallback.
+
+Failed-before evidence: archived baseline `71e25677` with installed dependencies,
+`bun test /tmp/sdk68-baseline-20261014/tests/providers/models/issue68-regression.test.ts`
+returned **0 pass / 2 fail**: Grok 4.6 context was undefined, and an exact future ID
+with explicit owner evidence threw `model_unsupported`. The same two tests pass
+on the fixed source. Initial dependencies were prepared with
+`bun install --frozen-lockfile` (including the TUI build); `bun run build` passes.
+
+Focused passes cover all acceptance boundaries: source CLI `--registry` import,
+subsequent `models`/`routes` reads and unsupported subscription `--refresh`;
+model/config pickers; frozen native `sdk-run` owner metadata with a system prompt
+above 32768 tokens; actual Grok request serialization with a new exact ID and
+max→xhigh; unknown facts, invalid dates/shapes/limits, credential-shaped input,
+normalized JSON growing beyond the 16MiB disk limit; retired shipped IDs;
+stale per-row review dates; foreign-route stale-budget counterexamples; token
+refresh preserving the epoch; login A→B→A and logout invalidation without optional
+hooks. `bun test tests/providers/models/ownerRegistry.test.ts` passes all 10 tests
+(the final full suite also covers them). Final independent review ran
+`bun test tests/providers/models/ownerRegistry.test.ts tests/providers/models/issue68-regression.test.ts tests/cli/sdkRunCommand.test.ts`:
+**30 pass / 0 fail**, with no remaining confirmed findings.
+
+The first full gate returned 6130 pass / 19 skip / 3 fail: two old publisher-source
+assertions and an added barrel export that violated the pinned public-surface
+snapshot. The assertions were updated and the unnecessary barrel export removed;
+the registry validator remains available through the existing deep-module export
+contract. Final `bun run lint` passed (247 modules, 988 dependencies, no boundary
+violations), `bun run typecheck` passed, and `env -u FORCE_COLOR bun run test`
+passed **6134 / 19 skip / 0 fail**, 26749 assertions, 6153 tests across 596 files
+(118.91s). Unsetting FORCE_COLOR avoids the known Node subprocess warning when
+NO_COLOR is also present; no flaky-test opt-out was used.
+
+Fixture isolation correction: Bun caches `os.homedir()` at process start. An
+initial in-process HOME override bootstrapped one non-secret Grok login-epoch
+file in the real auth-lock directory through a fake credential port. It read no
+real Keychain item and wrote no credentials. The exact test-created UUID marker
+was verified and removed; existing credentials/generations were preserved.
+Native-run and picker fixtures now start child processes with isolated HOME.
+The real Grok epoch file was confirmed absent after the final fixtures.
+
+Root's bounded live proof used `/tmp/grok-registry-live-20261014.ts`: import exact
+unbundled `grok-4.5` into a temporary owner registry and temporary auth-lock epoch,
+then read the registry, validate selection and send one subscription Responses
+request (`store:false`, low). Existing unexpired credentials were read only.
+The turn completed the requested marker. Receipt: exact ID `grok-4.5`, context
+500000, inference calls 1, credential writes 0; no refresh, real epoch/config/
+session writes or API-key route. Temporary data was deleted. This proves that
+exact subscription model on the tested account at this time; it does not certify
+all future models or account entitlement. Root verified Grok 4.6 publisher facts
+at https://docs.x.ai/developers/models/grok-4.6: 500000 context, text/image input,
+function calling and low/medium/high/xhigh reasoning. Output limit remains unknown.
+
 ## 2026-10-13 — SDK 0.15.1 / SOV 0.6.79 public cut
 
 Owner authorized the manifest cut, public GitHub release, and consumer source pins. Exact build `85350f48cc726f62b7b6396919015960d810b2f5` maps PR 63 (`9bccdda9` → `ad21dbb8`), PR 64 (`59aecc94` → `52373d8f`) and the reviewed preparation (`f573f632` → `85350f48`). An independent assembly review found no defect above Low. Product source matches the reviewed master units. Unlisted bookkeeping, including `release:validate` and ajv, stays out of the build.

@@ -131,12 +131,12 @@ test('Anthropic thinking cannot raise a metadata-budgeted output reservation aft
     expect(body.thinking.budget_tokens).toBeLessThan(body.max_tokens);
 });
 
-test('grok-4.7 pin fits above the unknown floor and grok-4.6 does not', () => {
+test('both documented Grok subscription pins fit above the unknown floor', () => {
   expect(UNKNOWN_CONTEXT_TOKENS).toBe(32_768);
   expect(UNKNOWN_OUTPUT_TOKENS).toBe(8_192);
   const current = findModel(fallbackModelCatalog('grok-subscription'), 'grok-4.7');
   expect(current.contextWindow).toBe(500_000);
-  expect(current.metadata).toMatchObject({ stale: false, source: 'xai-docs-2026-10-10' });
+  expect(current.metadata).toMatchObject({ stale: false, source: 'xai-docs-2026-10-14' });
   expect(current.capabilities.tools).toBe('supported');
   expect(current.capabilities.images).toBe('unsupported');
   const limits = resolveModelLimits({
@@ -148,15 +148,15 @@ test('grok-4.7 pin fits above the unknown floor and grok-4.6 does not', () => {
   expect(limits.contextTokens).toBe(500_000);
   expect(() => assertRequestFits(40_000, 1, limits)).not.toThrow();
   const older = findModel(fallbackModelCatalog('grok-subscription'), 'grok-4.6');
-  expect(older.contextWindow).toBeUndefined();
+  expect(older.contextWindow).toBe(500_000);
   expect(older.metadata.stale).toBe(false);
   const olderLimits = resolveModelLimits({
     contextTokens: older.contextWindow,
     stale: older.metadata.stale,
     source: older.metadata.source,
   });
-  expect(olderLimits.contextTokens).toBe(32_768);
-  expect(() => assertRequestFits(40_000, 1, olderLimits)).toThrow(/effective model limits/);
+  expect(olderLimits.contextTokens).toBe(500_000);
+  expect(() => assertRequestFits(40_000, 1, olderLimits)).not.toThrow();
   const staleOlder = resolveModelLimits({
     contextTokens: 500_000,
     stale: true,

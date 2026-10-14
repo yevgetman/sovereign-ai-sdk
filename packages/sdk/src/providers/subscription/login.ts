@@ -3,6 +3,7 @@ import { CHATGPT_OAUTH_CLIENT_ID } from '../chatgpt.js';
 import { GROK_OAUTH_CLIENT_ID } from '../grok.js';
 import { CLAUDE_MAX_TERMS_MESSAGE } from './claudeMaxTerms.js';
 import { advanceCredentialGeneration, credentialGeneration, withCredentialLock } from './lock.js';
+import { rotateSubscriptionLoginEpoch } from './loginEpoch.js';
 import { KEYCHAIN_SERVICE, isSubscriptionName } from './names.js';
 import { formBody, recordFromTokenJson } from './oauth.js';
 import type { SubscriptionCredentialPort, SubscriptionFetch } from './port.js';
@@ -91,6 +92,7 @@ export async function loginSubscription(
               throw new Error('login changed during device approval');
             if (io.signal?.aborted) throw abortError(io.signal);
             await advanceCredentialGeneration(port, key);
+            await rotateSubscriptionLoginEpoch(port, key);
             await port.write(key, record);
             // Under the credential lock, after the write commits. The hook must
             // not take the lock again, and a throw must not roll the write back.
@@ -129,6 +131,7 @@ export async function logoutSubscription(
       port,
       async () => {
         await advanceCredentialGeneration(port, KEYCHAIN_SERVICE[name]);
+        await rotateSubscriptionLoginEpoch(port, KEYCHAIN_SERVICE[name]);
         await port.delete(KEYCHAIN_SERVICE[name]);
         if (name === 'chatgpt' || name === 'grok') await hooks?.onIdentityChanged?.(name);
       },
