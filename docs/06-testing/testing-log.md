@@ -1,3 +1,16 @@
+## 2026-10-14 — Select the four merged Medium fixes
+
+Owner requested merging PR90–93 and adding all four fixes to the release manifest. All four are now merged to master in dependency order after all24 final-head GitHub CI checks passed. Exact application units:
+
+- PR90: `67645b13035839d3aacbfb035cceb744c6d794d9`, mainline1, 2026-10-14T19:19:57Z.
+- PR91: `f593f0bc3a7ac19e0320d61447b9d63454d377b4`, mainline1, 2026-10-14T19:26:24Z.
+- PR92: `88fe02eaba878ac55cd61e3339c864b82cbcad6f`, mainline1, 2026-10-14T19:28:02Z.
+- PR93: `d8c96f7621088f8f237b934776a6c007635f58d5`, mainline1, 2026-10-14T19:41:39Z.
+
+Active SDK0.15.2/CLI0.6.80 draft now selects13items: the unchanged nine Critical/High units plus these four master merges, each once/mainline1. Contained fix, peer-review and integration commits are covered by their merge unit; this later ledger commit is bookkeeping. Dependencies and immutable source/CI QA links are recorded. Verified SDK0.15.1/SOV0.6.79 baseline85350f48, source stamps, immutable history and null cut/publication fields are preserved. Public additive APIs require an Owner-directed minor SDK version before freeze. #74 retains its recorded open live acceptance.
+
+Reconciliation checkpoint `d8c96f7621088f8f237b934776a6c007635f58d5`. Runtime/test/package inputs match reviewed8ea82206; only the new integration receipt differs. At that source with the13-item draft: build and strict TUI pass; lint/boundary, root/browser typecheck and full6459tests/19existing skips/0fail/28349assertions/617files227.64s pass. Both format-checked schemas, version/baseline relationships, dependency order, unique source IDs/SHAs, reachability, already-shipped checks and exact master-first-parent proofs pass via `bun run release:validate` plus the direct four-merge parent comparison. Logs: `/private/tmp/sdk-medium-manifest-{build,lint,types,full,validate}.log`. The previous packed-consumer, Go, independent five-lens and live Grok/Telekit receipts remain valid for the identical functional source. No new live provider call, assembly, freeze, tag, package publication, pin, installed upgrade or restart ran.
+
 ## 2026-10-14 — Owner-authorized Medium master integration
 
 Owner requested merging PR90–93 and selecting their work in the release manifest. PR90/91/92 are on master. PR91 fast-forwards to the previously reviewed joint accounting/refresh commit a0f74763; PR93 fast-forwards to the full reviewed QA8ea82206. Each original fix head remains an ancestor. GitHub reported a conflict on the retargeted PR93; local merge of exact master88fe02ea succeeds with the complete tracked tree byte-identical to reviewed tree5c6173b3921bdf0a31b8aeeba5059c0fc520f217. This ancestry merge preserves every reviewed source/test/package file.

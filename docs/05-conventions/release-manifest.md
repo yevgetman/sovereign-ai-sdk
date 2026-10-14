@@ -23,8 +23,9 @@ unless explicitly selected work requires their own release preparation.
 
 The verified cut released SDK **0.15.1** and CLI **0.6.79**. The active
 draft plans SDK **0.15.2** and CLI **0.6.80** from that published baseline. It
-now includes the nine merged Critical/High source fixes in PR81–89. Each item
-records its exact master merge once, dependency order and durable source QA.
+now includes 13 source fixes: nine Critical/High fixes in PR81–89 and four
+Medium fixes in PR90–93. Each item records its exact master merge once,
+dependency order and durable source QA.
 Issue #74 stays selected with its open live replay checks recorded; source
 fixtures pass, but the available login rejects the exact selected ChatGPT model.
 The additive public SDK types and ports require a minor SDK version before
