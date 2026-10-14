@@ -15,12 +15,13 @@ import {
   subscriptionStreamAttempt,
 } from './subscription/attempt.js';
 import { KEYCHAIN_SERVICE } from './subscription/names.js';
-import { formBody, recordFromTokenJson } from './subscription/oauth.js';
+import { formBody } from './subscription/oauth.js';
 import type {
   SubscriptionCredentialPort,
   SubscriptionFetch,
   SubscriptionRecord,
 } from './subscription/port.js';
+import { refreshTokenExchange } from './subscription/refresh.js';
 import { exchangeUnderLock, loadFreshRecord } from './subscription/tokens.js';
 import type { LLMProvider, ProviderRequest } from './types.js';
 
@@ -137,23 +138,28 @@ export class ChatGptSubscriptionProvider implements LLMProvider {
   }
 
   private async exchange(refreshToken: string, signal?: AbortSignal) {
-    const response = await this.fetchImpl(TOKEN_URL, {
-      method: 'POST',
-      redirect: 'error',
+    return refreshTokenExchange({
+      provider: this.name,
+      previousRefresh: refreshToken,
+      deps: this.deps,
       ...(signal ? { signal } : {}),
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-        accept: 'application/json',
-        'user-agent': `sov/${VERSION}`,
-      },
-      body: formBody({
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        client_id: CHATGPT_OAUTH_CLIENT_ID,
-      }),
+      send: () =>
+        this.fetchImpl(TOKEN_URL, {
+          method: 'POST',
+          redirect: 'error',
+          ...(signal ? { signal } : {}),
+          headers: {
+            'content-type': 'application/x-www-form-urlencoded',
+            accept: 'application/json',
+            'user-agent': `sov/${VERSION}`,
+          },
+          body: formBody({
+            grant_type: 'refresh_token',
+            refresh_token: refreshToken,
+            client_id: CHATGPT_OAUTH_CLIENT_ID,
+          }),
+        }),
     });
-    if (!response.ok) throw new Error('chatgpt refresh failed');
-    return recordFromTokenJson(this.name, await response.json(), this.deps.now(), refreshToken);
   }
 }
 

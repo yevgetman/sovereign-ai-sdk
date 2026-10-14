@@ -363,7 +363,7 @@ test('direct SDK transports refuse Grok reasoning on every foreign authenticatio
 
 test('all subscription 4xx diagnostics stay safe without changing authentication/context semantics', async () => {
   for (const [status, code, routeCode] of [
-    [401, 'authentication_error', 'auth_expired'],
+    [401, 'authentication_error', 'provider_request_rejected'],
     [403, 'permission_denied', 'tier_blocked'],
     [413, 'context_length_exceeded', 'context_overflow'],
   ] as const) {

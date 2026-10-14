@@ -6,6 +6,7 @@ import {
   ProviderHttpError,
   SubscriptionAuthExpiredError,
   SubscriptionHttpError,
+  SubscriptionRefreshError,
   SubscriptionStreamError,
   SubscriptionTierBlockedError,
 } from '../errors.js';
@@ -155,11 +156,8 @@ async function requestAttempt(opts: AttemptOptions, state: AttemptState): Promis
     if (response.status === 401) {
       if (state.refreshedAfter401 || state.sent === 3) {
         const body = await readFailureBody(response, opts.signal);
-        throw new SubscriptionAuthExpiredError(
-          opts.provider,
-          undefined,
-          subscriptionDiagnostic(response.status, body),
-        );
+        // An inference 401 is not proof that the refresh grant was revoked.
+        throw httpFailure(opts.provider, response.status, body);
       }
       await discard(response);
       state.refreshedAfter401 = true;
@@ -263,6 +261,7 @@ function httpFailure(
 
 function redactConnection(provider: string, err: unknown): Error {
   if (
+    err instanceof SubscriptionRefreshError ||
     err instanceof SubscriptionAuthExpiredError ||
     err instanceof CredentialStoreUnavailableError ||
     err instanceof CredentialUnavailableError ||

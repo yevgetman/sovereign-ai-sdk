@@ -196,6 +196,7 @@ export {
   SessionPersistenceError,
   ToolStorageError,
   SubscriptionAuthExpiredError,
+  SubscriptionRefreshError,
   SubscriptionStreamError,
   SubscriptionTierBlockedError,
   UnknownToolsetError,
@@ -484,3 +485,5 @@ export type {
   SkillContinuityPort,
   SkillContinuityOptions,
 } from './skills/continuity.js';
+
+export type { SubscriptionRefreshFailure } from './providers/errors.js';

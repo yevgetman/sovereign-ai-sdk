@@ -11,12 +11,13 @@ import {
   subscriptionStreamAttempt,
 } from './subscription/attempt.js';
 import { KEYCHAIN_SERVICE } from './subscription/names.js';
-import { formBody, recordFromTokenJson } from './subscription/oauth.js';
+import { formBody } from './subscription/oauth.js';
 import type {
   SubscriptionCredentialPort,
   SubscriptionFetch,
   SubscriptionRecord,
 } from './subscription/port.js';
+import { refreshTokenExchange } from './subscription/refresh.js';
 import { exchangeUnderLock, loadFreshRecord } from './subscription/tokens.js';
 import type { LLMProvider, ProviderRequest } from './types.js';
 
@@ -132,21 +133,27 @@ export class GrokSubscriptionProvider implements LLMProvider {
   }
 
   private async exchange(refreshToken: string, signal?: AbortSignal) {
-    const response = await this.fetchImpl(TOKEN_URL, {
-      method: 'POST',
-      redirect: 'error',
+    return refreshTokenExchange({
+      provider: this.name,
+      previousRefresh: refreshToken,
+      deps: this.deps,
       ...(signal ? { signal } : {}),
-      headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
-      body: formBody({
-        grant_type: 'refresh_token',
-        client_id: GROK_OAUTH_CLIENT_ID,
-        refresh_token: refreshToken,
-      }),
+      send: () =>
+        this.fetchImpl(TOKEN_URL, {
+          method: 'POST',
+          redirect: 'error',
+          ...(signal ? { signal } : {}),
+          headers: {
+            'content-type': 'application/x-www-form-urlencoded',
+            accept: 'application/json',
+          },
+          body: formBody({
+            grant_type: 'refresh_token',
+            client_id: GROK_OAUTH_CLIENT_ID,
+            refresh_token: refreshToken,
+          }),
+        }),
     });
-    if (!response.ok) {
-      throw new Error('grok refresh failed');
-    }
-    return recordFromTokenJson(this.name, await response.json(), this.deps.now(), refreshToken);
   }
 }
 

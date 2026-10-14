@@ -287,6 +287,24 @@ terminal responses prevent replay. Readers close before bounded backoff;
 `Retry-After` waits above 10 seconds fail, and cancellation stops the next request.
 The selected route, model and credential path stay fixed.
 
+Token refresh has a separate maximum of three exchanges inside one 20-second
+exchange deadline. Only an explicit OAuth `invalid_grant` response requests a new
+login. A model inference 401 after successful refresh is a request rejection, not
+proof that the refresh grant is invalid. Refresh 429, provider 5xx, connection
+failure, timeout, malformed response and credential-store failure keep distinct
+typed outcomes. `SubscriptionRefreshError.reason` contains only a fixed safe
+failure class. Route mapping reports `rate_limited`, `provider_unavailable`,
+`provider_timeout`, `provider_response_invalid`, `provider_request_rejected`, or
+`credential_unavailable` as appropriate. It never retains endpoint bodies or
+underlying errors. Bounded `Retry-After` waits run inside the exchange deadline;
+waits above ten seconds fail without another exchange. Cancellation stops retries
+and prevents a late exchange result from overwriting credentials. A failed
+proactive refresh preserves the prior record, including a legacy login without an
+account binding. Credential reads and writes remain inside the mutex and keep the
+credential port's separate bounds (native Keychain: ten seconds per operation;
+mutex acquisition: thirty seconds). The exchange deadline does not extend for
+retries and does not evict a live credential-store operation.
+
 SDK callers can inspect `SubscriptionStreamError` from the SDK root. Its `phase` is
 `before_delivery` or `incomplete_delivery`; `reason` identifies the safe failure
 class. It retains no original payload or transport error. Its `retryable` flag

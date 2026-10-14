@@ -44,7 +44,7 @@ export class NoAuxiliaryAvailableError extends Error {
   }
 }
 
-/** Refresh failed, or the model call returned 401 after one refresh. */
+/** The token endpoint explicitly rejected an invalid or revoked refresh grant. */
 export class SubscriptionAuthExpiredError extends Error {
   constructor(
     readonly provider: string,
@@ -53,6 +53,27 @@ export class SubscriptionAuthExpiredError extends Error {
   ) {
     super(message);
     this.name = 'SubscriptionAuthExpiredError';
+  }
+}
+
+/** Secret-safe token-endpoint failure. No raw body, token or underlying error. */
+export type SubscriptionRefreshFailure =
+  | 'rate_limited'
+  | 'provider_unavailable'
+  | 'connection_failure'
+  | 'timeout'
+  | 'malformed_response'
+  | 'request_rejected';
+export class SubscriptionRefreshError extends Error {
+  constructor(
+    readonly provider: string,
+    readonly reason: SubscriptionRefreshFailure,
+    readonly retryable = false,
+    readonly status?: number,
+    readonly retryAfterMs?: number,
+  ) {
+    super(`subscription token refresh failed for ${provider} (${reason})`);
+    this.name = 'SubscriptionRefreshError';
   }
 }
 
@@ -211,6 +232,7 @@ export class ClaudeMaxTermsError extends Error {
 
 function isSubscriptionTurnError(err: unknown): boolean {
   return (
+    err instanceof SubscriptionRefreshError ||
     err instanceof SubscriptionAuthExpiredError ||
     err instanceof SubscriptionTierBlockedError ||
     err instanceof ContextOverflowError ||
