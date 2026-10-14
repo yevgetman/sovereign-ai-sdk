@@ -1,6 +1,6 @@
 schema_version: 4
 product: sovereign-ai-sdk
-version: 0.15.2
+version: 0.16.0
 items:
   - id: sdk-pr-81
     product: sovereign-ai-sdk
@@ -16,7 +16,7 @@ items:
       - https://github.com/yevgetman/sovereign-ai-sdk/blob/216cf71668cfba7aae13da5ea83c8e44cc3fd6a2/docs/06-testing/testing-log.md
       - https://github.com/yevgetman/sovereign-ai-sdk/commit/216cf71668cfba7aae13da5ea83c8e44cc3fd6a2
       - https://github.com/yevgetman/sovereign-ai-sdk/blob/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44/docs/06-testing/testing-log.md
-      - "Compatibility: additive public SDK types, ports or deep-subpath helpers require a minor SDK version before freeze; the assigned draft version is retained pending Owner direction."
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
   - id: sdk-pr-82
     product: sovereign-ai-sdk
     title: "Issue #68: owner-managed Grok subscription model registry"
@@ -75,7 +75,7 @@ items:
       - https://github.com/yevgetman/sovereign-ai-sdk/blob/db243bcf171c87540fad63d725d9bdb27d52eaf2/docs/06-testing/testing-log.md
       - https://github.com/yevgetman/sovereign-ai-sdk/commit/db243bcf171c87540fad63d725d9bdb27d52eaf2
       - https://github.com/yevgetman/sovereign-ai-sdk/blob/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44/docs/06-testing/testing-log.md
-      - "Compatibility: additive public SDK types, ports or deep-subpath helpers require a minor SDK version before freeze; the assigned draft version is retained pending Owner direction."
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
   - id: sdk-pr-87
     product: sovereign-ai-sdk
     title: "Issue #71: durable individual tool receipts before model continuation"
@@ -90,7 +90,7 @@ items:
       - https://github.com/yevgetman/sovereign-ai-sdk/blob/8c3f7c35bd0aa92532150ffc611cc5569c08b2a7/docs/06-testing/testing-log.md
       - https://github.com/yevgetman/sovereign-ai-sdk/commit/8c3f7c35bd0aa92532150ffc611cc5569c08b2a7
       - https://github.com/yevgetman/sovereign-ai-sdk/blob/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44/docs/06-testing/testing-log.md
-      - "Compatibility: additive public SDK types, ports or deep-subpath helpers require a minor SDK version before freeze; the assigned draft version is retained pending Owner direction."
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
   - id: sdk-pr-84
     product: sovereign-ai-sdk
     title: "Issue #72: bounded subscription retries only before semantic delivery"
@@ -125,7 +125,7 @@ items:
       - https://github.com/yevgetman/sovereign-ai-sdk/blob/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44/docs/06-testing/testing-log.md
       - https://github.com/yevgetman/sovereign-ai-sdk/issues/74
       - "Live acceptance remains open: the available OAuth login rejects exact gpt-5.3-codex before content; no model or route fallback. Native replay and tool-continuation fixtures pass."
-      - "Compatibility: additive public SDK types, ports or deep-subpath helpers require a minor SDK version before freeze; the assigned draft version is retained pending Owner direction."
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
   - id: sdk-pr-89
     product: sovereign-ai-sdk
     title: "Issue #70: native proactive compaction and bounded overflow recovery"
@@ -168,7 +168,7 @@ items:
       - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38607300443/job/116001349840
       - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38607300443/job/116001349791
       - Refresh exchanges and retries share a 20-second budget; native credential storage/locking have separate bounds. Only proven invalid grants mean auth_expired.
-      - "Compatibility: additive public SDK API changes require an Owner-directed minor SDK version before freeze; assigned draft versions are retained."
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
   - id: sdk-pr-91
     product: sovereign-ai-sdk
     title: "Issue #78: shared provider-aware context accounting and honest fallback"
@@ -192,7 +192,7 @@ items:
       - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38622942625/job/116054794891
       - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38622942625/job/116054795005
       - Local chunked OpenAI estimates are not publisher usage. Unknown Grok/Claude tokenizers and incomplete modalities remain advisory; cross-publisher usage parity is unproved.
-      - "Compatibility: additive public SDK API changes require an Owner-directed minor SDK version before freeze; assigned draft versions are retained."
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
   - id: sdk-pr-92
     product: sovereign-ai-sdk
     title: "Issue #79: certified exact Grok image input with durable image history"
@@ -217,7 +217,7 @@ items:
       - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38615203321/job/116028398660
       - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38615203321/job/116028398654
       - Exact grok-subscription/grok-4.7 PNG/JPEG certification expires 2026-11-13; four live image/native-resume calls passed. Other unverified subscription combinations remain refused.
-      - "Compatibility: additive public SDK API changes require an Owner-directed minor SDK version before freeze; assigned draft versions are retained."
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
   - id: sdk-pr-93
     product: sovereign-ai-sdk
     title: "Issue #80: truthful native completion and safe durable recovery"
@@ -243,4 +243,4 @@ items:
       - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38625100175/job/116062121482
       - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38625100175/job/116062121057
       - Actual released Telekit0.64.23 parser accepts24/24 native streams with zero false success. Unsafe tool effects require inspection; fault fixtures do not certify physical power-loss recovery.
-      - "Compatibility: additive public SDK API changes require an Owner-directed minor SDK version before freeze; assigned draft versions are retained."
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
