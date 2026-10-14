@@ -1,3 +1,61 @@
+## 2026-10-14 — Atomic master integration of native context recovery (#70)
+
+Ordinary merge of `8cdee5a6` into master `e64665f4` closes the all-high source
+integration while preserving every individual fix branch's ancestry. Only
+additive changelog/testing-log and SDK-route documentation conflicts required
+resolution. The route guide retains explicit requested/effective permission
+metadata, reviewed stale owner-window limits, native pivot and terminal session
+IDs, and same-route native/gateway compaction. Runtime source auto-merges.
+
+In the isolated integration worktree, `bun run build`, `bun run tui:build`,
+`bun run lint` (including boundary), `bun run typecheck`, and
+`env -u FORCE_COLOR bun run test` pass: **6338 passed / 19 existing skips /
+zero failures**, 27641 assertions, 609 files, 131.60 seconds. Native recovery,
+summary budget/effort/metadata, irreducible-input, billing and cancellation
+regressions run in that full gate. The host and SDK source remain byte-identical
+to the separately reviewed and packed/live-tested combined QA snapshot below.
+No production config, credential, installed binary or release changes. ChatGPT
+live continuation acceptance remains open in #74 as recorded below. No live
+learning-loop soak observation was produced.
+
+## 2026-10-14 — Final all-high integration proof before native recovery merge
+
+Root assembled the critical reasoning fix and all eight high fixes in a separate
+QA checkout. Staged tree `00e43ebc6611c627aaeaa65ba4bb837497d025ed` is a source
+snapshot, not a release. `bun run build`, `bun run tui:build`, `bun run lint`
+(including boundary: 250 modules / 1011 dependencies), `bun run typecheck`, and
+`env -u FORCE_COLOR bun run test` passed **6338 tests / 19 existing skips /
+zero failures**, 27641 assertions, 609 files, 141.78 seconds. Go tests passed all
+six TUI packages. The final ordinary-merge checkout's host and SDK source trees
+match that tested source byte-for-byte. Native test differences only consolidate
+one duplicate import and add whitespace; both complete test sets remain.
+
+Root's actual npm-packed SDK/protocol consumer canary passed public type and
+installed-artifact purity checks under both Node and Bun. An initial default
+npm-cache collision failed packaging; `npm_config_cache=/private/tmp/sdk-native-highs-npm-cache`
+isolated that cache and the final exact combined canary passed. No default npm
+cache setting, package version, publication or installed runtime was changed.
+
+Independent combined review found no remaining defects. Its **171 focused tests /
+680 assertions / 11 files** and four summary-budget, irreducible-input and stale
+owner-window witnesses passed. A real owner-file-to-native-to-ChatGPT serializer
+fixture used a high-only future model and stale reviewed 600K context. Overflow,
+same-model/high-effort summary, child continuation and resume preserved complete
+bound ciphertext through four fixture requests.
+
+Root ran bounded live Grok subscription probes on the exact selected `grok-4.7`
+model using read-only credentials copied only into an ephemeral memory port.
+The final context probe passed **three requests**, one proactive child pivot and
+one resumed turn with `store: false`. Parent was
+`00fa0d41-234d-4a30-8d84-0ec658006621`; active child was
+`e8381cb4-8330-410b-9aa2-92b7e1e16c09`. The native inventory probe passed two live
+requests: chat had zero tools; web had exactly WebFetch and WebSearch. Prompt
+inventory matched request schemas, and no tool call was executed. Both probes
+had zero production credential/session/config writes. These bounded probes do
+not certify general account entitlement or the learning-loop soak. ChatGPT's
+live exact-model rejection and still-open #74 acceptance limit are recorded
+above; no fallback model or route was selected.
+
 ## 2026-10-14 — Atomic master integration of ChatGPT reasoning replay (#74)
 
 Ordinary merge of `fdfae88b` into master `27647ee9` combines the captured ChatGPT
@@ -123,6 +181,79 @@ No live learning-loop soak observation was produced.
 ## 2026-10-14 — Grok registry inherits merged critical reasoning confinement
 
 Ordinary merge of critical master `216cf716` into owner-registry PR82 preserves both complete testing histories and both native regression tests. Only additive log/test conflicts required resolution; no runtime conflict occurred. On the combined source, `bun run build`, `bun run lint`, `bun run typecheck`, and `env -u FORCE_COLOR bun run test` pass: 6163 passed, 19 existing skips, zero failures, 26882 assertions, 598 files, 123.05s. The worktree's existing TUI artifact was already present. Root independently ran the critical 27-test replay suite and packed critical Node/Bun consumers before its PR81 merge; all pass. No owner settings, credentials, release or installed-host change.
+
+## 2026-10-14 — Native context recovery and durable retry (#70)
+
+Scope: isolated `fix/70-native-context-recovery` worktree from critical-fix merge
+`216cf716`, with the durable tool-receipt fix `ef12f92f` merged before final checks.
+Environment: macOS arm64, Bun 1.3.13; dependencies installed with
+`bun install --ignore-scripts --frozen-lockfile`. No release, upgrade or owner
+settings/session changes.
+
+Failed-before evidence: `bun test tests/cli/sdkRunCompaction.test.ts` against the
+unchanged native host returned **0 pass / 1 fail**. The provider overflow ended
+with exit 1; no summary or retry ran. After correction, the same fixture succeeds
+through one persisted child and returns the newest terminal `activeSessionId`.
+
+Focused final command: `bun test tests/cli/sdkRunCompaction.test.ts
+ tests/cli/nativeTurnMetrics.test.ts tests/server/compactor.test.ts` passed
+**18 tests / 177 assertions / 0 failures**. Fixtures cover proactive-only,
+overflow-only, both in one turn with two distinct child pivots, no-op refusal,
+second-overflow failure, cancellation during summary and retry, post-pivot setup
+failure, latest-child resume, trace/effort/tool/context rebuilding, and retry after
+one real tool effect with exactly one execution and its genuine durable result.
+Irreducible system/schema/latest-input fixtures perform no summary request and
+preserve the parent. The high-only subscription fixture verifies the actual summary
+request carries the selected effort and metadata, caps output to the exact 128-token
+evidence, and refuses a 900-token summary window before provider transport starts.
+The summary retains a 100000-token owner-managed subscription window despite
+advisory staleness, while the marker alone cannot certify API-key limits. A combined
+#75 transport witness confirms one high-effort summary request and one child,
+with exact owner evidence; direct omitted-effort inference is refused before
+credentials. The owner policy guard matches exact model, auth, provider and route.
+Usage sums failed drive, summary and retry without duplicate rows or billing.
+Separate billing fixtures cover complete paid totals, partial known tokens,
+unknown components and subscription provenance without fabricated API cost.
+
+The first full suite passed **6171 tests / 19 existing skips / 0 failures**,
+26965 assertions across 600 files in 120.12 seconds. A final small correction
+records failed/cancelled summaries in the existing compaction counters rather
+than main-call counters; the focused 14-test check passed again afterward.
+Final required gates passed on the corrected frozen source: `bun run build`,
+`bun run tui:build`, `bun run lint` (including boundary), `bun run typecheck`, and
+`env -u FORCE_COLOR bun run test`. The final suite passed **6175 tests / 19 existing
+skips / 0 failures**, 27015 assertions across 600 files in 127.96 seconds. Boundary
+lint found no violations across 246 modules and 983 dependencies. `git diff --check`
+also passed. This includes the late peer corrections for selected summary effort,
+actual summary budgets, irreducible recovery and owner-managed stale evidence.
+
+Root's bounded live native Grok probe **passed**: exact `grok-4.7`, **3 Responses
+requests**, **1 proactive child pivot**, **1 resumed child turn**, `store: false`,
+and **zero production credential or session writes**. The probe seeded a long
+arithmetic history in an isolated temporary runtime/db, compacted it through the
+selected subscription transport and resumed the returned child. It proves this
+account's bounded native compaction/continuation, not general eligibility or a
+natural provider-overflow stress test. Parent `57c30e13-e0de-41ec-8aa0-8614df26ffd3`
+pivoted to child `15319feb-3c21-4363-9e49-6236127923d1`.
+
+The initial probe falsely reported unavailable because fresh HOME changed macOS
+`security` default-keychain discovery. Root corrected only the scratch read harness:
+the `security find-generic-password` child used the real home while runtime
+HOME/HARNESS_HOME stayed `/private/tmp/sov-live70.l5ten97d`. The login was copied
+once into memory with an ephemeral binding. No token appeared in command arguments,
+logs, files or environment. All refresh/write/delete and fallback URLs were
+forbidden; only the exact Grok Responses endpoint was allowed, with a three-request
+limit and 45-second per-request bound. ChatGPT native live proof is unavailable.
+
+Telekit integration was inspected read-only: its SOV parser reads
+`activeSessionId` with `sessionId` fallback, and its collector retains both
+completion and failure terminals. The host now returns the newest id on both
+paths. Root ran four fixtures through the actual AST-extracted `_parse_result`:
+completed, failed and cancelled turns all select live child `15319feb…` over
+parent `57c30e13…`; the legacy fallback is also correct. **All four passed.**
+No Telekit files were changed. SDK compaction result fields are additive;
+the summary implementation remains proprietary. Learning is disabled only in
+isolated test fixtures; these tests add no day-to-day learning-soak evidence.
 
 ## 2026-10-14 — Durable per-tool receipts and crash recovery (#71)
 

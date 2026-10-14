@@ -216,6 +216,11 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
     estimatedBeforeTokens,
     estimatedAfterTokens,
     usedAuxiliary: summaryResult.usedAuxiliary,
+    ...(summaryResult.usage ? { usage: summaryResult.usage } : {}),
+    ...(summaryResult.estimatedCostUsd !== undefined
+      ? { estimatedCostUsd: summaryResult.estimatedCostUsd }
+      : {}),
+    ...(summaryResult.costEstimate ? { costEstimate: summaryResult.costEstimate } : {}),
     ...(summaryResult.providerName ? { auxiliaryProvider: summaryResult.providerName } : {}),
     ...(summaryResult.model ? { auxiliaryModel: summaryResult.model } : {}),
   };

@@ -182,7 +182,9 @@ the catalog does not present built-in `grok-4.7` as the selected default: omissi
 and `--model auto` require that exact ID to be registered or the configured default changed.
 An explicit allowlisted model still accepts `--effort auto`. A route never borrows an unrelated API key,
 model, account or external harness. The SDK path does not perform a billable startup
-preflight or automatic context summarization.
+preflight. It automatically compacts growing history on the same selected
+provider/model and authentication route. It does not switch to an auxiliary or
+API-key route for compaction.
 
 Input defaults to plain text for direct callers. JSON input accepts only
 `inputVersion`, `text`, `instructions` and `images`. Instructions append to the base
@@ -219,13 +221,42 @@ session after upgrading. Stored history stays intact.
 `--steer-file` keeps the existing JSONL steering input. SIGINT and SIGTERM cancel
 provider and tools and emit a typed terminal failure. Cleanup has a bounded wait.
 
+## Native context recovery
+
+The native host uses the selected model's frozen context/output limits, scoped
+tool schemas and effective system prompt to check the configured proactive
+threshold. It compacts before a drive when reducible history reaches that limit.
+A provider overflow may then cause one independent compact-and-retry. A second
+overflow is a typed `context_overflow` failure. A no-op compaction does not retry
+an unchanged request. If the fixed system/tool schemas or mandatory retained
+tail cannot fit, the host refuses before paid summary work or a child pivot.
+Capability refusal precedes paid summarization. The summary request carries the
+same selected effort and frozen model evidence, and must fit that model's actual
+input/output budget before transport starts.
+
+Each successful compaction creates a durable child with parent lineage, a guarded
+summary and the retained tail. Retry reloads the newest durable transcript,
+including real completed tool receipts. It rebuilds the child's session context,
+effort, tools, skill continuity, trace/evidence target and stored-prefix boundary.
+Drive persistence does not duplicate the child's seeded rows. Completed tool
+actions are not run again.
+An unknown effect still needs verification; compaction does not prove exactly-once
+external effects.
+
 ## Machine events
 
 `session.started` reports the session id, route, provider, authentication, model,
 effort, toolset and effective `permissionMode`. `requestedPermissionMode` records
 the explicit CLI mode, or `null` when omitted. These two permission fields also
-persist in each session's `sdkTurns` metadata. Text, thinking and tool progress follow the
-existing JSONL event vocabulary. Tool block ids identify each call.
+persist in each session's `sdkTurns` metadata. Text, thinking and tool progress
+follow the existing JSONL event vocabulary. Tool block ids and sequence values
+remain unique across retry drives. `compaction_complete` reports the parent
+`sessionId` and new `activeSessionId`. Both terminal types report the newest
+`activeSessionId`, even after a later setup failure or cancellation. Terminal
+`sessionId` carries the same newest id for existing adapters. Save that id before
+the next `--resume`. Telekit's SOV result parser reads `activeSessionId` with
+`sessionId` as fallback; its terminal collector handles completion and failure
+alike. No adapter source change is required for that path.
 
 An explicit `--permission-mode default` overrides configured `ask` or `bypass`
 and uses normal rules and tool self-checks. Omit the option to use the existing
@@ -233,7 +264,11 @@ layered settings and user configuration cascade. Headless permission requests
 are denied because this surface has no interactive approver.
 
 Each recognized request ends with exactly one `turn.completed` or `turn.error`.
-Completion contains `reply`, `sessionId`, `finishReason` and route metadata.
+Completion contains `reply`, `sessionId`, `activeSessionId`, `finishReason` and route metadata.
+Terminal usage sums all attempted main drives and summary requests. Cost receipts
+retain each component and report a complete total only when every component is
+known. Subscription provenance and missing usage/cost remain explicit. Cancellation
+reports observed partial usage and does not turn missing data into zero.
 Errors contain safe text and a stable code. No provider response body, token or key
 is included. A subscription HTTP error can also include an `upstream` object
 with bounded status, a recognized code and fixed safe message text. Arbitrary
@@ -294,8 +329,10 @@ parent model metadata and prices cannot certify a different child. The native
 `sov sdk run` route receives that evidence before reasoning validation. The
 agent receives the same model-bound capability, pricing and limit snapshot.
 Fresh published context windows can grow beyond former static provider values.
-Stale remote discovery or unknown evidence uses the SDK's conservative limits. Owner-managed subscription records keep their explicitly reviewed limits with visible freshness. Explicit output
-budgets still cap the output reservation. Gateway proactive compaction uses
+Stale remote discovery or unknown evidence uses the SDK's conservative limits.
+Owner-managed subscription records keep their explicitly reviewed limits with
+visible freshness. Explicit output budgets still cap the output reservation.
+Gateway and native proactive compaction use
 those same limits, system/schema/history accounting and output reservation.
 Required capabilities and the model-specific effort selection are checked before
 paid history summarization. This includes both per-turn effort and the current

@@ -7,7 +7,8 @@
 // `compactor.ts` re-exports it, inverting the dependency. References only the
 // open `core/types.ts` `Message`.
 
-import type { Message } from './types.js';
+import type { CostEstimate } from '../providers/pricing.js';
+import type { Message, TokenUsage } from './types.js';
 
 export type CompactResult = {
   parentSessionId: string;
@@ -18,6 +19,10 @@ export type CompactResult = {
   estimatedBeforeTokens: number;
   estimatedAfterTokens: number;
   usedAuxiliary: boolean;
+  /** Measured summary-call receipt. Absent usage remains unknown. */
+  usage?: TokenUsage;
+  estimatedCostUsd?: number;
+  costEstimate?: CostEstimate;
   auxiliaryProvider?: string;
   auxiliaryModel?: string;
   /** Backlog #36: true when compactSession short-circuited because the

@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Message } from '@yevgetman/sov-sdk/core/types';
+import type { AssistantMessage, Message } from '@yevgetman/sov-sdk/core/types';
+import type { ModelRecord } from '@yevgetman/sov-sdk/providers/models/index';
+import { getRoute, validateRouteSelection } from '@yevgetman/sov-sdk/providers/routes/index';
+import type { LLMProvider, ProviderRequest, Transport } from '@yevgetman/sov-sdk/providers/types';
+import { SessionDb } from '../../src/agent/sessionDb.js';
+import { buildServerCompactor } from '../../src/server/compactor.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 
 describe('server compactor primitive', () => {
@@ -68,5 +73,124 @@ describe('server compactor primitive', () => {
     expect(lineage[0]?.childSessionId).toBe(result.newSessionId);
 
     await runtime.dispose();
+  });
+  test('native summary preserves a high-only owner subscription selection and exact output evidence', async () => {
+    const db = SessionDb.open({ path: join(tmpHome, 'native-summary.db') });
+    const modelMetadata: ModelRecord = {
+      id: 'gpt-5-owner',
+      displayName: 'Owner high only',
+      provider: 'chatgpt',
+      routeId: 'chatgpt-subscription',
+      auth: 'subscription',
+      availability: 'account',
+      metadata: { source: 'subscription-account-catalog', stale: false },
+      efforts: ['high'],
+      maxOutputTokens: 128,
+      contextWindow: 65536,
+      capabilities: {
+        textOutput: 'supported',
+        images: 'unknown',
+        tools: 'supported',
+        reasoning: 'supported',
+      },
+    };
+    const selected = validateRouteSelection(getRoute('chatgpt-subscription', {}), {
+      model: modelMetadata.id,
+      effort: 'high',
+      modelMetadata,
+    });
+    let request: ProviderRequest | undefined;
+    let expectedMetadata = modelMetadata;
+    const transport: LLMProvider = {
+      name: 'chatgpt',
+      async *stream(req) {
+        request = req;
+        // The subscription transport's model-aware validator sees the exact
+        // owner evidence and selection, rather than synthesizing route-default low.
+        expect(req.modelMetadata).toBe(expectedMetadata);
+        expect(
+          validateRouteSelection(getRoute('chatgpt-subscription', {}), {
+            model: req.model,
+            ...(req.effort !== undefined ? { effort: req.effort } : {}),
+            ...(req.modelMetadata ? { modelMetadata: req.modelMetadata } : {}),
+          }),
+        ).toEqual(selected);
+        yield { type: 'usage_delta', usage: { inputTokens: 12, outputTokens: 6 } };
+        const message: AssistantMessage = {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Preserve the task.' }],
+        };
+        yield { type: 'assistant_message', message };
+        return message;
+      },
+    };
+    const sessionId = db.createSession({ model: selected.model, provider: 'chatgpt' });
+    const compact = buildServerCompactor({
+      sessionDb: db,
+      model: selected.model,
+      systemSegments: [],
+      resolvedProvider: {
+        transport: transport as Transport,
+        client: transport,
+        model: selected.model,
+        baseUrl: 'mock://',
+        contextLength: 65536,
+        authType: 'oauth',
+        metadata: { provider: 'chatgpt', apiMode: 'openai', purpose: 'main' },
+      },
+    });
+    const history: Message[] = Array.from({ length: 10 }, (_, i) => ({
+      role: i % 2 ? 'assistant' : 'user',
+      content: [{ type: 'text', text: 'history '.repeat(400) }],
+    }));
+    try {
+      const result = await compact(history, sessionId, new AbortController().signal, {
+        modelMetadata,
+        effort: selected.effort,
+      });
+      expect(result.noOp).not.toBe(true);
+      expect(request?.effort).toBe('high');
+      expect(request?.maxTokens).toBe(128);
+      expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 6 });
+      expect(result.costEstimate).toMatchObject({ state: 'subscription', complete: false });
+      request = undefined;
+      await expect(
+        compact(history, sessionId, new AbortController().signal, {
+          modelMetadata: { ...modelMetadata, contextWindow: 900 },
+          effort: selected.effort,
+        }),
+      ).rejects.toThrow('request exceeds effective model limits');
+      expect(request).toBeUndefined();
+      expect(db.getCompactionsForParent(sessionId)).toHaveLength(1);
+      const ownerMetadata = {
+        ...modelMetadata,
+        contextWindow: 100000,
+        maxOutputTokens: 10000,
+        metadata: { ...modelMetadata.metadata, stale: true, ownerManaged: true },
+      };
+      expectedMetadata = ownerMetadata;
+      const largeHistory: Message[] = Array.from({ length: 30 }, (_, i) => ({
+        role: i % 2 ? 'assistant' : 'user',
+        content: [{ type: 'text', text: 'h'.repeat(3000) }],
+      }));
+      const ownerResult = await compact(largeHistory, sessionId, new AbortController().signal, {
+        modelMetadata: ownerMetadata,
+        effort: selected.effort,
+      });
+      expect(ownerResult.newSessionId).not.toBe(sessionId);
+      expect((request as ProviderRequest | undefined)?.maxTokens).toBe(1500);
+      expect(db.getCompactionsForParent(sessionId)).toHaveLength(2);
+      // The marker alone cannot certify a non-subscription record's window.
+      request = undefined;
+      await expect(
+        compact(largeHistory, sessionId, new AbortController().signal, {
+          modelMetadata: { ...ownerMetadata, auth: 'api_key' },
+          effort: selected.effort,
+        }),
+      ).rejects.toThrow('request exceeds effective model limits');
+      expect(request).toBeUndefined();
+    } finally {
+      db.close();
+    }
   });
 });
