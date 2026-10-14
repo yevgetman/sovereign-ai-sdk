@@ -1,9 +1,12 @@
+import type { AssistantMessage, StreamEvent } from '../../core/types.js';
 import {
   ContextOverflowError,
   CredentialStoreUnavailableError,
   CredentialUnavailableError,
+  ProviderHttpError,
   SubscriptionAuthExpiredError,
   SubscriptionHttpError,
+  SubscriptionStreamError,
   SubscriptionTierBlockedError,
 } from '../errors.js';
 import { subscriptionDiagnostic } from './diagnostics.js';
@@ -34,7 +37,7 @@ export const defaultAttemptDeps: AttemptDeps = {
  * `send` performs one request with the current access token.
  * `refresh` runs the single 401 recovery. A second 401 throws.
  */
-export async function subscriptionAttempt(opts: {
+type AttemptOptions = {
   provider: string;
   signal?: AbortSignal;
   /** Grok only. HTTP 403 ends the turn and does not send another request. */
@@ -42,11 +45,99 @@ export async function subscriptionAttempt(opts: {
   deps: AttemptDeps;
   send: () => Promise<Response>;
   refresh: () => Promise<void>;
-}): Promise<Response> {
-  let refreshedAfter401 = false;
-  let failureIndex = 0;
+};
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
+type AttemptState = { sent: number; failureIndex: number; refreshedAfter401: boolean };
+const newAttemptState = (): AttemptState => ({
+  sent: 0,
+  failureIndex: 0,
+  refreshedAfter401: false,
+});
+
+/** HTTP-only helper retained for callers that do not consume Responses streams. */
+export function subscriptionAttempt(opts: AttemptOptions): Promise<Response> {
+  return requestAttempt(opts, newAttemptState());
+}
+
+/** One budget covers connection, HTTP status and pre-delivery stream failures. */
+export async function* subscriptionStreamAttempt(
+  opts: AttemptOptions & {
+    translate: (
+      response: Response,
+      onSemantic: () => void,
+    ) => AsyncGenerator<StreamEvent, AssistantMessage>;
+  },
+): AsyncGenerator<StreamEvent, AssistantMessage> {
+  const state = newAttemptState();
+  let started = false;
+  while (state.sent < 3) {
+    const response = await requestAttempt(opts, state);
+    let delivered = false;
+    let retryDelay: number | null = null;
+    const stream = opts.translate(response, () => {
+      delivered = true;
+    });
+    try {
+      while (true) {
+        const step = await stream.next();
+        if (step.done) return step.value;
+        if (step.value.type === 'message_start') {
+          if (started) continue;
+          started = true;
+        } else delivered = true;
+        yield step.value;
+      }
+    } catch (err) {
+      if (opts.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+        throw err instanceof Error ? err : abortError(opts.signal);
+      }
+      if (
+        err instanceof ContextOverflowError ||
+        (err instanceof Error && err.name === 'RouteError')
+      )
+        throw err;
+      const failure =
+        err instanceof SubscriptionStreamError
+          ? err
+          : new SubscriptionStreamError(
+              opts.provider,
+              delivered ? 'incomplete_delivery' : 'before_delivery',
+              err instanceof ProviderHttpError
+                ? err.message === 'subscription reasoning output order unavailable'
+                  ? 'reasoning_order_unavailable'
+                  : 'provider_failure'
+                : 'invalid_event',
+              !delivered && err instanceof ProviderHttpError && isRetryableStatus(err.status),
+              err instanceof ProviderHttpError ? err.status : undefined,
+            );
+      const safe =
+        delivered && failure.phase === 'before_delivery'
+          ? new SubscriptionStreamError(
+              opts.provider,
+              'incomplete_delivery',
+              failure.reason,
+              false,
+              failure.status,
+            )
+          : failure;
+      if (delivered || safe.phase !== 'before_delivery' || !safe.retryable || state.sent >= 3)
+        throw safe;
+      const delay = retryAfterDelay(response.headers.get('retry-after'), opts.deps.now());
+      if (delay === 'over-limit') throw safe;
+      retryDelay = delay;
+    } finally {
+      // return() runs the translator's reader cleanup before another request.
+      await stream.return(undefined as never).catch(() => {});
+      await discard(response);
+    }
+    await waitForRetry(opts, state.failureIndex++, retryDelay);
+  }
+  throw new SubscriptionStreamError(opts.provider, 'before_delivery', 'premature_eof', false);
+}
+
+async function requestAttempt(opts: AttemptOptions, state: AttemptState): Promise<Response> {
+  while (state.sent < 3) {
+    state.sent += 1;
     if (opts.signal?.aborted) throw abortError(opts.signal);
     let response: Response;
     try {
@@ -55,14 +146,14 @@ export async function subscriptionAttempt(opts: {
       if (opts.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
         throw err instanceof Error ? err : abortError(opts.signal);
       }
-      if (!isConnectionReset(err) || attempt === 3) throw redactConnection(opts.provider, err);
-      await waitForRetry(opts, failureIndex, null);
-      failureIndex += 1;
+      if (!isConnectionReset(err) || state.sent === 3) throw redactConnection(opts.provider, err);
+      await waitForRetry(opts, state.failureIndex, null);
+      state.failureIndex += 1;
       continue;
     }
 
     if (response.status === 401) {
-      if (refreshedAfter401) {
+      if (state.refreshedAfter401 || state.sent === 3) {
         const body = await readFailureBody(response, opts.signal);
         throw new SubscriptionAuthExpiredError(
           opts.provider,
@@ -71,9 +162,8 @@ export async function subscriptionAttempt(opts: {
         );
       }
       await discard(response);
-      refreshedAfter401 = true;
+      state.refreshedAfter401 = true;
       await opts.refresh();
-      attempt -= 1;
       continue;
     }
 
@@ -106,13 +196,13 @@ export async function subscriptionAttempt(opts: {
 
     if (isRetryableStatus(response.status)) {
       const delay = retryAfterDelay(response.headers.get('retry-after'), opts.deps.now());
-      if (delay === 'over-limit' || attempt === 3) {
+      if (delay === 'over-limit' || state.sent === 3) {
         const body = await readFailureBody(response, opts.signal);
         throw httpFailure(opts.provider, response.status, body);
       }
       await discard(response);
-      await waitForRetry(opts, failureIndex, delay);
-      failureIndex += 1;
+      await waitForRetry(opts, state.failureIndex, delay);
+      state.failureIndex += 1;
       continue;
     }
 
@@ -123,11 +213,15 @@ export async function subscriptionAttempt(opts: {
 
     const declaredEmpty = response.headers.get('content-length') === '0';
     if (!response.body || declaredEmpty) {
-      if (attempt === 3) {
-        throw new Error(`subscription provider ${opts.provider} returned an empty stream`);
+      await discard(response);
+      if (state.sent === 3) {
+        throw new SubscriptionStreamError(opts.provider, 'before_delivery', 'premature_eof', true);
       }
-      await waitForRetry(opts, failureIndex, null);
-      failureIndex += 1;
+      const delay = retryAfterDelay(response.headers.get('retry-after'), opts.deps.now());
+      if (delay === 'over-limit')
+        throw new SubscriptionStreamError(opts.provider, 'before_delivery', 'premature_eof', true);
+      await waitForRetry(opts, state.failureIndex, delay);
+      state.failureIndex += 1;
       continue;
     }
 
@@ -175,7 +269,12 @@ function redactConnection(provider: string, err: unknown): Error {
     (err instanceof Error && err.name === 'RouteError')
   )
     return err;
-  return new Error(`subscription provider ${provider} connection failed`);
+  return new SubscriptionStreamError(
+    provider,
+    'before_delivery',
+    'connection_reset',
+    isConnectionReset(err),
+  );
 }
 
 async function discard(response: Response): Promise<void> {

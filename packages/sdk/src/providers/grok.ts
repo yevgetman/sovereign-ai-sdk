@@ -8,7 +8,7 @@ import { RouteError } from './routes/errors.js';
 import {
   type AttemptDeps,
   defaultAttemptDeps,
-  subscriptionAttempt,
+  subscriptionStreamAttempt,
 } from './subscription/attempt.js';
 import { KEYCHAIN_SERVICE } from './subscription/names.js';
 import { formBody, recordFromTokenJson } from './subscription/oauth.js';
@@ -51,7 +51,7 @@ export class GrokSubscriptionProvider implements LLMProvider {
     assertGrokSubscriptionRequest(req);
     let sentRecord: SubscriptionRecord | undefined;
     let sentProvenance!: ResponsesStateProvenance;
-    const response = await subscriptionAttempt({
+    return yield* subscriptionStreamAttempt({
       provider: this.name,
       ...(req.signal ? { signal: req.signal } : {}),
       tierBlockedOn403: true,
@@ -62,8 +62,9 @@ export class GrokSubscriptionProvider implements LLMProvider {
           sentProvenance = provenance;
         }),
       refresh: () => this.refresh(sentRecord, req.signal),
+      translate: (response, onSemantic) =>
+        translateResponsesSse(response, this.name, sentProvenance, onSemantic),
     });
-    return yield* translateResponsesSse(response, this.name, sentProvenance);
   }
 
   private async send(

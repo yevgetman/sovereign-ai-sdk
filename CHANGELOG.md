@@ -50,6 +50,21 @@ and the gateway's existing callback writer bind it without duplicate messages.
 Resume rehydrates completed receipts and reports unknown outcomes explicitly.
 No release or installed runtime update is part of this change.
 
+## Unreleased — subscription stream retry before delivery (#72)
+
+- HTTP 200 subscription streams now share the existing three-request retry budget
+  with connection and HTTP-status failures. EOF, reset, malformed first frames and
+  retryable provider failures can recover before semantic delivery.
+- Text, thinking, tool intent, ciphertext, usage and terminal responses prevent
+  replay. Failed readers close before bounded backoff. Retry-After and cancellation
+  remain enforced without route, model or credential fallback.
+- SDK root export `SubscriptionStreamError` distinguishes `before_delivery` from
+  `incomplete_delivery` with safe reason/status fields. Original transport text
+  and provider payloads are discarded. Native terminal errors retain the delivery
+  phase and reason; incomplete delivery is not recoverable. The localhost fault-proxy fixture proves
+  recovery without duplicate output or tool execution; no live provider probe is claimed.
+
+
 ## Unreleased — complete Grok reasoning replay (#69)
 
 **SDK:** `encrypted_reasoning` adds optional `item`, `routeId` and versioned

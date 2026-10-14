@@ -196,6 +196,7 @@ export {
   SessionPersistenceError,
   ToolStorageError,
   SubscriptionAuthExpiredError,
+  SubscriptionStreamError,
   SubscriptionTierBlockedError,
   UnknownToolsetError,
 } from './providers/errors.js';
