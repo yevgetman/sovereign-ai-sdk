@@ -10,7 +10,7 @@ import { ClaudeMaxSubscriptionProvider } from '@yevgetman/sov-sdk/providers/clau
 import {
   ClaudeMaxTermsError,
   CredentialUnavailableError,
-  SubscriptionAuthExpiredError,
+  SubscriptionRefreshError,
   SubscriptionTierBlockedError,
 } from '@yevgetman/sov-sdk/providers/errors';
 import { GrokSubscriptionProvider } from '@yevgetman/sov-sdk/providers/grok';
@@ -277,9 +277,9 @@ describe('chatgpt provider', () => {
       fetchImpl,
       deps: deps([]),
     });
-    await expect(drain(provider)).rejects.toBeInstanceOf(SubscriptionAuthExpiredError);
+    await expect(drain(provider)).rejects.toBeInstanceOf(SubscriptionRefreshError);
     expect(urls.filter((url) => url.includes('codex/responses')).length).toBe(1);
-    expect(urls.filter((url) => url.includes('oauth/token')).length).toBe(1);
+    expect(urls.filter((url) => url.includes('oauth/token')).length).toBe(3);
     expect(urls.some((url) => url.includes('api.openai.com'))).toBe(false);
   });
 

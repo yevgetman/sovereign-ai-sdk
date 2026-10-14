@@ -597,3 +597,16 @@ Keep the entire block, including its exact route/model/login provenance, during
 rehydration. Foreign or legacy unbound reasoning cannot resume and needs a new
 session. Injected subscription credential ports must preserve `accountBinding`
 across refresh and use a new binding for each supported login/replacement.
+
+
+Subscription token refresh preserves secret-safe `SubscriptionRefreshError`
+reason codes for rate limits, provider unavailability, connection failure,
+timeout, malformed response and request rejection. Only an explicit OAuth
+`invalid_grant` response yields `SubscriptionAuthExpiredError`. Each refresh gets
+at most three exchanges within one 20-second deadline; bounded backoff and
+`Retry-After` waits share that deadline. Transient failures retain the previous
+credential record. Credential-store failures remain `CredentialStoreUnavailableError`;
+callers must not replace either failure with a login prompt. Route error mapping
+exposes `rate_limited`, `provider_unavailable`, `provider_timeout`,
+`provider_response_invalid` and `provider_request_rejected` as separate stable
+outcomes. A model HTTP 401 after successful token refresh is a request rejection.

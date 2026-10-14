@@ -610,7 +610,7 @@ describe('routeErrorCodeFor', () => {
       [new SubscriptionLoginMissingError('chatgpt'), 'credential_missing'],
       [new SubscriptionTierBlockedError('grok'), 'tier_blocked'],
       [new SubscriptionAuthExpiredError('chatgpt'), 'auth_expired'],
-      [new SubscriptionRecordUnreadableError('chatgpt'), 'auth_expired'],
+      [new SubscriptionRecordUnreadableError('chatgpt'), 'credential_unavailable'],
       [new CredentialStoreUnavailableError('chatgpt', 'write_failed'), 'credential_unavailable'],
       [new ClaudeMaxTermsError('no'), 'route_unavailable'],
       [new CredentialUnavailableError('xai'), 'credential_missing'],
@@ -647,6 +647,9 @@ describe('routeErrorCodeFor', () => {
       'storage_failed',
       'provider_request_rejected',
       'provider_failed',
+      'provider_unavailable',
+      'provider_timeout',
+      'provider_response_invalid',
     ]);
   });
 });
