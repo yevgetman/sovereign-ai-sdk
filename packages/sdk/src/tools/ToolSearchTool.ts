@@ -47,8 +47,18 @@ export function buildToolSearchTool(
     isConcurrencySafe: () => true,
     renderHint: { kind: 'tree' },
     checkPermissions: async () => ({ behavior: 'allow' as const }),
-    async call(input) {
-      const deferred = getDeferredTools();
+    async call(input, ctx) {
+      // The factory getter can hold the boot pool. Turn policy always narrows
+      // it, including a skill activated earlier in the same tool batch.
+      const effective = ctx.skillActivation?.tools ?? ctx.parentToolPool;
+      const names = effective
+        ? new Set(effective.map((tool) => tool.name))
+        : ctx.activeToolNames
+          ? new Set(ctx.activeToolNames)
+          : undefined;
+      const deferred = effective
+        ? effective.filter((tool) => tool.shouldDefer)
+        : getDeferredTools().filter((tool) => !names || names.has(tool.name));
       const matched = matchTools(input.query, deferred);
       return {
         data: { matched },

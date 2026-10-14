@@ -125,7 +125,10 @@ test('unknown-window projection removes only duplicate tool help and keeps stand
   expect(tools[1]?.text).toContain('- Allowed');
   expect(tools[1]?.text).not.toContain('Forbidden');
   expect(system[1]?.text).toContain('Forbidden');
-  expect(modelSystemPrompt(system, [], record())).toEqual(system);
+  expect(modelSystemPrompt(system, [], record())).toEqual(system.filter((_, index) => index !== 1));
+  expect(modelSystemPrompt(system, [{ name: 'Allowed' }], record())[1]?.text).not.toContain(
+    'Forbidden',
+  );
 });
 
 test('proactive compaction measures reducible history when the unused output ceiling exceeds threshold', () => {

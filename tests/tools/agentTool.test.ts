@@ -7,8 +7,11 @@ import { describe, expect, test } from 'bun:test';
 import type { AgentDefinition, AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
 import type { AssistantMessage } from '@yevgetman/sov-sdk/core/types';
 import type { DelegateInput } from '@yevgetman/sov-sdk/runtime/scheduler';
+import { createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { ToolContext, ToolResult } from '@yevgetman/sov-sdk/tool/types';
 import { AgentTool } from '@yevgetman/sov-sdk/tools/AgentTool';
+import { z } from 'zod';
 
 function makeAgent(name: string): AgentDefinition {
   return {
@@ -276,4 +279,32 @@ describe('AgentTool failure diagnostics', () => {
     );
     expect(AgentTool.renderResult?.(result.data)?.content).toContain('no summary');
   });
+});
+
+test('delegation uses current skill inventory even when the batch context has an older parent pool', async () => {
+  const allowed = buildTool<unknown, unknown>({
+    name: 'Allowed',
+    description: () => 'allowed',
+    inputSchema: z.unknown(),
+    call: async () => ({ data: 'ok' }),
+  });
+  const forbidden = buildTool<unknown, unknown>({
+    name: 'Forbidden',
+    description: () => 'forbidden',
+    inputSchema: z.unknown(),
+    call: async () => ({ data: 'ok' }),
+  });
+  const delegateCalls: DelegateInput[] = [];
+  await AgentTool.call(
+    { subagent_type: 'explore', prompt: 'inspect' },
+    {
+      cwd: '/tmp',
+      sessionId: 'fixture',
+      agents: makeRegistry(['explore']),
+      subagentScheduler: makeStubScheduler({ delegateCalls }),
+      parentToolPool: [allowed, forbidden],
+      skillActivation: createSkillActivationState({ tools: [allowed] }),
+    },
+  );
+  expect(delegateCalls[0]?.parentToolPool.map((tool) => tool.name)).toEqual(['Allowed']);
 });

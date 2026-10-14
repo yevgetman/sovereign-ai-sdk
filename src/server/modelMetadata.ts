@@ -8,6 +8,10 @@ import {
 } from '@yevgetman/sov-sdk/providers/modelLimits';
 import { type ModelRecord, findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import { estimateUsageCost, pricingSnapshotForModel } from '@yevgetman/sov-sdk/providers/pricing';
+import {
+  effectiveToolInventory,
+  projectToolInventory,
+} from '@yevgetman/sov-sdk/tool/effectiveInventory';
 import { readModelCatalogSnapshot, routeForProvider } from '../cli/modelDiscovery.js';
 
 export function selectedTurnModel(
@@ -102,24 +106,20 @@ export function modelRunUsageWriter(
   };
 }
 
-/** Tool descriptions already travel in request schemas. For an unverified
- * window, omit that duplicate help and list only the tools this turn has.
- * Standing directives, governance, preferences and project files stay intact. */
+/** Inventory policy is independent of model-window evidence. Unverified
+ * windows omit duplicate descriptions; standing instructions stay intact. */
 export function modelSystemPrompt(
   system: readonly import('@yevgetman/sov-sdk/core/types').SystemSegment[],
-  tools: readonly { name: string }[],
+  tools: readonly {
+    name: string;
+    shouldDefer?: boolean;
+    description?: unknown;
+  }[],
   model?: ModelRecord,
 ): import('@yevgetman/sov-sdk/core/types').SystemSegment[] {
-  if (!model || (!model.metadata.stale && model.contextWindow !== undefined)) return [...system];
-  return system.flatMap((segment) => {
-    if (!segment.text.startsWith('<available-tools>\n')) return [segment];
-    return tools.length === 0
-      ? []
-      : [
-          {
-            ...segment,
-            text: `<available-tools>\n${tools.map((tool) => `- ${tool.name}`).join('\n')}\nTool descriptions and input schemas are supplied with the tool request.\n</available-tools>`,
-          },
-        ];
-  });
+  return projectToolInventory(
+    system,
+    effectiveToolInventory(tools),
+    !model || (!model.metadata.stale && model.contextWindow !== undefined),
+  );
 }

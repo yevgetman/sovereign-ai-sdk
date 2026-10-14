@@ -43,11 +43,13 @@ import { UnknownToolsetError } from '@yevgetman/sov-sdk/providers/errors';
 import type { ModelRecord } from '@yevgetman/sov-sdk/providers/models/index';
 import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
 import { createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
+import { effectiveToolInventory } from '@yevgetman/sov-sdk/tool/effectiveInventory';
 import { buildToolScope } from '@yevgetman/sov-sdk/tool/toolScope';
 import {
   type ToolsetName,
   filterToolsForToolset,
   isToolsetName,
+  wrapToolsetCanUseTool,
 } from '@yevgetman/sov-sdk/tool/toolset';
 import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
@@ -312,7 +314,7 @@ export type ComposedTurn = {
   agent: Agent;
   /** The pool this turn runs against: runtime pool ∩ skill scope ∩ toolset. */
   tools: Tool<unknown, unknown>[];
-  /** The gate after the skill scope wrapper (the SDK adds the toolset wrapper). */
+  /** The gate after the skill scope and effective inventory wrappers. */
   canUseTool: CanUseTool;
   /** The relay's `persist` argument: the host for 'gateway-callbacks', else
    *  undefined so the SDK store ports are the only writer. */
@@ -355,7 +357,10 @@ export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
   // Toolset narrows further (never adds). Applied here as well as inside
   // createAgent so the sub-agent parent pool and skill visibility (both built
   // from the tool context's effective pool) match the schemas the model sees.
-  const tools = toolset === undefined ? scope.tools : filterToolsForToolset(scope.tools, toolset);
+  const tools = effectiveToolInventory(
+    toolset === undefined ? scope.tools : filterToolsForToolset(scope.tools, toolset),
+  );
+  scope.canUseTool = wrapToolsetCanUseTool(scope.canUseTool, tools);
 
   const systemPrompt = modelSystemPrompt(runtime.systemSegments, tools, modelSnapshot?.metadata);
 

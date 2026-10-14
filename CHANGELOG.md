@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — SDK effective tool inventory
+
+- SDK: add the deep-import module `@yevgetman/sov-sdk/tool/effectiveInventory` with `effectiveToolInventory` and `projectToolInventory`. This is an additive helper surface.
+- SDK: `createAgent` and `query` project `<available-tools>` from the same effective pool as schemas and execution. Skill activation, ToolSearch discovery and child inheritance follow that pool. Empty pools remove the inventory segment and preserve standing instructions.
+- SDK compatibility: deferred tools are now unavailable when the effective pool excludes ToolSearch. Hosts that supply deferred tools must also supply ToolSearch and permit it in their capability profile and skill allow-list. Generic ToolContext identity and its original inventory fields are preserved after dispatch.
+- SOV: verified, stale and unknown model metadata use the selected turn inventory. Turn composition and gateway preflight use the same deferred policy.
+
 ## harness 0.6.79 / SDK 0.15.1 — Grok subscription pin and catalog policy — 2026-10-13
 
 - Grok subscription defaults to `grok-4.7`, allowlists `grok-4.6`, sends Responses `reasoning.effort` (`max` maps to `xhigh`), and replays encrypted reasoning only on that route. The live subscription probe has not been run.

@@ -39,6 +39,7 @@ import type {
   SkillActivationOutcome,
   SkillContinuityPort,
 } from '@yevgetman/sov-sdk/skills/continuity';
+import { effectiveToolInventory } from '@yevgetman/sov-sdk/tool/effectiveInventory';
 import { buildToolScope, filterParseableRules } from '@yevgetman/sov-sdk/tool/toolScope';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { Hono } from 'hono';
@@ -663,11 +664,13 @@ async function runTurnInBackground(
         contextTokens: modelSnapshot.limits.contextTokens,
       };
     const effectiveTools = toToolSchemas(
-      buildToolScope({
-        tools: runtime.toolPool,
-        canUseTool: runtime.canUseTool,
-        allowedTools: skillScope,
-      }).tools,
+      effectiveToolInventory(
+        buildToolScope({
+          tools: runtime.toolPool,
+          canUseTool: runtime.canUseTool,
+          allowedTools: skillScope,
+        }).tools,
+      ),
     );
     const projectedSystem = modelSystemPrompt(
       runtime.systemSegments,
