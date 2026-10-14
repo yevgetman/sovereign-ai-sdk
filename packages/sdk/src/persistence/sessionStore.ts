@@ -30,7 +30,30 @@ import type {
 } from '../core/sessionPort.js';
 import type { TokenUsage } from '../core/types.js';
 
+export type ToolExecution = {
+  assistantMessageId: number;
+  toolUseId: string;
+  state: 'started' | 'completed' | 'interrupted' | 'unknown';
+  result?: Extract<import('../core/types.js').ContentBlock, { type: 'tool_result' }>;
+  newMessages?: import('../core/types.js').Message[];
+};
+
+/** Journal-only binding for hosts that persist canonical messages themselves.
+ * All writes belong to the host's existing session single-writer lock. */
+export interface ToolExecutionStore {
+  loadMessages(sessionId: string): StoredMessage[];
+  saveToolExecution(sessionId: string, execution: ToolExecution): void;
+  loadToolExecutions(sessionId: string): ToolExecution[];
+}
+
 export interface SessionStore {
+  /** Optional per-tool journal. Persist synchronously before execution and on
+   * each completion. Completed receipts survive until their assistant row is
+   * truncated. Stores without this port still save the canonical batch before
+   * the next provider call, but cannot recover a crash inside a batch. */
+  saveToolExecution?(sessionId: string, execution: ToolExecution): void;
+  loadToolExecutions?(sessionId: string): ToolExecution[];
+
   /** Create a persisted session row. Returns the session id (a fresh UUID when
    *  `input.sessionId` is omitted, otherwise the supplied id). */
   createSession(input: CreateSessionInput): string;

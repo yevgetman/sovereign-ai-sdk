@@ -278,3 +278,16 @@ export class RegenerationRollbackUnavailableError extends Error {
     this.name = 'RegenerationRollbackUnavailableError';
   }
 }
+
+/** A tool journal or canonical result write failed. No subsequent model call
+ * is permitted. This error does not imply that an external effect was undone. */
+export class ToolStorageError extends Error {
+  readonly code = 'storage_failed';
+  constructor(
+    override readonly cause: unknown,
+    readonly resultMessage?: import('../core/types.js').Message,
+  ) {
+    super('tool receipt storage failed; verify unknown effects before retrying');
+    this.name = 'ToolStorageError';
+  }
+}

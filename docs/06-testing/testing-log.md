@@ -1,3 +1,16 @@
+## 2026-10-14 — Atomic master integration of durable tool receipts (#71)
+
+Ordinary merge of `ef12f92f` into master `db243bcf` preserves exact owner catalogs,
+permission auditing and effective inventory. Additive changelog/testing-log
+conflicts preserve both histories; canonical message and journal paths auto-merge.
+In the isolated integration worktree, `bun run build`, `bun run tui:build`,
+`bun run lint` (including boundary), `bun run typecheck`, and
+`env -u FORCE_COLOR bun run test` pass: **6280 passed / 19 existing skips /
+zero failures**, 27295 assertions, 604 files, 127.81 seconds. Process-crash
+receipts, read-only reconstruction and canonical single-writer regressions run
+in that gate. No production config, credential, installed binary or release
+changes. No live learning-loop soak observation was produced.
+
 ## 2026-10-14 — Atomic master integration of effective tool inventory (#76)
 
 Ordinary merge of `040c3230` into master `d1568102` retains the critical reasoning,
@@ -64,6 +77,57 @@ No live learning-loop soak observation was produced.
 ## 2026-10-14 — Grok registry inherits merged critical reasoning confinement
 
 Ordinary merge of critical master `216cf716` into owner-registry PR82 preserves both complete testing histories and both native regression tests. Only additive log/test conflicts required resolution; no runtime conflict occurred. On the combined source, `bun run build`, `bun run lint`, `bun run typecheck`, and `env -u FORCE_COLOR bun run test` pass: 6163 passed, 19 existing skips, zero failures, 26882 assertions, 598 files, 123.05s. The worktree's existing TUI artifact was already present. Root independently ran the critical 27-test replay suite and packed critical Node/Bun consumers before its PR81 merge; all pass. No owner settings, credentials, release or installed-host change.
+
+## 2026-10-14 — Durable per-tool receipts and crash recovery (#71)
+
+Scope: isolated `fix/71-durable-tool-receipts` worktree, based on `65a6b2aa`.
+Environment: macOS arm64, Bun 1.3.13. No release, installation, owner setting,
+production credential access, master merge or push. Fixtures use scripted models,
+in-memory storage and SQLite databases / effect counter files in temporary paths.
+No learning recall was exercised, so this pass does not assess learning value.
+
+Failed-before: `bun test tests/agent/durableToolReceipts.test.ts` produced
+**0 pass / 1 fail** after a simulated write succeeded: the continuation model
+started before its result existed in the session store. The same assertion now
+passes. The final focused pass `bun test tests/agent/durableToolReceipts.test.ts
+ tests/agent/toolExecutionJournal.test.ts tests/host/durableToolCrash.test.ts`
+covers canonical result persistence before provider continuation, immediate
+completion journaling during a concurrent batch, joined sibling tools after a
+receipt storage failure, typed `storage_failed`, retained real output on canonical
+write failure, early stream abandonment and the gateway journal-only writer.
+Post-tool hook failure keeps its known completed effect and original output.
+Completed journal records resist interruption and truncate with their assistant
+row in both built-in adapters. Schema-7 migration preserves raw history; old
+orphans stay unknown. Duplicate tool IDs bind to actual assistant row IDs.
+Recovered native/gateway views retain their raw prefix without duplicate rows.
+Explicit unknown imports and recovered started records stay unknown; repair is
+read-only and leaves the raw started evidence intact.
+
+Five separate-process SQLite fixtures terminate at an intentional process-exit
+seam before execution, during execution, after the counter effect but before its
+receipt, after the receipt, and after the canonical batch save before another
+model call. Each reopens the database in a fresh process and resumes without
+repeating a completed tool. Completed results retain supplementary messages.
+Unknown outcomes include verification guidance. These are process-failure
+fixtures, not power-loss or real external-system exactly-once tests.
+
+Root reviewed orchestrator, query, composition, storage and repair changes before
+commit. The first full suite produced **6146 pass / 19 skip / 5 fail**: expected
+schema-version assertions, historical-schema reconstruction fixtures and public
+export/type witnesses needed updates. All were corrected. A new test hook was
+also corrected to return the required `HookResult.block` field after typecheck.
+
+Final gates: `env -u FORCE_COLOR bun run build`, `env -u FORCE_COLOR bun run
+tui:build`, `env -u FORCE_COLOR bun run lint`, `env -u FORCE_COLOR bun run
+typecheck`, and `env -u FORCE_COLOR bun run test` all passed. Full suite:
+**6158 pass / 19 skip / 0 fail**, **26846 assertions**, 6177 tests across 598 files.
+`git diff --check` passed. The packed downstream consumer canary and any live
+provider checks remain root integration work; this branch does not claim them.
+
+Limits: legacy custom stores remain supported but need the optional journal to
+recover an individual completion before the canonical batch save. A side effect
+that precedes a missing receipt has an unknown outcome and requires verification.
+Journal rollback removes transcript evidence; it does not undo external effects.
 
 ## 2026-10-14 — Exact Grok reasoning model and login confinement (#69 follow-up)
 

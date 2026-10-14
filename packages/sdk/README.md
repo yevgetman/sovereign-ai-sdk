@@ -288,6 +288,46 @@ remain supported. Conduct regeneration that must undo persisted writes fails
 with `RegenerationRollbackUnavailableError` before replay when that capability
 is absent. Built-in `InMemorySessionStore` retains its required rollback method.
 
+### Durable tool receipts and resume
+
+With `sessionStore`, the SDK saves the canonical tool result message before the
+next provider call. Optional `saveToolExecution` / `loadToolExecutions` methods
+also journal each tool separately, including completions while concurrent
+siblings are still running. `createInMemorySessionStore()` supplies these methods;
+its state is process-local. A durable host must implement them in durable storage.
+A storage failure returns `ToolStorageError` (`code: 'storage_failed'`) before
+continuation and joins started siblings. Returned history retains real results.
+
+A `ToolExecution` links `toolUseId` to `assistantMessageId`. Its states are
+`interrupted` (intent recorded, not started), `started`, `completed`, and `unknown`.
+Recovery does not rewrite raw journal evidence. A `started` record with no receipt
+has an `unknown` recovered outcome; an explicit `unknown` record behaves the same.
+Load and repair only after acquiring the session writer, when its previous turn
+has ended. A crash after
+an effect but before its receipt cannot be resolved automatically. Never repeat
+an unknown non-idempotent action without verifying the effect first.
+
+Load both raw rows and journal records under the session's single-writer lock:
+
+```ts
+const rows = store.loadMessages(sessionId);
+const raw = rows.map(({ role, content }) => ({ role, content }));
+const view = repairMissingToolResults(
+  raw, store.loadToolExecutions?.(sessionId), rows.map(row => row.id),
+).messages; // import from @yevgetman/sov-sdk/core/transcriptRepair
+const stream = agent.run(view, { sessionId, storedPrefixLength: view.length });
+```
+
+Repair restores completed receipts and their supplementary messages in original
+call order. Raw stored history stays verbatim. Legacy orphans without a journal
+are unknown. Existing custom stores without journal methods remain valid; they
+cannot recover individual tool completions lost before the canonical batch save.
+A host that persists canonical messages itself can bind `toolExecutionStore`
+without `sessionStore`. Commit each yielded assistant before resuming the stream;
+the journal binds to that row's actual ID. Truncating an assistant during conduct
+regeneration must also drop its journal entries. Journal rollback removes history;
+it does not undo external tool effects.
+
 ### Tool batch lifecycle
 
 Each dispatched tool call produces one ordered result. Exceptions in permission

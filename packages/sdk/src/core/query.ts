@@ -30,7 +30,11 @@ import {
 import { LoopDetectorState } from '../loop/detector.js';
 import { toToolSchemas } from '../mcp/schemaSerialization.js';
 import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
-import { PersistBeforeRunError, isContextOverflowError } from '../providers/errors.js';
+import {
+  PersistBeforeRunError,
+  ToolStorageError,
+  isContextOverflowError,
+} from '../providers/errors.js';
 import {
   type RequestInputTokenEstimate,
   assertRequestFits,
@@ -1102,6 +1106,7 @@ async function* queryInternal(
         canUseTool,
         hookRunner,
         recordTrace,
+        params.persistToolExecution,
       )) {
         let out = consumeGuidance(msg);
         dispatchedResult = out;
@@ -1123,6 +1128,13 @@ async function* queryInternal(
               role: 'user',
               content: [...out.content, { type: 'text', text: steerText }],
             };
+          }
+        }
+        if (params.persistAfterTools) {
+          try {
+            await params.persistAfterTools(out);
+          } catch (error) {
+            throw new ToolStorageError(error, out);
           }
         }
         history.push(out);
@@ -1263,6 +1275,7 @@ async function* queryInternal(
       }
       if (!resultYielded) {
         const msg =
+          (err instanceof ToolStorageError ? err.resultMessage : undefined) ??
           dispatchedResult ??
           consumeGuidance(
             synthesizeToolResultMessage(
@@ -1273,7 +1286,7 @@ async function* queryInternal(
         history.push(msg);
         yield msg;
       }
-      if (signal?.aborted) {
+      if (signal?.aborted && !(err instanceof ToolStorageError)) {
         recordTrace({
           type: 'interrupt',
           stage: `turn-${turn}-tool-dispatch`,

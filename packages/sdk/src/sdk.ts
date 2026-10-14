@@ -194,6 +194,7 @@ export {
   ContextOverflowError,
   PersistBeforeRunError,
   SessionPersistenceError,
+  ToolStorageError,
   SubscriptionAuthExpiredError,
   SubscriptionTierBlockedError,
   UnknownToolsetError,
@@ -344,7 +345,11 @@ export type { TranscriptStore } from './persistence/transcriptStore.js';
 // ── Persistence (session) ───────────────────────────────────────────────────
 export { createInMemorySessionStore } from './persistence/inMemoryStore.js';
 export type { InMemorySessionStore } from './persistence/inMemoryStore.js';
-export type { SessionStore } from './persistence/sessionStore.js';
+export type {
+  SessionStore,
+  ToolExecution,
+  ToolExecutionStore,
+} from './persistence/sessionStore.js';
 // The session DTOs `SessionStore`'s method signatures reference (Task 2.9).
 export type {
   CreateSessionInput,
