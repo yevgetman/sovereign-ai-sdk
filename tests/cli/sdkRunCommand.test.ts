@@ -21,6 +21,7 @@ import { runSdkRunCommand } from '../../src/cli/sdkRunCommand.js';
 import type { SdkRunDependencies } from '../../src/cli/sdkRunCommand.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 import type { Runtime } from '../../src/server/runtime.js';
+import { hydrateSessionHistory, loadStoredMessages } from '../../src/server/turnComposition.js';
 const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
@@ -487,7 +488,7 @@ test('real CLI refuses a route on legacy run before ambient provider inference',
   ).toBe(false);
 });
 
-test('legacy orphan tool calls receive a stored-history repair and are not executed again', async () => {
+test('legacy orphan calls keep their repair view but require inspection before paid inference', async () => {
   let request: ProviderRequest | undefined;
   const provider: LLMProvider = {
     name: 'openai',
@@ -514,15 +515,30 @@ test('legacy orphan tool calls receive a stored-history repair and are not execu
   });
   db.close();
   const c = capture();
-  expect(await runSdkRunCommand({ ...opts, resume: sessionId }, c.io, f.deps)).toBe(0);
-  expect(
-    request?.messages.some((m) =>
-      m.content.some((b) => b.type === 'tool_result' && b.tool_use_id === 'orphan' && b.is_error),
-    ),
-  ).toBe(true);
+  expect(await runSdkRunCommand({ ...opts, resume: sessionId }, c.io, f.deps)).toBe(1);
+  expect(c.events.at(-1)).toMatchObject({
+    type: 'turn.error',
+    outcome: 'failed',
+    code: 'storage_failed',
+    recoverable: false,
+    nextAction: 'inspect_storage',
+  });
+  expect(Object.hasOwn(c.events.at(-1) ?? {}, 'activeSessionId')).toBe(false);
+  expect(request).toBeUndefined();
   const reopened = SessionDb.open({ path: f.db });
   try {
-    expect(reopened.loadMessages(sessionId)).toHaveLength(4);
+    // Raw evidence remains intact; the read-only repair view can still explain
+    // the unknown intent without re-executing it or paying for a model turn.
+    const repaired = hydrateSessionHistory(
+      loadStoredMessages({ mode: 'sdk-store', sessionStore: reopened }, sessionId),
+      sessionId,
+    );
+    expect(
+      repaired.some((m) =>
+        m.content.some((b) => b.type === 'tool_result' && b.tool_use_id === 'orphan' && b.is_error),
+      ),
+    ).toBe(true);
+    expect(reopened.loadMessages(sessionId)).toHaveLength(3);
   } finally {
     reopened.close();
   }
