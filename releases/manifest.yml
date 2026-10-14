@@ -1,0 +1,246 @@
+schema_version: 4
+product: sovereign-ai-sdk
+version: 0.16.0
+items:
+  - id: sdk-pr-81
+    product: sovereign-ai-sdk
+    title: "Issue #69: complete Grok reasoning bound to exact route, model and login"
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/81
+    merged_at: 2026-10-14T14:48:00Z
+    commits:
+      - sha: 216cf71668cfba7aae13da5ea83c8e44cc3fd6a2
+        mainline: 1
+    requires: []
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/216cf71668cfba7aae13da5ea83c8e44cc3fd6a2/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/commit/216cf71668cfba7aae13da5ea83c8e44cc3fd6a2
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44/docs/06-testing/testing-log.md
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
+  - id: sdk-pr-82
+    product: sovereign-ai-sdk
+    title: "Issue #68: owner-managed Grok subscription model registry"
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/82
+    merged_at: 2026-10-14T15:27:59Z
+    commits:
+      - sha: ea9e6ae8ff9bdc8db32958c3594774cfb2f0bdd4
+        mainline: 1
+    requires:
+      - sdk-pr-81
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/ea9e6ae8ff9bdc8db32958c3594774cfb2f0bdd4/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/commit/ea9e6ae8ff9bdc8db32958c3594774cfb2f0bdd4
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44/docs/06-testing/testing-log.md
+  - id: sdk-pr-88
+    product: sovereign-ai-sdk
+    title: "Issue #75: owner-managed ChatGPT subscription model catalog and limits"
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/88
+    merged_at: 2026-10-14T15:29:22Z
+    commits:
+      - sha: 0ef3c0ea670fee22c16f09af32897de00b0fd3e1
+        mainline: 1
+    requires:
+      - sdk-pr-82
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/0ef3c0ea670fee22c16f09af32897de00b0fd3e1/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/commit/0ef3c0ea670fee22c16f09af32897de00b0fd3e1
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44/docs/06-testing/testing-log.md
+  - id: sdk-pr-83
+    product: sovereign-ai-sdk
+    title: "Issue #77: explicit default permission mode overrides configured bypass"
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/83
+    merged_at: 2026-10-14T15:34:05Z
+    commits:
+      - sha: d1568102b1635401a5e5f34553e402418e550662
+        mainline: 1
+    requires: []
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/d1568102b1635401a5e5f34553e402418e550662/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/commit/d1568102b1635401a5e5f34553e402418e550662
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44/docs/06-testing/testing-log.md
+  - id: sdk-pr-85
+    product: sovereign-ai-sdk
+    title: "Issue #76: one effective tool inventory across prompt, discovery and execution"
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/85
+    merged_at: 2026-10-14T15:37:17Z
+    commits:
+      - sha: db243bcf171c87540fad63d725d9bdb27d52eaf2
+        mainline: 1
+    requires: []
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/db243bcf171c87540fad63d725d9bdb27d52eaf2/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/commit/db243bcf171c87540fad63d725d9bdb27d52eaf2
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44/docs/06-testing/testing-log.md
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
+  - id: sdk-pr-87
+    product: sovereign-ai-sdk
+    title: "Issue #71: durable individual tool receipts before model continuation"
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/87
+    merged_at: 2026-10-14T15:40:30Z
+    commits:
+      - sha: 8c3f7c35bd0aa92532150ffc611cc5569c08b2a7
+        mainline: 1
+    requires: []
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/8c3f7c35bd0aa92532150ffc611cc5569c08b2a7/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/commit/8c3f7c35bd0aa92532150ffc611cc5569c08b2a7
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44/docs/06-testing/testing-log.md
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
+  - id: sdk-pr-84
+    product: sovereign-ai-sdk
+    title: "Issue #72: bounded subscription retries only before semantic delivery"
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/84
+    merged_at: 2026-10-14T15:43:32Z
+    commits:
+      - sha: 27647ee9a0256d83feaf47833a2250314e4a0c2c
+        mainline: 1
+    requires:
+      - sdk-pr-81
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/27647ee9a0256d83feaf47833a2250314e4a0c2c/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/commit/27647ee9a0256d83feaf47833a2250314e4a0c2c
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44/docs/06-testing/testing-log.md
+  - id: sdk-pr-86
+    product: sovereign-ai-sdk
+    title: "Issue #74: complete ChatGPT reasoning replay across turns and tools"
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/86
+    merged_at: 2026-10-14T15:47:26Z
+    commits:
+      - sha: e64665f4c2105e31defa72c90c17da4bd22b81fb
+        mainline: 1
+    requires:
+      - sdk-pr-81
+      - sdk-pr-84
+      - sdk-pr-88
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/e64665f4c2105e31defa72c90c17da4bd22b81fb/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/commit/e64665f4c2105e31defa72c90c17da4bd22b81fb
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/issues/74
+      - "Live acceptance remains open: the available OAuth login rejects exact gpt-5.3-codex before content; no model or route fallback. Native replay and tool-continuation fixtures pass."
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
+  - id: sdk-pr-89
+    product: sovereign-ai-sdk
+    title: "Issue #70: native proactive compaction and bounded overflow recovery"
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/89
+    merged_at: 2026-10-14T15:51:37Z
+    commits:
+      - sha: 755d5c8314b54e0c9f0c9482ec40cf806ddcaa44
+        mainline: 1
+    requires:
+      - sdk-pr-87
+      - sdk-pr-85
+      - sdk-pr-86
+      - sdk-pr-88
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/commit/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/755d5c8314b54e0c9f0c9482ec40cf806ddcaa44/docs/06-testing/testing-log.md
+  - id: sdk-pr-90
+    product: sovereign-ai-sdk
+    title: "Issue #73: safe subscription refresh failure classes and bounded retry"
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/90
+    merged_at: 2026-10-14T19:19:57Z
+    commits:
+      - sha: 67645b13035839d3aacbfb035cceb744c6d794d9
+        mainline: 1
+    requires:
+      - sdk-pr-81
+      - sdk-pr-88
+      - sdk-pr-84
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/67645b13035839d3aacbfb035cceb744c6d794d9/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/commit/67645b13035839d3aacbfb035cceb744c6d794d9
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/d8c96f7621088f8f237b934776a6c007635f58d5/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38607300443/job/116001349663
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38607300443/job/116001349628
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38607300443/job/116001349524
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38607300443/job/116001351033
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38607300443/job/116001349840
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38607300443/job/116001349791
+      - Refresh exchanges and retries share a 20-second budget; native credential storage/locking have separate bounds. Only proven invalid grants mean auth_expired.
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
+  - id: sdk-pr-91
+    product: sovereign-ai-sdk
+    title: "Issue #78: shared provider-aware context accounting and honest fallback"
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/91
+    merged_at: 2026-10-14T19:26:24Z
+    commits:
+      - sha: f593f0bc3a7ac19e0320d61447b9d63454d377b4
+        mainline: 1
+    requires:
+      - sdk-pr-89
+      - sdk-pr-90
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/f593f0bc3a7ac19e0320d61447b9d63454d377b4/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/commit/f593f0bc3a7ac19e0320d61447b9d63454d377b4
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/d8c96f7621088f8f237b934776a6c007635f58d5/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38622942625/job/116054794488
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38622942625/job/116054794897
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38622942625/job/116054794848
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38622942625/job/116054794958
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38622942625/job/116054794891
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38622942625/job/116054795005
+      - Local chunked OpenAI estimates are not publisher usage. Unknown Grok/Claude tokenizers and incomplete modalities remain advisory; cross-publisher usage parity is unproved.
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
+  - id: sdk-pr-92
+    product: sovereign-ai-sdk
+    title: "Issue #79: certified exact Grok image input with durable image history"
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/92
+    merged_at: 2026-10-14T19:28:02Z
+    commits:
+      - sha: 88fe02eaba878ac55cd61e3339c864b82cbcad6f
+        mainline: 1
+    requires:
+      - sdk-pr-91
+      - sdk-pr-82
+      - sdk-pr-89
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/88fe02eaba878ac55cd61e3339c864b82cbcad6f/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/commit/88fe02eaba878ac55cd61e3339c864b82cbcad6f
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/d8c96f7621088f8f237b934776a6c007635f58d5/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38615203321/job/116028398798
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38615203321/job/116028398411
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38615203321/job/116028398872
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38615203321/job/116028398597
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38615203321/job/116028398660
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38615203321/job/116028398654
+      - Exact grok-subscription/grok-4.7 PNG/JPEG certification expires 2026-11-13; four live image/native-resume calls passed. Other unverified subscription combinations remain refused.
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
+  - id: sdk-pr-93
+    product: sovereign-ai-sdk
+    title: "Issue #80: truthful native completion and safe durable recovery"
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/93
+    merged_at: 2026-10-14T19:41:39Z
+    commits:
+      - sha: d8c96f7621088f8f237b934776a6c007635f58d5
+        mainline: 1
+    requires:
+      - sdk-pr-90
+      - sdk-pr-92
+      - sdk-pr-87
+      - sdk-pr-89
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/d8c96f7621088f8f237b934776a6c007635f58d5/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/commit/d8c96f7621088f8f237b934776a6c007635f58d5
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/d8c96f7621088f8f237b934776a6c007635f58d5/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38625100175/job/116062121283
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38625100175/job/116062120806
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38625100175/job/116062121072
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38625100175/job/116062121244
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38625100175/job/116062121482
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38625100175/job/116062121057
+      - Actual released Telekit0.64.23 parser accepts24/24 native streams with zero false success. Unsafe tool effects require inspection; fault fixtures do not certify physical power-loss recovery.
+      - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."

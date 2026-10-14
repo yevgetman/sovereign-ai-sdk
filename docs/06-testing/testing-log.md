@@ -1,3 +1,30 @@
+## 2026-10-14 — Owner-approved SDK 0.16.0 / SOV 0.6.80 preparation gate
+
+Scope: `release/prepare-sdk-0160-20261014` from `8519af8c2126495fc379fd6f6e93f3dea268665f`, with source-version/lockfile/install/changelog/migration preparation and matching draft plan. Owner explicitly approved SDK0.16.0/SOV0.6.80. Existing13 selected units and dependencies retained. No runtime code changes; npm remains Owner-only.
+
+macOS arm64 Bun1.3.13. Frozen hoisted install, `bun run build`, `bun run lint`, `bun run typecheck` pass. `env -u FORCE_COLOR bun run test`:6459pass/19existing skips/0fail,28349assertions617files191.51s. `bun run release:validate` passes SDK0.16.0/CLI0.6.80 draft13items after metadata update; `git diff --check` passes. Independent preparation review finds no above-Low issue; YAML addendum verifies retained roster/baseline. These are source preparation checks, not final assembled artifact/public-byte proof. Receipts in `/private/tmp/sov-release-preflight-20261014-receipts/preparation-*.log` and `preparation-review.md`. No paid-provider call or learning recall was exercised.
+
+## 2026-10-14 — Thirteen-item release source preflight (version decision pending)
+
+Selected-source SHA `90d158dd63582bc8eee9a4436dad8bc17a87ed25`, published baseline `85350f48cc726f62b7b6396919015960d810b2f5`, pushed branch `release/source-preflight-20261014`. All13 exact selected mainline1 units applied once. Source packages/src match independently reviewed master; release bookkeeping is excluded. PR81/90 testing-log-only conflicts retained all incoming entries. Independent assembly review found no above-Low issue.
+
+macOS arm64, Bun1.3.13, Go1.26.1. Frozen hoisted install, `bun run build`, `bun run lint`, `bun run typecheck`, TUI `go test ./...`, `bun run canary` and `bun run audit:dependencies` pass. `env -u FORCE_COLOR bun run test`:6447pass/19existing skips/0fail,28330assertions616files168.34s. Source omits12 planning tests on master. Canary covers packed Node/Bun purity and exported types; supported engine floors remain for the final prepared cut. Audit reports0advisories. Source validator at planning8519af8c passes13 items; prior public SDK tarball download matches SDK-SHA256SUMS. No live model or learning recall was exercised.
+
+Receipts: `/private/tmp/sov-release-preflight-20261014-receipts/`. These checks are preflight, with previous release source versions. SDK0.15.2/CLI0.6.80 stay assigned drafts until Owner-directed minor SDK version. Final preparation, exact-build QA/artifacts, freeze, publication, consumers and local update remain. No public tag or artifact was changed.
+
+## 2026-10-14 — Select the four merged Medium fixes
+
+Owner requested merging PR90–93 and adding all four fixes to the release manifest. All four are now merged to master in dependency order after all24 final-head GitHub CI checks passed. Exact application units:
+
+- PR90: `67645b13035839d3aacbfb035cceb744c6d794d9`, mainline1, 2026-10-14T19:19:57Z.
+- PR91: `f593f0bc3a7ac19e0320d61447b9d63454d377b4`, mainline1, 2026-10-14T19:26:24Z.
+- PR92: `88fe02eaba878ac55cd61e3339c864b82cbcad6f`, mainline1, 2026-10-14T19:28:02Z.
+- PR93: `d8c96f7621088f8f237b934776a6c007635f58d5`, mainline1, 2026-10-14T19:41:39Z.
+
+Active SDK0.15.2/CLI0.6.80 draft now selects13items: the unchanged nine Critical/High units plus these four master merges, each once/mainline1. Contained fix, peer-review and integration commits are covered by their merge unit; this later ledger commit is bookkeeping. Dependencies and immutable source/CI QA links are recorded. Verified SDK0.15.1/SOV0.6.79 baseline85350f48, source stamps, immutable history and null cut/publication fields are preserved. Public additive APIs require an Owner-directed minor SDK version before freeze. #74 retains its recorded open live acceptance.
+
+Reconciliation checkpoint `d8c96f7621088f8f237b934776a6c007635f58d5`. Runtime/test/package inputs match reviewed8ea82206; only the new integration receipt differs. At that source with the13-item draft: build and strict TUI pass; lint/boundary, root/browser typecheck and full6459tests/19existing skips/0fail/28349assertions/617files227.64s pass. Both format-checked schemas, version/baseline relationships, dependency order, unique source IDs/SHAs, reachability, already-shipped checks and exact master-first-parent proofs pass via `bun run release:validate` plus the direct four-merge parent comparison. Logs: `/private/tmp/sdk-medium-manifest-{build,lint,types,full,validate}.log`. The previous packed-consumer, Go, independent five-lens and live Grok/Telekit receipts remain valid for the identical functional source. No new live provider call, assembly, freeze, tag, package publication, pin, installed upgrade or restart ran.
+
 ## 2026-10-14 — Owner-authorized Medium master integration
 
 Owner requested merging PR90–93 and selecting their work in the release manifest. PR90/91/92 are on master. PR91 fast-forwards to the previously reviewed joint accounting/refresh commit a0f74763; PR93 fast-forwards to the full reviewed QA8ea82206. Each original fix head remains an ancestor. GitHub reported a conflict on the retargeted PR93; local merge of exact master88fe02ea succeeds with the complete tracked tree byte-identical to reviewed tree5c6173b3921bdf0a31b8aeeba5059c0fc520f217. This ancestry merge preserves every reviewed source/test/package file.
@@ -1078,6 +1105,14 @@ Result: 150 passed, 0 failed, 1002 assertions, 12 files. Biome check passed afte
 Functional source `76c21ac1f66c00251b991691c8ee983afdae9930` passes 6,072 tests / 19 existing skips / zero failures, 25,988 assertions across all 593 discovered files, plus configured lint/boundary, root types and strict SDK build. Final `go test ./...` in packages/tui passes all six test packages. `bun run canary` passes actual packed protocol/SDK Node/Bun consumers, public types and artifact-purity checks. `bun run release:validate` passes the unchanged two-item documentation-only SDK0.14.1/CLI0.6.78 draft. Local TUI built first. These final passes use macOS arm64, Bun1.3.13 and Node25.9.0. Logs reside under `/private/tmp/sdk-skills-review8-20261011/final-*.log`.
 
 Five Medium affected paths across four PRs close; three defect types are literal-data substitution, lost arguments and fresh visibility. Separate native peers validate merged registry/runtime (44 tests / 117 assertions), budget/retry floors (26 / 109), final continuity/floors/visibility (66 / 350), and blocked/visible direct-Bash effects (0/1). Incoming heads and all current parent edges remain ancestors; recovered parent corrections formerly missing in incoming PR58/59 are restored. The appended current review report contains exact source counts and failed-before witnesses. This receipt changes reports only. No release or live host operation.
+
+## 2026-10-12 — SDK0.15.0 / SOV0.6.78 manifest cut, public verification and consumer pins
+
+Owner authorized all eight reviewed PR merges, manifest-driven SDK/SOV public release and consumer source pins/manifests. Exact build486c58f5d2fee5478c9f7c5088f9f8bbdc859c11 maps all12 selected units once. Independent reviews approve source/preparation, mapping, freeze and rollover. Source6,060tests/19existing skips/0fail; current planning source6,072/19/0. Full lint/boundary, types, strict SDK/TUI, Go6packages, current+floor Node/Bun canaries, retained SDK4fixtures×4runtimes, strict public types/purity and dependency audit0advisories pass. No selected source test is omitted or weakened.
+
+All5SOV architectures pass complete scans, exact archive/source/version/license/inventory checks; native Macbotharches, Linuxx64 and Windowsx64 smokes pass. Strict Mac signatures are ad-hoc. Linuxarm64 nativehardware remains untested. Both6-job exactsource CI runs38204740090/38205755018 pass. All6publicartifacts +2checksumfiles independently downloaded match frozenbytes. Publicsource tags point486c58; immutable archivefb01ca13 contains frozen manifestsha d631325f and all durable receipts/logs. The first CI preflight missed compiledSDK artifacts; explicitPR62 adds build before unchanged tests, and finalexactCI passes. Initial shared canary prepack collision is documented; isolated rerun passes.
+
+Runtime149tests, Node20.19floor/lint/types/build/hash checks pass; TelekitPython3.13 full3,859 plus manual/privacy/shell and realpublic fakeHOME installer checks pass. Macfrontend2,947pass/1skip, Rust1,107pass/15existingignored and61buildguards/extra source suites pass. Existing process timing/setup failures are retained and complete unchanged reruns pass. Independent root consumer reviews find no above-Low residual. Source pin application units enter each consumer manifest once; unrelated concurrent entries remain. These checks do not certify paid-provider eligibility or long-term live workflow quality. No consumer publication/install/restart or npm publishing occurred. See [release closeout](../07-history/state/2026-10-12-sdk-release-015.md) and [immutable archive](../../releases/history/sdk-0.15.0/publication.json).
 
 ## 2026-10-11 — Current review: corrected parent integration for PR59
 

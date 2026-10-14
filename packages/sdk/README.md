@@ -15,15 +15,15 @@ entitlement or transport image support. See [SDK routes](https://github.com/yevg
 
 ## Install
 
-SDK **0.15.1** is published as a tarball in [SOV v0.6.79](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.79), with `SDK-SHA256SUMS`. Download both assets, verify the checksum, then install the local tarball:
+SDK **0.16.0** is distributed as a tarball in [SOV v0.6.80](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.80), with `SDK-SHA256SUMS`. Download both assets, verify the checksum, then install the local tarball:
 
 ```sh
-curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.79/yevgetman-sov-sdk-0.15.1.tgz
-curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.79/SDK-SHA256SUMS
+curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/yevgetman-sov-sdk-0.16.0.tgz
+curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/SDK-SHA256SUMS
 shasum -a 256 -c SDK-SHA256SUMS
-npm install ./yevgetman-sov-sdk-0.15.1.tgz   # Node
+npm install ./yevgetman-sov-sdk-0.16.0.tgz   # Node
 # Or:
-bun add ./yevgetman-sov-sdk-0.15.1.tgz       # Bun
+bun add ./yevgetman-sov-sdk-0.16.0.tgz       # Bun
 ```
 
 For repeatable builds, vendor the verified file and commit the dependency lockfile.
@@ -607,7 +607,7 @@ insufficient cap before contacting the provider.
 
 ## Skills runtime APIs
 
-SDK 0.15.1 keeps the 0.15.0 skill ports and adds Grok subscription
+SDK 0.16.0 keeps the 0.15.x skill ports and completes Grok subscription
 `encrypted_reasoning` content. Callers must keep that entire block on rehydration and must
 not send it to other providers or authentication routes. The block's `item`
 contains the complete original Responses reasoning object, including `summary`
