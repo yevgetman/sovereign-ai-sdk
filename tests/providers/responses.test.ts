@@ -29,9 +29,15 @@ const wire = (events: unknown[]) =>
   new Response(events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(''), {
     headers: { 'content-type': 'text/event-stream' },
   });
+const provenance = {
+  version: 1 as const,
+  routeId: 'grok-subscription' as const,
+  modelId: 'grok-4.7',
+  accountBinding: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+};
 async function collect(response: Response) {
   const events = [];
-  const gen = translateResponsesSse(response, 'test');
+  const gen = translateResponsesSse(response, 'grok', provenance);
   for (;;) {
     const step = await gen.next();
     if (step.done) return { events, message: step.value };
@@ -282,8 +288,17 @@ describe('subscription Responses wire', () => {
       {
         type: 'encrypted_reasoning',
         encryptedContent: ciphertext,
+        routeId: 'grok-subscription',
+        provenance,
         id: 'rs_1',
         status: 'completed',
+        item: {
+          type: 'reasoning',
+          encrypted_content: ciphertext,
+          id: 'rs_1',
+          status: 'completed',
+          summary: [{ type: 'summary_text', text: 'still not ciphertext' }],
+        },
       },
     ]);
     expect(JSON.stringify(message)).not.toContain('do not store this');
@@ -293,10 +308,16 @@ describe('subscription Responses wire', () => {
         model: 'grok-4.7',
         messages: [message],
       },
-      { replayEncryptedReasoning: true },
+      { replayEncryptedReasoning: true, provenance },
     );
     expect(replay).toEqual([
-      { type: 'reasoning', encrypted_content: ciphertext, id: 'rs_1', status: 'completed' },
+      {
+        type: 'reasoning',
+        encrypted_content: ciphertext,
+        id: 'rs_1',
+        status: 'completed',
+        summary: [{ type: 'summary_text', text: 'still not ciphertext' }],
+      },
       { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'hello' }] },
       { type: 'function_call', call_id: 'call_1', name: 'Read', arguments: '{"path":"a"}' },
     ]);

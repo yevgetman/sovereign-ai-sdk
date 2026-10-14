@@ -173,6 +173,7 @@ import type {
   ResolvedPermissionResult,
   ResolvedProvider,
   ResolvedRoute,
+  ResponsesStateProvenance,
   ReviewManagerPort,
   Role,
   RouteDecisionInfo,
@@ -519,6 +520,7 @@ type TypeSurfaceWitness = {
   conductSurface?: ConductSurface;
   conductToolVerdict?: ConductToolVerdict;
   contentBlock?: ContentBlock;
+  responsesStateProvenance?: ResponsesStateProvenance;
   createSessionInput?: CreateSessionInput;
   createTaskInput?: CreateTaskInput;
   delegateInput?: DelegateInput;

@@ -14,6 +14,15 @@ export type Role = 'user' | 'assistant';
  *  layer + project id; `query()` stays project-agnostic and only invokes it. */
 export type RecallTurn = (latestUserText: string | undefined) => Promise<RecallResult>;
 
+/** Nonsecret binding for opaque state. A login lineage is narrower than an account:
+ * refresh retains it; each new login/replacement gets a new value. */
+export type ResponsesStateProvenance = {
+  version: 1;
+  routeId: 'grok-subscription';
+  modelId: string;
+  accountBinding: string;
+};
+
 export type ContentBlock =
   | { type: 'text'; text: string }
   // `signature` is the opaque token Anthropic returns alongside an extended-
@@ -25,7 +34,17 @@ export type ContentBlock =
   // continuation call to preserve reasoning continuity across tool-use turns.
   | { type: 'redacted_thinking'; data: string }
   // Grok Responses ciphertext. Copied, not decoded. Replay is route-gated.
-  | { type: 'encrypted_reasoning'; encryptedContent: string; id?: string; status?: string }
+  | {
+      type: 'encrypted_reasoning';
+      encryptedContent: string;
+      routeId?: 'grok-subscription';
+      provenance?: ResponsesStateProvenance;
+      id?: string;
+      status?: string;
+      /** Complete original Responses item, including empty summary and unknown fields.
+       * Optional only for reading legacy history, which cannot safely be replayed. */
+      item?: Record<string, unknown>;
+    }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
   | {

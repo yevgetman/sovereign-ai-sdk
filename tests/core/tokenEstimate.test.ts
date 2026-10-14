@@ -100,3 +100,22 @@ test('encrypted reasoning counts as text and does not read an image source', () 
   };
   expect(estimateBlockTokens(encrypted)).toBe(estimateBlockTokens({ type: 'text', text: 'abcd' }));
 });
+
+test('complete reasoning item summary and future fields count toward the wire token budget', () => {
+  const item = {
+    type: 'reasoning',
+    encrypted_content: 'abcd',
+    summary: [{ type: 'summary_text', text: 'x'.repeat(10000) }],
+    future: 'y'.repeat(10000),
+  };
+  const block: ContentBlock = {
+    type: 'encrypted_reasoning',
+    encryptedContent: 'abcd',
+    routeId: 'grok-subscription',
+    item,
+  };
+  expect(estimateBlockTokens(block)).toBeGreaterThan(5000);
+  expect(estimateBlockTokens(block)).toBe(
+    estimateBlockTokens({ type: 'tool_use', id: '', name: '', input: item }),
+  );
+});

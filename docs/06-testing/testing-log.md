@@ -1,3 +1,120 @@
+## 2026-10-14 — Grok registry inherits merged critical reasoning confinement
+
+Ordinary merge of critical master `216cf716` into owner-registry PR82 preserves both complete testing histories and both native regression tests. Only additive log/test conflicts required resolution; no runtime conflict occurred. On the combined source, `bun run build`, `bun run lint`, `bun run typecheck`, and `env -u FORCE_COLOR bun run test` pass: 6163 passed, 19 existing skips, zero failures, 26882 assertions, 598 files, 123.05s. The worktree's existing TUI artifact was already present. Root independently ran the critical 27-test replay suite and packed critical Node/Bun consumers before its PR81 merge; all pass. No owner settings, credentials, release or installed-host change.
+
+## 2026-10-14 — Exact Grok reasoning model and login confinement (#69 follow-up)
+
+Scope: isolated PR81 branch `fix/69-grok-reasoning-replay`, based on `3912e719`.
+Environment: macOS arm64, Bun 1.3.13. No release, installation, owner settings,
+production credential write, or master merge. No learning recall was exercised.
+
+Failed-before: `bun test tests/providers/grokReasoningReplay.test.ts
+--test-name-pattern 'changes before inference'` produced **0 pass / 2 fail**:
+changing either `grok-4.7` to `grok-4.6` or the login lineage still sent ciphertext.
+After correction, both refuse before inference. The focused command
+`bun test tests/providers/grokReasoningReplay.test.ts tests/providers/responses.test.ts
+tests/providers/subscription.test.ts tests/providers/subscription-lock.test.ts`
+passed **55 tests / 220 assertions**. Coverage includes two-turn SQLite
+close/reopen with low→auto effort, entire opaque items and original order,
+actual agent tool continuation, exact model/login confinement, concurrent legacy
+lineage initialization, refresh preservation, Keychain parsing, invalid or failed
+lineage storage, and legacy complete-item/no-provenance refusal. Fake ports only;
+credential mutex fixtures use temporary test directories.
+
+Root independently ran `git diff --check` and the two Responses/Grok files:
+**27 pass / 134 assertions**. The first full gate exposed the required public-type
+witness update (**6139 pass / 19 skip / 1 fail**, 26770 assertions). Updating the
+explicit SDK surface witness resolved it; `bun test packages/sdk/tests/surface.test.ts
+tests/providers/grokReasoningReplay.test.ts tests/providers/responses.test.ts`
+then passed **31 tests / 237 assertions**. The additive public type and legacy
+migration are documented in the SDK unreleased changelog; no version is bumped.
+
+Bounded live receipt (root): `bun .issue69-live-probe.ts` passed on `grok-4.7`:
+**two low→auto consecutive turns**, **one pure arithmetic tool call followed by
+successful post-tool model continuation**, **four Responses requests**, **two
+reasoning items**, `store: false`, **zero production credential writes**. The probe
+read an unexpired login once into an ephemeral memory port. It assigned a UUID
+only in memory, refused token-exchange URLs and credential mutations, and printed
+only safe counts/codes. No prompts, replies, tokens or ciphertext were printed.
+The scratch script was moved outside the repository after the receipt. This
+proves this account's bounded continuation path, not general account eligibility.
+
+Final required gates: `bun run build`, `bun run lint`, and `bun run typecheck`
+passed. `bun run tui:build` built the ignored TUI binary before testing.
+`env -u FORCE_COLOR bun run test` passed **6140 tests / 19 existing skips /
+0 failures**, 26770 assertions, 595 files, 120.08 seconds.
+
+## 2026-10-14 — Packed consumer check for Grok reasoning PR (#69)
+
+Root checked functional commit `1d7b92262d212cd5340540613e2d8d1ef9d1e320` with
+`bun run canary`. All packed protocol and SDK consumers passed under Node and Bun.
+The SDK consumer type shapes compile, and the installed packages pass the purity
+check for forbidden Bun SQLite and wrapper imports. The command rebuilds and
+packs the actual public packages; it does not publish them. This receipt adds no
+runtime change. The final source gate and bounded live two-turn evidence are
+recorded in the following entry. Root reran `bun run lint`, `bun run typecheck`
+and `env -u FORCE_COLOR bun run test` before this receipt commit: **6134 pass /
+19 existing skips / 0 fail**, 26747 assertions, 595 files, 118.99s.
+
+## 2026-10-14 — Complete Grok reasoning replay and safe upstream diagnostics (#69)
+
+Scope: isolated `fix/69-grok-reasoning-replay` worktree based on `origin/master`
+`71e25677`. Environment: macOS arm64, Bun 1.3.13. Dependencies installed with
+`bun install --ignore-scripts --frozen-lockfile`; production SDK/protocol output
+built with `bun run build`; ignored Go TUI binary built with `bun run tui:build`.
+No release, upgrade, merge or installed consumer change.
+
+Failed-before evidence: `bun test tests/providers/grokReasoningReplay.test.ts`
+reported **0 pass / 2 fail** against the unmodified implementation. SQLite
+close/reopen replay dropped `summary` and unknown nested fields. HTTP 400
+contract rejection mapped to generic `provider_failed` and retained no safe
+upstream diagnostic. After the fix, focused coverage exercises complete empty
+and nonempty summaries, future fields, original terminal order, saved `low`
+effort followed by `auto`, persistence, legacy-history refusal, direct foreign
+provider/authentication-route refusal before fetch, full-item token budgeting,
+HTTP 400/401/403/413/422/429 diagnostics, huge/malformed/unreadable error bodies,
+owner error distinctions and cancellation during the failure body read.
+
+Focused command: `bun test tests/providers/grokReasoningReplay.test.ts tests/providers/responses.test.ts tests/providers/routes.test.ts tests/core/tokenEstimate.test.ts tests/cli/sdkRunCommand.test.ts tests/providers/subscription.test.ts`.
+The initial final focused pass was **98 pass / 0 fail / 598 assertions**;
+the later cancellation regression passed separately (**11 pass / 0 fail** in
+`grokReasoningReplay.test.ts`). Independent read-only peer review ran **75
+focused tests** and a mixed text/tool/reasoning fixture with repeated reasoning
+IDs and different unknown fields; all passed. Reviewer tests used fake providers.
+
+Live acceptance: a bounded temporary script used the existing unexpired Grok
+subscription login read-only. Two consecutive `grok-4.7` Responses turns
+succeeded with `store: false`: first explicit `low`, then omitted effort
+(`auto`/`high`). Each returned one reasoning item. The same temporary SQLite
+session was closed and reopened between turns, then removed. Credentials,
+ciphertext, prompts and replies were not logged. No owner config, login,
+refresh or owner-session write occurred. This proves one current account's
+arithmetic continuation, not general subscription eligibility. Saved-effort
+changes were tested through a temporary config fixture, not the owner config.
+
+A first full suite pass before the fresh worktree's TUI binary existed reported
+**6114 pass / 19 skip / 17 fail / 2 errors**; all failures were TUI-launcher
+prerequisites or resulting timeouts. After `bun run tui:build`,
+`env -u FORCE_COLOR bun run test` passed **6133 pass / 19 skip / 0 fail**
+(6152 tests, 595 files). Final source retains interruption when an owner cancels
+a failed-body read. Final frozen-source gate results are recorded below.
+
+Final frozen-source gates passed: `bun run build` (SDK/protocol declarations and
+runtime), `bun run lint` (1113 files; no boundary violations, 246 modules and
+976 dependencies), `bun run typecheck` (root and debug console), and
+`env -u FORCE_COLOR bun run test` (**6134 pass / 19 existing skips / 0 fail**,
+6153 tests across 595 files, 26747 assertions, 119.84s). The final focused command
+above passed **99 pass / 0 fail / 601 assertions**. `git diff --check` passed.
+The isolated packed downstream canary is delegated to the parent before PR
+publication; no result is claimed here.
+
+Migration: callers must retain the full opaque `item` and Grok subscription
+route marker during rehydration. Legacy lossy reasoning cannot be recovered and
+requires a new session. A reasoning stream without authoritative terminal output
+fails safely rather than guessing order. No learned-context recall was involved
+in these provider fixtures or direct live adapter probes; this is not evidence
+for the ongoing learning-loop soak.
+
 ## 2026-10-14 — Packed and combined verification after the startup correction (#68/#69)
 
 Root reran `bun run canary` on corrected functional commit

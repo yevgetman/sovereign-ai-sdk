@@ -3,6 +3,7 @@
 // provider layer.
 
 import type { HeaderLike } from './credentials/rateGuard.js';
+import type { UpstreamDiagnostic } from './subscription/diagnostics.js';
 
 export class CredentialUnavailableError extends Error {
   constructor(
@@ -48,6 +49,7 @@ export class SubscriptionAuthExpiredError extends Error {
   constructor(
     readonly provider: string,
     message = `subscription login expired for ${provider}`,
+    readonly upstream?: UpstreamDiagnostic,
   ) {
     super(message);
     this.name = 'SubscriptionAuthExpiredError';
@@ -107,6 +109,7 @@ export class SubscriptionHttpError extends Error {
     readonly provider: string,
     readonly status: number,
     message = `subscription provider ${provider} failed with HTTP ${status}`,
+    readonly upstream?: UpstreamDiagnostic,
   ) {
     super(message);
     this.name = 'SubscriptionHttpError';
@@ -118,6 +121,7 @@ export class SubscriptionTierBlockedError extends Error {
   constructor(
     readonly provider: string,
     message = 'This login tier cannot use the HTTP path. An API-key provider is a separate explicit choice.',
+    readonly upstream?: UpstreamDiagnostic,
   ) {
     super(message);
     this.name = 'SubscriptionTierBlockedError';
@@ -133,6 +137,7 @@ export class ContextOverflowError extends Error {
   constructor(
     readonly provider: string,
     message = 'the prompt does not fit this model',
+    readonly upstream?: UpstreamDiagnostic,
   ) {
     super(message);
     this.name = 'ContextOverflowError';

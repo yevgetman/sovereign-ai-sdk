@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { SubscriptionAuthExpiredError } from '../errors.js';
 import type { SubscriptionRecord } from './port.js';
 
@@ -24,7 +25,12 @@ export function recordFromTokenJson(
   if (typeof row.expires_in === 'number' && Number.isFinite(row.expires_in)) {
     expiresAt = nowMs + row.expires_in * 1000;
   }
-  return { accessToken, refreshToken, expiresAt };
+  return {
+    accessToken,
+    refreshToken,
+    expiresAt,
+    ...(provider === 'grok' && !previousRefresh ? { accountBinding: randomUUID() } : {}),
+  };
 }
 
 export async function readJson(response: Response): Promise<unknown> {
