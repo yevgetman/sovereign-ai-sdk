@@ -159,8 +159,9 @@ export class SubscriptionTierBlockedError extends Error {
 
 /**
  * The provider refused the prompt because it does not fit the model.
- * This class must not start context compression. `isContextOverflowError`
- * returns false for it on purpose.
+ * Hosts must handle this explicitly. `isContextOverflowError` deliberately
+ * excludes it so generic gateway recovery cannot change subscription routes.
+ * The native host may perform one same-route compact-and-retry.
  */
 export class ContextOverflowError extends Error {
   constructor(

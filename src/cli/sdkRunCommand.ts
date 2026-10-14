@@ -1,8 +1,11 @@
 /** Native headless host. No server, no preflight inference, and one SDK store writer. */
+import { randomUUID } from 'node:crypto';
 import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
 import { ContextManagementError } from '@yevgetman/sov-sdk/compact/contextManagement';
 import { loadSettings } from '@yevgetman/sov-sdk/config/loader';
 import type { Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import { toToolSchemas } from '@yevgetman/sov-sdk/mcp/schemaSerialization';
+import type { SessionStore } from '@yevgetman/sov-sdk/persistence/sessionStore';
 import {
   ContextOverflowError,
   PersistBeforeRunError,
@@ -11,8 +14,11 @@ import {
   SubscriptionStreamError,
   SubscriptionTierBlockedError,
   UnknownToolsetError,
+  isContextOverflowError,
 } from '@yevgetman/sov-sdk/providers/errors';
+import { requestInputTokenBound } from '@yevgetman/sov-sdk/providers/modelLimits';
 import { type ModelRecord, findModel } from '@yevgetman/sov-sdk/providers/models/index';
+import { validateModelRequest } from '@yevgetman/sov-sdk/providers/models/validateRequest';
 import {
   RouteError,
   getRoute,
@@ -20,11 +26,18 @@ import {
   routeErrorCodeFor,
   routeSupportsImages,
 } from '@yevgetman/sov-sdk/providers/routes/index';
+import type { SkillContinuityPort } from '@yevgetman/sov-sdk/skills/continuity';
 import { isToolsetName } from '@yevgetman/sov-sdk/tool/toolset';
 import { SessionNotFoundError } from '../server/errors.js';
+import {
+  modelSystemPrompt,
+  selectedTurnModel,
+  shouldCompactModelRequest,
+} from '../server/modelMetadata.js';
 import { buildRuntime } from '../server/runtime.js';
 import type { Runtime, RuntimeOptions } from '../server/runtime.js';
 import {
+  appendInstructions,
   buildTurnCanUseTool,
   composeTurn,
   createSteeringPoller,
@@ -36,6 +49,7 @@ import {
 } from '../server/turnComposition.js';
 import { mapTerminalReason } from '../server/turnRelay.js';
 import { readModelCatalogSnapshot } from './modelDiscovery.js';
+import { type NativeReceipt, nativeTurnMetrics, nativeUsageMeter } from './nativeTurnMetrics.js';
 import type { RunCommandIO, RunOptions } from './runCommand.js';
 import { SdkInputError, parseSdkInput, readSdkStdin } from './sdkInput.js';
 
@@ -138,6 +152,13 @@ export async function runSdkRunCommand(
   let activeStream: AsyncGenerator<StreamEvent | Message, RunResult> | undefined;
   let stage: 'input' | 'route' | 'storage' | 'provider' = 'input';
   let terminalSent = false;
+  const receipts: NativeReceipt[] = [];
+  const skillActivationTurnId = randomUUID();
+  const continuityPorts = new Set<SkillContinuityPort>();
+  let continuityOutcome: 'succeeded' | 'failed' | 'cancelled' = 'failed';
+  const mintedTurnIds: string[] = [];
+  const wire = { block: 0, seq: 0 };
+
   const finish = (obj: Record<string, unknown>) => {
     if (terminalSent) return;
     terminalSent = true;
@@ -305,56 +326,258 @@ export async function runSdkRunCommand(
         'stored encrypted reasoning cannot cross backends',
       );
     }
-    const sessionCtx = runtime.getSessionContext(sessionId);
-    sessionCtx.effort = selected.effort;
-    const canUseTool = buildTurnCanUseTool(runtime, {
-      ask: headlessDenyAsk,
-      permissionMode: runtime.permissionMode,
+    const hostRuntime = runtime;
+    const routeSelection = selected;
+    const modelMetadata = selectedMetadata;
+    const modelSnapshot = selectedTurnModel(selected.provider.name, selected.model, {
+      modelMetadata,
+      maxTokens: runtime.maxTokens,
     });
-    const instructions = gateTurnInstructions(runtime, sessionId, input.instructions);
-    const pollSteering = createSteeringPoller(string(opts.steerFile), (count) =>
-      emit({ type: 'steer_injected', sessionId, count }),
-    );
-    const composed = composeTurn({
-      runtime,
-      persistence,
-      canUseTool,
-      provider: selected.provider,
-      model: selected.model,
-      modelMetadata: selectedMetadata,
-      effort: selected.effort,
-      toolset,
-      ...(instructions !== undefined ? { instructions } : {}),
-      signal: controller.signal,
-      ...(pollSteering !== undefined ? { pollSteering } : {}),
-      traceRecorder: (event) => sessionCtx.traceWriter.record(event),
-    });
-    // User row first; prefix includes this row so SDK does not duplicate it.
+    if (!modelSnapshot) throw new Error('native model evidence unavailable');
+    const hydrate = () =>
+      hydrateSessionHistory(
+        loadStoredMessages(persistence, sessionId as string),
+        sessionId as string,
+      );
+    const makeHop = () => {
+      const id = sessionId as string;
+      const sessionCtx = hostRuntime.getSessionContext(id);
+      sessionCtx.effort = routeSelection.effort;
+      sessionCtx.modelBudget = {
+        provider: modelMetadata.provider,
+        model: modelMetadata.id,
+        contextTokens: modelSnapshot.limits.contextTokens,
+      };
+      if (sessionCtx.skillContinuity) continuityPorts.add(sessionCtx.skillContinuity);
+      const instructions = gateTurnInstructions(hostRuntime, id, input.instructions);
+      const pollSteering = createSteeringPoller(string(opts.steerFile), (count) =>
+        emit({ type: 'steer_injected', sessionId, activeSessionId: sessionId, count }),
+      );
+      // The SDK and cancellation fallback share a settle-once usage writer.
+      // A cooperative provider can finish just after the cancellation race;
+      // that late finalizer must not bill the same partial drive twice.
+      let usageRecorded = false;
+      const hopStore: SessionStore = new Proxy(hostRuntime.sessionDb, {
+        get(target, property) {
+          if (property === 'recordUsageEstimate')
+            return (
+              key: string,
+              usage: Parameters<SessionStore['recordTokenUsage']>[1],
+              estimate: NonNullable<NativeReceipt['costEstimate']>,
+            ) => {
+              if (usageRecorded) return;
+              target.recordUsageEstimate(key, usage, estimate);
+              usageRecorded = true;
+            };
+          const value = Reflect.get(target, property, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+      const composed = composeTurn({
+        runtime: hostRuntime,
+        persistence: { ...persistence, sessionStore: hopStore },
+        rethrow: false,
+        canUseTool: buildTurnCanUseTool(hostRuntime, {
+          ask: headlessDenyAsk,
+          permissionMode: hostRuntime.permissionMode,
+        }),
+        provider: routeSelection.provider,
+        model: routeSelection.model,
+        modelMetadata,
+        effort: routeSelection.effort,
+        toolset,
+        skillActivationTurnId,
+        manageSkillContinuity: true,
+        ...(instructions !== undefined ? { instructions } : {}),
+        signal: controller.signal,
+        ...(pollSteering !== undefined ? { pollSteering } : {}),
+        traceRecorder: (event) => {
+          sessionCtx.traceWriter.record(event);
+          hostRuntime.assayRecorder?.record(event);
+        },
+      });
+      const system = modelSystemPrompt(hostRuntime.systemSegments, composed.tools, modelMetadata);
+      return {
+        composed,
+        sessionCtx,
+        hopStore,
+        system: instructions !== undefined ? appendInstructions(system, instructions) : system,
+      };
+    };
+    const canReduce = (candidate: ReturnType<typeof makeHop>, history: readonly Message[]) => {
+      // Compaction keeps at least four tail rows, including any tool pair
+      // crossing that boundary. Summarizing the head cannot reduce this floor.
+      let start = Math.max(0, history.length - 4);
+      while (
+        start > 0 &&
+        history[start]?.content.some((b) => b.type === 'tool_result') &&
+        history[start - 1]?.content.some((b) => b.type === 'tool_use')
+      )
+        start--;
+      return (
+        requestInputTokenBound(
+          history.slice(start),
+          candidate.system,
+          toToolSchemas(candidate.composed.tools),
+        ) +
+          1 <=
+        modelSnapshot.limits.contextTokens
+      );
+    };
+    // Persist the original prompt once. Each retry reloads the latest durable
+    // transcript, including completed tools, rather than replaying the input.
     persistTurnMessage(persistence, sessionId, input.message);
+    let messages = hydrate();
     emit({
       type: 'session.started',
       sessionId,
+      activeSessionId: sessionId,
       resumed: !!string(opts.resume),
       ...metadata(),
       toolset,
       ...permissionMetadata,
     });
     stage = 'provider';
-    activeStream = composed.agent.run(
-      [...stored, input.message],
-      composed.perTurn({ sessionId, sessionCtx, storedPrefixLength: stored.length + 1 }),
+    const compact = async (): Promise<boolean> => {
+      const id = sessionId as string;
+      const meter = nativeUsageMeter(
+        routeSelection.provider.name,
+        routeSelection.model,
+        modelMetadata,
+      );
+      let receipt: NativeReceipt | undefined;
+      let noOp = false;
+      try {
+        const result = await Promise.race([
+          hostRuntime.compact(messages, id, controller.signal, {
+            onStreamEvent: meter.observe,
+            modelMetadata,
+            effort: routeSelection.effort,
+          }),
+          canceled,
+        ]);
+        noOp = result.noOp === true || result.newSessionId === id;
+        if (noOp) return false;
+        receipt = result.costEstimate ? result : meter.partial();
+        sessionId = result.newSessionId;
+        // Report the durable child before rebuilding anything that may fail.
+        emit({
+          type: 'compaction_complete',
+          sessionId: id,
+          activeSessionId: sessionId,
+          parentSessionId: id,
+          estimatedBeforeTokens: result.estimatedBeforeTokens,
+          estimatedAfterTokens: result.estimatedAfterTokens,
+        });
+        messages = hydrate();
+        return true;
+      } finally {
+        if (!noOp) {
+          const measured = receipt ?? meter.partial();
+          receipts.push(measured);
+          // Successful compactSession writes its own summary receipt. Failed
+          // or cancelled requests have no child; preserve their partial bill.
+          if (!receipt && measured.costEstimate)
+            hostRuntime.sessionDb.recordCompactionUsage(
+              id,
+              measured.usage ?? {},
+              undefined,
+              measured.costEstimate,
+            );
+        }
+      }
+    };
+    let hop = makeHop();
+    const schemas = toToolSchemas(hop.composed.tools);
+    // Capability refusal must precede a paid summary call.
+    validateModelRequest(
+      {
+        model: selected.model,
+        system: hop.system,
+        messages,
+        tools: schemas,
+        maxTokens: modelSnapshot.limits.outputTokens,
+      },
+      selected.provider.name,
+      modelMetadata,
     );
-    const result = await Promise.race([relayNative(activeStream, emit, sessionId), canceled]);
-    sessionCtx.trajectoryMetadata.toolCallCount += result.toolCallCount;
-    sessionCtx.trajectoryMetadata.iterationsUsed += result.iterationsUsed;
-    sessionCtx.trajectoryMetadata.terminalReason = result.terminal.reason;
+    if (
+      shouldCompactModelRequest(
+        messages,
+        hop.system,
+        schemas,
+        modelSnapshot.limits,
+        runtime.proactiveCompactThreshold,
+      )
+    ) {
+      if (canReduce(hop, messages) && (await compact())) hop = makeHop();
+    }
+    const runOnce = async (): Promise<RunResult> => {
+      const id = sessionId as string;
+      const meter = nativeUsageMeter(
+        routeSelection.provider.name,
+        routeSelection.model,
+        modelMetadata,
+      );
+      const turnId = hostRuntime.attestationEvidence?.beginTurn(id, {
+        surface: 'user',
+        model: routeSelection.model,
+      });
+      if (turnId !== undefined) mintedTurnIds.push(turnId);
+      let result: RunResult | undefined;
+      try {
+        activeStream = hop.composed.agent.run(
+          messages,
+          hop.composed.perTurn({
+            sessionId: id,
+            sessionCtx: hop.sessionCtx,
+            storedPrefixLength: messages.length,
+            ...(turnId !== undefined ? { turnId } : {}),
+          }),
+        );
+        result = await Promise.race([
+          relayNative(activeStream, emit, id, wire, meter.observe),
+          canceled,
+        ]);
+        hop.sessionCtx.trajectoryMetadata.toolCallCount += result.toolCallCount;
+        hop.sessionCtx.trajectoryMetadata.iterationsUsed += result.iterationsUsed;
+        hop.sessionCtx.trajectoryMetadata.terminalReason = result.terminal.reason;
+        return result;
+      } finally {
+        if (!result)
+          hop.sessionCtx.trajectoryMetadata.terminalReason = controller.signal.aborted
+            ? 'interrupted'
+            : 'error';
+        const receipt = result?.costEstimate ? result : meter.partial();
+        receipts.push(receipt);
+        if (!result && receipt.costEstimate)
+          hop.hopStore.recordUsageEstimate?.(id, receipt.usage ?? {}, receipt.costEstimate);
+      }
+    };
+    let result = await runOnce();
+    const overflow = (r: RunResult) =>
+      r.terminal.reason === 'error' &&
+      (r.terminal.error instanceof ContextOverflowError ||
+        r.terminal.error instanceof ContextManagementError ||
+        isContextOverflowError(r.terminal.error));
+    if (overflow(result)) {
+      // Independent of proactive compaction: ONE actual recovery retry only.
+      messages = hydrate();
+      const recoveryHop = makeHop();
+      if (canReduce(recoveryHop, messages) && (await compact())) {
+        hop = makeHop();
+        result = await runOnce();
+      }
+    }
     if (result.terminal.reason === 'interrupted' || controller.signal.aborted)
       throw new Error('interrupted');
     if (result.terminal.reason === 'error')
       throw result.terminal.error ?? new Error('provider failed');
+    continuityOutcome = 'succeeded';
     finish({
       type: 'turn.completed',
       sessionId,
+      activeSessionId: sessionId,
       ...metadata(),
       reply:
         result.finalAssistant?.content
@@ -362,7 +585,7 @@ export async function runSdkRunCommand(
           .map((b) => (b.type === 'text' ? b.text : ''))
           .join('') ?? '',
       finishReason: mapTerminalReason(result.terminal),
-      ...(result.usage ? { usage: result.usage } : {}),
+      ...nativeTurnMetrics(receipts),
     });
     return 0;
   } catch (err) {
@@ -385,6 +608,8 @@ export async function runSdkRunCommand(
     finish({
       type: 'turn.error',
       sessionId,
+      activeSessionId: sessionId,
+      ...nativeTurnMetrics(receipts),
       ...metadata(),
       code,
       error: turnErrorText(code, err),
@@ -414,7 +639,14 @@ export async function runSdkRunCommand(
         ? 2
         : 1;
   } finally {
+    if (controller.signal.aborted) continuityOutcome = 'cancelled';
     controller.abort();
+    for (const id of mintedTurnIds) runtime?.attestationEvidence?.endTurn(id);
+    for (const port of continuityPorts)
+      await boundedWait(
+        port.finish(skillActivationTurnId, continuityOutcome).catch(() => {}),
+        1000,
+      );
     if (deadline) clearTimeout(deadline);
     process.off('SIGINT', sigint);
     process.off('SIGTERM', sigterm);
@@ -435,16 +667,18 @@ async function relayNative(
   stream: AsyncGenerator<StreamEvent | Message, RunResult>,
   emit: (event: Record<string, unknown>) => void,
   sessionId: string,
+  wire: { block: number; seq: number },
+  observe: (event: StreamEvent) => void,
 ): Promise<RunResult> {
-  let block = 0;
-  let seq = 0;
   let streamed = false;
   const pending = new Map<string, { block: number; tool: string; input: unknown }>();
-  const send = (event: Record<string, unknown>) => emit({ seq: ++seq, sessionId, ...event });
+  const send = (event: Record<string, unknown>) =>
+    emit({ seq: ++wire.seq, sessionId, activeSessionId: sessionId, ...event });
   while (true) {
     const next = await stream.next();
     if (next.done) return next.value;
     const event = next.value;
+    if (!('role' in event)) observe(event);
     if ('role' in event) {
       for (const content of event.content) {
         if (content.type !== 'tool_result') continue;
@@ -461,19 +695,19 @@ async function relayNative(
         pending.delete(content.tool_use_id);
       }
     } else if (event.type === 'message_start') {
-      block++;
+      wire.block++;
       streamed = false;
     } else if (event.type === 'text_delta') {
       streamed = true;
-      send({ type: 'text_delta', block, text: event.text });
+      send({ type: 'text_delta', block: wire.block, text: event.text });
     } else if (event.type === 'thinking_delta')
-      send({ type: 'thinking_delta', block, text: event.thinking });
+      send({ type: 'thinking_delta', block: wire.block, text: event.thinking });
     else if (event.type === 'assistant_message') {
       for (const content of event.message.content) {
         if (content.type === 'text' && !streamed)
-          send({ type: 'text_delta', block, text: content.text });
+          send({ type: 'text_delta', block: wire.block, text: content.text });
         if (content.type !== 'tool_use') continue;
-        const id = ++block;
+        const id = ++wire.block;
         pending.set(content.id, { block: id, tool: content.name, input: content.input });
         send({
           type: 'tool_use_start',
