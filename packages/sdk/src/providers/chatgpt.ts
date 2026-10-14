@@ -1,12 +1,14 @@
 import { Buffer } from 'node:buffer';
 import type { AssistantMessage, StreamEvent } from '../core/types.js';
 import { VERSION } from '../version.js';
+import { isOwnerChatGptModel } from './models/ownerModelPolicy.js';
 import {
   codexReasoning,
   responsesInput,
   responsesTools,
   translateResponsesSse,
 } from './responses.js';
+import { RouteError } from './routes/errors.js';
 import {
   type AttemptDeps,
   defaultAttemptDeps,
@@ -50,6 +52,22 @@ export class ChatGptSubscriptionProvider implements LLMProvider {
   }
 
   async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+    if (req.modelMetadata?.metadata.ownerManaged) {
+      const metadata = req.modelMetadata;
+      if (!isOwnerChatGptModel(metadata, req.model) || metadata.metadata.retired)
+        throw new RouteError(
+          'model_unsupported',
+          'Owner model metadata does not authorize this ChatGPT request.',
+        );
+      if (
+        metadata.capabilities.reasoning !== 'supported' ||
+        !metadata.efforts?.includes(req.effort ?? 'low')
+      )
+        throw new RouteError(
+          'effort_unsupported',
+          'Owner registry does not verify the selected ChatGPT wire effort.',
+        );
+    }
     let sentRecord: SubscriptionRecord | undefined;
     const response = await subscriptionAttempt({
       provider: this.name,

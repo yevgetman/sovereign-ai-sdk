@@ -11,7 +11,7 @@ import {
   preservesEstablishedReasoning,
   reasoningControlFor,
 } from '../modelReasoning.js';
-import { isOwnerGrokModel } from '../models/ownerModelPolicy.js';
+import { isOwnerChatGptModel, isOwnerSubscriptionModel } from '../models/ownerModelPolicy.js';
 import {
   SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE,
   selectableSubscriptionEfforts,
@@ -55,6 +55,10 @@ export function effortsForModel(
 ): ReasoningEffort[] {
   if (metadata && metadata.routeId !== route.id)
     throw new RouteError('effort_unsupported', 'model metadata belongs to another route');
+  if (route.provider === 'chatgpt' && isOwnerChatGptModel(metadata, model))
+    return metadata?.metadata.retired || metadata?.capabilities.reasoning !== 'supported'
+      ? []
+      : (metadata?.efforts ?? []).filter((effort) => effort !== 'off');
   if (metadata?.metadata.source === SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE) {
     if (metadata.id !== model || metadata.provider !== route.provider)
       throw new RouteError('effort_unsupported', 'model metadata does not match request');
@@ -89,7 +93,7 @@ function resolveModel(
 ): string {
   const ownerId =
     requested === undefined || requested === AUTO_SELECTION ? route.defaultModel : requested;
-  if (route.id === 'grok-subscription' && isOwnerGrokModel(metadata, ownerId)) {
+  if (isOwnerSubscriptionModel(metadata, ownerId) && metadata?.routeId === route.id) {
     if (metadata?.metadata.retired)
       throw new RouteError(
         'model_unsupported',
