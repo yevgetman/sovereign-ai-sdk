@@ -65,7 +65,8 @@ test('subscription catalogs never copy API account availability or make credenti
       });
       expect(catalog.models[0]?.contextWindow).toBe(500_000);
       expect(catalog.models[0]?.capabilities.tools).toBe('supported');
-      expect(catalog.models[0]?.capabilities.images).toBe('unsupported');
+      expect(catalog.models[0]?.capabilities.images).toBe('supported');
+      expect(catalog.models[0]?.capabilities.textOutput).toBe('supported');
       expect(catalog.models[1]?.contextWindow).toBe(500_000);
       expect(catalog.models[1]?.metadata.stale).toBe(false);
     } else {

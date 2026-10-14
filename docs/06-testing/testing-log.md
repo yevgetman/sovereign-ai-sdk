@@ -1,3 +1,35 @@
+## 2026-10-14 — Packed registry consumers and exact publisher modalities (#68)
+
+Root reviewed `a19731e7bdf615fa332de15ed347a98575396e44` and corrected the
+remaining Grok 4.7 pin modality fields. Both pins now report publisher-supported
+text output and image input, verified against
+[xAI release notes](https://docs.x.ai/developers/release-notes) and the
+[Grok 4.6 model page](https://docs.x.ai/developers/models/grok-4.6).
+The subscription route still refuses image input because its transport has no
+image serializer. Publisher model facts and transport support remain separate.
+The focused `bun test tests/providers/models/direct.test.ts tests/providers/models/ownerRegistry.test.ts`
+check passed **20 tests / 176 assertions**. `bun run canary` passed all actual
+packed SDK/protocol consumers under Node and Bun, consumer type shapes and the
+artifact purity check. No package was published. Root ran the full publication
+gate on this corrected source before committing this receipt; its result is
+recorded below. Its first pass reported 6133 pass / 19 skip / 1 fail
+from one remaining old Grok 4.7 image-capability expectation in
+`modelLimits.test.ts`. The assertion now matches the verified publisher metadata.
+The implementation gate and root live unbundled-model evidence
+remain in the following entry.
+
+Final corrected-source publication gate passed: `bun run lint`,
+`bun run typecheck`, and `env -u FORCE_COLOR bun run test`: **6134 pass /
+19 existing skips / 0 fail**, 26750 assertions, 596 files, 118.62s.
+Root also combined this fix with reasoning PR #81 (`3912e719`) in an isolated
+checkout. Only appended tests and testing-log entries conflicted. Both test
+sets and imports were retained. An initial manual test union missed three
+imports; typecheck caught this before tests, and the union was corrected.
+The combined SDK/protocol build, lint/boundary, typecheck and **131 affected
+tests / 852 assertions** across 11 files passed. No runtime code conflict was
+resolved or changed for that combination. These integration checks do not
+merge either PR into master.
+
 ## 2026-10-14 — Issue #68: owner-managed Grok subscription model registry
 
 Scope: exact unbundled Grok subscription selection, verified Grok 4.6 limits,

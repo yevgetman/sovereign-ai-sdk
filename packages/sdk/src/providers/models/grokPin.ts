@@ -22,9 +22,9 @@ export function grokSubscriptionPin(id: GrokSubscriptionModelId): ModelRecord {
     provider: 'grok',
     auth: 'subscription',
     capabilities: {
-      textOutput: id === 'grok-4.6' ? 'supported' : 'unknown',
+      textOutput: 'supported',
       tools: 'supported',
-      images: id === 'grok-4.6' ? 'supported' : 'unsupported',
+      images: 'supported',
       reasoning: 'supported',
     },
     contextWindow: GROK_SUBSCRIPTION_CONTEXT_TOKENS,

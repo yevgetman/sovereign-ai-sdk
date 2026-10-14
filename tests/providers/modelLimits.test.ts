@@ -138,7 +138,7 @@ test('both documented Grok subscription pins fit above the unknown floor', () =>
   expect(current.contextWindow).toBe(500_000);
   expect(current.metadata).toMatchObject({ stale: false, source: 'xai-docs-2026-10-14' });
   expect(current.capabilities.tools).toBe('supported');
-  expect(current.capabilities.images).toBe('unsupported');
+  expect(current.capabilities.images).toBe('supported');
   const limits = resolveModelLimits({
     contextTokens: current.contextWindow,
     outputTokens: current.maxOutputTokens,
