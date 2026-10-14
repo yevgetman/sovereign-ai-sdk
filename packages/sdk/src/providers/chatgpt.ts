@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import type { AssistantMessage, StreamEvent } from '../core/types.js';
+import type { AssistantMessage, ResponsesStateProvenance, StreamEvent } from '../core/types.js';
 import { VERSION } from '../version.js';
 import {
   codexReasoning,
@@ -7,6 +7,7 @@ import {
   responsesTools,
   translateResponsesSse,
 } from './responses.js';
+import { RouteError } from './routes/errors.js';
 import {
   type AttemptDeps,
   defaultAttemptDeps,
@@ -51,23 +52,25 @@ export class ChatGptSubscriptionProvider implements LLMProvider {
 
   async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
     let sentRecord: SubscriptionRecord | undefined;
+    let sentProvenance!: ResponsesStateProvenance;
     const response = await subscriptionAttempt({
       provider: this.name,
       ...(req.signal ? { signal: req.signal } : {}),
       tierBlockedOn403: false,
       deps: this.deps,
       send: () =>
-        this.send(req, (record) => {
+        this.send(req, (record, provenance) => {
           sentRecord = record;
+          sentProvenance = provenance;
         }),
       refresh: () => this.refresh(sentRecord, req.signal),
     });
-    return yield* translateResponsesSse(response, this.name);
+    return yield* translateResponsesSse(response, this.name, sentProvenance);
   }
 
   private async send(
     req: ProviderRequest,
-    remember: (record: SubscriptionRecord) => void,
+    remember: (record: SubscriptionRecord, provenance: ResponsesStateProvenance) => void,
   ): Promise<Response> {
     assertCodexUrl(CHATGPT_RESPONSES_URL);
     const record = await loadFreshRecord(
@@ -76,10 +79,18 @@ export class ChatGptSubscriptionProvider implements LLMProvider {
       this.port,
       this.deps.now,
       (current, signal) => this.exchange(current.refreshToken, signal),
-      req.signal ? { signal: req.signal } : {},
+      { ensureAccountBinding: true, ...(req.signal ? { signal: req.signal } : {}) },
     );
-    remember(record);
-    const body = codexBody(req);
+    if (!record.accountBinding)
+      throw new RouteError('unsupported_input', 'Reasoning login identity is unavailable');
+    const provenance: ResponsesStateProvenance = {
+      version: 1,
+      routeId: 'chatgpt-subscription',
+      modelId: req.model,
+      accountBinding: record.accountBinding,
+    };
+    remember(record, provenance);
+    const body = codexBody(req, provenance);
     return this.fetchImpl(CHATGPT_RESPONSES_URL, {
       method: 'POST',
       redirect: 'error',
@@ -138,7 +149,10 @@ export function assertCodexUrl(url: string): void {
   }
 }
 
-function codexBody(req: ProviderRequest): Record<string, unknown> {
+function codexBody(
+  req: ProviderRequest,
+  provenance: ResponsesStateProvenance,
+): Record<string, unknown> {
   const instructions =
     req.system
       .map((segment) => segment.text)
@@ -147,7 +161,7 @@ function codexBody(req: ProviderRequest): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: req.model,
     instructions,
-    input: responsesInput(req),
+    input: responsesInput(req, { replayEncryptedReasoning: true, provenance }),
     store: false,
     stream: true,
     reasoning: codexReasoning(req.effort),

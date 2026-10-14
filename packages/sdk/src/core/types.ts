@@ -18,7 +18,7 @@ export type RecallTurn = (latestUserText: string | undefined) => Promise<RecallR
  * refresh retains it; each new login/replacement gets a new value. */
 export type ResponsesStateProvenance = {
   version: 1;
-  routeId: 'grok-subscription';
+  routeId: 'grok-subscription' | 'chatgpt-subscription';
   modelId: string;
   accountBinding: string;
 };
@@ -33,11 +33,11 @@ export type ContentBlock =
   // Anthropic-encrypted thinking. `data` is opaque and replayed verbatim on the
   // continuation call to preserve reasoning continuity across tool-use turns.
   | { type: 'redacted_thinking'; data: string }
-  // Grok Responses ciphertext. Copied, not decoded. Replay is route-gated.
+  // Subscription Responses ciphertext. Copied, not decoded. Replay is route-gated.
   | {
       type: 'encrypted_reasoning';
       encryptedContent: string;
-      routeId?: 'grok-subscription';
+      routeId?: 'grok-subscription' | 'chatgpt-subscription';
       provenance?: ResponsesStateProvenance;
       id?: string;
       status?: string;

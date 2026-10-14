@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — ChatGPT stateless reasoning continuation (#74)
+
+**SDK:** ChatGPT now preserves and replays complete reasoning items with `store:false`, including empty summaries and future fields. The optional provenance route type also accepts `chatgpt-subscription`; exact model and nonsecret login lineage remain mandatory for replay. Refresh retains the lineage, and a new login changes it. Other routes refuse these items before inference. This additive type change belongs to a minor release. Legacy unbound reasoning needs a new session.
+
+**Harness:** Native ChatGPT resume accepts its own bound reasoning and rejects foreign route/model state before writing the next user row. Two-turn rehydration and tool continuation pass offline fixtures. The live probe was unavailable because no usable unexpired SOV ChatGPT login was present; no credential refresh or login change was attempted.
+
 ## Unreleased — complete Grok reasoning replay (#69)
 
 **SDK:** `encrypted_reasoning` adds optional `item`, `routeId` and versioned

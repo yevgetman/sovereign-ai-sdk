@@ -1,3 +1,11 @@
+## 2026-10-14 — ChatGPT complete stateless reasoning continuation (#74)
+
+Isolated branch `fix/74-chatgpt-reasoning-replay` on critical #69 commit `65a6b2aa`; macOS arm64, Bun 1.3.13. A real ChatGPT Responses fixture fails both two-turn rehydration and post-tool continuation before correction (2 pass / 2 fail). It passes after complete-item replay and exact route/model/login-lineage binding. Native resume additionally rejects foreign provenance before writing another user row. An existing Grok confinement fixture now carries the complete versioned envelope and retains every original refusal assertion.
+
+`bun test tests/providers/chatgptReasoningReplay.test.ts tests/cli/sdkRunCommand.test.ts tests/providers/grokReasoningReplay.test.ts tests/providers/responses.test.ts tests/providers/subscription.test.ts`: 71 pass / 0 fail / 316 assertions. Coverage includes future nested item fields, empty summaries, unchanged wire item order, four canonical rows across resumed turns, same-turn tool result continuation, changed model/login and foreign-route refusal. Initial after-fix tests exposed the fixture's pretty-printed tool-result assumption and the native foreign-reasoning early-guard gap; both were corrected before the final pass.
+
+`bun run build`, `bun run lint`, `bun run typecheck`, `bun run tui:build`, and `env -u FORCE_COLOR bun run test` pass: 6145 pass / 19 existing skips / 0 fail / 26790 assertions, 596 files, 140.21s. `bun run canary` passes real packed protocol/SDK Node/Bun consumers, public types and artifact purity. `git diff --check` passes. The bounded read-only live probe `bun /private/tmp/issue74-live-probe-20261014.ts` reported unavailable: no usable unexpired SOV ChatGPT login. No production token refresh, login, owner configuration/session write, release or installed-host update occurred. Offline fixtures do not certify live ChatGPT subscription eligibility. OpenAI primary contract consulted: https://developers.openai.com/api/docs/guides/reasoning#preserve-reasoning-without-stored-responses .
+
 ## 2026-10-14 — Exact Grok reasoning model and login confinement (#69 follow-up)
 
 Scope: isolated PR81 branch `fix/69-grok-reasoning-replay`, based on `3912e719`.
