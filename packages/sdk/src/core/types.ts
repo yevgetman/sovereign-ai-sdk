@@ -14,6 +14,15 @@ export type Role = 'user' | 'assistant';
  *  layer + project id; `query()` stays project-agnostic and only invokes it. */
 export type RecallTurn = (latestUserText: string | undefined) => Promise<RecallResult>;
 
+/** Nonsecret binding for opaque state. A login lineage is narrower than an account:
+ * refresh retains it; each new login/replacement gets a new value. */
+export type ResponsesStateProvenance = {
+  version: 1;
+  routeId: 'grok-subscription';
+  modelId: string;
+  accountBinding: string;
+};
+
 export type ContentBlock =
   | { type: 'text'; text: string }
   // `signature` is the opaque token Anthropic returns alongside an extended-
@@ -29,6 +38,7 @@ export type ContentBlock =
       type: 'encrypted_reasoning';
       encryptedContent: string;
       routeId?: 'grok-subscription';
+      provenance?: ResponsesStateProvenance;
       id?: string;
       status?: string;
       /** Complete original Responses item, including empty summary and unknown fields.

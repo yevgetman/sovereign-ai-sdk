@@ -1,6 +1,12 @@
 // Responses wire shared by the two explicitly selected subscription backends.
 // No account/provider fallback. A truncated or failed response is never success.
-import type { AssistantMessage, ContentBlock, StreamEvent, TokenUsage } from '../core/types.js';
+import type {
+  AssistantMessage,
+  ContentBlock,
+  ResponsesStateProvenance,
+  StreamEvent,
+  TokenUsage,
+} from '../core/types.js';
 import { type ReasoningEffort, mapMaxEffort } from './effort.js';
 import { ContextOverflowError, ProviderHttpError } from './errors.js';
 import { RouteError } from './routes/errors.js';
@@ -24,7 +30,7 @@ export function responsesTools(tools?: ToolSchema[]): unknown[] | undefined {
 
 export function responsesInput(
   req: ProviderRequest,
-  options: { replayEncryptedReasoning?: boolean } = {},
+  options: { replayEncryptedReasoning?: boolean; provenance?: ResponsesStateProvenance } = {},
 ): unknown[] {
   const items: unknown[] = [];
   for (const message of req.messages) {
@@ -91,6 +97,25 @@ export function responsesInput(
               'Stored Grok reasoning is incomplete. Start a new session after upgrading.',
             );
           }
+          const stored = block.provenance;
+          const selected = options.provenance;
+          if (
+            !stored ||
+            !selected ||
+            stored.version !== 1 ||
+            selected.version !== 1 ||
+            stored.routeId !== selected.routeId ||
+            stored.routeId !== block.routeId ||
+            stored.modelId !== req.model ||
+            selected.modelId !== req.model ||
+            !stored.accountBinding ||
+            stored.accountBinding !== selected.accountBinding
+          ) {
+            throw new RouteError(
+              'unsupported_input',
+              'Stored reasoning belongs to another model or login. Start a new session.',
+            );
+          }
           // Never synthesize fields: xAI requires complete output items unchanged.
           items.push(structuredClone(block.item));
           break;
@@ -122,6 +147,7 @@ type EncryptedReasoningBlock = Extract<ContentBlock, { type: 'encrypted_reasonin
 function encryptedReasoningBlock(
   item: Record<string, unknown> | undefined,
   provider: string,
+  provenance?: ResponsesStateProvenance,
 ): EncryptedReasoningBlock | undefined {
   if (!item || item.type !== 'reasoning') return undefined;
   if (typeof item.encrypted_content !== 'string' || item.encrypted_content.length === 0)
@@ -131,6 +157,7 @@ function encryptedReasoningBlock(
     encryptedContent: item.encrypted_content,
     item: structuredClone(item),
     ...(provider === 'grok' ? { routeId: 'grok-subscription' as const } : {}),
+    ...(provenance ? { provenance: { ...provenance } } : {}),
   };
   if (typeof item.id === 'string' && item.id.length > 0) block.id = item.id;
   if (typeof item.status === 'string' && item.status.length > 0) block.status = item.status;
@@ -205,6 +232,7 @@ async function* responseEvents(response: Response): AsyncGenerator<Record<string
 export async function* translateResponsesSse(
   response: Response,
   provider: string,
+  provenance?: ResponsesStateProvenance,
 ): AsyncGenerator<StreamEvent, AssistantMessage> {
   yield { type: 'message_start' };
   const content: ContentBlock[] = [];
@@ -258,7 +286,7 @@ export async function* translateResponsesSse(
         content.push({ type: 'tool_use', id: item.call_id, name: item.name, input });
         yield { type: 'tool_use_delta', id: item.call_id, partial: input };
       } else if (item?.type === 'reasoning') {
-        const reasoning = encryptedReasoningBlock(item, provider);
+        const reasoning = encryptedReasoningBlock(item, provider, provenance);
         rememberReasoning(streamedReasoning, streamedReasoningIds, reasoning);
       }
     } else if (event.type === 'response.failed' || event.type === 'error') {
@@ -354,7 +382,7 @@ export async function* translateResponsesSse(
             flushPending();
             sequence.push({ type: 'tool_use', id: item.call_id, name: item.name, input });
           } else if (item?.type === 'reasoning') {
-            const reasoning = encryptedReasoningBlock(item, provider);
+            const reasoning = encryptedReasoningBlock(item, provider, provenance);
             if (reasoning) {
               flushPending();
               sequence.push(reasoning);

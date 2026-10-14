@@ -29,9 +29,15 @@ const wire = (events: unknown[]) =>
   new Response(events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(''), {
     headers: { 'content-type': 'text/event-stream' },
   });
+const provenance = {
+  version: 1 as const,
+  routeId: 'grok-subscription' as const,
+  modelId: 'grok-4.7',
+  accountBinding: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+};
 async function collect(response: Response) {
   const events = [];
-  const gen = translateResponsesSse(response, 'grok');
+  const gen = translateResponsesSse(response, 'grok', provenance);
   for (;;) {
     const step = await gen.next();
     if (step.done) return { events, message: step.value };
@@ -283,6 +289,7 @@ describe('subscription Responses wire', () => {
         type: 'encrypted_reasoning',
         encryptedContent: ciphertext,
         routeId: 'grok-subscription',
+        provenance,
         id: 'rs_1',
         status: 'completed',
         item: {
@@ -301,7 +308,7 @@ describe('subscription Responses wire', () => {
         model: 'grok-4.7',
         messages: [message],
       },
-      { replayEncryptedReasoning: true },
+      { replayEncryptedReasoning: true, provenance },
     );
     expect(replay).toEqual([
       {

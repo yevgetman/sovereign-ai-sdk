@@ -3,7 +3,11 @@ import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { CredentialStoreUnavailableError, SubscriptionRecordUnreadableError } from '../errors.js';
-import type { SubscriptionCredentialPort, SubscriptionRecord } from './port.js';
+import {
+  type SubscriptionCredentialPort,
+  type SubscriptionRecord,
+  isSubscriptionAccountBinding,
+} from './port.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -62,7 +66,10 @@ function parseRecord(raw: string, service: string): SubscriptionRecord {
   if (typeof row.expiresAt !== 'number' || !Number.isFinite(row.expiresAt)) {
     throw new SubscriptionRecordUnreadableError(service);
   }
+  if (row.accountBinding !== undefined && !isSubscriptionAccountBinding(row.accountBinding))
+    throw new SubscriptionRecordUnreadableError(service);
   return {
+    ...(typeof row.accountBinding === 'string' ? { accountBinding: row.accountBinding } : {}),
     accessToken: row.accessToken,
     refreshToken: row.refreshToken,
     expiresAt: row.expiresAt,

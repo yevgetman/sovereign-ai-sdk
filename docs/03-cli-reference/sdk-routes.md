@@ -216,3 +216,21 @@ pool can rotate between accounts, model metadata stays unavailable rather than
 borrowing the first account's catalog. Discovery does not select a pool slot,
 read credential status, or change rotation state. Duplicate slots with the same
 secret retain single-account discovery.
+
+
+## Grok reasoning continuation confinement
+
+Grok Responses reasoning items are stored whole and replayed unchanged in their
+original output order. Their versioned provenance binds them to
+`grok-subscription`, the exact model ID, and a random nonsecret login lineage.
+A refresh preserves the lineage. Every supported new login creates a new lineage;
+legacy credential records acquire one under the credential mutex before inference.
+The lineage is not a token hash or an upstream account identifier. It confines
+reasoning more narrowly than an account: logging in again requires a new session.
+Changing model, route or login refuses replay before inference. Legacy reasoning
+without complete items or provenance also requires a new session.
+
+Injected credential ports must persist the optional `accountBinding` field.
+Replacing a record without that field creates a new lineage. Out-of-band copying
+of an entire credential record, including its lineage, is outside this identity
+contract. No identity is inferred from the Keychain service name alone.

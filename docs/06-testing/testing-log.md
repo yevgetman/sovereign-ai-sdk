@@ -1,3 +1,45 @@
+## 2026-10-14 — Exact Grok reasoning model and login confinement (#69 follow-up)
+
+Scope: isolated PR81 branch `fix/69-grok-reasoning-replay`, based on `3912e719`.
+Environment: macOS arm64, Bun 1.3.13. No release, installation, owner settings,
+production credential write, or master merge. No learning recall was exercised.
+
+Failed-before: `bun test tests/providers/grokReasoningReplay.test.ts
+--test-name-pattern 'changes before inference'` produced **0 pass / 2 fail**:
+changing either `grok-4.7` to `grok-4.6` or the login lineage still sent ciphertext.
+After correction, both refuse before inference. The focused command
+`bun test tests/providers/grokReasoningReplay.test.ts tests/providers/responses.test.ts
+tests/providers/subscription.test.ts tests/providers/subscription-lock.test.ts`
+passed **55 tests / 220 assertions**. Coverage includes two-turn SQLite
+close/reopen with low→auto effort, entire opaque items and original order,
+actual agent tool continuation, exact model/login confinement, concurrent legacy
+lineage initialization, refresh preservation, Keychain parsing, invalid or failed
+lineage storage, and legacy complete-item/no-provenance refusal. Fake ports only;
+credential mutex fixtures use temporary test directories.
+
+Root independently ran `git diff --check` and the two Responses/Grok files:
+**27 pass / 134 assertions**. The first full gate exposed the required public-type
+witness update (**6139 pass / 19 skip / 1 fail**, 26770 assertions). Updating the
+explicit SDK surface witness resolved it; `bun test packages/sdk/tests/surface.test.ts
+tests/providers/grokReasoningReplay.test.ts tests/providers/responses.test.ts`
+then passed **31 tests / 237 assertions**. The additive public type and legacy
+migration are documented in the SDK unreleased changelog; no version is bumped.
+
+Bounded live receipt (root): `bun .issue69-live-probe.ts` passed on `grok-4.7`:
+**two low→auto consecutive turns**, **one pure arithmetic tool call followed by
+successful post-tool model continuation**, **four Responses requests**, **two
+reasoning items**, `store: false`, **zero production credential writes**. The probe
+read an unexpired login once into an ephemeral memory port. It assigned a UUID
+only in memory, refused token-exchange URLs and credential mutations, and printed
+only safe counts/codes. No prompts, replies, tokens or ciphertext were printed.
+The scratch script was moved outside the repository after the receipt. This
+proves this account's bounded continuation path, not general account eligibility.
+
+Final required gates: `bun run build`, `bun run lint`, and `bun run typecheck`
+passed. `bun run tui:build` built the ignored TUI binary before testing.
+`env -u FORCE_COLOR bun run test` passed **6140 tests / 19 existing skips /
+0 failures**, 26770 assertions, 595 files, 120.08 seconds.
+
 ## 2026-10-14 — Packed consumer check for Grok reasoning PR (#69)
 
 Root checked functional commit `1d7b92262d212cd5340540613e2d8d1ef9d1e320` with
