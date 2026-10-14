@@ -159,8 +159,27 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
   // message between summary and tail so the strict-alternation invariant
   // holds for the next provider call. OpenAI tolerates the original
   // sequence; the guard is harmless there.
-  const guardedTail: Message[] =
-    tail[0]?.role === 'assistant' ? [synthesizeBridgeUserMessage(), ...tail] : tail;
+  const guardedTail: Message[] = retainedImages
+    ? [
+        retainedImages,
+        ...(tail[0]?.role === 'user'
+          ? [
+              {
+                role: 'assistant' as const,
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: 'Earlier image references accompany the handoff summary.',
+                  },
+                ],
+              },
+            ]
+          : []),
+        ...tail,
+      ]
+    : tail[0]?.role === 'assistant'
+      ? [synthesizeBridgeUserMessage(), ...tail]
+      : tail;
   const metadata = {
     ...parent.metadata,
     compactedFromSessionId: options.sessionId,
@@ -187,9 +206,6 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
     sessionDb: options.db,
     ...(options.transcripts !== undefined ? { transcripts: options.transcripts } : {}),
   };
-  // The old reference images precede the assistant summary. This keeps the
-  // original tail intact and avoids adjacent user rows on strict transports.
-  if (retainedImages) persistMessage(persistHost, newSessionId, retainedImages);
   persistMessage(persistHost, newSessionId, {
     role: 'assistant',
     content: summaryMessage.content,
@@ -213,20 +229,15 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
   }
 
   const estimatedAfterTokens =
-    options.estimateHistoryTokens?.([
-      ...(retainedImages ? [retainedImages] : []),
-      summaryMessage,
-      ...guardedTail,
-    ]) ??
+    options.estimateHistoryTokens?.([summaryMessage, ...guardedTail]) ??
     estimateSystemPromptTokens(options.systemPrompt) +
-      (retainedImages ? estimateMessageTokens(retainedImages) : 0) +
       estimateMessageTokens(summaryMessage) +
       estimateMessagesTokens(guardedTail);
   return {
     parentSessionId: options.sessionId,
     newSessionId,
     summary,
-    tail: retainedImages ? [retainedImages, ...guardedTail] : guardedTail,
+    tail: guardedTail,
     compactedMessages: head.length,
     estimatedBeforeTokens,
     estimatedAfterTokens,

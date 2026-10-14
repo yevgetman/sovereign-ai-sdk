@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } 
 import { dirname, join } from 'node:path';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import type { Settings } from '@yevgetman/sov-sdk/config/schema';
+import { effectiveSubscriptionImageModel } from '@yevgetman/sov-sdk/providers/models/imageInput';
 import {
   type ModelCatalog,
   type ModelCatalogCache,
@@ -290,7 +291,7 @@ export function modelAuthor(model: ModelRecord): string | undefined {
  * A subscription transport with no image serializer does not rewrite supported or unknown.
  */
 export function subscriptionOperatorModel(model: ModelRecord): ModelRecord {
-  return model;
+  return effectiveSubscriptionImageModel(model);
 }
 
 function subscriptionRefreshError(catalog: ModelCatalog): string {

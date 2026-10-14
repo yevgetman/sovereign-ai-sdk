@@ -1,11 +1,18 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
+import { findModel } from '../../../packages/sdk/src/providers/models/catalog.js';
 import { grokSubscriptionPin } from '../../../packages/sdk/src/providers/models/grokPin.js';
+import { verifiedSubscriptionImageInput } from '../../../packages/sdk/src/providers/models/imageInput.js';
+import {
+  presentOwnerSubscriptionRegistry,
+  validateOwnerGrokRegistry,
+} from '../../../packages/sdk/src/providers/models/ownerRegistry.js';
 import type { ModelRecord } from '../../../packages/sdk/src/providers/models/types.js';
 import { validateModelRecords } from '../../../packages/sdk/src/providers/models/validate.js';
 import { validateModelRequest } from '../../../packages/sdk/src/providers/models/validateRequest.js';
 import { responsesInput } from '../../../packages/sdk/src/providers/responses.js';
 import { routeSupportsImages } from '../../../packages/sdk/src/providers/routes/catalog.js';
 import type { ProviderRequest } from '../../../packages/sdk/src/providers/types.js';
+import { modelPage } from '../../../src/cli/modelDiscovery.js';
 import { modelDetails } from '../../../src/config/modelSuggestions.js';
 
 let clock: ReturnType<typeof spyOn<typeof Date, 'now'>>;
@@ -95,6 +102,24 @@ test('catalog validator preserves exact certification and rejects copied or secr
   expect(JSON.stringify(extra)).not.toContain('never-retain');
 });
 
+test('certificate text rejects terminal controls, bidi controls and control-bearing dates', () => {
+  const pin = grokSubscriptionPin('grok-4.7');
+  const proof = pin.imageInputCertification;
+  for (const change of [
+    { source: 'https://docs.x.ai/path\u001b]52;c;AAAA\u0007' },
+    { source: 'https://docs.x.ai/path\u009b31m' },
+    { source: 'https://docs.x.ai/path\u202eexample' },
+    { source: 'https://docs.x.ai/path\u2066example' },
+    { verifiedAt: 'October 14, 2026\n17:16:08 UTC' },
+    { expiresAt: 'November 13, 2026\n17:16:08 UTC' },
+  ]) {
+    const model = { ...pin, imageInputCertification: { ...proof, ...change } } as ModelRecord;
+    expect(validateModelRecords([model], 'grok-subscription', Date.now())).toBeUndefined();
+    expect(verifiedSubscriptionImageInput(model)).toBeUndefined();
+    expect(modelDetails(model)).toContain('certification unavailable');
+  }
+});
+
 test('certified serializer preserves multiple images across tool continuation without diagnostics', () => {
   const req = request();
   req.messages[0]?.content.push(
@@ -141,4 +166,79 @@ test('subscription attachment count and decoded byte budgets remain bounded', ()
   block.source.data = 'AAAA'.repeat(6 * 1024 * 1024);
   large.messages[0]?.content.push(block, block);
   expect(() => validateModelRequest(large, 'grok', grokSubscriptionPin('grok-4.7'))).toThrow();
+});
+
+test('legacy owner rows use independent exact transport proof and advisory metadata age', () => {
+  const pin = grokSubscriptionPin('grok-4.7');
+  const { imageInputCertification, reasoningControl, ...legacy } = pin;
+  if (!imageInputCertification) throw Error('missing exact live proof');
+  const now = Date.now();
+  const register = (row: ModelRecord) =>
+    validateOwnerGrokRegistry(
+      {
+        version: 1,
+        routeId: 'grok-subscription',
+        state: 'current',
+        fetchedAt: new Date(now).toISOString(),
+        models: [
+          {
+            ...row,
+            metadata: {
+              ...row.metadata,
+              source: 'owner-reviewed',
+              fetchedAt: new Date(now).toISOString(),
+            },
+          },
+        ],
+      },
+      now,
+    );
+  const registered = register(legacy);
+  const owner = registered.models[0];
+  if (!owner) throw Error('missing owner row');
+  expect(owner?.imageInputCertification).toBeUndefined();
+  expect(verifiedSubscriptionImageInput(owner, now)).toBeDefined();
+  expect(findModel(registered, 'grok-4.7').imageInputCertification).toEqual(
+    imageInputCertification,
+  );
+  expect(
+    modelPage(registered, { route: 'grok-subscription' }).models[0]?.imageInputCertification,
+  ).toEqual(imageInputCertification);
+  if (owner) expect(modelDetails(owner)).toContain('live-certified grok-4.7');
+  if (owner) expect(modelDetails(owner)).toContain(`source:${imageInputCertification?.source}`);
+  const aged = presentOwnerSubscriptionRegistry(
+    register({ ...legacy, imageInputCertification }),
+    now + 3600001,
+  ).models[0];
+  expect(aged?.metadata.stale).toBe(true);
+  expect(verifiedSubscriptionImageInput(aged, now + 3600001)).toBeDefined();
+  const unknown = register({
+    ...legacy,
+    capabilities: { ...legacy.capabilities, images: 'unknown' },
+  }).models[0];
+  expect(unknown?.capabilities.images).toBe('unknown');
+  expect(() => validateModelRequest(request(), 'grok', unknown)).toThrow();
+  for (const change of [
+    { metadata: { ...owner?.metadata, retired: true } },
+    { capabilities: { ...pin.capabilities, images: 'unsupported' as const } },
+    {
+      imageInputCertification: { ...imageInputCertification, liveVerification: 'failed' as const },
+    },
+    {
+      imageInputCertification: {
+        ...imageInputCertification,
+        liveVerification: 'unverified' as const,
+      },
+    },
+    {
+      imageInputCertification: {
+        ...imageInputCertification,
+        expiresAt: '2026-10-14T17:30:00.000Z',
+      },
+    },
+  ])
+    expect(
+      verifiedSubscriptionImageInput({ ...owner, ...change } as ModelRecord, now),
+    ).toBeUndefined();
+  expect(verifiedSubscriptionImageInput({ ...owner, id: 'grok-future' }, now)).toBeUndefined();
 });

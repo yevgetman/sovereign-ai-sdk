@@ -1,3 +1,48 @@
+## 2026-10-14 — Issue 79: independent final review corrections
+
+The independent final review found two additional medium defects after the
+first local issue79 commit: established owner rows shadowed the exact bundled
+transport proof, and summary-plus-tail reconstruction differed from the durable
+child history. Root then proved a third medium security defect: certificate
+source text accepted terminal controls that operator details could display.
+All three remain under issue79; no duplicate issue was created.
+
+Supported legacy owner rows for exact Grok 4.7 now receive independent transport
+evidence in effective discovery and request metadata. Owner review age stays
+advisory; the certificate's own expiry controls transport eligibility. Explicit
+unknown/unsupported capability, retirement, failed/unverified/expired proof and
+other models remain refused. Head images now follow the assistant summary in
+the exact returned and persisted sequence. A neutral bridge preserves role
+alternation without changing original tail content or tool-pair adjacency.
+Certificate source, dates and exact identifiers reject terminal and bidi controls.
+
+Before fixes, the two owner/reconstruction regressions failed (0 passed / 2
+failed). The control-text regression also failed before correction (0/1), then
+passed with 18 assertions. Final focused command:
+`bun test tests/providers/models/subscriptionImages.test.ts
+tests/compact/compactor.test.ts tests/cli/sdkSubscriptionImages.test.ts`:
+**32 passed / zero failures / 200 assertions**. It includes two established
+owner-profile native image fixtures, canonical child deep equality, original
+tool-pair adjacency and control-bearing source/date refusal.
+
+`bun run build`, `bun run lint` (including boundary), `bun run typecheck`,
+`bun test --timeout 20000` and `bun run canary` passed. Full suite:
+**6362 passed / 19 existing skips / zero failures**, 27833 assertions across
+612 files in 137.15 seconds. Packed SDK/protocol consumer checks passed under
+Node and Bun. `git diff --check` passed. Durable gate receipts are under
+`/private/tmp/sdk-issue79-certification-20261014/followup-*`.
+
+Independent recheck found no unresolved finding above Low. The source receipt
+is `/private/tmp/sdk-issue79-final-review-20261014/recheck-source.json`.
+The earlier two successful actual native live calls certify the c88f4c00 source
+snapshot; the current follow-up changes image model policy and compaction order,
+so those ten historical file hashes do not all match this final correction.
+The exact provider serializer, PNG/JPEG contract and certificate remain unchanged.
+No further live call was made. The final owner/continuity/control corrections
+are covered by local fixtures, not a fresh live Telegram end-to-end turn.
+No production credentials/settings/session mutation, external message, release
+or installed-host upgrade occurred during this correction.
+
 ## 2026-10-14 — #78 provider-aware request accounting and honest fallback
 
 ## 2026-10-14 — Issue 79: native image preservation and final acceptance

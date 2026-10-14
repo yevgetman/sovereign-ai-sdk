@@ -1,10 +1,33 @@
 import { RouteError } from '../routes/errors.js';
 import type { ProviderRequest } from '../types.js';
+import { grokSubscriptionPin } from './grokPin.js';
+import { isOwnerGrokModel, isOwnerSubscriptionModel } from './ownerModelPolicy.js';
 import type { ImageInputCertification, ModelRecord } from './types.js';
 
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_IMAGES_BYTES = 40 * 1024 * 1024;
+
+/** Evidence is also displayed in operator terminals; reject invisible controls. */
+function safeEvidenceText(value: unknown, max = 2048): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= max &&
+    ![...value].some((char) => {
+      const code = char.charCodeAt(0);
+      return (
+        code < 32 ||
+        (code >= 127 && code <= 159) ||
+        code === 0x061c ||
+        code === 0x200e ||
+        code === 0x200f ||
+        (code >= 0x202a && code <= 0x202e) ||
+        (code >= 0x2066 && code <= 0x2069)
+      );
+    })
+  );
+}
 
 /** Cache/registry data cannot copy a certificate to another exact route or model. */
 export function parseImageInputCertification(
@@ -16,13 +39,14 @@ export function parseImageInputCertification(
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const row = value as Record<string, unknown>;
   if (
+    !safeEvidenceText(row.routeId) ||
+    !safeEvidenceText(row.modelId, 4096) ||
     row.routeId !== routeId ||
     row.modelId !== modelId ||
-    typeof row.source !== 'string' ||
-    row.source.length > 2048 ||
+    !safeEvidenceText(row.source) ||
     !/^https:\/\/[^\s]+$/.test(row.source) ||
-    typeof row.verifiedAt !== 'string' ||
-    typeof row.expiresAt !== 'string' ||
+    !safeEvidenceText(row.verifiedAt, 128) ||
+    !safeEvidenceText(row.expiresAt, 128) ||
     !Number.isFinite(Date.parse(row.verifiedAt)) ||
     !Number.isFinite(Date.parse(row.expiresAt)) ||
     Date.parse(row.verifiedAt) > now ||
@@ -52,17 +76,24 @@ export function verifiedSubscriptionImageInput(
   model: ModelRecord | undefined,
   now = Date.now(),
 ): ImageInputCertification | undefined {
+  const owner = model && isOwnerSubscriptionModel(model, model.id);
+  const independent =
+    model && isOwnerGrokModel(model, model.id) && model.id === 'grok-4.7'
+      ? grokSubscriptionPin('grok-4.7')
+      : undefined;
   if (
     !model ||
     model.auth !== 'subscription' ||
-    model.metadata.stale ||
+    (model.metadata.stale && !owner) ||
     model.metadata.retired ||
     model.capabilities.images !== 'supported' ||
     !['grok-subscription', 'chatgpt-subscription'].includes(model.routeId)
   )
     return undefined;
   const proof = parseImageInputCertification(
-    model.imageInputCertification,
+    model.imageInputCertification === undefined
+      ? independent?.imageInputCertification
+      : model.imageInputCertification,
     model.routeId,
     model.id,
     now,
@@ -70,6 +101,13 @@ export function verifiedSubscriptionImageInput(
   return proof?.liveVerification === 'passed' && Date.parse(proof.expiresAt) > now
     ? proof
     : undefined;
+}
+
+/** Show independent transport proof without changing owner capability/provenance facts. */
+export function effectiveSubscriptionImageModel(model: ModelRecord, now = Date.now()): ModelRecord {
+  if (model.imageInputCertification !== undefined) return model;
+  const proof = verifiedSubscriptionImageInput(model, now);
+  return proof ? { ...model, imageInputCertification: proof } : model;
 }
 
 /** Subscription images require both exact live proof and bounded safe serialization. */

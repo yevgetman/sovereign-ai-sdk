@@ -48,6 +48,11 @@ test('compaction preserves head images once and retains tail image order on resu
     expect(images).toEqual([oldImage, tailImage]);
     expect(db.loadMessages(result.newSessionId).at(-1)?.content).toEqual(history.at(-1)?.content);
     expect(db.loadMessages(parent)[0]?.content).toEqual(history[0]?.content);
+    expect(
+      db
+        .loadMessages(result.newSessionId)
+        .map((message) => ({ role: message.role, content: message.content })),
+    ).toEqual([{ role: 'assistant', content: [text(result.summary)] }, ...result.tail]);
   } finally {
     db.close();
   }
@@ -125,6 +130,59 @@ test('compaction refuses excessive retained images before paying for a summary',
     ).rejects.toThrow('attachment limits');
     expect(summaries).toBe(0);
     expect(db.getCompactionsForParent(parent)).toHaveLength(0);
+  } finally {
+    db.close();
+  }
+});
+
+test('image carry DTO matches stored history and keeps an original tool pair adjacent', async () => {
+  const db = openDb();
+  try {
+    const parent = createParent(db);
+    const image: ContentBlock = {
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'b2xkLWltYWdl' },
+    };
+    const pair: Message[] = [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'original-call', name: 'read', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'original-call', content: 'completed receipt' },
+        ],
+      },
+    ];
+    const history: Message[] = [
+      { role: 'user', content: [image] },
+      { role: 'assistant', content: [text('noted')] },
+      { role: 'user', content: [text('read')] },
+      ...pair,
+    ];
+    const result = await compactSession({
+      db,
+      sessionId: parent,
+      model: 'claude-sonnet-4-6',
+      providerName: 'anthropic',
+      systemPrompt: [],
+      history,
+      tailTokenBudget: 1,
+      minTailMessages: 1,
+      summarize: async () => ({ summary: 'Earlier image remains relevant.', usedAuxiliary: false }),
+    });
+    const child = db
+      .loadMessages(result.newSessionId)
+      .map((message) => ({ role: message.role, content: message.content }));
+    expect(child).toEqual([{ role: 'assistant', content: [text(result.summary)] }, ...result.tail]);
+    expect(child.slice(-2)).toEqual(pair);
+    expect(child.map((message) => message.role)).toEqual([
+      'assistant',
+      'user',
+      'assistant',
+      'user',
+    ]);
   } finally {
     db.close();
   }

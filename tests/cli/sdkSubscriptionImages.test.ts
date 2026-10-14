@@ -4,11 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import { ContextOverflowError } from '@yevgetman/sov-sdk/providers/errors';
+import { grokSubscriptionPin } from '@yevgetman/sov-sdk/providers/models/grokPin';
 import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
+import { macKeychainPort } from '@yevgetman/sov-sdk/providers/subscription/keychain';
 import type { LLMProvider, ProviderRequest, Transport } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import { z } from 'zod';
 import { SessionDb } from '../../src/agent/sessionDb.js';
+import { importOwnerGrokRegistry } from '../../src/cli/ownerModelRegistry.js';
 import { type SdkRunDependencies, runSdkRunCommand } from '../../src/cli/sdkRunCommand.js';
 import { buildRuntime } from '../../src/server/runtime.js';
 
@@ -106,6 +109,69 @@ function final(text = 'image inspected'): AssistantMessage {
 }
 function images(messages: readonly Message[]) {
   return messages.flatMap((message) => message.content.filter((block) => block.type === 'image'));
+}
+
+for (const withCertificate of [false, true]) {
+  test(`native established owner profile admits image with ${withCertificate ? 'fresh certificate and aged metadata' : 'independent legacy transport proof'}`, async () => {
+    const requests: ProviderRequest[] = [];
+    const provider: LLMProvider = {
+      name: 'grok',
+      async *stream(request): AsyncGenerator<StreamEvent, AssistantMessage> {
+        requests.push(request);
+        const answer = final();
+        yield { type: 'assistant_message', message: answer };
+        return answer;
+      },
+    };
+    const f = fixture(provider);
+    const saved = { HOME: process.env.HOME, HARNESS_CONFIG: process.env.HARNESS_CONFIG };
+    process.env.HOME = f.directory;
+    process.env.HARNESS_CONFIG = join(f.directory, 'config.json');
+    try {
+      const pin = grokSubscriptionPin('grok-4.7');
+      const { imageInputCertification, reasoningControl, ...legacy } = pin;
+      const reviewedAt = new Date(Date.now() - 7200000).toISOString();
+      const fake = macKeychainPort({
+        exec: async () => ({
+          code: 0,
+          stdout: JSON.stringify({
+            accessToken: 'FIXTURE-ONLY',
+            refreshToken: 'FIXTURE-ONLY',
+            expiresAt: Date.now() + 100000,
+          }),
+        }),
+      });
+      await importOwnerGrokRegistry(
+        {
+          version: 1,
+          routeId: 'grok-subscription',
+          fetchedAt: reviewedAt,
+          models: [
+            {
+              ...legacy,
+              ...(withCertificate ? { imageInputCertification } : {}),
+              metadata: { source: 'owner-reviewed-fixture', fetchedAt: reviewedAt, stale: false },
+            },
+          ],
+        },
+        { harnessHome: f.directory, port: fake },
+      );
+      expect(await runSdkRunCommand(options, f.io, f.deps)).toBe(0);
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.modelMetadata?.metadata).toMatchObject({
+        ownerManaged: true,
+        stale: true,
+        source: 'owner-reviewed-fixture',
+      });
+      expect(requests[0]?.modelMetadata?.imageInputCertification).toEqual(imageInputCertification);
+      expect(images(requests[0]?.messages ?? [])).toHaveLength(1);
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) Reflect.deleteProperty(process.env, key);
+        else process.env[key] = value;
+      }
+    }
+  });
 }
 
 test('native certified image-only/multiple input persists and resumes through exact model; unverified switch refuses', async () => {

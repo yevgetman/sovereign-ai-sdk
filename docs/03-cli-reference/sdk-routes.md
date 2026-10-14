@@ -89,6 +89,11 @@ Its image certificate permits PNG/JPEG, cites the
 [xAI image contract](https://docs.x.ai/developers/model-capabilities/images/understanding),
 and expires on 2026-11-13. Unknown, stale or expired exact-model certification
 refuses images. Grok 4.6 and ChatGPT have no live image proof and remain refused.
+Legacy owner rows for exact Grok 4.7 can use the independent bundled proof.
+Owner review age remains advisory; certificate age controls image eligibility.
+Explicit owner retirement, unsupported/unknown images or failed/unverified/expired proof
+is preserved. Effective model records and operator copy show the proof source.
+Certificate URLs and dates reject terminal and bidi controls before display.
 
 ### Owner-managed subscription registries
 

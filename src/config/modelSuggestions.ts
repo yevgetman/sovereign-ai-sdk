@@ -58,7 +58,7 @@ export function modelDetails(
       ? `${shown.capabilities.images}; the transport has no image serializer and cannot send images`
       : shown.routeId === 'grok-subscription'
         ? proof
-          ? `${shown.capabilities.images}; live-certified ${shown.id} (${proof.mimeTypes.join('/')}) until ${proof.expiresAt}`
+          ? `${shown.capabilities.images}; live-certified ${shown.id} (${proof.mimeTypes.join('/')}) until ${proof.expiresAt}; source:${proof.source}`
           : `${shown.capabilities.images}; exact-model image certification unavailable or stale; cannot send images`
         : shown.capabilities.images;
   return `tools:${shown.capabilities.tools} · images:${images} · efforts:${efforts} · context:${shown.contextWindow ?? 'unknown'} · availability:${shown.availability}`;
