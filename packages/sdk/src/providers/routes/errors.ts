@@ -34,6 +34,7 @@ export const ROUTE_ERROR_CODES = [
   'unsupported_input',
   'interrupted',
   'storage_failed',
+  'provider_request_rejected',
   'provider_failed',
 ] as const;
 
@@ -91,6 +92,7 @@ function codeForStatus(status: number): RouteErrorCode {
   if (status === 401) return 'auth_expired';
   if (status === 404) return 'model_unsupported';
   if (status === 413) return 'context_overflow';
+  if (status >= 400 && status < 500) return 'provider_request_rejected';
   return 'provider_failed';
 }
 

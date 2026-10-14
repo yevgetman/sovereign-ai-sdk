@@ -715,3 +715,72 @@ test('unknown model budget refuses oversized standing instructions before infere
   expect(c.events.at(-1)).toMatchObject({ type: 'turn.error', code: 'context_overflow' });
   expect(c.events.at(-1)?.error).toContain('Reduce instructions');
 });
+
+test('native owner error distinguishes sanitized upstream rejection from expired login and overflow', async () => {
+  const { GrokSubscriptionProvider } = await import('@yevgetman/sov-sdk/providers/grok');
+  const { SubscriptionAuthExpiredError, ContextOverflowError } = await import(
+    '@yevgetman/sov-sdk/providers/errors'
+  );
+  const provider = new GrokSubscriptionProvider({
+    port: {
+      read: async () => ({
+        accessToken: 'fixture-secret',
+        refreshToken: 'fixture-refresh',
+        expiresAt: Date.now() + 3600000,
+      }),
+      write: async () => {},
+      delete: async () => {},
+    },
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 'invalid_request_error',
+            message:
+              "Missing required parameter: 'input[1].summary'. fixture-secret fixture-ciphertext private prompt",
+          },
+        }),
+        { status: 400 },
+      ),
+  });
+  const f = fixture(provider, undefined, {
+    routeId: 'grok-subscription',
+    model: 'grok-4.7',
+    effort: 'high',
+  });
+  const c = capture();
+  expect(await runSdkRunCommand({ ...opts, route: 'grok-subscription' }, c.io, f.deps)).toBe(1);
+  expect(c.events.at(-1)).toMatchObject({
+    type: 'turn.error',
+    code: 'provider_request_rejected',
+    upstream: {
+      status: 400,
+      code: 'invalid_request_error',
+      message: 'Missing required reasoning field: summary.',
+    },
+  });
+  expect(String(c.events.at(-1)?.error)).toContain('HTTP 400');
+  for (const secret of ['fixture-secret', 'fixture-ciphertext', 'private prompt'])
+    expect(JSON.stringify(c.events)).not.toContain(secret);
+  for (const [err, code] of [
+    [new SubscriptionAuthExpiredError('grok'), 'auth_expired'],
+    [new ContextOverflowError('grok'), 'context_overflow'],
+  ] as const) {
+    const failed: LLMProvider = {
+      name: 'grok',
+      async *stream() {
+        yield { type: 'message_start' };
+        throw err;
+      },
+    };
+    const fixtureError = fixture(failed, undefined, {
+      routeId: 'grok-subscription',
+      model: 'grok-4.7',
+      effort: 'high',
+    });
+    const captured = capture();
+    await runSdkRunCommand({ ...opts, route: 'grok-subscription' }, captured.io, fixtureError.deps);
+    expect(captured.events.at(-1)).toMatchObject({ type: 'turn.error', code });
+    expect(captured.events.at(-1)).not.toHaveProperty('upstream');
+  }
+});

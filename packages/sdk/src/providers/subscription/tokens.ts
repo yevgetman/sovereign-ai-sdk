@@ -1,6 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import { CredentialStoreUnavailableError, SubscriptionAuthExpiredError } from '../errors.js';
 import { type LockOptions, advanceCredentialGeneration, withCredentialLock } from './lock.js';
-import type { SubscriptionCredentialPort, SubscriptionRecord } from './port.js';
+import {
+  type SubscriptionCredentialPort,
+  type SubscriptionRecord,
+  isSubscriptionAccountBinding,
+} from './port.js';
 import { abortError } from './retry.js';
 
 const REFRESH_SKEW_MS = 60_000;
@@ -32,12 +37,22 @@ export async function loadFreshRecord(
   port: SubscriptionCredentialPort,
   now: () => number,
   exchange: RefreshExchange,
-  opts: LockOptions = {},
+  opts: LockOptions & { ensureAccountBinding?: boolean } = {},
 ): Promise<SubscriptionRecord> {
   if (opts.signal?.aborted) throw abortError(opts.signal);
   const current = await port.read(service);
   if (!current) throw new SubscriptionAuthExpiredError(provider);
-  if (current.expiresAt - now() > REFRESH_SKEW_MS) return current;
+  if (
+    opts.ensureAccountBinding &&
+    current.accountBinding !== undefined &&
+    !isSubscriptionAccountBinding(current.accountBinding)
+  )
+    throw new CredentialStoreUnavailableError(provider, 'read_failed');
+  if (
+    current.expiresAt - now() > REFRESH_SKEW_MS &&
+    (!opts.ensureAccountBinding || current.accountBinding)
+  )
+    return current;
   return forceRefresh(provider, service, port, now, exchange, opts);
 }
 
@@ -47,14 +62,30 @@ export function forceRefresh(
   port: SubscriptionCredentialPort,
   now: () => number,
   exchange: RefreshExchange,
-  opts: LockOptions = {},
+  opts: LockOptions & { ensureAccountBinding?: boolean } = {},
 ): Promise<SubscriptionRecord> {
   return withCredentialLock(
     service,
     port,
     async () => {
-      const current = await port.read(service);
+      let current = await port.read(service);
       if (!current) throw new SubscriptionAuthExpiredError(provider);
+      if (
+        opts.ensureAccountBinding &&
+        current.accountBinding !== undefined &&
+        !isSubscriptionAccountBinding(current.accountBinding)
+      )
+        throw new CredentialStoreUnavailableError(provider, 'read_failed');
+      if (opts.ensureAccountBinding && !current.accountBinding) {
+        // Legacy records acquire a lineage exactly once, inside the credential mutex.
+        // A failed write cannot authorize inference with an unpersisted identity.
+        if (opts.signal?.aborted) throw abortError(opts.signal);
+        current = { ...current, accountBinding: randomUUID() };
+        await advanceCredentialGeneration(port, service);
+        if (opts.signal?.aborted) throw abortError(opts.signal);
+        await port.write(service, current);
+        if (opts.signal?.aborted) throw abortError(opts.signal);
+      }
       if (current.expiresAt - now() > REFRESH_SKEW_MS) return current;
       return exchangeAndSave(provider, service, port, current, exchange, opts.signal);
     },
@@ -81,7 +112,8 @@ export function exchangeUnderLock(
         rejected &&
         (current.accessToken !== rejected.accessToken ||
           current.refreshToken !== rejected.refreshToken ||
-          current.expiresAt !== rejected.expiresAt)
+          current.expiresAt !== rejected.expiresAt ||
+          current.accountBinding !== rejected.accountBinding)
       )
         return current;
       return exchangeAndSave(provider, service, port, current, exchange, opts.signal);
@@ -132,6 +164,8 @@ async function exchangeAndSave(
   // Writes stay inside the mutex. A write failure is storage failure, not a
   // successful refresh; never send inference using the unpersisted token.
   await advanceCredentialGeneration(port, service);
+  // Refresh is the same login/account; exchanges must never replace its lineage.
+  if (current.accountBinding) next = { ...next, accountBinding: current.accountBinding };
   await port.write(service, next);
   return next;
 }

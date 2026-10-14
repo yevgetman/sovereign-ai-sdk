@@ -1,4 +1,4 @@
-import type { AssistantMessage, StreamEvent } from '../core/types.js';
+import type { AssistantMessage, ResponsesStateProvenance, StreamEvent } from '../core/types.js';
 import { type ReasoningEffort, mapMaxEffort } from './effort.js';
 import { isGrokSubscriptionModelId } from './models/grokPin.js';
 import { responsesInput, responsesTools, translateResponsesSse } from './responses.js';
@@ -48,23 +48,25 @@ export class GrokSubscriptionProvider implements LLMProvider {
     // Refuse before subscriptionAttempt so a bad id or `off` performs no fetch.
     assertGrokSubscriptionRequest(req);
     let sentRecord: SubscriptionRecord | undefined;
+    let sentProvenance!: ResponsesStateProvenance;
     const response = await subscriptionAttempt({
       provider: this.name,
       ...(req.signal ? { signal: req.signal } : {}),
       tierBlockedOn403: true,
       deps: this.deps,
       send: () =>
-        this.send(req, (record) => {
+        this.send(req, (record, provenance) => {
           sentRecord = record;
+          sentProvenance = provenance;
         }),
       refresh: () => this.refresh(sentRecord, req.signal),
     });
-    return yield* translateResponsesSse(response, this.name);
+    return yield* translateResponsesSse(response, this.name, sentProvenance);
   }
 
   private async send(
     req: ProviderRequest,
-    remember: (record: SubscriptionRecord) => void,
+    remember: (record: SubscriptionRecord, provenance: ResponsesStateProvenance) => void,
   ): Promise<Response> {
     assertGrokSubscriptionRequest(req);
     const record = await loadFreshRecord(
@@ -73,13 +75,17 @@ export class GrokSubscriptionProvider implements LLMProvider {
       this.port,
       this.deps.now,
       (current, signal) => this.exchange(current.refreshToken, signal),
-      req.signal ? { signal: req.signal } : {},
+      { ensureAccountBinding: true, ...(req.signal ? { signal: req.signal } : {}) },
     );
-    remember(record);
+    const provenance = grokProvenance(req, record);
+    remember(record, provenance);
     const tools = responsesTools(req.tools);
     const body: Record<string, unknown> = {
       model: req.model,
-      input: responsesInput(req, { replayEncryptedReasoning: true }),
+      input: responsesInput(req, {
+        replayEncryptedReasoning: true,
+        provenance,
+      }),
       instructions: req.system.map((segment) => segment.text).join('\n'),
       max_output_tokens: req.maxTokens,
       stream: true,
@@ -154,4 +160,18 @@ function grokWireEffort(effort: ReasoningEffort | undefined): string {
     throw new RouteError('effort_unsupported', 'Grok subscription cannot disable reasoning');
   }
   return mapMaxEffort(effort ?? 'high', 'xhigh');
+}
+
+function grokProvenance(
+  req: ProviderRequest,
+  record: SubscriptionRecord,
+): ResponsesStateProvenance {
+  if (!record.accountBinding)
+    throw new RouteError('unsupported_input', 'Reasoning login identity is unavailable');
+  return {
+    version: 1,
+    routeId: 'grok-subscription',
+    modelId: req.model,
+    accountBinding: record.accountBinding,
+  };
 }
