@@ -359,7 +359,12 @@ tokens remain in the result. This rule covers context aggregation.
 `web`, `ops`, and `coding` toolsets. A custom profile lists canonical tool names,
 including external/MCP names explicitly. It filters the supplied pool; it does
 not create tools or grant permission. Pass it as `AgentConfig.capabilityProfiles`
-and select it with `toolset`, or put it on a scheduler `ChildPolicy`.
+and select it with `toolset`, or put it on a scheduler `ChildPolicy`. The effective pool
+also controls the `<available-tools>` prompt segment, skill visibility, ToolSearch
+discovery and child inheritance. Skill activation can only narrow that pool;
+continuation requests update the inventory. An empty pool removes the inventory
+segment. Deferred tools require ToolSearch in the same effective pool; otherwise
+they are excluded. Standing instructions are preserved.
 
 The scheduler's optional `childPolicy` carries `inheritedConfig`: parent hooks,
 recall, observation, Conduct governance, context-management ports, reasoning and

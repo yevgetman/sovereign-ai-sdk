@@ -10,7 +10,9 @@ import type { HookRunner } from '../hooks/types.js';
 import type { CanUseTool } from '../permissions/types.js';
 import { buildTool } from '../tool/buildTool.js';
 import { intersectCanUseTool } from '../tool/capabilityProfiles.js';
+import { effectiveToolInventory } from '../tool/effectiveInventory.js';
 import { buildToolScope, filterParseableRules } from '../tool/toolScope.js';
+import { wrapToolsetCanUseTool } from '../tool/toolset.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import { assertSkillInvocable } from './descriptor.js';
 import { assertSkillContentLoaded, expandSkillPrompt, reloadSkill } from './loader.js';
@@ -202,6 +204,17 @@ async function activateSkillSerial(
     canUseTool: opts.state.restrictionCanUseTool,
     allowedTools: rules,
   });
+  // Removing discovery also removes deferred capabilities immediately, so
+  // serial calls in this activation's batch cannot use an obsolete pool.
+  const effectiveTools = effectiveToolInventory(scope.tools);
+  if (effectiveTools.length !== scope.tools.length) {
+    scope.canUseTool = wrapToolsetCanUseTool(scope.canUseTool, effectiveTools);
+    restrictionScope.canUseTool = wrapToolsetCanUseTool(
+      restrictionScope.canUseTool,
+      effectiveTools,
+    );
+  }
+  scope.tools = effectiveTools;
   // A child callback only narrows the host-authorized input. Preserve host
   // rewrites and denials instead of replacing them with its allow result.
   const childCeiling = independentChildPermission(opts.state, opts.toolContext.canUseTool);

@@ -1,3 +1,15 @@
+## 2026-10-14 — Atomic master integration of effective tool inventory (#76)
+
+Ordinary merge of `040c3230` into master `d1568102` retains the critical reasoning,
+owner catalogs and explicit permission precedence. Additive changelog/testing-log
+conflicts preserve both histories; query and model metadata auto-merge. In the
+isolated integration worktree, `bun run build`, `bun run tui:build`, `bun run lint`
+(including boundary), `bun run typecheck`, and `env -u FORCE_COLOR bun run test`
+pass: **6262 passed / 19 existing skips / zero failures**, 27219 assertions,
+601 files, 129.52 seconds. Inventory/schema/dispatch and inherited discovery
+regressions run in that gate. No production config, credential, installed binary
+or release changes. No live learning-loop soak observation was produced.
+
 ## 2026-10-14 — Atomic master integration of explicit permission precedence (#77)
 
 Ordinary merge of `5c9a5407` into master `0ef3c0ea` retains the existing critical
@@ -319,6 +331,18 @@ After the correction, native omitted and explicit `bypass` fixtures execute once
 Focused command `env -u FORCE_COLOR bun test tests/server/runtime.permissionPrecedence.test.ts tests/server/runtime.test.ts tests/cli/sdkRunCommand.test.ts tests/cli/runCommand.test.ts tests/channels/permission.test.ts tests/server/gatewayEndToEnd.test.ts tests/cron/wiring.test.ts` passed: 141 pass / 0 fail / 318 assertions across 7 files. This includes existing gateway approval, channel isolation, and cron safe-default behavior.
 
 `bun run build`, `env -u FORCE_COLOR bun run lint` (Biome and boundary: 245 modules / 973 dependencies), and `env -u FORCE_COLOR bun run typecheck` passed. `env -u FORCE_COLOR bun run tui:build` and `go test ./...` in `packages/tui` passed. `env -u FORCE_COLOR bun run test` passed: 6186 pass / 19 existing skips / 0 fail / 26756 assertions, 6205 tests across 595 files (121.44s). Paid-provider and retired-feature skips remain unproven by these offline fixtures.
+
+## 2026-10-14 — Issue #76 effective tool inventory regression and gate
+
+Scope: model prompt inventory, SDK toolsets and capability profiles, inherited and mid-turn skill scopes, deferred discovery, permission and execution lookup, native child inheritance, SOV composition and gateway preflight. Isolated branch `fix/76-effective-tool-inventory` at `/private/tmp/sdk-issue76-20261014`, based on `71e25677`. Bun 1.3.13; `FORCE_COLOR` unset for the final checks. No machine configuration, installed binary, credential or release changes.
+
+Before correction, `bun test tests/server/modelMetadata.test.ts` failed because current verified model metadata retained a forbidden boot inventory and retained its segment for an empty pool. Added AgentTool regression failed because delegation retained a forbidden tool from an older batch context. A real skill activation that removed ToolSearch still allowed one deferred tool effect in the same batch; its regression failed with effect count 1 and passes with 0 after correction. An intermediate full gate identified a generic ToolContext identity regression; the final implementation preserves identity and restores transient inventory fields, including reuse across web and ops turns.
+
+Final focused command: `env -u FORCE_COLOR bun test tests/server/modelMetadata.test.ts tests/tools/toolSearchTool.test.ts tests/agent/effectiveToolInventory.test.ts tests/tools/agentTool.test.ts tests/skills/runtimeVisibility.test.ts tests/skills/activation.test.ts tests/skills/activationChildPermissions.test.ts tests/cli/missionRun.test.ts` — **102 pass, 0 fail**, 409 assertions across 8 files. The matrix covers chat/web/ops/coding/custom and current/stale/unknown metadata, unchanged standing directives, empty pools, deferred discovery under the same scope, forbidden calls with no effects, inherited and same-batch activation, skill visibility and matching parent pools. Host composition tests also check its returned pool and permission gate.
+
+Exact final-source gate: `env -u FORCE_COLOR bun run lint`, `env -u FORCE_COLOR bun run typecheck`, `env -u FORCE_COLOR bun run build`, `env -u FORCE_COLOR bun run tui:build`, and `env -u FORCE_COLOR bun run test` all passed. Boundary: 246 modules / 980 dependencies, no violations. Full Bun suite: **6142 pass, 19 existing skips, 0 fail**, 26828 assertions across 595 files (122.56s). `env -u FORCE_COLOR go test ./...` in `packages/tui` passed all Go packages; no Go source was changed. `git diff --check` passed.
+
+Native live chat/web and actual packed downstream consumer checks were not run in this isolated pass; they remain integration checks. These deterministic probes prove inventory and execution policy, not a live model's promises or learning-loop value. No learning recall/synthesis result was evaluated.
 
 ## 2026-10-13 — SDK 0.15.1 / SOV 0.6.79 public cut
 
