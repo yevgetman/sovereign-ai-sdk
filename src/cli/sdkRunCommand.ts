@@ -16,7 +16,6 @@ import {
   UnknownToolsetError,
   isContextOverflowError,
 } from '@yevgetman/sov-sdk/providers/errors';
-import { requestInputTokenBound } from '@yevgetman/sov-sdk/providers/modelLimits';
 import { type ModelRecord, findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import { validateModelRequest } from '@yevgetman/sov-sdk/providers/models/validateRequest';
 import {
@@ -26,6 +25,7 @@ import {
   routeErrorCodeFor,
   routeSupportsImages,
 } from '@yevgetman/sov-sdk/providers/routes/index';
+import { modelInputTokenAccounting } from '@yevgetman/sov-sdk/providers/tokenAccounting';
 import type { SkillContinuityPort } from '@yevgetman/sov-sdk/skills/continuity';
 import { isToolsetName } from '@yevgetman/sov-sdk/tool/toolset';
 import { SessionNotFoundError } from '../server/errors.js';
@@ -329,6 +329,7 @@ export async function runSdkRunCommand(
     const hostRuntime = runtime;
     const routeSelection = selected;
     const modelMetadata = selectedMetadata;
+    const inputTokenAccounting = modelInputTokenAccounting(routeSelection.provider.name);
     const modelSnapshot = selectedTurnModel(selected.provider.name, selected.model, {
       modelMetadata,
       maxTokens: runtime.maxTokens,
@@ -414,14 +415,18 @@ export async function runSdkRunCommand(
         history[start - 1]?.content.some((b) => b.type === 'tool_use')
       )
         start--;
+      const accounting = inputTokenAccounting({
+        model: routeSelection.model,
+        messages: [...history.slice(start)],
+        system: candidate.system,
+        tools: toToolSchemas(candidate.composed.tools),
+        maxTokens: 1,
+        modelMetadata,
+      });
+      // Unknown tokenizer: let the single upstream-overflow recovery attempt
+      // try a smaller history; an advisory byte bound cannot veto it.
       return (
-        requestInputTokenBound(
-          history.slice(start),
-          candidate.system,
-          toToolSchemas(candidate.composed.tools),
-        ) +
-          1 <=
-        modelSnapshot.limits.contextTokens
+        accounting.enforce === false || accounting.tokens + 1 <= modelSnapshot.limits.contextTokens
       );
     };
     // Persist the original prompt once. Each retry reloads the latest durable
@@ -453,6 +458,9 @@ export async function runSdkRunCommand(
             onStreamEvent: meter.observe,
             modelMetadata,
             effort: routeSelection.effort,
+            inputTokenAccounting,
+            inputSystem: hop.system,
+            inputTools: toToolSchemas(hop.composed.tools),
           }),
           canceled,
         ]);
@@ -489,6 +497,32 @@ export async function runSdkRunCommand(
     };
     let hop = makeHop();
     const schemas = toToolSchemas(hop.composed.tools);
+    const accounting = inputTokenAccounting({
+      model: routeSelection.model,
+      messages,
+      system: hop.system,
+      tools: schemas,
+      maxTokens: modelSnapshot.limits.outputTokens,
+      modelMetadata,
+    });
+    emit({
+      type: 'context.accounting',
+      sessionId,
+      activeSessionId: sessionId,
+      ...accounting,
+      effectiveLimit: modelSnapshot.limits.contextTokens,
+      requestedOutput: modelSnapshot.limits.outputTokens,
+      reservedOutput:
+        accounting.enforce === false
+          ? modelSnapshot.limits.outputTokens
+          : Math.max(
+              0,
+              Math.min(
+                modelSnapshot.limits.outputTokens,
+                modelSnapshot.limits.contextTokens - accounting.tokens,
+              ),
+            ),
+    });
     // Capability refusal must precede a paid summary call.
     validateModelRequest(
       {
@@ -508,6 +542,7 @@ export async function runSdkRunCommand(
         schemas,
         modelSnapshot.limits,
         runtime.proactiveCompactThreshold,
+        { counter: inputTokenAccounting, model: routeSelection.model, metadata: modelMetadata },
       )
     ) {
       if (canReduce(hop, messages) && (await compact())) hop = makeHop();

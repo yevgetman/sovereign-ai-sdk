@@ -346,7 +346,16 @@ schemas still carry descriptions and parameter definitions. Standing directives,
 project files and per-turn instructions remain intact. Output is a ceiling: the
 SDK can reserve fewer tokens to fit the input in the conservative window. It
 reports that actual reservation in the trace. An irreducible input overflow
-produces a clear context-budget error before inference.
+with a supported local/host counter produces a context-budget error before inference.
+For native models without a verified tokenizer, the byte upper bound is advisory:
+it neither refuses a turn nor buys proactive compaction. The provider validates
+these uncertain requests, with one bounded overflow-compaction retry. Images and
+opaque reasoning remain uncounted until a verified host counter covers them.
+`context.accounting` JSON events and provider-request traces expose local measured
+text tokens, conservative tokens, source/version, incomplete modalities,
+effective limit, output reservation, and whether the estimate enforces admission.
+Local serialized-text counts are estimates of provider framing, not measured
+publisher input usage.
 
 Model menus and the first-turn context budget use the active runtime node’s catalog and account settings. Config model changes and discard actions use that same node’s config path. An explicit config-path environment override still takes precedence.
 

@@ -504,7 +504,7 @@ test('model and config pickers select a registry future ID and keep retired save
   }
 });
 
-test('Kernel-sized input reaches ChatGPT with reviewed stale limits; unknown limits refuse it', async () => {
+test('Kernel-sized input reaches ChatGPT with reviewed stale limits; unknown tokenizer stays advisory', async () => {
   const metadata = validateOwnerChatGptRegistry(registry(), now + 7200000).models[0] as ModelRecord;
   expect(
     selectedTurnModel('chatgpt', metadata.id, { modelMetadata: metadata })?.limits.contextTokens,
@@ -539,8 +539,8 @@ test('Kernel-sized input reaches ChatGPT with reviewed stale limits; unknown lim
   expect(calls).toBe(1);
   expect(
     (await run({ ...metadata, contextWindow: undefined, maxOutputTokens: undefined })).reason,
-  ).toBe('error');
-  expect(calls).toBe(1);
+  ).toBe('completed');
+  expect(calls).toBe(2);
 });
 
 test('re-import changes exact limits and efforts without a package release or settings write', async () => {

@@ -52,6 +52,16 @@ export type RequestInputTokenEstimate = {
   /** False means image-token costs still require a host counter or provider validation. */
   complete: boolean;
   uncountedImages: number;
+  /** Local tokenizer measurement of serialized text, not provider-reported usage. */
+  measuredTokens?: number;
+  conservativeTokens?: number;
+  source?: string;
+  version?: string;
+  uncountedModalities?: string[];
+  /** False: advisory only. Provider validation owns the context boundary. */
+  enforce?: boolean;
+  effectiveLimit?: number;
+  reservedOutput?: number;
 };
 
 /** Conservative text/framing bound. Image data and remote references are

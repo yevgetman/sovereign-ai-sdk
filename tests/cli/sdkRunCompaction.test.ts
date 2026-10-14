@@ -86,6 +86,34 @@ function isSummary(req: ProviderRequest) {
     segment.text.includes('compressing an agent harness conversation'),
   );
 }
+
+test('fitting Kernel-sized native input avoids byte-derived overflow and paid compaction', async () => {
+  let summaries = 0;
+  let main = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(request) {
+      if (isSummary(request)) summaries++;
+      else main++;
+      const message = answer();
+      yield { type: 'assistant_message', message };
+      return message;
+    },
+  };
+  const f = fixture(provider);
+  f.io.readStdin = async () =>
+    JSON.stringify({ inputVersion: 1, text: 'The owner wants a clear answer. '.repeat(2500) });
+  expect(await runSdkRunCommand({ ...opts, resume: f.parent }, f.io, f.deps)).toBe(0);
+  expect(main).toBe(1);
+  expect(summaries).toBe(0);
+  expect(f.events.find((event) => event.type === 'context.accounting')).toMatchObject({
+    complete: true,
+    enforce: true,
+    effectiveLimit: 32768,
+    reservedOutput: 100,
+    source: 'openai/gpt-4.1:js-tiktoken/o200k_base:chunked-wire-estimate',
+  });
+});
 function answer(text = 'done'): AssistantMessage {
   return { role: 'assistant', content: [{ type: 'text', text }] };
 }
@@ -159,7 +187,7 @@ test.each([false, true])(
       },
     };
     const f = fixture(provider, (runtime) => {
-      runtime.proactiveCompactThreshold = 0.1;
+      runtime.proactiveCompactThreshold = 0.005;
       const getContext = runtime.getSessionContext.bind(runtime);
       runtime.getSessionContext = (id) => {
         contexts.push(id);
@@ -307,7 +335,7 @@ test.each(['summary', 'retry'] as const)(
       },
     };
     const f = fixture(provider, (runtime) => {
-      if (phase === 'summary') runtime.proactiveCompactThreshold = 0.1;
+      if (phase === 'summary') runtime.proactiveCompactThreshold = 0.005;
     });
     const start = Date.now();
     expect(
@@ -387,7 +415,7 @@ test.each([false, true])(
       },
     };
     const f = fixture(provider, (runtime) => {
-      if (proactive) runtime.proactiveCompactThreshold = 0.1;
+      if (proactive) runtime.proactiveCompactThreshold = 0.005;
       runtime.toolPool.splice(
         0,
         runtime.toolPool.length,
@@ -461,7 +489,7 @@ test('native post-pivot setup failure still reports the newest child', async () 
     },
   };
   const f = fixture(provider, (runtime) => {
-    runtime.proactiveCompactThreshold = 0.1;
+    runtime.proactiveCompactThreshold = 0.005;
     const original = runtime.getSessionContext.bind(runtime);
     let count = 0;
     runtime.getSessionContext = (id) => {
@@ -494,14 +522,14 @@ test.each(['system', 'schema', 'latest-input'] as const)(
       },
     };
     const f = fixture(provider, (runtime) => {
-      runtime.proactiveCompactThreshold = 0.1;
+      runtime.proactiveCompactThreshold = 0.005;
       if (fixed === 'schema')
         runtime.toolPool.splice(
           0,
           runtime.toolPool.length,
           buildTool<unknown, unknown>({
             name: 'probe',
-            description: () => 'schema '.repeat(6000),
+            description: () => 'schema '.repeat(40000),
             inputSchema: z.unknown(),
             async call() {
               throw new Error('must not execute');
@@ -510,12 +538,13 @@ test.each(['system', 'schema', 'latest-input'] as const)(
         );
       if (fixed === 'system')
         runtime.systemSegments.splice(0, runtime.systemSegments.length, {
-          text: 's'.repeat(40000),
+          text: 'owner '.repeat(40000),
           cacheable: false,
         });
     });
     if (fixed === 'latest-input')
-      f.io.readStdin = async () => JSON.stringify({ inputVersion: 1, text: 'u'.repeat(40000) });
+      f.io.readStdin = async () =>
+        JSON.stringify({ inputVersion: 1, text: 'owner '.repeat(40000) });
     expect(
       await runSdkRunCommand(
         { ...opts, resume: f.parent, toolset: fixed === 'schema' ? 'coding' : 'chat' },
