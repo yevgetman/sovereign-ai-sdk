@@ -99,6 +99,7 @@ import {
 } from '../skills/activation.js';
 import type { SkillRuntime } from '../skills/runtime.js';
 import type { CapabilityProfileRegistry } from '../tool/capabilityProfiles.js';
+import { effectiveToolInventory, projectToolInventory } from '../tool/effectiveInventory.js';
 import type { LearningObserverPort } from '../tool/ports.js';
 import {
   defaultMaxTurns,
@@ -478,6 +479,8 @@ export function createAgent(config: AgentConfig): Agent {
             : tools.slice()
           : filterToolsForToolset(tools ?? [], requestedToolset);
     }
+    if (tools !== undefined) tools = effectiveToolInventory(tools);
+    effectiveSystemPrompt = projectToolInventory(effectiveSystemPrompt, tools ?? []);
     const cwd = config.cwd ?? process.cwd();
     const baseToolContext = resolveToolContext(
       perTurn.toolContext,

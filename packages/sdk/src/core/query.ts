@@ -49,6 +49,7 @@ import { reloadSkill } from '../skills/loader.js';
 import { getSkillRegistry, getSkillRegistrySnapshot } from '../skills/registry.js';
 import { inferActiveToolsets } from '../skills/visibility.js';
 import { intersectCanUseTool } from '../tool/capabilityProfiles.js';
+import { effectiveToolInventory, projectToolInventory } from '../tool/effectiveInventory.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { type TurnSummary, detectStall } from '../util/stall.js';
@@ -235,6 +236,7 @@ async function* queryInternal(
     const inheritedNames = new Set(inheritedActivation.tools.map((tool) => tool.name));
     toolPool = toolPool.filter((tool) => inheritedNames.has(tool.name));
   }
+  toolPool = effectiveToolInventory(toolPool);
   // Isolate skill-enabled contexts so their capabilities expire with the turn.
   // Generic host contexts retain the public query() identity contract.
   const skillsEnabled = Boolean(
@@ -653,6 +655,22 @@ async function* queryInternal(
         }
 
         maxTokens = outputCeiling;
+        // Skill activation may narrow the pool between requests. Freeze one
+        // effective inventory for schemas, prompt, visibility and dispatch.
+        activationState.tools = effectiveToolInventory(activationState.tools);
+        systemPrompt = projectToolInventory(
+          systemPrompt,
+          activationState.tools,
+          !modelMetadata ||
+            (!modelMetadata.metadata.stale && modelMetadata.contextWindow !== undefined),
+        );
+        if (toolCtx && skillsEnabled) {
+          toolCtx.activeToolNames = activationState.tools.map((tool) => tool.name);
+          toolCtx.activeToolsets = inferActiveToolsets(
+            toolCtx.activeToolNames,
+            toolCtx.activeToolsets,
+          );
+        }
         refreshSkillCatalog();
         const request: ProviderRequest = {
           model,
@@ -1023,13 +1041,26 @@ async function* queryInternal(
     // tools (BashTool's subprocess) and permission prompts can abort on
     // Ctrl-C. Phase 2 omitted this — latent until Phase 3 made it observable.
     const turnCtx: ToolContext = signal ? { ...toolCtx, signal } : toolCtx;
+    const previousNames = turnCtx.activeToolNames;
+    const previousParentPool = turnCtx.parentToolPool;
+    const restoreHostInventory = (): void => {
+      if (turnCtx !== params.toolContext) return;
+      // biome-ignore lint/performance/noDelete: restore the caller's exact optional-field shape
+      if (previousNames === undefined) delete turnCtx.activeToolNames;
+      else turnCtx.activeToolNames = previousNames;
+      // biome-ignore lint/performance/noDelete: restore the caller's exact optional-field shape
+      if (previousParentPool === undefined) delete turnCtx.parentToolPool;
+      else turnCtx.parentToolPool = previousParentPool;
+    };
+    const effectiveNames = new Set(activationState.tools.map((tool) => tool.name));
+    turnCtx.activeToolNames = [...effectiveNames];
+    const parentNames = turnCtx.parentToolPool
+      ? new Set(turnCtx.parentToolPool.map((tool) => tool.name))
+      : effectiveNames;
+    turnCtx.parentToolPool = activationState.tools.filter((tool) => parentNames.has(tool.name));
     if (skillsEnabled) {
       turnCtx.activeToolNames = activationState.tools.map((tool) => tool.name);
       turnCtx.activeToolsets = inferActiveToolsets(turnCtx.activeToolNames, turnCtx.activeToolsets);
-      const effectiveNames = new Set(activationState.tools.map((tool) => tool.name));
-      turnCtx.parentToolPool = (turnCtx.parentToolPool ?? activationState.tools).filter((tool) =>
-        effectiveNames.has(tool.name),
-      );
     }
     if (skillsEnabled && canUseTool) {
       turnCtx.canUseTool = createSkillChildPermission(
@@ -1043,6 +1074,7 @@ async function* queryInternal(
       try {
         await params.persistBeforeTools(assistant);
       } catch {
+        restoreHostInventory();
         const msg = consumeGuidance(
           synthesizeToolResultMessage(
             toolUseBlocks,
@@ -1252,6 +1284,8 @@ async function* queryInternal(
       }
       await maybeFireStop('error');
       return { reason: 'error', error };
+    } finally {
+      restoreHostInventory();
     }
   }
 

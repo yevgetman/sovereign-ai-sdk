@@ -84,7 +84,12 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
         }
       }
     }
-    const parentToolPool = ctx.parentToolPool ?? [];
+    const parentNames = new Set((ctx.parentToolPool ?? []).map((tool) => tool.name));
+    // An earlier SkillTool call in the same batch can narrow capabilities
+    // after query built this context. Children inherit that current floor.
+    const parentToolPool = (ctx.skillActivation?.tools ?? ctx.parentToolPool ?? []).filter((tool) =>
+      parentNames.has(tool.name),
+    );
     // Phase 2 T3 — resolve the per-child timeout override from the lane
     // registry when the target agent declares a `role` that maps to a
     // configured lane. Undefined when no role / no lane / no registry —
