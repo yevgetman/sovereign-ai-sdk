@@ -9,14 +9,17 @@ import type { SessionStore } from '@yevgetman/sov-sdk/persistence/sessionStore';
 import {
   ContextOverflowError,
   PersistBeforeRunError,
+  SessionPersistenceError,
   SubscriptionAuthExpiredError,
   SubscriptionHttpError,
   SubscriptionRefreshError,
   SubscriptionStreamError,
   SubscriptionTierBlockedError,
+  ToolStorageError,
   UnknownToolsetError,
   isContextOverflowError,
 } from '@yevgetman/sov-sdk/providers/errors';
+import { verifiedSubscriptionImageInput } from '@yevgetman/sov-sdk/providers/models/imageInput';
 import { type ModelRecord, findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import { validateModelRequest } from '@yevgetman/sov-sdk/providers/models/validateRequest';
 import {
@@ -50,6 +53,7 @@ import {
 } from '../server/turnComposition.js';
 import { mapTerminalReason } from '../server/turnRelay.js';
 import { readModelCatalogSnapshot } from './modelDiscovery.js';
+import { hasNativeRecoveryTarget, nativeRunOutcome } from './nativeRunOutcome.js';
 import { type NativeReceipt, nativeTurnMetrics, nativeUsageMeter } from './nativeTurnMetrics.js';
 import type { RunCommandIO, RunOptions } from './runCommand.js';
 import { SdkInputError, parseSdkInput, readSdkStdin } from './sdkInput.js';
@@ -81,7 +85,7 @@ const ERRORS: Record<string, string> = {
   provider_unavailable: 'Subscription token service is unavailable. Wait and retry.',
   provider_timeout: 'Subscription token refresh timed out. Retry when the service is available.',
   provider_response_invalid:
-    'Subscription token service returned an invalid response. Retry or check provider status.',
+    'Subscription token service returned an invalid response. Check provider status before retrying.',
 };
 function string(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
@@ -136,6 +140,9 @@ export async function runSdkRunCommand(
   };
   const controller = new AbortController();
   let exit = 130;
+  let interruptionCause: 'cancelled' | 'deadline' = 'cancelled';
+  let cleanupCoherent = true;
+  let storageFault = false;
   const sigint = () => {
     exit = 130;
     controller.abort();
@@ -210,21 +217,35 @@ export async function runSdkRunCommand(
         opts.deadlineMs <= 0
       )
         throw new SdkInputError('invalid_input', 'invalid deadline');
-      deadline = setTimeout(sigint, opts.deadlineMs);
+      deadline = setTimeout(() => {
+        interruptionCause = 'deadline';
+        sigint();
+      }, opts.deadlineMs);
     }
     const raw = await Promise.race([(io.readStdin ?? readSdkStdin)(), canceled]);
-    // Validate input and bounded attachments BEFORE credential access or runtime boot.
-    const input = await Promise.race([
-      parseSdkInput(raw, opts.inputFormat, routeSupportsImages(routeId)),
-      canceled,
-    ]);
-    stage = 'route';
     const settings = loadSettings();
+    const requestedRoute = getRoute(routeId, settings);
     const requestedModel =
       string(opts.model) && opts.model !== 'auto'
         ? String(opts.model)
-        : getRoute(routeId, settings).defaultModel;
+        : requestedRoute.defaultModel;
     selectedMetadata = findModel(readModelCatalogSnapshot(routeId, settings), requestedModel);
+    const imageProof = verifiedSubscriptionImageInput(selectedMetadata);
+    const supportsImages =
+      routeSupportsImages(routeId) &&
+      (requestedRoute.auth !== 'subscription' || imageProof !== undefined);
+    // Validate input and bounded attachments BEFORE credential access or runtime boot.
+    const input = await Promise.race([
+      parseSdkInput(raw, opts.inputFormat, supportsImages, imageProof?.mimeTypes),
+      canceled,
+    ]);
+    if (input.message.content.some((block) => block.type === 'image'))
+      validateModelRequest(
+        { model: requestedModel, system: [], messages: [input.message], maxTokens: 1 },
+        requestedRoute.provider,
+        selectedMetadata,
+      );
+    stage = 'route';
     selected = await Promise.race([
       (deps.resolve ?? resolveRouteProvider)(routeId, {
         settings,
@@ -276,8 +297,11 @@ export async function runSdkRunCommand(
       at: new Date().toISOString(),
       toolset,
     };
+    const requestedResume = string(opts.resume);
+    if (requestedResume && !runtime.sessionDb.getSession(requestedResume))
+      throw new SessionNotFoundError(requestedResume);
     sessionId =
-      string(opts.resume) ??
+      requestedResume ??
       runtime.sessionDb.createSession({
         provider: selected.route.provider,
         model: selected.model,
@@ -302,6 +326,22 @@ export async function runSdkRunCommand(
       stored.some((m) => m.content.some((b) => b.type === 'image'))
     )
       throw new SdkInputError('unsupported_input', 'stored session images unsupported');
+    if (stored.some((message) => message.content.some((block) => block.type === 'image'))) {
+      try {
+        validateModelRequest(
+          { model: selected.model, system: [], messages: stored, maxTokens: 1 },
+          selected.provider.name,
+          selectedMetadata,
+        );
+      } catch (error) {
+        if (error instanceof RouteError && error.code === 'unsupported_input')
+          throw new SdkInputError(
+            'unsupported_input',
+            'stored images are not certified for the selected model',
+          );
+        throw error;
+      }
+    }
     if (
       selected.route.provider !== 'anthropic' &&
       stored.some((m) =>
@@ -372,7 +412,11 @@ export async function runSdkRunCommand(
               estimate: NonNullable<NativeReceipt['costEstimate']>,
             ) => {
               if (usageRecorded) return;
-              target.recordUsageEstimate(key, usage, estimate);
+              try {
+                target.recordUsageEstimate(key, usage, estimate);
+              } catch (error) {
+                throw new SessionPersistenceError(error);
+              }
               usageRecorded = true;
             };
           const value = Reflect.get(target, property, target);
@@ -438,6 +482,10 @@ export async function runSdkRunCommand(
     // transcript, including completed tools, rather than replaying the input.
     persistTurnMessage(persistence, sessionId, input.message);
     let messages = hydrate();
+    // Refuse unsafe prior effects before a paid summary or inference call.
+    // Complete journal receipts can repair their missing canonical batch.
+    if (!hasNativeRecoveryTarget(hostRuntime.sessionDb, sessionId))
+      throw new SessionPersistenceError(new Error('session receipt history requires inspection'));
     emit({
       type: 'session.started',
       sessionId,
@@ -490,13 +538,20 @@ export async function runSdkRunCommand(
           receipts.push(measured);
           // Successful compactSession writes its own summary receipt. Failed
           // or cancelled requests have no child; preserve their partial bill.
-          if (!receipt && measured.costEstimate)
-            hostRuntime.sessionDb.recordCompactionUsage(
-              id,
-              measured.usage ?? {},
-              undefined,
-              measured.costEstimate,
-            );
+          if (!receipt && measured.costEstimate) {
+            try {
+              hostRuntime.sessionDb.recordCompactionUsage(
+                id,
+                measured.usage ?? {},
+                undefined,
+                measured.costEstimate,
+              );
+            } catch {
+              // The failed/cancelled compaction is already unwinding; retain
+              // the store fault so its terminal cannot advertise recovery.
+              storageFault = true;
+            }
+          }
         }
       }
     };
@@ -565,25 +620,43 @@ export async function runSdkRunCommand(
       });
       if (turnId !== undefined) mintedTurnIds.push(turnId);
       let result: RunResult | undefined;
+      let settledResult: RunResult | undefined;
+      let drive: Promise<RunResult> | undefined;
       try {
-        activeStream = hop.composed.agent.run(
-          messages,
-          hop.composed.perTurn({
+        activeStream = hop.composed.agent.run(messages, {
+          ...hop.composed.perTurn({
             sessionId: id,
             sessionCtx: hop.sessionCtx,
             storedPrefixLength: messages.length,
             ...(turnId !== undefined ? { turnId } : {}),
           }),
+          persistCompletedMessages: true,
+        });
+        drive = relayNative(activeStream, emit, id, wire, meter.observe).then(
+          (completed) => {
+            settledResult = completed;
+            return completed;
+          },
+          (error) => {
+            if (isStorageFault(error)) storageFault = true;
+            throw error;
+          },
         );
-        result = await Promise.race([
-          relayNative(activeStream, emit, id, wire, meter.observe),
-          canceled,
-        ]);
+        result = await Promise.race([drive, canceled]);
         hop.sessionCtx.trajectoryMetadata.toolCallCount += result.toolCallCount;
         hop.sessionCtx.trajectoryMetadata.iterationsUsed += result.iterationsUsed;
         hop.sessionCtx.trajectoryMetadata.terminalReason = result.terminal.reason;
         return result;
       } finally {
+        // Give cooperative cancellation one bounded chance to persist completed
+        // messages, tool receipts and final usage before exposing a target.
+        // An uncooperative drive never advertises automatic recovery.
+        if (!result && controller.signal.aborted && drive) {
+          cleanupCoherent &&= await settleWithin(drive, 1000);
+          result = settledResult;
+        }
+        if (result?.terminal.reason === 'error' && isStorageFault(result.terminal.error))
+          storageFault = true;
         if (!result)
           hop.sessionCtx.trajectoryMetadata.terminalReason = controller.signal.aborted
             ? 'interrupted'
@@ -613,11 +686,27 @@ export async function runSdkRunCommand(
       throw new Error('interrupted');
     if (result.terminal.reason === 'error')
       throw result.terminal.error ?? new Error('provider failed');
-    continuityOutcome = 'succeeded';
+    const outcome = nativeRunOutcome(result.terminal);
+    const continuation = outcome === 'needs_continuation';
+    const durable = hasNativeRecoveryTarget(runtime.sessionDb, sessionId);
+    if (!continuation && !durable)
+      throw new SessionPersistenceError(new Error('completed session could not be verified'));
+    continuityOutcome = continuation ? 'failed' : 'succeeded';
     finish({
-      type: 'turn.completed',
-      sessionId,
-      activeSessionId: sessionId,
+      type: continuation ? 'turn.error' : 'turn.completed',
+      outcome,
+      reason: result.terminal.reason,
+      ...(continuation
+        ? {
+            code: 'needs_continuation',
+            error: 'Run stopped before completion and needs continuation.',
+            continuationCause: result.terminal.reason,
+            recoverable: durable,
+            nextAction: durable ? 'resume' : 'inspect_session',
+          }
+        : { nextAction: 'none' }),
+      sessionId: continuation && !durable ? null : sessionId,
+      ...(!(continuation && !durable) ? { activeSessionId: sessionId } : {}),
       ...metadata(),
       reply:
         result.finalAssistant?.content
@@ -627,28 +716,55 @@ export async function runSdkRunCommand(
       finishReason: mapTerminalReason(result.terminal),
       ...nativeTurnMetrics(receipts),
     });
-    return 0;
+    return continuation ? 3 : 0;
   } catch (err) {
-    let code = controller.signal.aborted
-      ? 'interrupted'
-      : err instanceof SdkInputError
-        ? err.code
-        : err instanceof UnknownToolsetError
-          ? 'invalid_input'
-          : err instanceof SessionNotFoundError
+    storageFault ||= isStorageFault(err);
+    let code: string = storageFault
+      ? 'storage_failed'
+      : controller.signal.aborted
+        ? 'interrupted'
+        : err instanceof SdkInputError
+          ? err.code
+          : err instanceof UnknownToolsetError
             ? 'invalid_input'
-            : err instanceof PersistBeforeRunError
-              ? 'storage_failed'
-              : err instanceof ContextManagementError
-                ? 'context_overflow'
-                : stage === 'storage'
-                  ? 'storage_failed'
-                  : routeErrorCodeFor(err);
+            : err instanceof SessionNotFoundError
+              ? 'invalid_input'
+              : err instanceof PersistBeforeRunError
+                ? 'storage_failed'
+                : err instanceof ContextManagementError
+                  ? 'context_overflow'
+                  : stage === 'storage'
+                    ? 'storage_failed'
+                    : routeErrorCodeFor(err);
     if (!ERRORS[code]) code = 'provider_failed';
+    const durable =
+      cleanupCoherent && !storageFault && hasNativeRecoveryTarget(runtime?.sessionDb, sessionId);
+    const incomplete =
+      err instanceof SubscriptionStreamError && err.phase === 'incomplete_delivery';
+    const retryable = [
+      'rate_limited',
+      'interrupted',
+      'provider_unavailable',
+      'provider_timeout',
+    ].includes(code);
+    const recoverable = durable && !incomplete && retryable;
     finish({
       type: 'turn.error',
-      sessionId,
-      activeSessionId: sessionId,
+      outcome: code === 'interrupted' ? 'interrupted' : 'failed',
+      reason: code === 'interrupted' ? interruptionCause : code,
+      nextAction: recoverable
+        ? 'resume'
+        : storageFault || code === 'storage_failed'
+          ? 'inspect_storage'
+          : sessionId !== null && (!durable || incomplete)
+            ? 'inspect_session'
+            : code === 'provider_response_invalid'
+              ? 'check_provider'
+              : retryable
+                ? 'retry'
+                : 'repair_request',
+      sessionId: durable ? sessionId : null,
+      ...(durable ? { activeSessionId: sessionId } : {}),
       ...nativeTurnMetrics(receipts),
       ...metadata(),
       code,
@@ -669,9 +785,7 @@ export async function runSdkRunCommand(
             ...(err.retryAfterMs !== undefined ? { retryAfterMs: err.retryAfterMs } : {}),
           }
         : {}),
-      recoverable:
-        !(err instanceof SubscriptionStreamError && err.phase === 'incomplete_delivery') &&
-        ['rate_limited', 'interrupted'].includes(code),
+      recoverable,
     });
     return code === 'interrupted'
       ? exit
@@ -788,4 +902,28 @@ async function boundedDispose(runtime: Runtime): Promise<void> {
     })().catch(() => {}),
     3000,
   );
+}
+
+function isStorageFault(error: unknown): boolean {
+  return (
+    error instanceof PersistBeforeRunError ||
+    error instanceof SessionPersistenceError ||
+    error instanceof ToolStorageError
+  );
+}
+async function settleWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }

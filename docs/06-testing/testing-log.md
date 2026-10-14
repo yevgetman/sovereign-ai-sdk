@@ -1,4 +1,192 @@
+## 2026-10-14 — Final combined Medium source verification
+
+Disposable QA combines73ba927bf2,78 9979ffe6,79 1e8f8aa6 and80 68090547 without merging SDK master. The frozen functional tree passes build, lint/boundary, root/browser types and full6459tests/19existing skips/0fail/28349assertions/617files165.85s; strict TUI build and all six Go packages pass. Packed SDK/protocol consumers run under Node/Bun with type and artifact-purity checks. Unchanged nine-item draft release validation passes. Logs: `/private/tmp/sdk-medium-qa-final-{build,lint,types,full,canary,manifest}.log`, `sdk-medium-qa-go.log`. Independent all-five-lens integration peer passes198tests/1232assertions,0findings, with all56 owned functional files retained.
+
+Both native merge conflicts preserve #80's conservative provider-status guidance and computed recovery decision with #73's safe refreshReason/retryAfterMs. Exact typed native refresh witnesses and orphan-intent refusal pass; the latter makes0provider calls. Matching installed Telekit0.64.23 parser accepts24/24 real mock-provider native streams, with three continuation causes and0false successes. Four prior exact Grok4.7 live image/native-resume calls are recorded in the owning image receipt; no extra live calls ran here.
+
+After80's documentation-only testing-history correction, the QA merge was rebuilt using its final ancestry. Exact tracked-tree comparison against the tested frozen tree a4db2481a0067081a7176740e59be90c49d7d4af differs only in testing-log notes; runtime/tests/package inputs are byte-identical. Entire baseline testing history is retained. All four PRs remain open; no master merge, release, consumer pin, installed upgrade or restart.
+
+## 2026-10-14 — Medium workset testing-history integration
+
+Restores the complete prior Select-nine release-planning section by moving #79's disjoint-stage receipt above it. All old and new receipt text remains; this is a documentation-order correction only. Root compares the entire baseline testing log byte-for-byte as a retained substring after the correction. Runtime source and tests are unchanged from5b201aa. Required checks on this branch pass again: lint/boundary, root/browser types, and full6408passed/19existing skips/0fail/27986assertions/615files145.99s. Logs: `/private/tmp/sdk-medium80-doc-lint.log`, `sdk-medium80-doc-types.log`, `sdk-medium80-doc-full.log`.
+
+Separate combined73+78+79+80 QA passes6459tests/19existing skips/0fail/28349assertions/617files165.85s, plus build/lint/types, Go, actual packed Node/Bun consumers/types/purity and unchanged release-plan validation. The only runtime merge conflict retains #80's conservative malformed-response guidance and computed recovery flag together with #73's safe refreshReason/retryAfterMs. Exact typed combined witnesses and final24-stream Telekit0.64.23 parser checks pass. This does not merge SDK master, schedule additional release items or publish an installed update.
+
+## 2026-10-14 — #80 truthful native outcomes and durable recovery
+
+**Scope:** Issue #80 on `review-fix/80`, based on final #79 parent `1e8f8aa6`
+(which includes #78). Native completion now means SDK `completed` only. Token,
+turn and check-in limits emit compatible `turn.error` / `needs_continuation`
+with exit3. Interrupted and failed runs expose a recovery target only after the
+existing session, completed messages and tool receipts pass a durable check.
+Absent or unsafe targets omit `activeSessionId`, report `sessionId: null`, and
+never claim automatic recovery. Unsafe prior effects refuse paid inference.
+
+The SDK adds opt-in `PerTurn.persistCompletedMessages`; generic early-abandon
+and rethrow behavior retain their default. Screened completed messages persist
+before delivery, with canonical progress advanced before transcript callbacks.
+Conduct regeneration still rolls back discarded rows and transcripts. Native
+cancellation gives cooperative drives one second to settle, preserves completed
+receipts and observed usage once, and refuses automatic recovery for unsettled
+effects or storage faults. Final verification faults cannot report completed
+success. Resume restores completed tool receipts without re-executing effects.
+
+**Failed-before / passed-after evidence:**
+- Initial SDK recovery regression: four failures / one pass before the fix;
+  completed-message cancellation/close persistence now passes.
+- Native pre-session cancellation originally reported `recoverable: true` with
+  null ids. Cancellation and deadline now report false, omit the active-id key,
+  and request a safe retry. Nonexistent requested resume ids are never created.
+- A transient transcript callback fault originally duplicated the committed
+  assistant row. It now leaves exactly one assistant and refuses success.
+- Final store-read failure originally returned exit0. It now returns
+  `storage_failed`, preserves rows/usage, and exposes no recovery target.
+- Peer action witness: pre-session rate limit incorrectly requested request
+  repair. It now requests retry. Malformed token-service responses separately
+  request `check_provider`, remain non-recoverable, and do not expand refresh
+  retries. Permanent failures retain conservative guidance; unsafe effects
+  retain inspection precedence.
+- Own final coherence witness: a completed receipt attached to an existing
+  assistant without its matching tool intent incorrectly authorized recovery.
+  Linear exact intent-key membership now refuses it. Matching complete journal
+  receipts still repair missing canonical result batches.
+
+**Final checks:**
+- Recovery SDK, native wire and helper regressions: **46 passed / zero failed /
+  150 assertions**. Native capture suite: 23 passed / 105 assertions.
+- `bun install --ignore-scripts`, `bun run build`, and `bun run tui:build`: pass.
+- `bun run lint` (boundary: 252 modules / 1028 dependencies) and
+  `bun run typecheck` (including the browser console): pass.
+- Final frozen `env -u FORCE_COLOR bun run test`: **6408 passed / 19 existing skips / zero failed**,
+  27986 assertions across 615 files, 149.51s (Bun1.3.13, Node25.9.0, macOS).
+- `bun run canary`: pass. Packed SDK/protocol consumers work under Node and Bun;
+  installed artifacts pass their purity and consumer type checks.
+- Actual native JSONL from 24 mocked streams passed the matching released
+  Telekit0.64.23 (`ce40ceb6`) validator, parser and terminal collector: 24/24,
+  one completed result, all three continuation causes, zero false success.
+  Command: `PYTHONPATH=/private/tmp/telekit-cut-0.64.23
+  /Users/julie/code/telekit/.venv/bin/python
+  /private/tmp/recovery80-telekit-check-final.py`. Receipt:
+  `/private/tmp/recovery80-telekit-evidence-final.json`. No Telekit source edits
+  or production messages. Final capture SHA256:
+  `78781c237e58acf287ecabad09b674769e83681d8e6d0a35bccead1bc392e94d`.
+- Independent final peer: zero findings above Low; exact receipt-membership
+  correction independently checked. Product source was frozen for final gates.
+
+**Intermediate checks:** Earlier full passes had 6406 and 6407 passes, 19 existing
+skips and zero failures. Peer corrections were in progress, so neither is the
+final frozen receipt. A formatter issue and future-code TypeScript comparison
+were corrected before the final lint/types pass. All failed-before witnesses
+were intentional focused reproductions; no introduced final failure remains.
+
+**Limits:** Tests use isolated storage and mock providers. Real paid provider
+exhaustion/cancellation was not invoked. Check-in wire coverage uses an isolated
+subprocess that supplies the SDK standing check-in limit; the existing native
+runtime has no user setting for that limit. No auth/config changes, upgrade,
+merge or release. This run makes no longitudinal learning-loop claim and changes
+no recall or synthesis policy. Additive SDK recovery options require the next
+release's surface-version review; source versions were not changed here.
+
+## 2026-10-14 — Issue 79: independent final review corrections
+
+The independent final review found two additional medium defects after the
+first local issue79 commit: established owner rows shadowed the exact bundled
+transport proof, and summary-plus-tail reconstruction differed from the durable
+child history. Root then proved a third medium security defect: certificate
+source text accepted terminal controls that operator details could display.
+All three remain under issue79; no duplicate issue was created.
+
+Supported legacy owner rows for exact Grok 4.7 now receive independent transport
+evidence in effective discovery and request metadata. Owner review age stays
+advisory; the certificate's own expiry controls transport eligibility. Explicit
+unknown/unsupported capability, retirement, failed/unverified/expired proof and
+other models remain refused. Head images now follow the assistant summary in
+the exact returned and persisted sequence. A neutral bridge preserves role
+alternation without changing original tail content or tool-pair adjacency.
+Certificate source, dates and exact identifiers reject terminal and bidi controls.
+
+Before fixes, the two owner/reconstruction regressions failed (0 passed / 2
+failed). The control-text regression also failed before correction (0/1), then
+passed with 18 assertions. Final focused command:
+`bun test tests/providers/models/subscriptionImages.test.ts
+tests/compact/compactor.test.ts tests/cli/sdkSubscriptionImages.test.ts`:
+**32 passed / zero failures / 200 assertions**. It includes two established
+owner-profile native image fixtures, canonical child deep equality, original
+tool-pair adjacency and control-bearing source/date refusal.
+
+`bun run build`, `bun run lint` (including boundary), `bun run typecheck`,
+`bun test --timeout 20000` and `bun run canary` passed. Full suite:
+**6362 passed / 19 existing skips / zero failures**, 27833 assertions across
+612 files in 137.15 seconds. Packed SDK/protocol consumer checks passed under
+Node and Bun. `git diff --check` passed. Durable gate receipts are under
+`/private/tmp/sdk-issue79-certification-20261014/followup-*`.
+
+Independent recheck found no unresolved finding above Low. The source receipt
+is `/private/tmp/sdk-issue79-final-review-20261014/recheck-source.json`.
+The earlier two successful actual native live calls certify the c88f4c00 source
+snapshot; the current follow-up changes image model policy and compaction order,
+so those ten historical file hashes do not all match this final correction.
+The exact provider serializer, PNG/JPEG contract and certificate remain unchanged.
+No further live call was made. The final owner/continuity/control corrections
+are covered by local fixtures, not a fresh live Telegram end-to-end turn.
+No production credentials/settings/session mutation, external message, release
+or installed-host upgrade occurred during this correction.
+
 ## 2026-10-14 — #78 provider-aware request accounting and honest fallback
+
+## 2026-10-14 — Issue 79: native image preservation and final acceptance
+
+Scope: exact subscription image input, pre-credential current-attachment gates,
+stored-image model recheck, tool continuation, compaction image carry and resume.
+Branch `review-fix/79` now follows #78 accounting parent `9979ffe6`. Images older
+than the preserved tail remain reference data in the child, before its assistant
+summary; tail order/content stays intact. A tail occurrence wins over an older
+copy. Carry count/byte limits are checked before summarization. Original parent
+history stays unchanged. Unknown image-token costs remain explicit.
+
+Before correction, the head-image compaction regression failed because the
+original image was absent from the child. After correction both preservation and
+deduplication witnesses passed. The native tests cover image-only and multiple
+images, exact-model refusal, MIME refusal before resolver/credentials, durable
+resume, an unverified-model switch, completed tool receipts, an actual scripted
+provider-overflow summary/pivot and the resumed child. A stored-image refusal
+initially hit the storage-stage error mapper; it now preserves `unsupported_input`
+and exit 2 before provider start. Focused final checks passed 41 tests / zero
+failures / 337 assertions across five files.
+
+`bun run build`, `bun run tui:build`, `bun run lint` (including boundary),
+`bun run typecheck` and `env -u FORCE_COLOR bun run test` passed. Final suite:
+**6357 passed / 19 existing skips / zero failures**, 27785 assertions across
+612 files in 136.56 seconds. The first suite retained two intentional old
+expectations: owner-registry serializer wording and the SDK public-value snapshot.
+Updating those expected contracts fixed both (first run: 6355/19/2). A new fixture
+Tool generic variance was caught by typecheck and corrected without changing its
+runtime behavior. `bun run canary` passed real packed protocol/SDK consumers under
+Node and Bun, public types and artifact purity. `git diff --check` passed.
+
+Independent actual native live proof on the frozen source passed two exact
+`grok-4.7` subscription calls. First: valid PNG input, correct objective visual
+answer, 1348 input / 51 output tokens. Second: the same valid isolated session
+resumed with no new attachment, correct visual answer, one retained image and
+one replayed reasoning item, 1428 / 47 tokens. Both ended `end_turn`, exit 0.
+The synthetic 160×80 PNG was 277 bytes, SHA-256
+`48370c0053b95fbb227af922f55516b9cc8ce5587486f041dccc3763246472ab`.
+Production credential writes/deletes/refreshes and settings/session writes were
+zero. Source hashes in
+`/private/tmp/sdk-issue79-native-certification-20261014/evidence.json` still match
+all ten final runtime/provider files. The reproducible safe probe sits beside it.
+This supersedes the earlier direct-provider-only certification limit.
+
+Root also checked matching released Telekit 0.64.23 source `ce40ceb6` read-only:
+`/Users/julie/code/telekit/.venv/bin/python -m pytest -q tests/test_photo_agent.py
+tests/test_sov_completion.py tests/test_sov_route_honesty.py
+tests/test_sov_batch_safety.py tests/test_sov_routes.py`, from
+`/private/tmp/telekit-cut-0.64.23`, passed **301 tests**. Collection receipt:
+`/private/tmp/sdk-medium-telekit-collection.log`. These are adapter-contract
+fixtures, not a live Telegram end-to-end turn. No Telekit source edit, external
+message, release or installed-host upgrade occurred. ChatGPT/Grok 4.6 image
+certification remains unknown; only Grok 4.7 is exposed by this source change.
+
 
 **Scope:** Issue #78 against master `3c855f87`, on `review-fix/78`. Native and
 SDK admission, proactive compaction, minimal-tail reduction checks, summary
@@ -74,6 +262,46 @@ Focused final source: `bun test tests/providers/subscription-refresh.test.ts tes
 Configured gates on final source: `bun run lint` passes Biome and boundary (251modules /1019dependencies); `bun run typecheck` passes both root and debug-console types. `bun run build` and `bun run tui:build` pass; the full-suite tarball test also rebuilds the final SDK. Initial full `bun run test` had **6378passed /19existing skips /1failed**: the new intentional public error export needed its surface snapshot. After updating that snapshot and witness, final `bun run test` passes **6383tests /19existing skips /0failures /27956assertions** across all610files. `git diff --check` passes. Receipts: `/private/tmp/refresh73-before.log`, `/private/tmp/refresh73-focused-final.log`, `/private/tmp/refresh73-response-read.log`, `/private/tmp/refresh73-surface-final.log`, `/private/tmp/refresh73-lint.log`, `/private/tmp/refresh73-typecheck.log`, `/private/tmp/refresh73-full-final.log`.
 
 Native wire integration is intentionally reserved for the coordinator after the independent #78 host edits finish: `sdkRunCommand` must retain `provider_unavailable`, `provider_timeout`, `provider_response_invalid`, and safe `refreshReason`/`retryAfterMs` scalars. This commit verifies the SDK/route core, not that pending native acceptance. The20-second budget covers token exchange and all retries; credential mutex acquisition and native Keychain reads/writes retain their separate30-second/ten-second bounds. Storage calls remain sequential under the mutex and are never evicted merely because an endpoint deadline expires.
+
+## 2026-10-14 — Issue 79: exact-model image certification (disjoint stage)
+
+Scope: exact subscription image evidence, model/cache normalization, safe bounded
+serialization and truthful operator copy. Worktree
+`/private/tmp/sdk-medium-fix79-20261014`, branch `review-fix/79`, baseline
+`3c855f87`; macOS arm64, Bun 1.3.13. The three original focused regressions failed
+before the fix: route fenced, SDK exact-model image validation fenced, and no
+certification metadata. After the disjoint fix, the five-file focused provider
+suite passed 85 tests / zero failures / 848 assertions. Additional clock-stable
+certificate/bounds tests plus model modality coverage passed 17 / zero failures /
+70 assertions. `bun run build`, `bun run lint` (including boundary) and
+`bun run typecheck` passed. Dependencies installed with
+`bun install --ignore-scripts --frozen-lockfile`. An initial attempted multi-file
+run before dependency installation could not resolve workspace packages; this
+was corrected by installing/building before the passing run.
+
+Root-authorized read-only live certification: two exact `grok-4.7` Responses
+requests independently identified the colors in a synthetic 160×80 PNG correctly.
+Both returned complete assistant messages. Final call reported 1330 input tokens
+and 51 output tokens. Fixture: 277 bytes, SHA-256
+`48370c0053b95fbb227af922f55516b9cc8ce5587486f041dccc3763246472ab`.
+Only `https://api.x.ai/v1/responses` was allowed; each request had a 45-second
+deadline and 512 output-token ceiling, low effort and `store:false`. Existing
+unexpired SOV Grok credentials were read once per process into memory via a
+read-only Keychain child using real HOME. Runtime HOME/HARNESS_HOME were isolated.
+Credential writes/deletes, refresh, retries, endpoint fallback and production
+session/settings writes were forbidden and their counts remained zero. Safe
+scratch probe/evidence: `/private/tmp/sdk-issue79-certification-20261014/`.
+No tokens, account identifiers, raw failure bodies or model replies were saved.
+The first receipt missed usage events; the second authorized call retained safe
+usage scalars. No extra model or tokenization endpoint was called.
+
+Primary source: https://docs.x.ai/developers/grok-4-7 and
+https://docs.x.ai/developers/model-capabilities/images/understanding, checked
+2026-10-14. Documented Grok MIME support is PNG/JPEG, 20 MiB per image.
+The live proof is exact Grok 4.7 transport proof, not ChatGPT/Grok 4.6, general
+account entitlement or exact tokenizer proof. Native pre-credential gates,
+compaction/pivot preservation and full-suite acceptance remain pending the
+coordinated #78 parent integration. No commit/push/release/upgrade has occurred.
 
 ## 2026-10-14 — Select nine merged Critical/High fixes for the next manifest
 

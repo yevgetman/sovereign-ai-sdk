@@ -21,6 +21,19 @@ export function grokSubscriptionPin(id: GrokSubscriptionModelId): ModelRecord {
     routeId: 'grok-subscription',
     provider: 'grok',
     auth: 'subscription',
+    ...(id === 'grok-4.7'
+      ? {
+          imageInputCertification: {
+            routeId: 'grok-subscription',
+            modelId: id,
+            source: 'https://docs.x.ai/developers/model-capabilities/images/understanding',
+            verifiedAt: '2026-10-14T17:16:08.259Z',
+            expiresAt: '2026-11-13T17:16:08.259Z',
+            liveVerification: 'passed' as const,
+            mimeTypes: ['image/png', 'image/jpeg'],
+          },
+        }
+      : {}),
     capabilities: {
       textOutput: 'supported',
       tools: 'supported',

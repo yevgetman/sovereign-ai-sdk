@@ -14,6 +14,8 @@ export type CompactResult = {
   parentSessionId: string;
   newSessionId: string;
   summary: string;
+  /** Exact child rows after the assistant summary, including any reference
+   * images and neutral role bridges. Check noOp before prepending summary. */
   tail: Message[];
   compactedMessages: number;
   estimatedBeforeTokens: number;

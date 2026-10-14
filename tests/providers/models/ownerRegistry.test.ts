@@ -228,7 +228,7 @@ test('owner future ID reaches subscription fetch with exact model, tools and xhi
       'grok',
       modelMetadata,
     ),
-  ).toThrow(/no verified image serializer/);
+  ).toThrow(/not live-certified/);
 });
 
 test('disk registry survives token refresh, stays stale offline, is atomic on invalid import and isolates accounts', async () => {

@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased — exact subscription image input (#79)
+
+**SDK:** Add optional `ModelRecord.imageInputCertification` and its public type,
+plus `verifiedSubscriptionImageInput`. Publisher capability and transport proof
+remain separate. Only exact `grok-4.7` permits PNG/JPEG with fresh, passed live
+proof; unknown, stale, expired or mismatched evidence refuses images. The bundled
+2026-10-14 proof expires after 30 days. ChatGPT and Grok 4.6 remain uncertified.
+Existing text calls and custom-provider contracts remain unchanged. Subscription
+image validation bounds count, decoded bytes, aggregate bytes and safe base64.
+These optional fields/exports are additive and require an SDK minor release.
+Legacy supported Grok 4.7 owner records can use independent exact transport
+proof. Owner review age remains advisory, while certificate expiry and explicit
+owner denials remain binding. Effective discovery shows the proof source;
+certificate URLs and dates reject terminal and bidi controls.
+
+**Harness:** Native attachments are checked against the selected exact model
+before credential resolution. Resume rechecks stored images before inference.
+Tool loops preserve images; compaction carries older image references into the
+child without copying an image already present in its unchanged tail. Unknown
+image token costs remain explicit. Compaction's returned summary-plus-tail now
+reconstructs its exact durable child history, including retained images and a
+neutral bridge when needed. Two bounded read-only Grok 4.7 subscription PNG turns
+passed objective visual checks. This does not certify other models or
+general account eligibility. No release or installed-host upgrade is included.
+
 ## Unreleased — owner-managed ChatGPT subscription catalog (#75)
 
 ChatGPT now uses the same durable owner-reviewed registry as Grok. Exact model

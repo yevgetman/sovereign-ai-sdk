@@ -82,8 +82,18 @@ The bundled Grok subscription records are `grok-4.7` and `grok-4.6`.
 Both use the documented 500000-token context window. The output limit stays
 unknown unless supplied by exact model evidence. [xAI documents Grok 4.6](https://docs.x.ai/developers/models/grok-4.6)
 with text/image input, function calling and low/medium/high/xhigh reasoning.
-Model image capability is separate from this transport: subscription image input
-still fails because its image serializer is not verified.
+Model image capability is separate from exact subscription transport certification.
+Only `grok-4.7` has live image-input proof: two bounded PNG perception turns passed
+on 2026-10-14 with correct visual answers and no credential writes or refresh.
+Its image certificate permits PNG/JPEG, cites the
+[xAI image contract](https://docs.x.ai/developers/model-capabilities/images/understanding),
+and expires on 2026-11-13. Unknown, stale or expired exact-model certification
+refuses images. Grok 4.6 and ChatGPT have no live image proof and remain refused.
+Legacy owner rows for exact Grok 4.7 can use the independent bundled proof.
+Owner review age remains advisory; certificate age controls image eligibility.
+Explicit owner retirement, unsupported/unknown images or failed/unverified/expired proof
+is preserved. Effective model records and operator copy show the proof source.
+Certificate URLs and dates reject terminal and bidi controls before display.
 
 ### Owner-managed subscription registries
 
@@ -195,6 +205,12 @@ Images use ordered absolute local paths and a declared media type. The host vali
 file type, media signature, count and byte limits before inference. No attachment
 URL is fetched. Unsupported images fail instead of disappearing. Discovery lists
 supported route input encodings; an individual model can still reject image input.
+Subscription attachments require current exact-model live certification before
+credential resolution or runtime boot. Resume rechecks stored images against the
+selected exact model before inference. Tool continuations retain the original
+image blocks. Compaction carries older reference images into the child once;
+the original tail remains intact. Image token costs remain explicitly uncounted
+when no verified model-aware image counter is available.
 
 Toolsets are `chat`, `web`, `ops` and `coding`. Omitted means `coding`. The selected
 pool constrains both model schemas and execution, including delegated children.
@@ -206,8 +222,9 @@ writer. Assistant tool calls are durably saved before tool execution. Each tool'
 completion receipt is journaled immediately, and the canonical batch is saved
 before the next model request. Resume restores completed receipts without running
 the tool again. An intent recorded before execution is interrupted; a started
-call with no receipt has an unknown outcome. The model must verify an unknown
-non-idempotent action before repeating it. A receipt write failure returns
+call with no receipt has an unknown outcome. Native runs refuse unsafe existing
+receipt history before paid summary or inference and require operator inspection.
+An unknown non-idempotent effect must be verified before it is repeated. A receipt write failure returns
 `storage_failed` and stops before another model request.
 Incompatible stored image or encrypted reasoning history is retained and refused.
 Grok and ChatGPT subscriptions store complete reasoning output items, including empty
@@ -251,12 +268,13 @@ the explicit CLI mode, or `null` when omitted. These two permission fields also
 persist in each session's `sdkTurns` metadata. Text, thinking and tool progress
 follow the existing JSONL event vocabulary. Tool block ids and sequence values
 remain unique across retry drives. `compaction_complete` reports the parent
-`sessionId` and new `activeSessionId`. Both terminal types report the newest
-`activeSessionId`, even after a later setup failure or cancellation. Terminal
-`sessionId` carries the same newest id for existing adapters. Save that id before
-the next `--resume`. Telekit's SOV result parser reads `activeSessionId` with
-`sessionId` as fallback; its terminal collector handles completion and failure
-alike. No adapter source change is required for that path.
+`sessionId` and new `activeSessionId`. Terminal results report the newest
+`activeSessionId` only when the existing session and its receipt history form a
+usable durable target. `sessionId` carries the same id for existing adapters.
+When a target is absent or unsafe, `sessionId` is `null` and `activeSessionId` is
+omitted. Save a usable id before the next `--resume`. Telekit's SOV result parser
+reads `activeSessionId` with `sessionId` as fallback; both `turn.completed` and
+`turn.error` remain final events. No new terminal event type is introduced.
 
 An explicit `--permission-mode default` overrides configured `ask` or `bypass`
 and uses normal rules and tool self-checks. Omit the option to use the existing
@@ -265,6 +283,26 @@ are denied because this surface has no interactive approver.
 
 Each recognized request ends with exactly one `turn.completed` or `turn.error`.
 Completion contains `reply`, `sessionId`, `activeSessionId`, `finishReason` and route metadata.
+Only the SDK's `completed` reason emits `turn.completed` and exits zero. A
+`max_tokens`, `max_turns`, or `checkin` stop emits `turn.error` with
+`outcome: "needs_continuation"`, `code: "needs_continuation"`, `continuationCause`,
+a safe `nextAction`, and exit3. A partial `reply` can be present. It is not a
+finished answer. Cancellation emits `outcome: "interrupted"` and reason
+`cancelled` or `deadline`; other errors emit `outcome: "failed"`.
+
+Native runs opt in to committing approved completed assistant messages before
+exposing them. A cooperative cancelled drive gets at most one second to settle
+its messages, tool receipts and usage before its terminal result. Stream teardown
+then keeps its existing bounded wait. Automatic recovery requires an existing
+session with a durable user message and coherent tool receipts. Unknown or
+in-flight tool effects, an unsettled drive, missing session, or storage failure
+set `recoverable: false`. Failed final storage verification also refuses completed
+success and keeps the completed canonical rows and observed usage for inspection.
+Safe pre-session interruptions, rate limits and transient token-service failures
+report `nextAction: "retry"`. A malformed token-service response reports
+`nextAction: "check_provider"` with `recoverable: false`; check provider status
+before retrying. An unsafe existing session reports `nextAction: "inspect_session"`. No requested resume id is created
+just to satisfy a recovery claim. Completed journal receipts survive resume without executing the tool again.
 Terminal usage sums all attempted main drives and summary requests. Cost receipts
 retain each component and report a complete total only when every component is
 known. Subscription provenance and missing usage/cost remain explicit. Cancellation

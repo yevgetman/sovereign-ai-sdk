@@ -313,6 +313,16 @@ its state is process-local. A durable host must implement them in durable storag
 A storage failure returns `ToolStorageError` (`code: 'storage_failed'`) before
 continuation and joins started siblings. Returned history retains real results.
 
+Recovery hosts can set `PerTurn.persistCompletedMessages: true` to commit each
+screened completed assistant message before it is yielded. The default stays
+false and preserves generic early-abandon and rethrow behavior. This mode requires
+`sessionStore`; it advances the canonical write boundary per successful row,
+before transcript callbacks, so a failed observer cannot duplicate the message.
+Conduct block/replace substitutions are saved, while discarded regeneration
+attempts are rolled back. Normal final persistence does not duplicate early rows,
+tool intents, receipts or transcripts. Usage still finalizes once at terminal;
+cancelling hosts must preserve their incremental usage receipt separately.
+
 A `ToolExecution` links `toolUseId` to `assistantMessageId`. Its states are
 `interrupted` (intent recorded, not started), `started`, `completed`, and `unknown`.
 Recovery does not rewrite raw journal evidence. A `started` record with no receipt
@@ -504,8 +514,20 @@ provider and exact model ID.
 Serializer support is separate from model support. Direct xAI's
 OpenAI-compatible image and function-call body is fixture-tested against the
 [published chat contract](https://docs.x.ai/developers/rest-api-reference/inference/chat-completions).
-Subscription image paths remain fenced. Route image flags describe serialization,
-not universal model vision. Local Ollama/SOV/Manifest image paths retain their serializer behavior.
+Grok subscription image input is certified only for exact `grok-4.7`, using PNG or
+JPEG. Two bounded live subscription PNG perception turns passed on 2026-10-14.
+`ModelRecord.imageInputCertification` records the exact route/model, publisher
+source, live verification and explicit expiry. The bundled proof expires after
+30 days; unknown, stale, failed or expired proof refuses images. Grok 4.6 and
+ChatGPT remain fenced. Route image flags describe serialization, not universal
+model vision. Local Ollama/SOV/Manifest image paths retain their serializer behavior.
+Legacy owner records for exact Grok 4.7 use the independent bundled transport
+proof without changing owner capability/provenance facts. General owner review
+age remains advisory; the image certificate's own expiry controls image input.
+Explicit owner retirement, unsupported/unknown images or failed/unverified/expired
+certification remains a ceiling. Effective discovery and operator copy expose
+the proof and its source. Other unknown models inherit no image certification.
+Certificate URLs and dates reject terminal and bidi controls before display.
 Injected providers own their serializer contract. Without supplied model
 metadata, existing custom provider behavior is retained; hosts must use discovered metadata to certify
 capability. No fixture certifies an account entitlement or a paid live request.
