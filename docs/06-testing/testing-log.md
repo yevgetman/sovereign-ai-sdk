@@ -1,3 +1,78 @@
+## 2026-10-14 — #80 truthful native outcomes and durable recovery
+
+**Scope:** Issue #80 on `review-fix/80`, based on final #79 parent `1e8f8aa6`
+(which includes #78). Native completion now means SDK `completed` only. Token,
+turn and check-in limits emit compatible `turn.error` / `needs_continuation`
+with exit3. Interrupted and failed runs expose a recovery target only after the
+existing session, completed messages and tool receipts pass a durable check.
+Absent or unsafe targets omit `activeSessionId`, report `sessionId: null`, and
+never claim automatic recovery. Unsafe prior effects refuse paid inference.
+
+The SDK adds opt-in `PerTurn.persistCompletedMessages`; generic early-abandon
+and rethrow behavior retain their default. Screened completed messages persist
+before delivery, with canonical progress advanced before transcript callbacks.
+Conduct regeneration still rolls back discarded rows and transcripts. Native
+cancellation gives cooperative drives one second to settle, preserves completed
+receipts and observed usage once, and refuses automatic recovery for unsettled
+effects or storage faults. Final verification faults cannot report completed
+success. Resume restores completed tool receipts without re-executing effects.
+
+**Failed-before / passed-after evidence:**
+- Initial SDK recovery regression: four failures / one pass before the fix;
+  completed-message cancellation/close persistence now passes.
+- Native pre-session cancellation originally reported `recoverable: true` with
+  null ids. Cancellation and deadline now report false, omit the active-id key,
+  and request a safe retry. Nonexistent requested resume ids are never created.
+- A transient transcript callback fault originally duplicated the committed
+  assistant row. It now leaves exactly one assistant and refuses success.
+- Final store-read failure originally returned exit0. It now returns
+  `storage_failed`, preserves rows/usage, and exposes no recovery target.
+- Peer action witness: pre-session rate limit incorrectly requested request
+  repair. It now requests retry. Malformed token-service responses separately
+  request `check_provider`, remain non-recoverable, and do not expand refresh
+  retries. Permanent failures retain conservative guidance; unsafe effects
+  retain inspection precedence.
+- Own final coherence witness: a completed receipt attached to an existing
+  assistant without its matching tool intent incorrectly authorized recovery.
+  Linear exact intent-key membership now refuses it. Matching complete journal
+  receipts still repair missing canonical result batches.
+
+**Final checks:**
+- Recovery SDK, native wire and helper regressions: **46 passed / zero failed /
+  150 assertions**. Native capture suite: 23 passed / 105 assertions.
+- `bun install --ignore-scripts`, `bun run build`, and `bun run tui:build`: pass.
+- `bun run lint` (boundary: 252 modules / 1028 dependencies) and
+  `bun run typecheck` (including the browser console): pass.
+- Final frozen `env -u FORCE_COLOR bun run test`: **6408 passed / 19 existing skips / zero failed**,
+  27986 assertions across 615 files, 149.51s (Bun1.3.13, Node25.9.0, macOS).
+- `bun run canary`: pass. Packed SDK/protocol consumers work under Node and Bun;
+  installed artifacts pass their purity and consumer type checks.
+- Actual native JSONL from 24 mocked streams passed the matching released
+  Telekit0.64.23 (`ce40ceb6`) validator, parser and terminal collector: 24/24,
+  one completed result, all three continuation causes, zero false success.
+  Command: `PYTHONPATH=/private/tmp/telekit-cut-0.64.23
+  /Users/julie/code/telekit/.venv/bin/python
+  /private/tmp/recovery80-telekit-check-final.py`. Receipt:
+  `/private/tmp/recovery80-telekit-evidence-final.json`. No Telekit source edits
+  or production messages. Final capture SHA256:
+  `78781c237e58acf287ecabad09b674769e83681d8e6d0a35bccead1bc392e94d`.
+- Independent final peer: zero findings above Low; exact receipt-membership
+  correction independently checked. Product source was frozen for final gates.
+
+**Intermediate checks:** Earlier full passes had 6406 and 6407 passes, 19 existing
+skips and zero failures. Peer corrections were in progress, so neither is the
+final frozen receipt. A formatter issue and future-code TypeScript comparison
+were corrected before the final lint/types pass. All failed-before witnesses
+were intentional focused reproductions; no introduced final failure remains.
+
+**Limits:** Tests use isolated storage and mock providers. Real paid provider
+exhaustion/cancellation was not invoked. Check-in wire coverage uses an isolated
+subprocess that supplies the SDK standing check-in limit; the existing native
+runtime has no user setting for that limit. No auth/config changes, upgrade,
+merge or release. This run makes no longitudinal learning-loop claim and changes
+no recall or synthesis policy. Additive SDK recovery options require the next
+release's surface-version review; source versions were not changed here.
+
 ## 2026-10-14 — Issue 79: independent final review corrections
 
 The independent final review found two additional medium defects after the

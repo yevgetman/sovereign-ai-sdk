@@ -313,6 +313,16 @@ its state is process-local. A durable host must implement them in durable storag
 A storage failure returns `ToolStorageError` (`code: 'storage_failed'`) before
 continuation and joins started siblings. Returned history retains real results.
 
+Recovery hosts can set `PerTurn.persistCompletedMessages: true` to commit each
+screened completed assistant message before it is yielded. The default stays
+false and preserves generic early-abandon and rethrow behavior. This mode requires
+`sessionStore`; it advances the canonical write boundary per successful row,
+before transcript callbacks, so a failed observer cannot duplicate the message.
+Conduct block/replace substitutions are saved, while discarded regeneration
+attempts are rolled back. Normal final persistence does not duplicate early rows,
+tool intents, receipts or transcripts. Usage still finalizes once at terminal;
+cancelling hosts must preserve their incremental usage receipt separately.
+
 A `ToolExecution` links `toolUseId` to `assistantMessageId`. Its states are
 `interrupted` (intent recorded, not started), `started`, `completed`, and `unknown`.
 Recovery does not rewrite raw journal evidence. A `started` record with no receipt
