@@ -1,3 +1,22 @@
+## 2026-10-14 — Packed and combined verification after the startup correction (#68/#69)
+
+Root reran `bun run canary` on corrected functional commit
+`fc129bf821b655583ef4eb94b6baf7213260e9ff`. Every packed protocol/SDK Node and Bun
+consumer, consumer-type check and artifact-purity check passed. No package
+was published. Build, lint/boundary, typecheck and the full source gate already
+passed on this same frozen code: **6144 pass / 19 existing skips / 0 fail**.
+Only this testing receipt changes afterward.
+
+Root combined that source with reasoning PR #81 (`3912e719`) in an isolated
+checkout, preserving both appended test sets and all test imports. The combined
+SDK/protocol build, lint/boundary, typecheck and **131 affected tests / 852
+assertions** passed. Separately, `bun test tests/providers/modelImportOrder.test.ts`
+passed all **10 fresh Bun/Node startup checks** on the same combined tree. The
+previous entry records the CI failure and the failed-before startup witness.
+The two PRs still target master separately. Their only textual merge conflicts
+are the appended native-run tests and testing-log entries; no runtime code
+conflict was resolved. No master merge, release or installed upgrade occurs.
+
 ## 2026-10-14 — Issue #68 follow-up: fresh-process provider startup
 
 PR #82 Ubuntu CI on `44d8f36f` exposed a module-initialization failure:
