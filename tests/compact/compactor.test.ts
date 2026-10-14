@@ -13,6 +13,181 @@ import {
 
 const text = (value: string): ContentBlock => ({ type: 'text', text: value });
 
+test('compaction preserves head images once and retains tail image order on resume', async () => {
+  const db = openDb();
+  try {
+    const parent = createParent(db);
+    const oldImage: ContentBlock = {
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'b2xkLWltYWdl' },
+    };
+    const tailImage: ContentBlock = {
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/jpeg', data: 'dGFpbC1pbWFnZQ==' },
+    };
+    const history: Message[] = [
+      { role: 'user', content: [text('original screenshot'), oldImage] },
+      { role: 'assistant', content: [text('noted')] },
+      { role: 'user', content: [text('current screenshot'), tailImage] },
+    ];
+    for (const message of history) db.saveMessage(parent, message);
+    const result = await compactSession({
+      db,
+      sessionId: parent,
+      model: 'claude-sonnet-4-6',
+      providerName: 'anthropic',
+      systemPrompt: [],
+      history,
+      tailTokenBudget: 1,
+      minTailMessages: 1,
+      summarize: async () => ({ summary: 'Screenshots remain relevant.', usedAuxiliary: false }),
+    });
+    const images = db
+      .loadMessages(result.newSessionId)
+      .flatMap((message) => message.content.filter((block) => block.type === 'image'));
+    expect(images).toEqual([oldImage, tailImage]);
+    expect(db.loadMessages(result.newSessionId).at(-1)?.content).toEqual(history.at(-1)?.content);
+    expect(db.loadMessages(parent)[0]?.content).toEqual(history[0]?.content);
+    expect(
+      db
+        .loadMessages(result.newSessionId)
+        .map((message) => ({ role: message.role, content: message.content })),
+    ).toEqual([{ role: 'assistant', content: [text(result.summary)] }, ...result.tail]);
+  } finally {
+    db.close();
+  }
+});
+
+test('compaction carry does not duplicate an old image already preserved in the tail', async () => {
+  const db = openDb();
+  try {
+    const parent = createParent(db);
+    const image: ContentBlock = {
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'b2xkLWltYWdl' },
+    };
+    const history: Message[] = [
+      { role: 'user', content: [image] },
+      { role: 'assistant', content: [text('noted')] },
+      { role: 'user', content: [text('look again'), image] },
+    ];
+    const result = await compactSession({
+      db,
+      sessionId: parent,
+      model: 'claude-sonnet-4-6',
+      providerName: 'anthropic',
+      systemPrompt: [],
+      history,
+      tailTokenBudget: 1,
+      minTailMessages: 1,
+      summarize: async () => ({ summary: 'Screenshot.', usedAuxiliary: false }),
+    });
+    expect(
+      db
+        .loadMessages(result.newSessionId)
+        .flatMap((message) => message.content.filter((block) => block.type === 'image')),
+    ).toEqual([image]);
+  } finally {
+    db.close();
+  }
+});
+
+test('compaction refuses excessive retained images before paying for a summary', async () => {
+  const db = openDb();
+  try {
+    const parent = createParent(db);
+    let summaries = 0;
+    const history: Message[] = [
+      {
+        role: 'user',
+        content: Array.from({ length: 11 }, (_, index) => ({
+          type: 'image' as const,
+          source: {
+            type: 'base64' as const,
+            media_type: 'image/png',
+            data: Buffer.from(`frame-${index}`).toString('base64'),
+          },
+        })),
+      },
+      { role: 'assistant', content: [text('noted')] },
+      { role: 'user', content: [text('current')] },
+    ];
+    await expect(
+      compactSession({
+        db,
+        sessionId: parent,
+        model: 'claude-sonnet-4-6',
+        providerName: 'anthropic',
+        systemPrompt: [],
+        history,
+        tailTokenBudget: 1,
+        minTailMessages: 1,
+        summarize: async () => {
+          summaries++;
+          return { summary: 'summary', usedAuxiliary: false };
+        },
+      }),
+    ).rejects.toThrow('attachment limits');
+    expect(summaries).toBe(0);
+    expect(db.getCompactionsForParent(parent)).toHaveLength(0);
+  } finally {
+    db.close();
+  }
+});
+
+test('image carry DTO matches stored history and keeps an original tool pair adjacent', async () => {
+  const db = openDb();
+  try {
+    const parent = createParent(db);
+    const image: ContentBlock = {
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'b2xkLWltYWdl' },
+    };
+    const pair: Message[] = [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'original-call', name: 'read', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'original-call', content: 'completed receipt' },
+        ],
+      },
+    ];
+    const history: Message[] = [
+      { role: 'user', content: [image] },
+      { role: 'assistant', content: [text('noted')] },
+      { role: 'user', content: [text('read')] },
+      ...pair,
+    ];
+    const result = await compactSession({
+      db,
+      sessionId: parent,
+      model: 'claude-sonnet-4-6',
+      providerName: 'anthropic',
+      systemPrompt: [],
+      history,
+      tailTokenBudget: 1,
+      minTailMessages: 1,
+      summarize: async () => ({ summary: 'Earlier image remains relevant.', usedAuxiliary: false }),
+    });
+    const child = db
+      .loadMessages(result.newSessionId)
+      .map((message) => ({ role: message.role, content: message.content }));
+    expect(child).toEqual([{ role: 'assistant', content: [text(result.summary)] }, ...result.tail]);
+    expect(child.slice(-2)).toEqual(pair);
+    expect(child.map((message) => message.role)).toEqual([
+      'assistant',
+      'user',
+      'assistant',
+      'user',
+    ]);
+  } finally {
+    db.close();
+  }
+});
+
 function openDb(): SessionDb {
   return SessionDb.open({ path: ':memory:' });
 }

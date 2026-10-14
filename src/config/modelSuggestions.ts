@@ -2,7 +2,11 @@ import type { CommandContext } from '@yevgetman/sov-sdk/commands/types';
 import type { Settings } from '@yevgetman/sov-sdk/config/schema';
 import { readConfig } from '@yevgetman/sov-sdk/config/store';
 import { PROVIDER_REGISTRY } from '@yevgetman/sov-sdk/providers/models';
-import { type ModelCatalog, findModel } from '@yevgetman/sov-sdk/providers/models/index';
+import {
+  type ModelCatalog,
+  findModel,
+  verifiedSubscriptionImageInput,
+} from '@yevgetman/sov-sdk/providers/models/index';
 import {
   readModelCatalogSnapshot,
   routeForProvider,
@@ -48,10 +52,15 @@ export function modelDetails(
       ? 'none'
       : model.efforts.join('/');
   const shown = subscriptionOperatorModel(model);
+  const proof = verifiedSubscriptionImageInput(shown);
   const images =
-    shown.routeId === 'chatgpt-subscription' || shown.routeId === 'grok-subscription'
+    shown.routeId === 'chatgpt-subscription'
       ? `${shown.capabilities.images}; the transport has no image serializer and cannot send images`
-      : shown.capabilities.images;
+      : shown.routeId === 'grok-subscription'
+        ? proof
+          ? `${shown.capabilities.images}; live-certified ${shown.id} (${proof.mimeTypes.join('/')}) until ${proof.expiresAt}; source:${proof.source}`
+          : `${shown.capabilities.images}; exact-model image certification unavailable or stale; cannot send images`
+        : shown.capabilities.images;
   return `tools:${shown.capabilities.tools} · images:${images} · efforts:${efforts} · context:${shown.contextWindow ?? 'unknown'} · availability:${shown.availability}`;
 }
 export function modelProviderForSetting(path: string, settings: Settings): string | undefined {

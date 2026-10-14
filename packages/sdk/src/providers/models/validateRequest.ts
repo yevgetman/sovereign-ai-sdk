@@ -1,14 +1,15 @@
 import { listRoutes } from '../routes/catalog.js';
 import { RouteError } from '../routes/errors.js';
 import type { ProviderRequest } from '../types.js';
+import { validateSubscriptionImageInput } from './imageInput.js';
 import { SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE } from './subscriptionCatalog.js';
 import type { ModelRecord } from './types.js';
 
 /** Verified serializer support, separate from a publisher's model claims.
- * Subscription transports remain fenced even if their API siblings support vision.
+ * Subscription image support requires a separately certified exact model.
  * False means no built-in verified serializer, not a rejection of a custom adapter. */
 export function serializerSupportsImages(provider: string): boolean {
-  return ['anthropic', 'openai', 'openrouter', 'xai', 'ollama', 'sov', 'manifest'].includes(
+  return ['anthropic', 'openai', 'openrouter', 'xai', 'grok', 'ollama', 'sov', 'manifest'].includes(
     provider,
   );
 }
@@ -60,12 +61,13 @@ export function validateModelRequest(
       'Image input must use a user message for this transport.',
     );
   }
-  if (images && ['chatgpt', 'grok', 'claude-max'].includes(provider)) {
+  if (images && ['chatgpt', 'claude-max'].includes(provider)) {
     throw new RouteError(
       'unsupported_input',
       'The selected transport has no verified image serializer.',
     );
   }
+  if (images && provider === 'grok') validateSubscriptionImageInput(req, metadata);
   const legacySuggestions = metadata?.metadata.source === 'bundled-suggestions';
   const directApi =
     metadata?.auth === 'api_key' && ['anthropic', 'openai', 'xai'].includes(provider);
