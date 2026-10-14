@@ -1,0 +1,79 @@
+{
+  "result": "pass",
+  "checked_at": "2026-10-14T21:26:36.237296Z",
+  "build_commit": "48a287d01d74cfd2e15ba7a164b93c9a56aeb164",
+  "sdk_version": "0.16.0",
+  "cli_version": "0.6.80",
+  "release_id": "sdk-0.16.0",
+  "release_url": "https://github.com/yevgetman/sov-releases/releases/tag/v0.6.80",
+  "release_published_at": "2026-10-14T21:24:28Z",
+  "all_public_downloads_match_frozen_bytes": true,
+  "checksum_files_match": true,
+  "npm_publish": false,
+  "artifacts": [
+    {
+      "filename": "yevgetman-sov-sdk-0.16.0.tgz",
+      "sha256": "c10ce8dd462bd697f2939f8b968005dd2501a5930291487be96f330854dae0e1",
+      "size": 1108214,
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/yevgetman-sov-sdk-0.16.0.tgz"
+    },
+    {
+      "filename": "SDK-SHA256SUMS",
+      "sha256": "15eada8360417040bd066ae5414ddd7bad3c1f4cad3d938fcde1f36b44665344",
+      "size": 95,
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/SDK-SHA256SUMS"
+    },
+    {
+      "filename": "sov-darwin-arm64.tar.gz",
+      "sha256": "76ae2ecbf533a3afca34aff100f25c62750acc670fdbb8bcff18826a7ad76bbd",
+      "size": 34272069,
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-darwin-arm64.tar.gz"
+    },
+    {
+      "filename": "sov-darwin-x64.tar.gz",
+      "sha256": "9bac992de712aa92f020c8fbb8861c990bd5e81cc95ad58452943550a4cf000b",
+      "size": 37342348,
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-darwin-x64.tar.gz"
+    },
+    {
+      "filename": "sov-linux-arm64.tar.gz",
+      "sha256": "009ef0de45e386c875206fd878836105a7c91a4d95f2eda0a50f53bb0c53628d",
+      "size": 44847656,
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-linux-arm64.tar.gz"
+    },
+    {
+      "filename": "sov-linux-x64.tar.gz",
+      "sha256": "553925dc979852945b4b0cae354484f7a552f0b3789f17f5b5ca41440712c6f8",
+      "size": 45292319,
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-linux-x64.tar.gz"
+    },
+    {
+      "filename": "sov-windows-x64.zip",
+      "sha256": "99ddef9177ad748bf6ba1674755f5ca667f83159f9b9e32b1e5e40d11ff6d2f4",
+      "size": 48410340,
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-windows-x64.zip"
+    },
+    {
+      "filename": "SHA256SUMS",
+      "sha256": "44863afbe5bdab2a1f6f84cce2a74ad8aff784cb93f9db649f76c44544b72c22",
+      "size": 440,
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/SHA256SUMS"
+    }
+  ],
+  "native_downloaded_mac": {
+    "darwin-arm64": {
+      "version": "0.6.80",
+      "codesign_strict": "pass",
+      "signature": "adhoc"
+    },
+    "darwin-x64": {
+      "version": "0.6.80",
+      "codesign_strict": "pass",
+      "signature": "adhoc"
+    }
+  },
+  "frozen_manifest_commit": "6946050cc25ac8cb506fb77f6de967485d364fcd",
+  "frozen_manifest_sha256": "057aad489506f9d615cc2ab12fb33b307c56cb9704bf88cad79117d0da32e458",
+  "ci_dry_run": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38636631026",
+  "ci_exact": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38636633930"
+}

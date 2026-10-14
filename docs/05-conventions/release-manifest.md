@@ -21,22 +21,19 @@ release when the selected work also changes the wrapper. A library-only cut may
 retain the published CLI version. Protocol/debug-console versions remain unchanged
 unless explicitly selected work requires their own release preparation.
 
-The verified cut released SDK **0.15.1** and CLI **0.6.79**. The active
-draft plans SDK **0.15.2** and CLI **0.6.80** from that published baseline. It
-now includes 13 source fixes: nine Critical/High fixes in PR81–89 and four
-Medium fixes in PR90–93. Each item records its exact master merge once,
-dependency order and durable source QA.
-Issue #74 stays selected with its open live replay checks recorded; source
-fixtures pass, but the available login rejects the exact selected ChatGPT model.
-The additive public SDK types and ports require a minor SDK version before
-freeze. The assigned draft stays unchanged until the Owner changes it.
-Reviewed PR63 and PR64 shipped once, with each PR's exact master merge SHA and
-`mainline: 1`. Contained branch commits and review fixes are covered by their
-merge unit. `encrypted_reasoning` is a new content-block member on existing
-message types. Additive public export names still require a minor version.
-The list preserves dependency order. Version, lockfile and release documentation
-preparation is an explicit reviewed item. Immutable history records the published
-result; active records then name the next draft.
+The verified cut released SDK **0.16.0** and CLI **0.6.80**. The active empty
+draft plans SDK **0.16.1** and CLI **0.6.81** from that published baseline.
+All 13 source fixes in PR81–93 and reviewed preparation PR94 ship once through
+14 mapped application units. Build source is `48a287d01d74cfd2e15ba7a164b93c9a56aeb164`.
+Owner-approved SDK minor 0.16.0 covers the additive public APIs. Immutable
+`releases/history/sdk-0.16.0/` retains the exact frozen manifest, both schemas,
+14 source/result mappings, QA, independent reviews and public-byte proof.
+All eight public assets and both downloaded Mac versions/signatures pass.
+Source stamps remain the published versions; the empty next draft does not build.
+
+Issue #74 retains its open exact ChatGPT live replay checks; fixture gates do
+not certify paid-provider eligibility or physical power-loss recovery. Exact
+Grok image proof expires 2026-11-13. Unknown tokenizers remain advisory.
 
 ## Adding work
 
