@@ -31,7 +31,7 @@ const wire = (events: unknown[]) =>
   });
 async function collect(response: Response) {
   const events = [];
-  const gen = translateResponsesSse(response, 'test');
+  const gen = translateResponsesSse(response, 'grok');
   for (;;) {
     const step = await gen.next();
     if (step.done) return { events, message: step.value };
@@ -282,8 +282,16 @@ describe('subscription Responses wire', () => {
       {
         type: 'encrypted_reasoning',
         encryptedContent: ciphertext,
+        routeId: 'grok-subscription',
         id: 'rs_1',
         status: 'completed',
+        item: {
+          type: 'reasoning',
+          encrypted_content: ciphertext,
+          id: 'rs_1',
+          status: 'completed',
+          summary: [{ type: 'summary_text', text: 'still not ciphertext' }],
+        },
       },
     ]);
     expect(JSON.stringify(message)).not.toContain('do not store this');
@@ -296,7 +304,13 @@ describe('subscription Responses wire', () => {
       { replayEncryptedReasoning: true },
     );
     expect(replay).toEqual([
-      { type: 'reasoning', encrypted_content: ciphertext, id: 'rs_1', status: 'completed' },
+      {
+        type: 'reasoning',
+        encrypted_content: ciphertext,
+        id: 'rs_1',
+        status: 'completed',
+        summary: [{ type: 'summary_text', text: 'still not ciphertext' }],
+      },
       { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'hello' }] },
       { type: 'function_call', call_id: 'call_1', name: 'Read', arguments: '{"path":"a"}' },
     ]);

@@ -1,3 +1,62 @@
+## 2026-10-14 — Complete Grok reasoning replay and safe upstream diagnostics (#69)
+
+Scope: isolated `fix/69-grok-reasoning-replay` worktree based on `origin/master`
+`71e25677`. Environment: macOS arm64, Bun 1.3.13. Dependencies installed with
+`bun install --ignore-scripts --frozen-lockfile`; production SDK/protocol output
+built with `bun run build`; ignored Go TUI binary built with `bun run tui:build`.
+No release, upgrade, merge or installed consumer change.
+
+Failed-before evidence: `bun test tests/providers/grokReasoningReplay.test.ts`
+reported **0 pass / 2 fail** against the unmodified implementation. SQLite
+close/reopen replay dropped `summary` and unknown nested fields. HTTP 400
+contract rejection mapped to generic `provider_failed` and retained no safe
+upstream diagnostic. After the fix, focused coverage exercises complete empty
+and nonempty summaries, future fields, original terminal order, saved `low`
+effort followed by `auto`, persistence, legacy-history refusal, direct foreign
+provider/authentication-route refusal before fetch, full-item token budgeting,
+HTTP 400/401/403/413/422/429 diagnostics, huge/malformed/unreadable error bodies,
+owner error distinctions and cancellation during the failure body read.
+
+Focused command: `bun test tests/providers/grokReasoningReplay.test.ts tests/providers/responses.test.ts tests/providers/routes.test.ts tests/core/tokenEstimate.test.ts tests/cli/sdkRunCommand.test.ts tests/providers/subscription.test.ts`.
+The initial final focused pass was **98 pass / 0 fail / 598 assertions**;
+the later cancellation regression passed separately (**11 pass / 0 fail** in
+`grokReasoningReplay.test.ts`). Independent read-only peer review ran **75
+focused tests** and a mixed text/tool/reasoning fixture with repeated reasoning
+IDs and different unknown fields; all passed. Reviewer tests used fake providers.
+
+Live acceptance: a bounded temporary script used the existing unexpired Grok
+subscription login read-only. Two consecutive `grok-4.7` Responses turns
+succeeded with `store: false`: first explicit `low`, then omitted effort
+(`auto`/`high`). Each returned one reasoning item. The same temporary SQLite
+session was closed and reopened between turns, then removed. Credentials,
+ciphertext, prompts and replies were not logged. No owner config, login,
+refresh or owner-session write occurred. This proves one current account's
+arithmetic continuation, not general subscription eligibility. Saved-effort
+changes were tested through a temporary config fixture, not the owner config.
+
+A first full suite pass before the fresh worktree's TUI binary existed reported
+**6114 pass / 19 skip / 17 fail / 2 errors**; all failures were TUI-launcher
+prerequisites or resulting timeouts. After `bun run tui:build`,
+`env -u FORCE_COLOR bun run test` passed **6133 pass / 19 skip / 0 fail**
+(6152 tests, 595 files). Final source retains interruption when an owner cancels
+a failed-body read. Final frozen-source gate results are recorded below.
+
+Final frozen-source gates passed: `bun run build` (SDK/protocol declarations and
+runtime), `bun run lint` (1113 files; no boundary violations, 246 modules and
+976 dependencies), `bun run typecheck` (root and debug console), and
+`env -u FORCE_COLOR bun run test` (**6134 pass / 19 existing skips / 0 fail**,
+6153 tests across 595 files, 26747 assertions, 119.84s). The final focused command
+above passed **99 pass / 0 fail / 601 assertions**. `git diff --check` passed.
+The isolated packed downstream canary is delegated to the parent before PR
+publication; no result is claimed here.
+
+Migration: callers must retain the full opaque `item` and Grok subscription
+route marker during rehydration. Legacy lossy reasoning cannot be recovered and
+requires a new session. A reasoning stream without authoritative terminal output
+fails safely rather than guessing order. No learned-context recall was involved
+in these provider fixtures or direct live adapter probes; this is not evidence
+for the ongoing learning-loop soak.
+
 ## 2026-10-13 — SDK 0.15.1 / SOV 0.6.79 public cut
 
 Owner authorized the manifest cut, public GitHub release, and consumer source pins. Exact build `85350f48cc726f62b7b6396919015960d810b2f5` maps PR 63 (`9bccdda9` → `ad21dbb8`), PR 64 (`59aecc94` → `52373d8f`) and the reviewed preparation (`f573f632` → `85350f48`). An independent assembly review found no defect above Low. Product source matches the reviewed master units. Unlisted bookkeeping, including `release:validate` and ajv, stays out of the build.

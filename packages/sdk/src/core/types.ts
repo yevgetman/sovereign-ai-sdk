@@ -25,7 +25,16 @@ export type ContentBlock =
   // continuation call to preserve reasoning continuity across tool-use turns.
   | { type: 'redacted_thinking'; data: string }
   // Grok Responses ciphertext. Copied, not decoded. Replay is route-gated.
-  | { type: 'encrypted_reasoning'; encryptedContent: string; id?: string; status?: string }
+  | {
+      type: 'encrypted_reasoning';
+      encryptedContent: string;
+      routeId?: 'grok-subscription';
+      id?: string;
+      status?: string;
+      /** Complete original Responses item, including empty summary and unknown fields.
+       * Optional only for reading legacy history, which cannot safely be replayed. */
+      item?: Record<string, unknown>;
+    }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
   | {

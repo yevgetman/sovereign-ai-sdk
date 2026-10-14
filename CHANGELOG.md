@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased — complete Grok reasoning replay (#69)
+
+**SDK:** `encrypted_reasoning` adds optional `item` and `routeId` envelope fields.
+The full original Responses reasoning item now persists and replays unchanged,
+including empty `summary` and unknown fields, in terminal output order. Callers
+must retain the entire block on rehydration. Legacy blocks without the complete
+item cannot be recovered; start a new Grok session after upgrading. Other
+providers and authentication routes refuse these blocks before inference.
+A reasoning stream without a terminal output array fails safely because the
+original output order cannot be verified. Full item JSON counts toward input
+budgets. `SubscriptionHttpError.upstream` adds bounded sanitized status, known
+code and fixed message templates; arbitrary upstream text is discarded. Authentication,
+tier and context errors retain the same safe diagnostics and their existing
+classification. Unreadable bodies stay HTTP failures; owner cancellation stays interrupted.
+
+**Harness:** request rejection reports `provider_request_rejected`, with safe
+HTTP diagnostics. Login failure and context overflow keep their distinct codes.
+Two live `grok-4.7` subscription turns succeeded in an isolated persisted session,
+with `store: false`, first `low` effort and then `auto`/`high`. No owner settings
+or login were changed. This is one account probe, not a general eligibility claim.
+
 ## harness 0.6.79 / SDK 0.15.1 — Grok subscription pin and catalog policy — 2026-10-13
 
 - Grok subscription defaults to `grok-4.7`, allowlists `grok-4.6`, sends Responses `reasoning.effort` (`max` maps to `xhigh`), and replays encrypted reasoning only on that route. The live subscription probe has not been run.

@@ -61,7 +61,10 @@ export function estimateBlockTokens(block: ContentBlock): number {
     return BLOCK_OVERHEAD_TOKENS + estimateTextTokens(block.data);
   }
   if (block.type === 'encrypted_reasoning') {
-    return BLOCK_OVERHEAD_TOKENS + estimateTextTokens(block.encryptedContent);
+    return (
+      BLOCK_OVERHEAD_TOKENS +
+      (block.item ? estimateJsonTokens(block.item) : estimateTextTokens(block.encryptedContent))
+    );
   }
   return (
     BLOCK_OVERHEAD_TOKENS +

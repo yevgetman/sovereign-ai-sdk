@@ -3,7 +3,14 @@ import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
 import { ContextManagementError } from '@yevgetman/sov-sdk/compact/contextManagement';
 import { loadSettings } from '@yevgetman/sov-sdk/config/loader';
 import type { Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
-import { PersistBeforeRunError, UnknownToolsetError } from '@yevgetman/sov-sdk/providers/errors';
+import {
+  ContextOverflowError,
+  PersistBeforeRunError,
+  SubscriptionAuthExpiredError,
+  SubscriptionHttpError,
+  SubscriptionTierBlockedError,
+  UnknownToolsetError,
+} from '@yevgetman/sov-sdk/providers/errors';
 import { type ModelRecord, findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import {
   RouteError,
@@ -52,6 +59,8 @@ const ERRORS: Record<string, string> = {
   unsupported_input: 'Selected route does not support this input.',
   interrupted: 'Turn interrupted.',
   storage_failed: 'Session storage failed. No automatic retry was performed.',
+  provider_request_rejected:
+    'Selected provider rejected this request. No route fallback was performed.',
   provider_failed: 'Selected provider failed. No route fallback was performed.',
 };
 function string(value: unknown): string | undefined {
@@ -72,6 +81,17 @@ function turnErrorText(code: string, err: unknown): string {
     ) {
       return err.message;
     }
+  }
+  if (
+    code === 'unsupported_input' &&
+    err instanceof RouteError &&
+    err.message === 'Stored Grok reasoning is incomplete. Start a new session after upgrading.'
+  ) {
+    return err.message;
+  }
+  if (code === 'provider_request_rejected' && err instanceof SubscriptionHttpError) {
+    const safe = err.upstream;
+    return `${ERRORS[code]} HTTP ${err.status}.${safe ? ` ${safe.code ? `${safe.code}: ` : ''}${safe.message}` : ''}`;
   }
   return ERRORS[code] ?? 'Selected provider failed. No route fallback was performed.';
 }
@@ -349,6 +369,13 @@ export async function runSdkRunCommand(
       ...metadata(),
       code,
       error: turnErrorText(code, err),
+      ...((err instanceof SubscriptionHttpError ||
+        err instanceof SubscriptionAuthExpiredError ||
+        err instanceof SubscriptionTierBlockedError ||
+        err instanceof ContextOverflowError) &&
+      err.upstream
+        ? { upstream: err.upstream }
+        : {}),
       recoverable: ['rate_limited', 'interrupted'].includes(code),
     });
     return code === 'interrupted'

@@ -80,13 +80,19 @@ export function responsesInput(
             );
           }
           flush();
-          const replayed: Record<string, unknown> = {
-            type: 'reasoning',
-            encrypted_content: block.encryptedContent,
-          };
-          if (block.id !== undefined) replayed.id = block.id;
-          if (block.status !== undefined) replayed.status = block.status;
-          items.push(replayed);
+          if (
+            block.routeId !== 'grok-subscription' ||
+            !block.item ||
+            block.item.type !== 'reasoning' ||
+            block.item.encrypted_content !== block.encryptedContent
+          ) {
+            throw new RouteError(
+              'unsupported_input',
+              'Stored Grok reasoning is incomplete. Start a new session after upgrading.',
+            );
+          }
+          // Never synthesize fields: xAI requires complete output items unchanged.
+          items.push(structuredClone(block.item));
           break;
         }
         // Thinking is internal provider state, not a user instruction or a
@@ -112,9 +118,10 @@ export function responsesInput(
 
 type EncryptedReasoningBlock = Extract<ContentBlock, { type: 'encrypted_reasoning' }>;
 
-/** Copy server ciphertext. Ignore empty values and summary text. */
+/** Preserve the entire opaque server item, without decoding or logging it. */
 function encryptedReasoningBlock(
   item: Record<string, unknown> | undefined,
+  provider: string,
 ): EncryptedReasoningBlock | undefined {
   if (!item || item.type !== 'reasoning') return undefined;
   if (typeof item.encrypted_content !== 'string' || item.encrypted_content.length === 0)
@@ -122,6 +129,8 @@ function encryptedReasoningBlock(
   const block: EncryptedReasoningBlock = {
     type: 'encrypted_reasoning',
     encryptedContent: item.encrypted_content,
+    item: structuredClone(item),
+    ...(provider === 'grok' ? { routeId: 'grok-subscription' as const } : {}),
   };
   if (typeof item.id === 'string' && item.id.length > 0) block.id = item.id;
   if (typeof item.status === 'string' && item.status.length > 0) block.status = item.status;
@@ -249,7 +258,8 @@ export async function* translateResponsesSse(
         content.push({ type: 'tool_use', id: item.call_id, name: item.name, input });
         yield { type: 'tool_use_delta', id: item.call_id, partial: input };
       } else if (item?.type === 'reasoning') {
-        rememberReasoning(streamedReasoning, streamedReasoningIds, encryptedReasoningBlock(item));
+        const reasoning = encryptedReasoningBlock(item, provider);
+        rememberReasoning(streamedReasoning, streamedReasoningIds, reasoning);
       }
     } else if (event.type === 'response.failed' || event.type === 'error') {
       const row = object(event.response);
@@ -277,6 +287,13 @@ export async function* translateResponsesSse(
       if (event.type === 'response.incomplete' && (pendingCalls.size || toolIds.size)) {
         throw new ProviderHttpError(provider, 502, 'subscription tool response incomplete');
       }
+      if (!Array.isArray(row.output) && streamedReasoning.length) {
+        throw new ProviderHttpError(
+          provider,
+          502,
+          'subscription reasoning output order unavailable',
+        );
+      }
       if (Array.isArray(row?.output)) {
         let fallbackText = '';
         const sequence: ContentBlock[] = [];
@@ -286,7 +303,6 @@ export async function* translateResponsesSse(
           sequence.push({ type: 'text', text: pendingText });
           pendingText = '';
         };
-        const terminalReasoningIds = new Set<string>();
         for (const rawItem of row.output) {
           const item = object(rawItem);
           if (item?.type === 'message' && Array.isArray(item.content)) {
@@ -338,9 +354,8 @@ export async function* translateResponsesSse(
             flushPending();
             sequence.push({ type: 'tool_use', id: item.call_id, name: item.name, input });
           } else if (item?.type === 'reasoning') {
-            const reasoning = encryptedReasoningBlock(item);
-            if (reasoning && !(reasoning.id && terminalReasoningIds.has(reasoning.id))) {
-              if (reasoning.id) terminalReasoningIds.add(reasoning.id);
+            const reasoning = encryptedReasoningBlock(item, provider);
+            if (reasoning) {
               flushPending();
               sequence.push(reasoning);
             }
@@ -352,21 +367,10 @@ export async function* translateResponsesSse(
           yield { type: 'text_delta', text };
         } else if (fallbackText && fallbackText !== text)
           throw new Error('inconsistent subscription text');
-        if (sequence.some((block) => block.type === 'encrypted_reasoning')) {
-          for (const block of streamedReasoning) {
-            if (block.id && terminalReasoningIds.has(block.id)) continue;
-            if (
-              block.id === undefined &&
-              sequence.some(
-                (entry) =>
-                  entry.type === 'encrypted_reasoning' &&
-                  entry.encryptedContent === block.encryptedContent &&
-                  entry.id === undefined,
-              )
-            )
-              continue;
-            sequence.push(block);
-          }
+        if (
+          sequence.some((block) => block.type === 'encrypted_reasoning') ||
+          streamedReasoning.length
+        ) {
           for (const block of content) {
             if (
               block.type === 'tool_use' &&
@@ -398,10 +402,6 @@ export async function* translateResponsesSse(
   if (usage) yield { type: 'usage_delta', usage };
   if (!placedReasoning) {
     if (text) content.unshift({ type: 'text', text });
-    if (streamedReasoning.length) {
-      const toolAt = content.findIndex((block) => block.type === 'tool_use');
-      content.splice(toolAt === -1 ? content.length : toolAt, 0, ...streamedReasoning);
-    }
   }
   if (toolIds.size && stopReason === 'end_turn') stopReason = 'tool_use';
   const message: AssistantMessage = { role: 'assistant', content };
