@@ -317,6 +317,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'SessionWorkQueueError',
   'SubagentScheduler',
   'SubscriptionAuthExpiredError',
+  'SubscriptionStreamError',
   'SubscriptionTierBlockedError',
   'TOOLSET_NAMES',
   'TreeBudget',

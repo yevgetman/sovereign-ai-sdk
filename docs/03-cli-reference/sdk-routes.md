@@ -150,6 +150,24 @@ rejection; `auth_expired`, `tier_blocked`, `model_unsupported`, `rate_limited` a
 `context_overflow` keep their specific meanings. Missing and truncated terminal
 streams are failures.
 
+Subscription requests share a maximum of three model HTTP calls across connection,
+status and stream failures. One 401 refresh remains allowed within that budget.
+HTTP 200 streams can retry on EOF, reset or a malformed first frame before semantic
+output. A lifecycle `message_start` alone does not prevent retry. It emits once. Text,
+reasoning, tool intent (including added items and argument fragments), usage and
+terminal responses prevent replay. Readers close before bounded backoff;
+`Retry-After` waits above 10 seconds fail, and cancellation stops the next request.
+The selected route, model and credential path stay fixed.
+
+SDK callers can inspect `SubscriptionStreamError` from the SDK root. Its `phase` is
+`before_delivery` or `incomplete_delivery`; `reason` identifies the safe failure
+class. It retains no original payload or transport error. Its `retryable` flag
+describes an eligible failure cause; the subscription provider enforces the shared
+attempt budget. Incomplete delivery never requests replay. Context/model refusals
+keep their existing typed errors and do not retry. Native `turn.error` events retain
+the fixed `deliveryPhase` and `deliveryReason` fields; incomplete delivery reports
+`recoverable: false`.
+
 Exit codes are 0 for completion, 1 for turn failure, 2 for invalid input/options,
 130 for SIGINT and 143 for SIGTERM. A Grok 403 reports `tier_blocked` and never
 switches to a paid API key.

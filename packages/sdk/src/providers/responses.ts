@@ -8,8 +8,9 @@ import type {
   TokenUsage,
 } from '../core/types.js';
 import { type ReasoningEffort, mapMaxEffort } from './effort.js';
-import { ContextOverflowError, ProviderHttpError } from './errors.js';
+import { ContextOverflowError, ProviderHttpError, SubscriptionStreamError } from './errors.js';
 import { RouteError } from './routes/errors.js';
+import { isConnectionReset } from './subscription/retry.js';
 import type { ProviderRequest, ToolSchema } from './types.js';
 
 export function codexReasoning(effort?: ReasoningEffort): { effort: string; summary: string } {
@@ -183,8 +184,22 @@ function object(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-async function* responseEvents(response: Response): AsyncGenerator<Record<string, unknown>> {
-  if (!response.body) throw new Error('subscription backend returned an empty stream');
+async function* responseEvents(
+  response: Response,
+  provider: string,
+  hasSemantic: () => boolean,
+): AsyncGenerator<Record<string, unknown>> {
+  const failure = (
+    reason: 'connection_reset' | 'premature_eof' | 'invalid_event',
+    retryable: boolean,
+  ) =>
+    new SubscriptionStreamError(
+      provider,
+      hasSemantic() ? 'incomplete_delivery' : 'before_delivery',
+      reason,
+      !hasSemantic() && retryable,
+    );
+  if (!response.body) throw failure('premature_eof', true);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let pending = '';
@@ -196,17 +211,17 @@ async function* responseEvents(response: Response): AsyncGenerator<Record<string
     try {
       parsed = JSON.parse(raw);
     } catch {
-      throw new Error('invalid subscription event');
+      throw failure('invalid_event', true);
     }
     const event = object(parsed);
-    if (!event) throw new Error('invalid subscription event');
+    if (!event) throw failure('invalid_event', true);
     return event;
   };
   try {
     while (true) {
       const chunk = await reader.read();
       pending += decoder.decode(chunk.value, { stream: !chunk.done });
-      if (pending.length > 8 * 1024 * 1024) throw new Error('subscription event exceeds limit');
+      if (pending.length > 8 * 1024 * 1024) throw failure('invalid_event', false);
       let boundary = pending.indexOf('\n');
       while (boundary >= 0) {
         const line = pending.slice(0, boundary).replace(/\r$/, '');
@@ -223,17 +238,43 @@ async function* responseEvents(response: Response): AsyncGenerator<Record<string
         return;
       }
     }
+  } catch (err) {
+    if (
+      err instanceof SubscriptionStreamError ||
+      (err instanceof Error && err.name === 'AbortError')
+    )
+      throw err;
+    const reset = isConnectionReset(err);
+    throw failure(reset ? 'connection_reset' : 'invalid_event', reset);
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }
 
+/** Mark intent before validation, including tool/reasoning items not yet emitted. */
+function isSemanticResponseEvent(event: Record<string, unknown>): boolean {
+  const type = typeof event.type === 'string' ? event.type : '';
+  if (type === 'response.completed' || type === 'response.incomplete') return true;
+  if (/^response\.(output_(?!item)|reasoning|function_call|usage)/.test(type)) return true;
+  if (object(event.usage) || object(object(event.response)?.usage)) return true;
+  if (type === 'response.output_item.added' || type === 'response.output_item.done') {
+    const item = object(event.item);
+    if (item && typeof item.type === 'string' && item.type !== 'message') return true;
+    if (item?.type === 'message' && Array.isArray(item.content) && item.content.length > 0)
+      return true;
+  }
+  const part = object(event.part);
+  return !!part && typeof part.text === 'string' && part.text.length > 0;
+}
+
 export async function* translateResponsesSse(
   response: Response,
   provider: string,
   provenance?: ResponsesStateProvenance,
+  onSemantic?: () => void,
 ): AsyncGenerator<StreamEvent, AssistantMessage> {
+  let semantic = false;
   yield { type: 'message_start' };
   const content: ContentBlock[] = [];
   const streamedReasoning: EncryptedReasoningBlock[] = [];
@@ -245,7 +286,11 @@ export async function* translateResponsesSse(
   let complete = false;
   let usage: TokenUsage | undefined;
   let stopReason: 'end_turn' | 'tool_use' | 'max_tokens' = 'end_turn';
-  for await (const event of responseEvents(response)) {
+  for await (const event of responseEvents(response, provider, () => semantic)) {
+    if (isSemanticResponseEvent(event)) {
+      semantic = true;
+      onSemantic?.();
+    }
     if (complete) throw new Error('subscription emitted data after terminal response');
     const addedItem = object(event.item);
     if (
@@ -426,7 +471,13 @@ export async function* translateResponsesSse(
       complete = true;
     }
   }
-  if (!complete) throw new Error('subscription stream ended without a terminal response');
+  if (!complete)
+    throw new SubscriptionStreamError(
+      provider,
+      semantic ? 'incomplete_delivery' : 'before_delivery',
+      'premature_eof',
+      !semantic,
+    );
   if (usage) yield { type: 'usage_delta', usage };
   if (!placedReasoning) {
     if (text) content.unshift({ type: 'text', text });

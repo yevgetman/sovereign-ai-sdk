@@ -116,6 +116,35 @@ export class SubscriptionHttpError extends Error {
   }
 }
 
+/** Safe stream diagnostics. The original transport text and payload are never retained. */
+export class SubscriptionStreamError extends Error {
+  constructor(
+    readonly provider: string,
+    readonly phase: 'before_delivery' | 'incomplete_delivery',
+    readonly reason:
+      | 'connection_reset'
+      | 'premature_eof'
+      | 'invalid_event'
+      | 'provider_failure'
+      | 'reasoning_order_unavailable',
+    readonly retryable: boolean,
+    readonly status?: number,
+  ) {
+    const description =
+      reason === 'premature_eof'
+        ? 'stream ended without a terminal response'
+        : reason === 'connection_reset'
+          ? 'connection failed'
+          : reason === 'invalid_event'
+            ? 'invalid subscription event'
+            : reason === 'reasoning_order_unavailable'
+              ? 'subscription reasoning output order unavailable'
+              : 'subscription response failed';
+    super(`subscription provider ${provider} ${description} (${phase}: ${reason})`);
+    this.name = 'SubscriptionStreamError';
+  }
+}
+
 /** SuperGrok returned HTTP 403. The login tier cannot use this HTTP path. */
 export class SubscriptionTierBlockedError extends Error {
   constructor(
@@ -188,7 +217,8 @@ function isSubscriptionTurnError(err: unknown): boolean {
     err instanceof PersistBeforeRunError ||
     err instanceof ClaudeMaxTermsError ||
     err instanceof CredentialStoreUnavailableError ||
-    err instanceof SubscriptionHttpError
+    err instanceof SubscriptionHttpError ||
+    err instanceof SubscriptionStreamError
   );
 }
 

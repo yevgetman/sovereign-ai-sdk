@@ -1,3 +1,19 @@
+## 2026-10-14 — Subscription pre-delivery stream retry (#72)
+
+Scope: ChatGPT and Grok HTTP-200 stream consumption, the shared retry budget, semantic-delivery cutoff, safe typed failures, and native terminal diagnostics. Isolated worktree `/private/tmp/sdk-issue72-20261014`, branch `fix/72-subscription-pre-delivery-retry`. Started at `origin/master` `71e25677`, then ordinarily merged the reviewed critical Grok correction `65a6b2aa` before editing the shared translator. Bun 1.3.13 on macOS. Dependencies installed locally with `bun install --ignore-scripts --frozen-lockfile`. No live subscription call, Keychain read, owner-setting change, release, install or push.
+
+Before production edits, `bun test tests/providers/subscription-stream-retry.test.ts tests/providers/subscription.test.ts tests/providers/responses.test.ts` returned 31 pass / 3 fail / 109 assertions: HTTP 200 EOF, reset and invalid first JSON all failed instead of retrying. The reset surfaced injected transport text. Existing subscription/Responses tests passed. The first integration run also caught a lost fixed reasoning-order diagnostic from #69; that message now has a safe enum reason. Typecheck caught two fixture-only issues while proxy/native coverage was expanded: message events needed union guards, and the injected native fixture needed an explicit unused transport cast. Both were corrected before the final gate.
+
+Final focused commands:
+
+- `bun test tests/providers/subscription-stream-retry.test.ts tests/providers/subscription.test.ts tests/providers/responses.test.ts tests/providers/grokReasoningReplay.test.ts packages/sdk/tests/surface.test.ts`: 79 pass / 0 fail / 419 assertions across five files. Coverage includes both selected routes, EOF/reset/nested Node socket reset/malformed first frame, text/thinking/tool/ciphertext/usage/terminal cutoffs, malformed actual tool intent, mixed fetch/status/stream budget exhaustion, Retry-After, backoff cancellation, reader cancellation/unlock before sleep, and safe diagnostics.
+- `bun test tests/cli/sdkRunStreamDelivery.test.ts tests/cli/sdkRunCommand.test.ts`: 20 pass / 0 fail / 111 assertions across two files. The actual subscription provider and native runtime emit one failed terminal: pre-delivery EOF exhausts three requests, while partial text plus EOF stops after one. Both preserve fixed delivery phase/reason without secrets. Incomplete delivery is not recoverable.
+- The localhost HTTP fault-proxy fixture runs the real agent loop. Its first HTTP 200 stream closes after a heartbeat; the retry returns a function call; the post-tool request completes. Three requests, one tool execution, one text delta, one completed turn. This is local fault evidence, not paid-provider eligibility proof.
+
+`bun run lint` passed (1115 files; boundary check: 246 modules / 980 dependencies / no violations). `bun run typecheck` passed. `bun run build` passed for SDK and protocol. `bun run tui:build` passed; `go test ./...` from `packages/tui` passed all tested packages. `git diff --check` passed.
+
+Full runs use `env -u FORCE_COLOR bun run test`. The initial source gate passed 6164 / 19 skip / 0 fail / 26871 assertions across 596 files (126.63s). After tool-loop and nested-reset coverage expansion, the next run passed 6167 / 19 skip / 0 fail / 26887 assertions across 596 files (123.92s). After the native diagnostic source change and final fixture corrections, the final gate passed **6169 / 19 skip / 0 fail / 26901 assertions**, 6188 tests across 597 files (139.21s). Logs: `/private/tmp/sdk-issue72-full-test.log`, `/private/tmp/sdk-issue72-full-final.log`, `/private/tmp/sdk-issue72-full-wire-final.log`. No new skipped tests. No learning-loop value claim follows from these transport fixtures.
+
 ## 2026-10-14 — Exact Grok reasoning model and login confinement (#69 follow-up)
 
 Scope: isolated PR81 branch `fix/69-grok-reasoning-replay`, based on `3912e719`.

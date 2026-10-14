@@ -10,7 +10,7 @@ import {
 import {
   type AttemptDeps,
   defaultAttemptDeps,
-  subscriptionAttempt,
+  subscriptionStreamAttempt,
 } from './subscription/attempt.js';
 import { KEYCHAIN_SERVICE } from './subscription/names.js';
 import { formBody, recordFromTokenJson } from './subscription/oauth.js';
@@ -51,7 +51,7 @@ export class ChatGptSubscriptionProvider implements LLMProvider {
 
   async *stream(req: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
     let sentRecord: SubscriptionRecord | undefined;
-    const response = await subscriptionAttempt({
+    return yield* subscriptionStreamAttempt({
       provider: this.name,
       ...(req.signal ? { signal: req.signal } : {}),
       tierBlockedOn403: false,
@@ -61,8 +61,9 @@ export class ChatGptSubscriptionProvider implements LLMProvider {
           sentRecord = record;
         }),
       refresh: () => this.refresh(sentRecord, req.signal),
+      translate: (response, onSemantic) =>
+        translateResponsesSse(response, this.name, undefined, onSemantic),
     });
-    return yield* translateResponsesSse(response, this.name);
   }
 
   private async send(
