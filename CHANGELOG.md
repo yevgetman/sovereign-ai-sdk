@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased — durable individual tool receipts (#71)
+
+**SDK:** `SessionStore` adds optional `saveToolExecution` and `loadToolExecutions`
+methods. `ToolExecutionStore`, `ToolExecution`, and `ToolStorageError` are additive
+exports; `AgentConfig.toolExecutionStore` binds a journal for hosts that own the
+canonical message writer. Existing custom stores remain valid. They save each
+canonical batch before continuation but need the optional journal to recover
+individual completions during a concurrent batch. Implement journal writes in
+the same durable store and single-writer lock as messages. Link records to the
+actual assistant row ID and remove them when that row is truncated. Built-in
+in-memory and SQLite stores implement the journal.
+
+Each completed tool receipt is written before `PostToolUse` hooks and before
+another provider request. The canonical result message keeps original call order,
+steering and supplementary content. A storage failure joins started siblings,
+retains their real results, and returns `ToolStorageError` with `storage_failed`;
+it never starts another provider call. Stream abandonment retains saved receipts.
+
+For resume, call `repairMissingToolResults(messages, executions, messageIds)` with
+journal records and corresponding raw row IDs. Completed receipts restore their
+exact result and supplementary messages. A recorded intent that was never started
+is interrupted. A started call without a receipt, or a legacy orphan, is unknown;
+model guidance requires verification before repeating a non-idempotent action.
+Recovery reads remain read-only: the raw `started` journal evidence stays intact,
+while the recovered model-facing outcome is `unknown`. Explicit unknown imported
+records get the same guidance.
+Repair does not rewrite raw rows. Continue using `storedPrefixLength` for a repaired
+view. This is crash recovery evidence, not exactly-once external effects: a crash
+between an effect and its receipt cannot prove whether the effect happened.
+These additive ports and explicit resume migration require a minor SDK release.
+
+**Harness:** SQLite schema 8 adds the per-tool journal. Both the native SDK writer
+and the gateway's existing callback writer bind it without duplicate messages.
+Resume rehydrates completed receipts and reports unknown outcomes explicitly.
+No release or installed runtime update is part of this change.
+
 ## Unreleased — complete Grok reasoning replay (#69)
 
 **SDK:** `encrypted_reasoning` adds optional `item`, `routeId` and versioned

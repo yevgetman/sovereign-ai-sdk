@@ -264,6 +264,8 @@ import type {
   ToolChoice,
   ToolContext,
   ToolDef,
+  ToolExecution,
+  ToolExecutionStore,
   ToolObservation,
   ToolResult,
   ToolSchema,
@@ -319,6 +321,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'SubscriptionAuthExpiredError',
   'SubscriptionTierBlockedError',
   'TOOLSET_NAMES',
+  'ToolStorageError',
   'TreeBudget',
   'TreeBudgetExceededError',
   'UnknownToolsetError',
@@ -605,6 +608,8 @@ type TypeSurfaceWitness = {
   scheduler?: Scheduler;
   session?: Session;
   sessionStore?: SessionStore;
+  toolExecution?: ToolExecution;
+  toolExecutionStore?: ToolExecutionStore;
   sessionWorkQueueErrorCode?: SessionWorkQueueErrorCode;
   sessionWorkQueueOptions?: SessionWorkQueueOptions;
   sessionWorkQueueSnapshot?: SessionWorkQueueSnapshot;
