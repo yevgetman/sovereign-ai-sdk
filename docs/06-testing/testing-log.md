@@ -1,3 +1,15 @@
+## 2026-10-14 — Atomic master integration of explicit permission precedence (#77)
+
+Ordinary merge of `5c9a5407` into master `0ef3c0ea` retains the existing critical
+reasoning and exact owner-registry fixes. Only the additive testing-log conflict
+required resolution; both histories remain intact. In the isolated integration
+worktree, `bun run build`, `bun run tui:build`, `bun run lint` (including boundary),
+`bun run typecheck`, and `env -u FORCE_COLOR bun run test` pass: **6241 passed /
+19 existing skips / zero failures**, 27059 assertions, 600 files, 135.35 seconds.
+The explicit-default CLI/native audit regressions run in that full gate. No
+production config, credential, installed binary or release is changed. No live
+learning-loop soak observation was produced.
+
 ## 2026-10-14 — Exact owner-managed ChatGPT subscription registry (#75)
 
 Scope: isolated `fix/75-chatgpt-owner-model-registry`, based on merged critical
@@ -296,6 +308,17 @@ exact subscription model on the tested account at this time; it does not certify
 all future models or account entitlement. Root verified Grok 4.6 publisher facts
 at https://docs.x.ai/developers/models/grok-4.6: 500000 context, text/image input,
 function calling and low/medium/high/xhigh reasoning. Output limit remains unknown.
+## 2026-10-14 — Issue #77 explicit default permission override
+
+Scope: native SDK host, shared runtime permission precedence, and CLI parsing. Isolated worktree `/private/tmp/sdk-issue77-20261014`, branch `fix/77-explicit-permission-default`, baseline `71e25677`. macOS arm64, Bun 1.3.13. Dependencies installed with `bun install --ignore-scripts --frozen-lockfile`; package output built in this worktree. No machine configuration, live credentials, installed SOV, release, or provider network call changed.
+
+Before the correction, `env -u FORCE_COLOR bun test tests/server/runtime.permissionPrecedence.test.ts` reported 50 pass / 10 fail: explicit `default` inherited configured `ask` or `bypass` across user config, injected settings, and user/project/local permission settings. A native scripted-provider fixture with an approval-requiring tool ran that tool once under explicit `default` against configured `bypass` (expected zero executions). Restoring the original runtime precedence for `env -u FORCE_COLOR bun test tests/cli/sdkRunCommand.test.ts --test-name-pattern 'native configured bypass: default'` reproduced that execution failure; the correction was then restored.
+
+After the correction, native omitted and explicit `bypass` fixtures execute once; explicit `default` and `ask` fixtures execute zero times and return denied tool results. Session events and persisted `sdkTurns` retain both requested mode (`null` for omission) and effective mode. A real source CLI subprocess covers omitted, `default`, `ask`, and `bypass` against a temporary configured `bypass`. The settings-layer matrix passes all 60 combinations.
+
+Focused command `env -u FORCE_COLOR bun test tests/server/runtime.permissionPrecedence.test.ts tests/server/runtime.test.ts tests/cli/sdkRunCommand.test.ts tests/cli/runCommand.test.ts tests/channels/permission.test.ts tests/server/gatewayEndToEnd.test.ts tests/cron/wiring.test.ts` passed: 141 pass / 0 fail / 318 assertions across 7 files. This includes existing gateway approval, channel isolation, and cron safe-default behavior.
+
+`bun run build`, `env -u FORCE_COLOR bun run lint` (Biome and boundary: 245 modules / 973 dependencies), and `env -u FORCE_COLOR bun run typecheck` passed. `env -u FORCE_COLOR bun run tui:build` and `go test ./...` in `packages/tui` passed. `env -u FORCE_COLOR bun run test` passed: 6186 pass / 19 existing skips / 0 fail / 26756 assertions, 6205 tests across 595 files (121.44s). Paid-provider and retired-feature skips remain unproven by these offline fixtures.
 
 ## 2026-10-13 — SDK 0.15.1 / SOV 0.6.79 public cut
 
