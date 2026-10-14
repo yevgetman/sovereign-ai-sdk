@@ -1762,8 +1762,9 @@ they would falsely imply a verified depth control.
 Grok subscription (`grok-subscription`) sends Responses `reasoning.effort` for
 the bundled `grok-4.7` and `grok-4.6` records. Both use the documented
 500000-token context window. Exact owner-reviewed subscription IDs can be
-added without a release using `sov models --route grok-subscription --registry FILE --json`.
-See [the registry contract](sdk-routes.md#owner-managed-grok-subscription-registry)
+added without a release using `sov models --route grok-subscription --registry FILE --json`
+or `sov models --route chatgpt-subscription --registry FILE --json`.
+See [the registry contract](sdk-routes.md#owner-managed-subscription-registries)
 for metadata validation, retired IDs, freshness and login isolation. It does not send
 `reasoning_effort`. `auto`, or an omitted effort, uses the route default. That
 default is `high` only when `thinking.effort` is missing or `off`, and that

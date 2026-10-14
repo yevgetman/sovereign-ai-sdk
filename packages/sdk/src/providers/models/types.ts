@@ -53,7 +53,7 @@ export interface ModelRecord {
     source: string;
     fetchedAt?: string | undefined;
     stale: boolean;
-    /** Explicit owner facts on grok-subscription; freshness stays visible, facts persist. */
+    /** Explicit owner facts on subscription routes; freshness stays visible, facts persist. */
     ownerManaged?: boolean;
     /** Owner tombstone: retain the selected ID but refuse inference. */
     retired?: boolean;

@@ -85,14 +85,18 @@ with text/image input, function calling and low/medium/high/xhigh reasoning.
 Model image capability is separate from this transport: subscription image input
 still fails because its image serializer is not verified.
 
-### Owner-managed Grok subscription registry
+### Owner-managed subscription registries
 
 No documented subscription catalog endpoint is configured. Owners can add or
 retire exact IDs without a source change, release or upgrade. Import a JSON
 catalog with `sov models --route grok-subscription --registry FILE --json`.
-This explicit write requires an existing SOV Grok login. It never refreshes a
-token, starts inference or changes a saved route, model or effort. `--registry`
-cannot be combined with `--refresh` or another route.
+For ChatGPT, use `sov models --route chatgpt-subscription --registry FILE --json`
+and set both `routeId` fields to `chatgpt-subscription` and `provider` to `chatgpt`.
+Use an exact model ID and verified subscription facts; do not copy limits or
+entitlement claims from the OpenAI API-key catalog.
+This explicit write requires an existing SOV login for the selected subscription.
+It never refreshes a token, starts inference or changes a saved route, model or effort. `--registry`
+cannot be combined with `--refresh` or an API-key route.
 
 The file uses version 1 normalized catalog records. For example (fixture facts;
 replace these with verified facts for the exact subscription model):
@@ -130,9 +134,9 @@ replace these with verified facts for the exact subscription model):
 review time. Limits must be positive safe integers; omit unknown context/output
 limits. Capabilities must explicitly be `supported`, `unsupported` or `unknown`.
 Omit unknown efforts. Valid published efforts are low/medium/high/max, with max
-sent as xhigh by this transport. Missing effort evidence refuses inference for
-that exact owner model; it does not borrow a bundled model's controls. Credential
-material, API routes, arbitrary wire controls and prices are rejected.
+sent as xhigh by both subscription transports. Missing effort evidence refuses inference for
+that exact owner model; it does not borrow a bundled model's controls. Availability
+must be `unknown`: owner review does not certify entitlement. Credential material, API routes, arbitrary wire controls and prices are rejected.
 
 Import replaces the whole owner registry atomically. To retire a model, retain
 its row with `metadata.retired: true`. Tombstones are omitted from selectable
@@ -150,7 +154,7 @@ keeps every saved dial unchanged. The `catalogKind` and `catalogNotice` fields
 identify this owner-managed state.
 
 Registry files have private permissions under the active profile's
-`model-catalog/subscription/grok-subscription/`. They are bound to a non-secret
+`model-catalog/subscription/<route-id>/`. They are bound to a non-secret
 OS-account login epoch. SOV login/logout rotates that epoch under the credential
 mutex even without optional catalog hooks, so a different login cannot use a
 prior account's file across profiles. Token refresh does not rotate it. Import
@@ -260,7 +264,7 @@ parent model metadata and prices cannot certify a different child. The native
 `sov sdk run` route receives that evidence before reasoning validation. The
 agent receives the same model-bound capability, pricing and limit snapshot.
 Fresh published context windows can grow beyond former static provider values.
-Stale remote discovery or unknown evidence uses the SDK's conservative limits. Owner-managed Grok records keep their explicitly reviewed limits with visible freshness. Explicit output
+Stale remote discovery or unknown evidence uses the SDK's conservative limits. Owner-managed subscription records keep their explicitly reviewed limits with visible freshness. Explicit output
 budgets still cap the output reservation. Gateway proactive compaction uses
 those same limits, system/schema/history accounting and output reservation.
 Required capabilities and the model-specific effort selection are checked before

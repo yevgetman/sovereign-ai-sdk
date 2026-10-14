@@ -1,3 +1,42 @@
+## 2026-10-14 — Exact owner-managed ChatGPT subscription registry (#75)
+
+Scope: isolated `fix/75-chatgpt-owner-model-registry`, based on merged critical
+and Grok registry parent `e6137565`. Baseline exact ChatGPT owner metadata with
+600000 reviewed context and visible stale age resolved to **32768**; the only
+registry validator rejected the ChatGPT route. The new import initially failed
+with a missing-export error. After the fix, exact ChatGPT metadata resolves to
+600000 while preserving freshness. An actual SDK query with 70000 bytes of
+standing Kernel-style input reaches the ChatGPT subscription fixture; omitted
+limits refuse that same intact input before inference. Native `sdk-run` independently
+passes an oversized standing prompt with the same stale owner evidence.
+
+Focused verification: `bun test tests/providers/models/ownerChatGptRegistry.test.ts
+ tests/providers/models/ownerRegistry.test.ts tests/cli/sdkRunCommand.test.ts`
+passes **42 tests / 265 assertions**. New coverage includes exact new IDs,
+retired shipped IDs and tombstones, changed limits/efforts by re-import, unknown
+facts, account-entitlement claim rejection, offline stale facts, atomic invalid
+import, login/account isolation across profiles, A-to-B-to-A ChatGPT device login,
+no settings rewrite, CLI import/read/refresh and route diagnostics, both model
+pickers, exact subscription tools/xhigh wire requests, and image serializer refusal.
+Direct ChatGPT streaming refuses an unverified implicit low effort before
+credential access. Existing Grok registry tests remain green.
+
+Own SDK/protocol build and TUI build pass. Eight independent fresh processes
+import SDK root, model defaults, subscription names and owner registry under
+Node 25.9.0 built ESM and Bun 1.3.13 source modules. Both startup orders retain the
+pure identity policy without importing the validation graph into low-level defaults.
+Initial full run before the final two regressions passed **6174 tests / 19 existing
+skips / zero failures**, 26969 assertions, 599 files, 124.39 seconds. The final
+exact-optional-property type gate caught a test-only explicit undefined effort;
+omitting that property corrected it. Final `bun run build`, `bun run lint`
+(including dependency boundary), `bun run typecheck`, and
+`env -u FORCE_COLOR bun run test` all pass: **6176 passed / 19 existing skips /
+zero failures**, 26971 assertions, 599 files, 121.59 seconds. `git diff --check` passes.
+
+All provider responses and login operations use fixtures or temporary test homes.
+No live credential, owner settings, installed binary, release, or publication changes.
+No live learning-loop soak observation was produced.
+
 ## 2026-10-14 — Grok registry inherits merged critical reasoning confinement
 
 Ordinary merge of critical master `216cf716` into owner-registry PR82 preserves both complete testing histories and both native regression tests. Only additive log/test conflicts required resolution; no runtime conflict occurred. On the combined source, `bun run build`, `bun run lint`, `bun run typecheck`, and `env -u FORCE_COLOR bun run test` pass: 6163 passed, 19 existing skips, zero failures, 26882 assertions, 598 files, 123.05s. The worktree's existing TUI artifact was already present. Root independently ran the critical 27-test replay suite and packed critical Node/Bun consumers before its PR81 merge; all pass. No owner settings, credentials, release or installed-host change.

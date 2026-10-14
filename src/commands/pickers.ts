@@ -252,7 +252,7 @@ async function runModelPicker(args: string, ctx: CommandContext): Promise<string
     : '';
   const ownerManaged = catalog.models.some((model) => model.metadata.ownerManaged);
   const subtitle = ownerManaged
-    ? `provider: ${ctx.providerName} · ${catalog.state} owner registry. Re-import: sov models --route grok-subscription --registry FILE. /new keeps saved route/model/effort.`
+    ? `provider: ${ctx.providerName} · ${catalog.state} owner registry. Re-import: sov models --route ${catalog.routeId} --registry FILE. /new keeps saved route/model/effort.`
     : subscription
       ? [
           `provider: ${ctx.providerName} · ${state}. Search: /model --search text. Subscription refresh cannot fetch a catalog. A stored timestamped catalog is left stale and tightened. /new keeps saved route/model/effort.`,

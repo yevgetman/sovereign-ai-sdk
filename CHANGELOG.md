@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased — owner-managed ChatGPT subscription catalog (#75)
+
+ChatGPT now uses the same durable owner-reviewed registry as Grok. Exact model
+IDs, context/output limits, effort levels, capability facts, provenance and review
+age can change by explicit import without a source edit or release. Native SDK
+requests, routes and model menus share that evidence. Reviewed larger windows
+remain usable offline with visible stale age; unknown limits retain the safety
+floor. Retired IDs remain tombstones and saved dials stay intact. Registry files
+are scoped to the route, active profile and nonsecret login epoch. Successful
+login/logout invalidates them across profiles; refresh preserves the epoch.
+Owner records never claim account entitlement or transport image certification.
+Existing Grok imports remain compatible. These deep-subpath helpers are additive;
+the next release already requires an SDK minor for the public #69 surface.
+
 ## Unreleased — complete Grok reasoning replay (#69)
 
 **SDK:** `encrypted_reasoning` adds optional `item`, `routeId` and versioned
