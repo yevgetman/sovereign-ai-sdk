@@ -2,7 +2,7 @@ import type { AssistantMessage, StreamEvent } from '../core/types.js';
 import { type ReasoningEffort, mapMaxEffort } from './effort.js';
 import { modelReasoningParams, reasoningControlFor } from './modelReasoning.js';
 import { isGrokSubscriptionModelId } from './models/grokPin.js';
-import { isOwnerGrokModel } from './models/ownerRegistry.js';
+import { isOwnerGrokModel } from './models/ownerModelPolicy.js';
 import { responsesInput, responsesTools, translateResponsesSse } from './responses.js';
 import { RouteError } from './routes/errors.js';
 import {

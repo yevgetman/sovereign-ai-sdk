@@ -7,7 +7,7 @@ import {
   resolveModelLimits,
 } from '@yevgetman/sov-sdk/providers/modelLimits';
 import { type ModelRecord, findModel } from '@yevgetman/sov-sdk/providers/models/index';
-import { isOwnerGrokModel } from '@yevgetman/sov-sdk/providers/models/ownerRegistry';
+import { isOwnerGrokModel } from '@yevgetman/sov-sdk/providers/models/ownerModelPolicy';
 import { estimateUsageCost, pricingSnapshotForModel } from '@yevgetman/sov-sdk/providers/pricing';
 import { readModelCatalogSnapshot, routeForProvider } from '../cli/modelDiscovery.js';
 

@@ -1,18 +1,9 @@
 // Owner-supplied exact subscription facts. No discovery endpoint or entitlement claim.
 import { containsCredentialMaterial } from './subscriptionCatalog.js';
-import type { ModelCatalog, ModelRecord } from './types.js';
+import type { ModelCatalog } from './types.js';
 import { validateModelRecords } from './validate.js';
 
-export function isOwnerGrokModel(model: ModelRecord | undefined, id: string): boolean {
-  return Boolean(
-    model &&
-      model.id === id &&
-      model.routeId === 'grok-subscription' &&
-      model.provider === 'grok' &&
-      model.auth === 'subscription' &&
-      model.metadata.ownerManaged === true,
-  );
-}
+export { isOwnerGrokModel } from './ownerModelPolicy.js';
 
 /** Registry replacement is complete and atomic; retired rows remain as tombstones. */
 export function validateOwnerGrokRegistry(value: unknown, now = Date.now()): ModelCatalog {

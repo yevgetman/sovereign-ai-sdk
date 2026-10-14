@@ -1,6 +1,6 @@
 import { ContextManagementError } from '../compact/contextManagement.js';
 import { resolveModelLimits } from './modelLimits.js';
-import { isOwnerGrokModel } from './models/ownerRegistry.js';
+import { isOwnerGrokModel } from './models/ownerModelPolicy.js';
 import type { ModelRecord } from './models/types.js';
 // Small built-in model registry. Resolver uses this for defaults and context
 // lengths until config-driven/provider-discovered registries become necessary.

@@ -11,7 +11,7 @@ import {
   preservesEstablishedReasoning,
   reasoningControlFor,
 } from '../modelReasoning.js';
-import { isOwnerGrokModel } from '../models/ownerRegistry.js';
+import { isOwnerGrokModel } from '../models/ownerModelPolicy.js';
 import {
   SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE,
   selectableSubscriptionEfforts,

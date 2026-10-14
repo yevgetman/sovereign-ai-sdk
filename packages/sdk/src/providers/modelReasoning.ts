@@ -5,7 +5,7 @@ import {
   mapMaxEffort,
   modelSupportsReasoning,
 } from './effort.js';
-import { isOwnerGrokModel } from './models/ownerRegistry.js';
+import { isOwnerGrokModel } from './models/ownerModelPolicy.js';
 import type { ModelRecord } from './models/types.js';
 import { RouteError } from './routes/errors.js';
 

@@ -1,3 +1,37 @@
+## 2026-10-14 — Issue #68 follow-up: fresh-process provider startup
+
+PR #82 Ubuntu CI on `44d8f36f` exposed a module-initialization failure:
+`PROVIDER_REGISTRY` was read before initialization in `routes/catalog.ts`.
+The full owner-registry validator created a cycle from provider defaults through
+catalog validation and route defaults. Favorable module-cache ordering had
+concealed it in earlier local full-suite runs.
+
+Before editing, fresh Bun import of `providers/models.ts` and Node import of
+built `providers/models.js` both reproduced the same temporal-dead-zone error.
+The new regression `bun test tests/providers/modelImportOrder.test.ts` ran five
+first-import orders in each engine (resolver, models, modelReasoning, routes
+catalog, owner registry): **8 pass / 2 fail** on `44d8f36f`. Both failures imported
+models first. After extracting the identity predicate into `ownerModelPolicy.ts`,
+which has only a type import, all ten fresh-process probes pass. All six runtime
+predicate consumers use that pure module. The former deep-module predicate
+export remains compatible; registry validation and publisher modalities are
+unchanged.
+
+`bun run build` passed. Focused
+`bun test tests/providers/modelImportOrder.test.ts tests/providers/resolver.test.ts tests/providers/models/ownerRegistry.test.ts`
+passed **37 / 0 fail**, 156 assertions. Independent review additionally passed
+26 fresh entry imports (13 Bun source + 13 Node dist) and the original CI startup
+order with
+`bun test tests/docsDefaults.test.ts tests/providers/resolver.test.ts tests/providers/models/ownerRegistry.test.ts tests/providers/models/issue68-regression.test.ts`:
+**30 / 0 fail**. Final review reported no remaining findings.
+
+Final `bun run lint` passed (1118 files; 248 modules, 990 dependencies; no boundary
+violations), `bun run typecheck` passed, and `env -u FORCE_COLOR bun run test`
+passed **6144 / 19 skip / 0 fail**, 26780 assertions, 6163 tests across 597 files
+(117.49s). No test was weakened or disabled. Environment: isolated issue worktree,
+macOS arm64, Bun 1.3.13 and Node v25.9.0. Startup probes perform no credential
+reads or inference. No release, installed upgrade, master merge or push.
+
 ## 2026-10-14 — Packed registry consumers and exact publisher modalities (#68)
 
 Root reviewed `a19731e7bdf615fa332de15ed347a98575396e44` and corrected the
