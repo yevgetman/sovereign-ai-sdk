@@ -288,8 +288,17 @@ export async function runSdkRunCommand(
       throw new SdkInputError('unsupported_input', 'stored signed thinking cannot cross backends');
     }
     if (
-      routeId !== 'grok-subscription' &&
-      stored.some((m) => m.content.some((b) => b.type === 'encrypted_reasoning'))
+      stored.some((message) =>
+        message.content.some(
+          (block) =>
+            block.type === 'encrypted_reasoning' &&
+            ((routeId !== 'grok-subscription' && routeId !== 'chatgpt-subscription') ||
+              block.routeId !== routeId ||
+              block.provenance?.version !== 1 ||
+              block.provenance.routeId !== routeId ||
+              block.provenance.modelId !== selected?.model),
+        ),
+      )
     ) {
       throw new SdkInputError(
         'unsupported_input',

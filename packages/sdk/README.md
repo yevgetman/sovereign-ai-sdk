@@ -591,3 +591,9 @@ Retained workflow text
 uses current model budgets and never restores expired tool permissions. See
 [skill continuity](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-continuity.md) and the related
 composition recipes for host scope, privacy, outcomes and evaluation limits.
+
+Unreleased ChatGPT continuation uses the same complete reasoning envelope as Grok.
+Keep the entire block, including its exact route/model/login provenance, during
+rehydration. Foreign or legacy unbound reasoning cannot resume and needs a new
+session. Injected subscription credential ports must preserve `accountBinding`
+across refresh and use a new binding for each supported login/replacement.

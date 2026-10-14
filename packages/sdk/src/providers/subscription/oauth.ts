@@ -29,7 +29,9 @@ export function recordFromTokenJson(
     accessToken,
     refreshToken,
     expiresAt,
-    ...(provider === 'grok' && !previousRefresh ? { accountBinding: randomUUID() } : {}),
+    ...((provider === 'grok' || provider === 'chatgpt') && !previousRefresh
+      ? { accountBinding: randomUUID() }
+      : {}),
   };
 }
 
