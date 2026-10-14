@@ -281,6 +281,11 @@ export type PerTurn = Partial<{
    *  called. Absent ⇒ the verbatim-prefix heuristic (byte-identical). Has no
    *  effect without a `sessionStore`. */
   storedPrefixLength: number;
+  /** Host recovery mode: persist screened completed assistant messages before
+   * yielding them. Requires sessionStore; default false preserves the generic
+   * early-abandon/rethrow contract. Usage still finalizes once at terminal (a
+   * cancelling host must preserve its own incremental usage receipt). */
+  persistCompletedMessages: boolean;
 }>;
 
 /** The structured result of a `run()`, returned as the generator's return
@@ -980,6 +985,35 @@ export function createAgent(config: AgentConfig): Agent {
               if (ev.type === 'assistant_message') {
                 finalAssistant = ev.message;
                 messages.push(ev.message);
+                if (perTurn.persistCompletedMessages && config.sessionStore) {
+                  // The output guard has already accepted/substituted this
+                  // message. Commit before the host observes completion, so
+                  // cancellation cannot bypass its post-loop persistence.
+                  // A discarded regeneration never reaches this seam.
+                  try {
+                    const stored = config.sessionStore.loadMessages(sessionId);
+                    const boundary =
+                      savedThrough ?? (isRehydratedPrefix(stored, messages) ? stored.length : 0);
+                    let committedThrough = boundary;
+                    attemptTranscriptWrites += saveBeforeTools({
+                      store: config.sessionStore,
+                      transcripts: config.transcripts,
+                      sessionId,
+                      model,
+                      providerName: provider.name,
+                      systemPrompt: effectiveSystemPrompt,
+                      snapshot: messages,
+                      assistant: ev.message,
+                      savedThrough: boundary,
+                      onSaved: () => {
+                        savedThrough = ++committedThrough;
+                      },
+                    });
+                  } catch (error) {
+                    throw new SessionPersistenceError(error);
+                  }
+                  savedThrough = messages.length;
+                }
                 for (const block of ev.message.content) {
                   if (block.type === 'tool_use') {
                     toolCallCount += 1;
@@ -1352,6 +1386,8 @@ function saveBeforeTools(opts: {
   assistant: AssistantMessage;
   /** Explicit boundary: rows before this index are already stored. */
   savedThrough: number | undefined;
+  /** Advance canonical progress before a fallible transcript observer runs. */
+  onSaved?: () => void;
 }): number {
   const { store, transcripts, sessionId, snapshot, assistant, savedThrough } = opts;
   let transcriptWrites = 0;
@@ -1370,6 +1406,7 @@ function saveBeforeTools(opts: {
       content: msg.content,
       ...(toolCalls.length > 0 ? { toolCalls } : {}),
     });
+    opts.onSaved?.();
     if (transcripts !== undefined) {
       transcripts.recordMessage(sessionId, msg.role, msg.content, id);
       transcriptWrites += 1;
