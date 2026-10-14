@@ -307,9 +307,15 @@ test('image payload bytes do not become text tokens and uncertainty is explicit'
     if (calls[0]) {
       expect(calls[0].messages[0]?.content[0]).toEqual(image);
       const request = traces.find((event) => event.type === 'provider_request');
-      expect(request?.type === 'provider_request' ? request.inputAccounting : undefined).toEqual(
-        estimate,
-      );
+      expect(
+        request?.type === 'provider_request' ? request.inputAccounting : undefined,
+      ).toMatchObject({
+        complete: false,
+        uncountedImages: 1,
+        uncountedModalities: ['image'],
+        effectiveLimit: 128000,
+        reservedOutput: 8192,
+      });
     }
   }
   const calls: ProviderRequest[] = [];

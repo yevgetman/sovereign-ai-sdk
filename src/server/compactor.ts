@@ -9,22 +9,27 @@
 // Consumers: T3 (proactive check in turns route), T4 (overflow recovery in
 // turns route), T5 (POST /sessions/:id/compact route).
 
-import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type {
+  AssistantMessage,
+  Message,
+  StreamEvent,
+  SystemSegment,
+} from '@yevgetman/sov-sdk/core/types';
 import {
   accumulateUsage,
   createUsageAccumulator,
   finalizeUsage,
 } from '@yevgetman/sov-sdk/core/usageAccumulator';
 import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
-import {
-  assertRequestFits,
-  requestInputTokenBound,
-  resolveModelLimits,
-} from '@yevgetman/sov-sdk/providers/modelLimits';
+import { assertRequestFits, resolveModelLimits } from '@yevgetman/sov-sdk/providers/modelLimits';
 import type { ModelRecord } from '@yevgetman/sov-sdk/providers/models/index';
 import { validateModelRequest } from '@yevgetman/sov-sdk/providers/models/validateRequest';
 import { estimateUsageCost, pricingSnapshotForModel } from '@yevgetman/sov-sdk/providers/pricing';
-import type { ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
+import {
+  type InputTokenAccounting,
+  modelInputTokenAccounting,
+} from '@yevgetman/sov-sdk/providers/tokenAccounting';
+import type { ProviderRequest, ToolSchema } from '@yevgetman/sov-sdk/providers/types';
 import {
   COMPACTION_SUMMARY_MAX_TOKENS,
   type CompactResult,
@@ -42,6 +47,9 @@ export type ServerCompactor = (
     onStreamEvent?: (event: StreamEvent) => void;
     modelMetadata?: ModelRecord;
     effort?: ReasoningEffort;
+    inputTokenAccounting?: InputTokenAccounting;
+    inputSystem?: SystemSegment[];
+    inputTools?: ToolSchema[];
   },
 ) => Promise<CompactResult>;
 
@@ -52,6 +60,9 @@ export function buildServerCompactor(
   >,
 ): ServerCompactor {
   return async function compact(history, sessionId, signal, options) {
+    const counter =
+      options?.inputTokenAccounting ??
+      modelInputTokenAccounting(runtime.resolvedProvider.transport.name);
     return compactSession({
       db: runtime.sessionDb,
       ...(runtime.transcripts !== undefined ? { transcripts: runtime.transcripts } : {}),
@@ -60,6 +71,15 @@ export function buildServerCompactor(
       providerName: runtime.resolvedProvider.transport.name,
       systemPrompt: runtime.systemSegments,
       history: [...history],
+      estimateHistoryTokens: (messages) =>
+        counter({
+          model: runtime.model,
+          messages: [...messages],
+          system: options?.inputSystem ?? runtime.systemSegments,
+          ...(options?.inputTools ? { tools: options.inputTools } : {}),
+          maxTokens: COMPACTION_SUMMARY_MAX_TOKENS,
+          ...(options?.modelMetadata ? { modelMetadata: options.modelMetadata } : {}),
+        }).tokens,
       summarize: async (input) => {
         const previous = input.previousSummary
           ? `Previous handoff summary to merge:\n${input.previousSummary}\n\n`
@@ -103,12 +123,16 @@ export function buildServerCompactor(
           signal,
         };
         if (metadata && limits) {
-          const inputTokens = requestInputTokenBound(request.messages, request.system);
+          const accounting = counter(request);
+          const inputTokens = accounting.tokens;
           request.maxTokens = Math.min(
             limits.outputTokens,
-            Math.max(1, limits.contextTokens - inputTokens),
+            accounting.enforce === false
+              ? limits.contextTokens
+              : Math.max(1, limits.contextTokens - inputTokens),
           );
-          assertRequestFits(inputTokens, request.maxTokens, limits);
+          if (accounting.enforce !== false)
+            assertRequestFits(inputTokens, request.maxTokens, limits);
           request.outputBudgetEnforced = true;
           validateModelRequest(
             request,

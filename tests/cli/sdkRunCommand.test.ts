@@ -849,7 +849,7 @@ test('unknown model budget refuses oversized standing instructions before infere
   };
   const f = fixture(provider, (runtime) => {
     runtime.systemSegments.splice(0, runtime.systemSegments.length, {
-      text: 'standing instruction '.repeat(3000),
+      text: '1 '.repeat(40000),
       cacheable: false,
     });
   });

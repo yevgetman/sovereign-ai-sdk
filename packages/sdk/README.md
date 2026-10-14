@@ -251,15 +251,30 @@ a supplied context reducer; otherwise an oversized request fails with intact
 history. Provider-request traces record effective limits and metadata source.
 Anthropic thinking cannot raise a metadata or host-budgeted output cap after the check.
 
-The default input estimate uses conservative UTF-8 text and framing bytes.
-Encoded image data and image URLs are transport representations, not text tokens.
-`requestInputTokenEstimate()` reports `complete: false` and `uncountedImages`
-when image-token costs are unknown. Request traces retain that uncertainty.
-Supply pure, model-aware `inputTokenCounter(request)` for verified accounting,
-including system, tools and multimodal framing. Provider overflow recovery remains
-authoritative for unverified image costs; image payloads are preserved. Custom providers with neither metadata nor a
-host token-window cap retain legacy behavior; use a snapshot to opt into the new
-conservative unknown policy. No discovery fetch or disk write occurs in the loop.
+The default request accountant selects published OpenAI `o200k_base` / `cl100k_base`
+encodings for recognized OpenAI model IDs on OpenAI, ChatGPT and OpenRouter's
+OpenAI route. It counts serialized system/messages, Responses items and tool
+schemas. Bounded chunks and a hash-only cache limit repeated framing work.
+`measuredTokens` is a **sum of local chunk tokenizer counts**, not publisher
+input usage. `conservativeTokens` adds an explicit framing allowance. The source
+and version identify both the tokenizer and allowance policy.
+
+When a native route/model has no verified local tokenizer (including Claude
+and Grok), the UTF-8 upper bound remains **advisory**. It cannot reject a request,
+reduce output, or trigger a paid proactive summary by itself. The provider owns
+that context boundary; native provider-overflow recovery remains bounded to one
+compaction retry. This does not certify that an uncertain request fits.
+Image and encrypted/redacted reasoning costs stay explicit in
+`uncountedModalities`; their transport blobs are never counted as text tokens.
+Diagnostics expose completeness, enforcement policy, source/version, the
+conservative and locally measured counts, effective limit and reserved output.
+
+Supply `inputTokenAccounting(request)` to use one host-verified structured
+counter across these decisions. The legacy numeric `inputTokenCounter` remains
+supported and takes precedence; its diagnostics identify it as a host numeric
+counter, not a measured provider count. Custom providers retain their previous
+conservative bound contract. No discovery fetch, credential read, or disk write
+occurs in the loop.
 
 The port receives a history snapshot, reason (`budget` or `overflow`), model,
 provider, output token cap and `AbortSignal`. It returns reduced `messages` and
@@ -562,8 +577,9 @@ in-memory catalog or supply its own verified metadata.
 `maxTokens` is an output ceiling. Each provider call can reserve fewer output
 tokens when the conservative input bound leaves less room in the effective
 context window. The actual request cap and trace reservation agree. Standing
-instructions and request history are not truncated. Input that fills the window
-still needs an authorized context reducer or fails before inference. A
+instructions and request history are not truncated. Input that fills a verified accounting window
+still needs an authorized context reducer or fails before inference. An advisory
+count leaves input validation to the provider and does not assert that it fits. A
 reasoning adapter that requires a larger minimum reservation still refuses an
 insufficient cap before contacting the provider.
 

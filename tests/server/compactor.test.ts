@@ -171,7 +171,7 @@ describe('server compactor primitive', () => {
       expectedMetadata = ownerMetadata;
       const largeHistory: Message[] = Array.from({ length: 30 }, (_, i) => ({
         role: i % 2 ? 'assistant' : 'user',
-        content: [{ type: 'text', text: 'h'.repeat(3000) }],
+        content: [{ type: 'text', text: '1 '.repeat(1500) }],
       }));
       const ownerResult = await compact(largeHistory, sessionId, new AbortController().signal, {
         modelMetadata: ownerMetadata,

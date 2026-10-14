@@ -159,6 +159,8 @@ export type QueryParams = {
   modelMetadata?: import('../providers/models/types.js').ModelRecord;
   /** Host-verified accounting including framing, images and tools. Pure and model-aware. */
   inputTokenCounter?: (request: import('../providers/types.js').ProviderRequest) => number;
+  /** Structured request accounting; uncertain modalities remain explicit. */
+  inputTokenAccounting?: import('../providers/tokenAccounting.js').InputTokenAccounting;
   /** Maximum turns for tool-use continuation. Default 10. */
   maxTurns?: number;
   /** When set, the turn loop pauses after this many cumulative tool calls

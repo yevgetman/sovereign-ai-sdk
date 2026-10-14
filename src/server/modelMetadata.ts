@@ -9,6 +9,7 @@ import {
 import { type ModelRecord, findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import { isOwnerSubscriptionModel } from '@yevgetman/sov-sdk/providers/models/ownerModelPolicy';
 import { estimateUsageCost, pricingSnapshotForModel } from '@yevgetman/sov-sdk/providers/pricing';
+import type { InputTokenAccounting } from '@yevgetman/sov-sdk/providers/tokenAccounting';
 import {
   effectiveToolInventory,
   projectToolInventory,
@@ -66,10 +67,25 @@ export function shouldCompactModelRequest(
   tools: readonly import('@yevgetman/sov-sdk/providers/types').ToolSchema[],
   limits: EffectiveModelLimits,
   threshold = 0.75,
+  accounting?: { counter: InputTokenAccounting; model: string; metadata?: ModelRecord },
 ): boolean {
-  const baseline = requestInputTokenBound([], system, tools);
+  const count = (history: readonly import('@yevgetman/sov-sdk/core/types').Message[]) =>
+    accounting
+      ? accounting.counter({
+          model: accounting.model,
+          messages: [...history],
+          system: [...system],
+          tools: [...tools],
+          maxTokens: limits.outputTokens,
+          ...(accounting.metadata ? { modelMetadata: accounting.metadata } : {}),
+        })
+      : { tokens: requestInputTokenBound(history, system, tools), enforce: true };
+  const input = count(messages);
+  // An unavailable tokenizer must not cause a paid summary from bytes alone.
+  if (input.enforce === false) return false;
+  const baseline = count([]).tokens;
   if (baseline >= limits.contextTokens) return false;
-  const totalInput = requestInputTokenBound(messages, system, tools);
+  const totalInput = input.tokens;
   const boundary = limits.contextTokens * threshold;
   // A ceiling that will shrink must not suppress reducible history forever,
   // or summarize every short turn. Measure occupancy of the remaining space.
