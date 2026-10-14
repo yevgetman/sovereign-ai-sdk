@@ -256,7 +256,7 @@ async function* responseEvents(
 function isSemanticResponseEvent(event: Record<string, unknown>): boolean {
   const type = typeof event.type === 'string' ? event.type : '';
   if (type === 'response.completed' || type === 'response.incomplete') return true;
-  if (/^response\.(output_(?!item)|reasoning|function_call|usage)/.test(type)) return true;
+  if (/^response\.(output_(?!item)|reasoning|refusal|function_call|usage)/.test(type)) return true;
   if (object(event.usage) || object(object(event.response)?.usage)) return true;
   if (type === 'response.output_item.added' || type === 'response.output_item.done') {
     const item = object(event.item);
@@ -265,7 +265,11 @@ function isSemanticResponseEvent(event: Record<string, unknown>): boolean {
       return true;
   }
   const part = object(event.part);
-  return !!part && typeof part.text === 'string' && part.text.length > 0;
+  return (
+    !!part &&
+    ((typeof part.text === 'string' && part.text.length > 0) ||
+      (typeof part.refusal === 'string' && part.refusal.length > 0))
+  );
 }
 
 export async function* translateResponsesSse(
@@ -342,7 +346,15 @@ export async function* translateResponsesSse(
       if (/model/i.test(code))
         throw new RouteError('model_unsupported', 'Selected subscription model is unsupported');
       if (/rate_limit/i.test(code)) throw new ProviderHttpError(provider, 429, 'rate_limited');
-      throw new ProviderHttpError(provider, 502, 'subscription response failed');
+      // A failed response does not imply a transient server failure. Unknown
+      // input/account-policy codes must not authorize the same request again.
+      throw new SubscriptionStreamError(
+        provider,
+        semantic ? 'incomplete_delivery' : 'before_delivery',
+        'provider_failure',
+        !semantic && code === 'server_error',
+        code === 'server_error' ? 502 : 400,
+      );
     } else if (event.type === 'response.completed' || event.type === 'response.incomplete') {
       const row = object(event.response);
       if (

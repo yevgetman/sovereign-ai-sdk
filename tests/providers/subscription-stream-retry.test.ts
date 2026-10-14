@@ -98,6 +98,9 @@ for (const kind of ['chatgpt', 'grok'] as const) {
 }
 
 for (const semantic of [
+  { type: 'response.refusal.delta', delta: 'fixture refusal' },
+  { type: 'response.refusal.done', refusal: 'fixture refusal' },
+  { type: 'response.content_part.done', part: { type: 'refusal', refusal: 'fixture refusal' } },
   { type: 'response.output_text.delta', delta: 'partial' },
   { type: 'response.reasoning_summary_text.delta', delta: 'thinking' },
   { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc1' } },
@@ -244,6 +247,10 @@ for (const retryAfter of ['11', '2']) {
 }
 
 for (const code of [
+  'invalid_prompt',
+  'invalid_image',
+  'data_residency_mismatch',
+  'future_unknown_failure',
   'rate_limit_exceeded',
   'server_error',
   'context_length_exceeded',

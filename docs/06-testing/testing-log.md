@@ -1,3 +1,11 @@
+## 2026-10-14 — Independent stream-retry review corrections (#72)
+
+Independent review found two Medium retry-boundary defects. Refusal delta/done/content parts were not classified as semantic; three added regressions failed before correction (27 pass / 3 fail). Permanent and unknown first-frame provider failures were treated as retryable502 errors; four added regressions failed before correction (30 pass / 4 fail). Refusal frames now stop replay. Only the exact recognized transient server error grants generic first-frame retry; permanent/unknown errors are typed and stop after one request. Existing rate-limit/context/model paths remain distinct.
+
+After correction, `bun test tests/providers/subscription-stream-retry.test.ts tests/providers/responses.test.ts tests/providers/grokReasoningReplay.test.ts tests/cli/sdkRunStreamDelivery.test.ts` passes63 tests/290 assertions. The independent witnesses prove permanent and unknown failures send once, transient server/rate-limit controls recover after one retry, always-failing server stops after three requests, and every refusal witness sends once with incomplete-delivery diagnostics. The local report is `/private/tmp/sdk-high-review-20261014.md`; no confirmed finding remains in its bounded review.
+
+Final frozen correction passes `bun run build`, `bun run lint`, `bun run typecheck`, and `env -u FORCE_COLOR bun run test`:6176 pass/19 existing skips/0fail,26927 assertions,597 files,116.57s. The prior refusal-only full gate passed6172/19/0; it overlapped the later permanent-error source change and is not the final-source claim. No network inference, Keychain, owner settings, installed host or release was changed.
+
 ## 2026-10-14 — Subscription pre-delivery stream retry (#72)
 
 Scope: ChatGPT and Grok HTTP-200 stream consumption, the shared retry budget, semantic-delivery cutoff, safe typed failures, and native terminal diagnostics. Isolated worktree `/private/tmp/sdk-issue72-20261014`, branch `fix/72-subscription-pre-delivery-retry`. Started at `origin/master` `71e25677`, then ordinarily merged the reviewed critical Grok correction `65a6b2aa` before editing the shared translator. Bun 1.3.13 on macOS. Dependencies installed locally with `bun install --ignore-scripts --frozen-lockfile`. No live subscription call, Keychain read, owner-setting change, release, install or push.
