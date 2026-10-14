@@ -21,8 +21,14 @@ release when the selected work also changes the wrapper. A library-only cut may
 retain the published CLI version. Protocol/debug-console versions remain unchanged
 unless explicitly selected work requires their own release preparation.
 
-The verified cut released SDK **0.15.1** and CLI **0.6.79**. The active empty
-draft now plans SDK **0.15.2** and CLI **0.6.80** from that published baseline.
+The verified cut released SDK **0.15.1** and CLI **0.6.79**. The active
+draft plans SDK **0.15.2** and CLI **0.6.80** from that published baseline. It
+now includes the nine merged Critical/High source fixes in PR81–89. Each item
+records its exact master merge once, dependency order and durable source QA.
+Issue #74 stays selected with its open live replay checks recorded; source
+fixtures pass, but the available login rejects the exact selected ChatGPT model.
+The additive public SDK types and ports require a minor SDK version before
+freeze. The assigned draft stays unchanged until the Owner changes it.
 Reviewed PR63 and PR64 shipped once, with each PR's exact master merge SHA and
 `mainline: 1`. Contained branch commits and review fixes are covered by their
 merge unit. `encrypted_reasoning` is a new content-block member on existing

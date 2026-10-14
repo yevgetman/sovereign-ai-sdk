@@ -1,3 +1,31 @@
+## 2026-10-14 — Select nine merged Critical/High fixes for the next manifest
+
+Owner asked to add all fixed and merged items from this run. Editable SDK0.15.2 /
+CLI0.6.80 draft now lists PR81,82,88,83,85,87,84,86,89 once in dependency order,
+with exact ordinary master merge SHAs and mainline1. Every source unit is on the
+current master's first-parent chain, reachable after the verified SDK0.15.1 build
+`85350f48`; no listed unit is already shipped. The previous published baseline,
+immutable history, source version stamps, assigned draft versions and null cut/
+publication fields are preserved. Reconciliation source checkpoint advances to
+`755d5c83` and links durable source evidence. No assembly, freeze or publication
+ran; source selection does not certify a release build.
+
+`bun run release:validate` passes both format-checked schemas, unique IDs/SHAs,
+dependency closure/order, baseline/source reachability and merge application
+units: nine items, draft. Exact first-parent checks and GitHub PR merge times
+were also verified independently of the shape validator. #74's live gate remains
+open and is explicitly recorded on its item. Additive public SDK types, ports
+and helpers require a minor version before freeze; the assigned patch stays
+in place under the release skill until the Owner directs a version change.
+
+Final configured gates pass: `bun run build`, `bun run tui:build`,
+`bun run lint` (250 modules / 1011 dependencies, no boundary violations),
+`bun run typecheck`, and `env -u FORCE_COLOR bun run test`: **6338 pass /
+19 existing skips / zero failures**, 27641 assertions across609 files,129.31s.
+`bun run release:validate` and `git diff --check` also pass. No runtime,
+configuration, credential, installed binary, consumer pin or public artifact
+was changed. No live learning-loop soak observation was produced.
+
 ## 2026-10-14 — Atomic master integration of native context recovery (#70)
 
 Ordinary merge of `8cdee5a6` into master `e64665f4` closes the all-high source
