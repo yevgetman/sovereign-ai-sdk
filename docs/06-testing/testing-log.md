@@ -1,3 +1,9 @@
+## 2026-10-14 — Owner-authorized Medium master integration
+
+Owner requested merging PR90–93 and selecting their work in the release manifest. PR90/91/92 are on master. PR91 fast-forwards to the previously reviewed joint accounting/refresh commit a0f74763; PR93 fast-forwards to the full reviewed QA8ea82206. Each original fix head remains an ancestor. GitHub reported a conflict on the retargeted PR93; local merge of exact master88fe02ea succeeds with the complete tracked tree byte-identical to reviewed tree5c6173b3921bdf0a31b8aeeba5059c0fc520f217. This ancestry merge preserves every reviewed source/test/package file.
+
+Required branch gate passes again: build, strict TUI, lint/boundary, root/browser types and full6459tests/19existing skips/0fail/28349assertions/617files166.50s. Logs: `/private/tmp/sdk-medium-merge80-{build,lint,types,full}.log`. This new receipt is the sole content change after that exact-tree comparison. No extra live provider call, package publication, consumer pin, installed upgrade or restart ran. Four exact master merge units will be selected only after they exist; source planning remains draft and retains its assigned versions.
+
 ## 2026-10-14 — Final combined Medium source verification
 
 Disposable QA combines73ba927bf2,78 9979ffe6,79 1e8f8aa6 and80 68090547 without merging SDK master. The frozen functional tree passes build, lint/boundary, root/browser types and full6459tests/19existing skips/0fail/28349assertions/617files165.85s; strict TUI build and all six Go packages pass. Packed SDK/protocol consumers run under Node/Bun with type and artifact-purity checks. Unchanged nine-item draft release validation passes. Logs: `/private/tmp/sdk-medium-qa-final-{build,lint,types,full,canary,manifest}.log`, `sdk-medium-qa-go.log`. Independent all-five-lens integration peer passes198tests/1232assertions,0findings, with all56 owned functional files retained.
