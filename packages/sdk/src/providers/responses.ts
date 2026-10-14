@@ -80,7 +80,7 @@ export function responsesInput(
               'encrypted reasoning history cannot be replayed on this route',
             );
           }
-          if (block.encryptedContent.length === 0) {
+          if (typeof block.encryptedContent !== 'string' || block.encryptedContent.length === 0) {
             throw new RouteError(
               'unsupported_input',
               'encrypted reasoning history cannot be replayed on this route',
@@ -88,14 +88,14 @@ export function responsesInput(
           }
           flush();
           if (
-            block.routeId !== 'grok-subscription' ||
+            (block.routeId !== 'grok-subscription' && block.routeId !== 'chatgpt-subscription') ||
             !block.item ||
             block.item.type !== 'reasoning' ||
             block.item.encrypted_content !== block.encryptedContent
           ) {
             throw new RouteError(
               'unsupported_input',
-              'Stored Grok reasoning is incomplete. Start a new session after upgrading.',
+              'Stored subscription reasoning is incomplete. Start a new session after upgrading.',
             );
           }
           const stored = block.provenance;
@@ -117,7 +117,7 @@ export function responsesInput(
               'Stored reasoning belongs to another model or login. Start a new session.',
             );
           }
-          // Never synthesize fields: xAI requires complete output items unchanged.
+          // Keep the complete provider-approved reasoning item unchanged.
           items.push(structuredClone(block.item));
           break;
         }
@@ -157,7 +157,11 @@ function encryptedReasoningBlock(
     type: 'encrypted_reasoning',
     encryptedContent: item.encrypted_content,
     item: structuredClone(item),
-    ...(provider === 'grok' ? { routeId: 'grok-subscription' as const } : {}),
+    ...(provider === 'grok'
+      ? { routeId: 'grok-subscription' as const }
+      : provider === 'chatgpt'
+        ? { routeId: 'chatgpt-subscription' as const }
+        : {}),
     ...(provenance ? { provenance: { ...provenance } } : {}),
   };
   if (typeof item.id === 'string' && item.id.length > 0) block.id = item.id;

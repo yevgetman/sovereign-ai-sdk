@@ -208,12 +208,12 @@ call with no receipt has an unknown outcome. The model must verify an unknown
 non-idempotent action before repeating it. A receipt write failure returns
 `storage_failed` and stops before another model request.
 Incompatible stored image or encrypted reasoning history is retained and refused.
-Grok subscription stores the complete reasoning output item, including empty
+Grok and ChatGPT subscriptions store complete reasoning output items, including empty
 `summary` and unknown fields, and replays it unchanged in terminal output order.
 The block's internal route marker confines it to `grok-subscription`. SDK transports
 also refuse it on API-key and foreign-provider routes before a fetch. A reasoning
 stream without a terminal output array fails because its original order cannot
-be verified. Legacy lossy reasoning blocks cannot be repaired; start a new Grok
+be verified. Legacy lossy reasoning blocks cannot be repaired; start a new subscription
 session after upgrading. Stored history stays intact.
 
 `--steer-file` keeps the existing JSONL steering input. SIGINT and SIGTERM cancel
@@ -331,9 +331,9 @@ secret retain single-account discovery.
 
 ## Grok reasoning continuation confinement
 
-Grok Responses reasoning items are stored whole and replayed unchanged in their
+Grok and ChatGPT Responses reasoning items are stored whole and replayed unchanged in their
 original output order. Their versioned provenance binds them to
-`grok-subscription`, the exact model ID, and a random nonsecret login lineage.
+`grok-subscription` or `chatgpt-subscription`, the exact model ID, and a random nonsecret login lineage. Each item can replay only on its original route.
 A refresh preserves the lineage. Every supported new login creates a new lineage;
 legacy credential records acquire one under the credential mutex before inference.
 The lineage is not a token hash or an upstream account identifier. It confines
@@ -345,3 +345,8 @@ Injected credential ports must persist the optional `accountBinding` field.
 Replacing a record without that field creates a new lineage. Out-of-band copying
 of an entire credential record, including its lineage, is outside this identity
 contract. No identity is inferred from the Keychain service name alone.
+
+ChatGPT native resume accepts its own complete bound reasoning. It uses the same
+versioned opaque-item contract and rejects foreign route, model and login state.
+The request retains `store: false`. A missing or malformed ciphertext item is refused;
+SOV never guesses replacement reasoning fields.

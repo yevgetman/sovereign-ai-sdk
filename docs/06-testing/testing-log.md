@@ -1,3 +1,36 @@
+## 2026-10-14 — Atomic master integration of ChatGPT reasoning replay (#74)
+
+Ordinary merge of `fdfae88b` into master `27647ee9` combines the captured ChatGPT
+reasoning provenance with the shared stream retry helper. The translator receives
+`sentProvenance` as argument three and the semantic observer as argument four;
+owner metadata authorization remains before credential access. Both appended
+native test sets and both documentation histories are retained. The ChatGPT
+provider source exactly matches the root's independently tested combined tree.
+
+In the isolated integration worktree, `bun run build`, `bun run tui:build`,
+`bun run lint` (including boundary), `bun run typecheck`, and
+`env -u FORCE_COLOR bun run test` pass: **6321 passed / 19 existing skips /
+zero failures**, 27472 assertions, 607 files, 128.16 seconds. Persisted two-turn,
+tool continuation, route/model/login refusal and native history guard tests run
+in that gate.
+
+Live acceptance remains incomplete. No usable SOV ChatGPT login was available.
+Root read an unexpired existing Codex OAuth record into an ephemeral memory
+port without persisting, moving or refreshing it. Two bounded requests to the
+exact ChatGPT subscription endpoint with the exact bundled `gpt-5.3-codex`
+model each returned HTTP 400 before semantic delivery. A safe in-memory enum
+classifier reported model unavailable. No raw provider text, prompts, replies or
+credentials were printed or stored. No fallback model or route was selected.
+Issue #74 therefore stays open for the live continuation acceptance check;
+source/offline regression completion is not live account eligibility proof.
+
+Root checked the current official stateless Responses contract before final
+integration: [OpenAI reasoning guide](https://developers.openai.com/api/docs/guides/reasoning#preserve-reasoning-without-stored-responses)
+states `store: false` returns encrypted reasoning by default. The older explicit
+include field remains optional; no unsupported API change was introduced.
+No production settings, credentials, owner sessions, installed binary or release
+changes. No live learning-loop soak observation was produced.
+
 ## 2026-10-14 — Atomic master integration of pre-delivery retry fences (#72)
 
 Ordinary merge through corrective head `90285cb2` into master `8c3f7c35` retains
@@ -165,6 +198,14 @@ Final focused commands:
 `bun run lint` passed (1115 files; boundary check: 246 modules / 980 dependencies / no violations). `bun run typecheck` passed. `bun run build` passed for SDK and protocol. `bun run tui:build` passed; `go test ./...` from `packages/tui` passed all tested packages. `git diff --check` passed.
 
 Full runs use `env -u FORCE_COLOR bun run test`. The initial source gate passed 6164 / 19 skip / 0 fail / 26871 assertions across 596 files (126.63s). After tool-loop and nested-reset coverage expansion, the next run passed 6167 / 19 skip / 0 fail / 26887 assertions across 596 files (123.92s). After the native diagnostic source change and final fixture corrections, the final gate passed **6169 / 19 skip / 0 fail / 26901 assertions**, 6188 tests across 597 files (139.21s). Logs: `/private/tmp/sdk-issue72-full-test.log`, `/private/tmp/sdk-issue72-full-final.log`, `/private/tmp/sdk-issue72-full-wire-final.log`. No new skipped tests. No learning-loop value claim follows from these transport fixtures.
+
+## 2026-10-14 — ChatGPT complete stateless reasoning continuation (#74)
+
+Isolated branch `fix/74-chatgpt-reasoning-replay` on critical #69 commit `65a6b2aa`; macOS arm64, Bun 1.3.13. A real ChatGPT Responses fixture fails both two-turn rehydration and post-tool continuation before correction (2 pass / 2 fail). It passes after complete-item replay and exact route/model/login-lineage binding. Native resume additionally rejects foreign provenance before writing another user row. An existing Grok confinement fixture now carries the complete versioned envelope and retains every original refusal assertion.
+
+`bun test tests/providers/chatgptReasoningReplay.test.ts tests/cli/sdkRunCommand.test.ts tests/providers/grokReasoningReplay.test.ts tests/providers/responses.test.ts tests/providers/subscription.test.ts`: 71 pass / 0 fail / 316 assertions. Coverage includes future nested item fields, empty summaries, unchanged wire item order, four canonical rows across resumed turns, same-turn tool result continuation, changed model/login and foreign-route refusal. Initial after-fix tests exposed the fixture's pretty-printed tool-result assumption and the native foreign-reasoning early-guard gap; both were corrected before the final pass.
+
+`bun run build`, `bun run lint`, `bun run typecheck`, `bun run tui:build`, and `env -u FORCE_COLOR bun run test` pass: 6145 pass / 19 existing skips / 0 fail / 26790 assertions, 596 files, 140.21s. `bun run canary` passes real packed protocol/SDK Node/Bun consumers, public types and artifact purity. `git diff --check` passes. The bounded read-only live probe `bun /private/tmp/issue74-live-probe-20261014.ts` reported unavailable: no usable unexpired SOV ChatGPT login. No production token refresh, login, owner configuration/session write, release or installed-host update occurred. Offline fixtures do not certify live ChatGPT subscription eligibility. OpenAI primary contract consulted: https://developers.openai.com/api/docs/guides/reasoning#preserve-reasoning-without-stored-responses .
 
 ## 2026-10-14 — Exact Grok reasoning model and login confinement (#69 follow-up)
 

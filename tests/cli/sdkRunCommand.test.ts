@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Settings } from '@yevgetman/sov-sdk/config/schema';
 import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
-import { validateRouteSelection } from '@yevgetman/sov-sdk/providers/routes/index';
-import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
+
+import { ChatGptSubscriptionProvider } from '@yevgetman/sov-sdk/providers/chatgpt';
+import { getRoute, validateRouteSelection } from '@yevgetman/sov-sdk/providers/routes/index';
 import { macKeychainPort } from '@yevgetman/sov-sdk/providers/subscription/keychain';
 import type { LLMProvider, ProviderRequest, Transport } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
@@ -160,6 +161,55 @@ for (const requested of [undefined, 'default', 'ask', 'bypass'] as const) {
     }
   });
 }
+
+test('native ChatGPT resume accepts its own complete bound reasoning', async () => {
+  const sent: Record<string, unknown>[] = [];
+  const item = {
+    type: 'reasoning',
+    summary: [],
+    encrypted_content: 'fixture-cipher',
+    future: [false, 1],
+  };
+  const provider = new ChatGptSubscriptionProvider({
+    port: {
+      read: async () => ({
+        accessToken: 'fixture-access',
+        refreshToken: 'fixture-refresh',
+        expiresAt: Date.now() + 3600000,
+        accountBinding: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }),
+      write: async () => {},
+      delete: async () => {},
+    },
+    fetchImpl: async (_url, init) => {
+      sent.push(JSON.parse(String(init?.body)));
+      return new Response(
+        `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output: [item, { type: 'message', content: [{ type: 'output_text', text: 'fixture answer' }] }] } })}\n\n`,
+      );
+    },
+  });
+  const f = fixture(provider, undefined, {
+    routeId: 'chatgpt-subscription',
+    model: 'gpt-5.3-codex',
+    effort: 'high',
+  });
+  const first = capture();
+  const native = { ...opts, route: 'chatgpt-subscription' };
+  expect(await runSdkRunCommand(native, first.io, f.deps)).toBe(0);
+  const started = first.events.find((event) => event.type === 'session.started');
+  const next = capture();
+  expect(
+    await runSdkRunCommand({ ...native, resume: String(started?.sessionId) }, next.io, f.deps),
+  ).toBe(0);
+  expect(sent).toHaveLength(2);
+  expect(sent[1]?.input).toContainEqual(item);
+  const db = SessionDb.open({ path: f.db });
+  try {
+    expect(db.loadMessages(String(started?.sessionId))).toHaveLength(4);
+  } finally {
+    db.close();
+  }
+});
 test('native runs direct SDK with no preflight; preserves instructions/base and saves one user/assistant per resumed turn', async () => {
   const calls: ProviderRequest[] = [];
   const provider: LLMProvider = {
@@ -611,6 +661,14 @@ test('stored encrypted reasoning resumes on grok subscription and is refused els
   const block = {
     type: 'encrypted_reasoning' as const,
     encryptedContent: 'cipher-value',
+    routeId: 'grok-subscription' as const,
+    provenance: {
+      version: 1 as const,
+      routeId: 'grok-subscription' as const,
+      modelId: 'grok-4.7',
+      accountBinding: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    },
+    item: { type: 'reasoning', summary: [], encrypted_content: 'cipher-value' },
     id: 'rs_1',
   };
   async function resume(route: string, providerName: string, model: string) {
