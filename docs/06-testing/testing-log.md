@@ -1,3 +1,16 @@
+## 2026-10-14 — Atomic master integration of pre-delivery retry fences (#72)
+
+Ordinary merge through corrective head `90285cb2` into master `8c3f7c35` retains
+owner guards, permission auditing and durable tool receipts. Additive changelog
+and testing-log conflicts preserve both histories. In the isolated integration
+worktree, `bun run build`, `bun run tui:build`, `bun run lint` (including boundary),
+`bun run typecheck`, and `env -u FORCE_COLOR bun run test` pass: **6316 passed /
+19 existing skips / zero failures**, 27452 assertions, 606 files, 126.96 seconds.
+Refusal delivery, permanent/unknown response failures and bounded pre-delivery
+fault-proxy regressions run in that gate. No production config, credential,
+installed binary or release changes. No live learning-loop soak observation
+was produced.
+
 ## 2026-10-14 — Atomic master integration of durable tool receipts (#71)
 
 Ordinary merge of `ef12f92f` into master `db243bcf` preserves exact owner catalogs,
@@ -128,6 +141,30 @@ Limits: legacy custom stores remain supported but need the optional journal to
 recover an individual completion before the canonical batch save. A side effect
 that precedes a missing receipt has an unknown outcome and requires verification.
 Journal rollback removes transcript evidence; it does not undo external effects.
+
+## 2026-10-14 — Independent stream-retry review corrections (#72)
+
+Independent review found two Medium retry-boundary defects. Refusal delta/done/content parts were not classified as semantic; three added regressions failed before correction (27 pass / 3 fail). Permanent and unknown first-frame provider failures were treated as retryable502 errors; four added regressions failed before correction (30 pass / 4 fail). Refusal frames now stop replay. Only the exact recognized transient server error grants generic first-frame retry; permanent/unknown errors are typed and stop after one request. Existing rate-limit/context/model paths remain distinct.
+
+After correction, `bun test tests/providers/subscription-stream-retry.test.ts tests/providers/responses.test.ts tests/providers/grokReasoningReplay.test.ts tests/cli/sdkRunStreamDelivery.test.ts` passes63 tests/290 assertions. The independent witnesses prove permanent and unknown failures send once, transient server/rate-limit controls recover after one retry, always-failing server stops after three requests, and every refusal witness sends once with incomplete-delivery diagnostics. The local report is `/private/tmp/sdk-high-review-20261014.md`; no confirmed finding remains in its bounded review.
+
+Final frozen correction passes `bun run build`, `bun run lint`, `bun run typecheck`, and `env -u FORCE_COLOR bun run test`:6176 pass/19 existing skips/0fail,26927 assertions,597 files,116.57s. The prior refusal-only full gate passed6172/19/0; it overlapped the later permanent-error source change and is not the final-source claim. No network inference, Keychain, owner settings, installed host or release was changed.
+
+## 2026-10-14 — Subscription pre-delivery stream retry (#72)
+
+Scope: ChatGPT and Grok HTTP-200 stream consumption, the shared retry budget, semantic-delivery cutoff, safe typed failures, and native terminal diagnostics. Isolated worktree `/private/tmp/sdk-issue72-20261014`, branch `fix/72-subscription-pre-delivery-retry`. Started at `origin/master` `71e25677`, then ordinarily merged the reviewed critical Grok correction `65a6b2aa` before editing the shared translator. Bun 1.3.13 on macOS. Dependencies installed locally with `bun install --ignore-scripts --frozen-lockfile`. No live subscription call, Keychain read, owner-setting change, release, install or push.
+
+Before production edits, `bun test tests/providers/subscription-stream-retry.test.ts tests/providers/subscription.test.ts tests/providers/responses.test.ts` returned 31 pass / 3 fail / 109 assertions: HTTP 200 EOF, reset and invalid first JSON all failed instead of retrying. The reset surfaced injected transport text. Existing subscription/Responses tests passed. The first integration run also caught a lost fixed reasoning-order diagnostic from #69; that message now has a safe enum reason. Typecheck caught two fixture-only issues while proxy/native coverage was expanded: message events needed union guards, and the injected native fixture needed an explicit unused transport cast. Both were corrected before the final gate.
+
+Final focused commands:
+
+- `bun test tests/providers/subscription-stream-retry.test.ts tests/providers/subscription.test.ts tests/providers/responses.test.ts tests/providers/grokReasoningReplay.test.ts packages/sdk/tests/surface.test.ts`: 79 pass / 0 fail / 419 assertions across five files. Coverage includes both selected routes, EOF/reset/nested Node socket reset/malformed first frame, text/thinking/tool/ciphertext/usage/terminal cutoffs, malformed actual tool intent, mixed fetch/status/stream budget exhaustion, Retry-After, backoff cancellation, reader cancellation/unlock before sleep, and safe diagnostics.
+- `bun test tests/cli/sdkRunStreamDelivery.test.ts tests/cli/sdkRunCommand.test.ts`: 20 pass / 0 fail / 111 assertions across two files. The actual subscription provider and native runtime emit one failed terminal: pre-delivery EOF exhausts three requests, while partial text plus EOF stops after one. Both preserve fixed delivery phase/reason without secrets. Incomplete delivery is not recoverable.
+- The localhost HTTP fault-proxy fixture runs the real agent loop. Its first HTTP 200 stream closes after a heartbeat; the retry returns a function call; the post-tool request completes. Three requests, one tool execution, one text delta, one completed turn. This is local fault evidence, not paid-provider eligibility proof.
+
+`bun run lint` passed (1115 files; boundary check: 246 modules / 980 dependencies / no violations). `bun run typecheck` passed. `bun run build` passed for SDK and protocol. `bun run tui:build` passed; `go test ./...` from `packages/tui` passed all tested packages. `git diff --check` passed.
+
+Full runs use `env -u FORCE_COLOR bun run test`. The initial source gate passed 6164 / 19 skip / 0 fail / 26871 assertions across 596 files (126.63s). After tool-loop and nested-reset coverage expansion, the next run passed 6167 / 19 skip / 0 fail / 26887 assertions across 596 files (123.92s). After the native diagnostic source change and final fixture corrections, the final gate passed **6169 / 19 skip / 0 fail / 26901 assertions**, 6188 tests across 597 files (139.21s). Logs: `/private/tmp/sdk-issue72-full-test.log`, `/private/tmp/sdk-issue72-full-final.log`, `/private/tmp/sdk-issue72-full-wire-final.log`. No new skipped tests. No learning-loop value claim follows from these transport fixtures.
 
 ## 2026-10-14 — Exact Grok reasoning model and login confinement (#69 follow-up)
 

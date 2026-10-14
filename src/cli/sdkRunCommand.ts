@@ -8,6 +8,7 @@ import {
   PersistBeforeRunError,
   SubscriptionAuthExpiredError,
   SubscriptionHttpError,
+  SubscriptionStreamError,
   SubscriptionTierBlockedError,
   UnknownToolsetError,
 } from '@yevgetman/sov-sdk/providers/errors';
@@ -385,7 +386,12 @@ export async function runSdkRunCommand(
       err.upstream
         ? { upstream: err.upstream }
         : {}),
-      recoverable: ['rate_limited', 'interrupted'].includes(code),
+      ...(err instanceof SubscriptionStreamError
+        ? { deliveryPhase: err.phase, deliveryReason: err.reason }
+        : {}),
+      recoverable:
+        !(err instanceof SubscriptionStreamError && err.phase === 'incomplete_delivery') &&
+        ['rate_limited', 'interrupted'].includes(code),
     });
     return code === 'interrupted'
       ? exit

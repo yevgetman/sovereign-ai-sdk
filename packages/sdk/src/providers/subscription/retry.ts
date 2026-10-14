@@ -9,14 +9,23 @@ export function isRetryableStatus(status: number): boolean {
 export function isConnectionReset(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   if (err.name === 'AbortError') return false;
-  const code = (err as { code?: string }).code;
-  if (code === 'ECONNRESET' || code === 'EPIPE' || code === 'UND_ERR_SOCKET') return true;
-  const message = err.message.toLowerCase();
-  return (
-    message.includes('econnreset') ||
-    message.includes('socket hang up') ||
-    message.includes('fetch failed')
-  );
+  // Node fetch wraps UND_ERR_SOCKET inside TypeError.cause. Bound traversal
+  // and inspect only local values; diagnostics never retain the original error.
+  let current: unknown = err;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth++) {
+    if (current.name === 'AbortError') return false;
+    const code = (current as { code?: string }).code;
+    if (code === 'ECONNRESET' || code === 'EPIPE' || code === 'UND_ERR_SOCKET') return true;
+    const message = current.message.toLowerCase();
+    if (
+      message.includes('econnreset') ||
+      message.includes('socket hang up') ||
+      message.includes('fetch failed')
+    )
+      return true;
+    current = current.cause;
+  }
+  return false;
 }
 
 /** Milliseconds to wait, or `'over-limit'` when the server asked for more than 10 seconds. */
