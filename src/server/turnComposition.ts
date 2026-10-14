@@ -238,7 +238,18 @@ export function loadStoredMessages(persistence: TurnPersistence, sessionId: stri
     persistence.mode === 'gateway-callbacks'
       ? persistence.host.sessionDb.loadMessages(sessionId)
       : persistence.sessionStore.loadMessages(sessionId);
-  return rows.map((m): Message => ({ role: m.role as Message['role'], content: m.content }));
+  const store =
+    persistence.mode === 'gateway-callbacks'
+      ? persistence.host.sessionDb
+      : persistence.sessionStore;
+  const messages = rows.map(
+    (m): Message => ({ role: m.role as Message['role'], content: m.content }),
+  );
+  return repairMissingToolResults(
+    messages,
+    store.loadToolExecutions?.(sessionId),
+    rows.map((row) => row.id),
+  ).messages;
 }
 
 /**
@@ -395,7 +406,7 @@ export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
             ? { transcripts: persistence.transcripts }
             : {}),
         }
-      : {}),
+      : { toolExecutionStore: persistence.host.sessionDb }),
   });
 
   const perTurn = (hop: TurnHop): PerTurn => ({

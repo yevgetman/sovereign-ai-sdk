@@ -18,11 +18,12 @@
 import { appendSubdirectoryHints } from '../context/subdirectoryHints.js';
 import type { HookRunner } from '../hooks/types.js';
 import type { CanUseTool } from '../permissions/types.js';
+import { ToolStorageError } from '../providers/errors.js';
 import type { Tool, ToolContext, ToolObservation } from '../tool/types.js';
 import { resolveToolPath } from '../tools/pathUtils.js';
 import type { TraceEvent } from '../trace/types.js';
 import type { ObservationStatus } from './observePort.js';
-import type { ContentBlock, Message, UserMessage } from './types.js';
+import type { ContentBlock, Message, QueryParams, UserMessage } from './types.js';
 
 type TraceRecorder = (event: TraceEvent) => void;
 const NO_TRACE: TraceRecorder = () => {};
@@ -63,6 +64,7 @@ export async function* runTools(
   canUseTool?: CanUseTool,
   hookRunner?: HookRunner,
   traceRecorder?: TraceRecorder,
+  persistExecution?: QueryParams['persistToolExecution'],
 ): AsyncGenerator<Message, void> {
   const toolsByName = new Map(tools.map((t) => [t.name, t]));
   const results: (ToolResultBlock | undefined)[] = new Array(blocks.length);
@@ -72,30 +74,64 @@ export async function* runTools(
   const newMessagesByIndex: (Message[] | undefined)[] = new Array(blocks.length);
   const recordTrace = traceRecorder ?? NO_TRACE;
 
+  let storageFailure: ToolStorageError | undefined;
+  const started = new Set<string>();
+  const persist: NonNullable<QueryParams['persistToolExecution']> = (
+    id,
+    state,
+    result,
+    newMessages,
+  ) => {
+    if (!persistExecution) return;
+    try {
+      persistExecution(id, state, result, newMessages);
+      if (state === 'started') started.add(id);
+    } catch (error) {
+      storageFailure ??= new ToolStorageError(error);
+      if (state === 'started') throw storageFailure;
+    }
+  };
+  const dispatch = async (block: ToolUseBlock) => {
+    if (storageFailure)
+      return {
+        block: {
+          type: 'tool_result' as const,
+          tool_use_id: block.id,
+          content: 'tool was not started: storage failed',
+          is_error: true,
+        },
+      };
+    const result = await executeOne(
+      block,
+      ctx,
+      toolsByName,
+      canUseTool,
+      hookRunner,
+      recordTrace,
+      persist,
+    );
+    // Early denials/cancellations are also durable outcomes. No effect ran.
+    persist(
+      block.id,
+      storageFailure && !started.has(block.id) ? 'interrupted' : 'completed',
+      result.block,
+      result.newMessages,
+    );
+    return result;
+  };
   const partitions = partitionToolCalls(blocks, toolsByName);
 
   for (const partition of partitions) {
     if (partition.mode === 'serial') {
-      await runSerialPartition(
-        partition.items,
-        ctx,
-        toolsByName,
-        canUseTool,
-        hookRunner,
-        recordTrace,
-        results,
-        newMessagesByIndex,
-      );
+      await runSerialPartition(partition.items, results, newMessagesByIndex, dispatch);
     } else {
       await runConcurrentPartition(
         partition.items,
         ctx,
         toolsByName,
-        canUseTool,
-        hookRunner,
-        recordTrace,
         results,
         newMessagesByIndex,
+        dispatch,
       );
     }
   }
@@ -135,6 +171,7 @@ export async function* runTools(
 
   const userMessage: UserMessage = { role: 'user', content: [...resolved, ...appended] };
   yield userMessage;
+  if (storageFailure) throw storageFailure;
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -186,16 +223,12 @@ export function partitionToolCalls(
 
 async function runSerialPartition(
   items: IndexedBlock[],
-  ctx: ToolContext,
-  toolsByName: Map<string, Tool<unknown, unknown>>,
-  canUseTool: CanUseTool | undefined,
-  hookRunner: HookRunner | undefined,
-  recordTrace: TraceRecorder,
   out: (ToolResultBlock | undefined)[],
   nmOut: (Message[] | undefined)[],
+  dispatch: (block: ToolUseBlock) => Promise<{ block: ToolResultBlock; newMessages?: Message[] }>,
 ): Promise<void> {
   for (const item of items) {
-    const r = await executeOne(item.block, ctx, toolsByName, canUseTool, hookRunner, recordTrace);
+    const r = await dispatch(item.block);
     out[item.index] = r.block;
     nmOut[item.index] = r.newMessages;
   }
@@ -211,11 +244,9 @@ async function runConcurrentPartition(
   items: IndexedBlock[],
   ctx: ToolContext,
   toolsByName: Map<string, Tool<unknown, unknown>>,
-  canUseTool: CanUseTool | undefined,
-  hookRunner: HookRunner | undefined,
-  recordTrace: TraceRecorder,
   out: (ToolResultBlock | undefined)[],
   nmOut: (Message[] | undefined)[],
+  dispatch: (block: ToolUseBlock) => Promise<{ block: ToolResultBlock; newMessages?: Message[] }>,
 ): Promise<void> {
   const subBatches = splitByPathOverlap(items, toolsByName, ctx.cwd);
 
@@ -223,11 +254,7 @@ async function runConcurrentPartition(
     // Cap at CONCURRENT_CAP — split the batch into waves if needed.
     for (let start = 0; start < batch.length; start += CONCURRENT_CAP) {
       const wave = batch.slice(start, start + CONCURRENT_CAP);
-      const waveResults = await Promise.all(
-        wave.map((item) =>
-          executeOne(item.block, ctx, toolsByName, canUseTool, hookRunner, recordTrace),
-        ),
-      );
+      const waveResults = await Promise.all(wave.map((item) => dispatch(item.block)));
       for (let j = 0; j < wave.length; j++) {
         const item = wave[j];
         const result = waveResults[j];
@@ -377,6 +404,7 @@ async function executeOne(
   canUseTool?: CanUseTool,
   hookRunner?: HookRunner,
   recordTrace: TraceRecorder = NO_TRACE,
+  persistExecution?: QueryParams['persistToolExecution'],
 ): Promise<{ block: ToolResultBlock; newMessages?: Message[] }> {
   let completed: ToolResultBlock | undefined;
   let completedMessages: Message[] | undefined;
@@ -391,7 +419,9 @@ async function executeOne(
       (result, newMessages) => {
         completed = result;
         completedMessages = newMessages;
+        persistExecution?.(block.id, 'completed', result, newMessages);
       },
+      () => persistExecution?.(block.id, 'started'),
     );
   } catch (error) {
     let message = 'unknown dispatch error';
@@ -430,6 +460,7 @@ async function executeOneUnchecked(
   hookRunner?: HookRunner,
   recordTrace: TraceRecorder = NO_TRACE,
   onResult: (result: ToolResultBlock, newMessages?: Message[]) => void = () => {},
+  onStarted: () => void = () => {},
 ): Promise<{ block: ToolResultBlock; newMessages?: Message[] }> {
   // Phase 13.4 follow-up (backlog item 5) — track the terminal observation
   // status so every early-return path in this dispatcher can notify the
@@ -708,6 +739,7 @@ async function executeOneUnchecked(
       },
     };
   }
+  onStarted();
   const callStart = Date.now();
   let result: { data: unknown; observation?: ToolObservation; newMessages?: Message[] };
   let toolError: Error | undefined;
@@ -742,13 +774,22 @@ async function executeOneUnchecked(
       // Circular/hostile output cannot be serialized; retain completion fact.
     }
     const fallback: ToolResultBlock = { type: 'tool_result', tool_use_id: block.id, content };
-    onResult(fallback);
-    onResult(fallback, userNewMessages(result.newMessages, tool.name));
+    try {
+      onResult(fallback, userNewMessages(result.newMessages, tool.name));
+    } catch (messageError) {
+      onResult(fallback);
+      throw messageError;
+    }
     throw error;
   }
 
-  onResult(formatted);
-  const nm = userNewMessages(result.newMessages, tool.name);
+  let nm: Message[] | undefined;
+  try {
+    nm = userNewMessages(result.newMessages, tool.name);
+  } catch (error) {
+    onResult(formatted);
+    throw error;
+  }
   onResult(formatted, nm);
 
   if (toolError) {

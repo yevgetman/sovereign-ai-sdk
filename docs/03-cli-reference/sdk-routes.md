@@ -200,8 +200,13 @@ Permission prompts have no headless UI and are denied immediately. SDK auxiliary
 work stays on the selected provider/model; an unconfigured alternate fails.
 
 `--resume <session-id>` reads the existing SOV database. The SDK is the sole message
-writer. Assistant tool calls are durably saved before tool execution. Interrupted
-calls receive explicit interrupted results on resume and are not executed again.
+writer. Assistant tool calls are durably saved before tool execution. Each tool's
+completion receipt is journaled immediately, and the canonical batch is saved
+before the next model request. Resume restores completed receipts without running
+the tool again. An intent recorded before execution is interrupted; a started
+call with no receipt has an unknown outcome. The model must verify an unknown
+non-idempotent action before repeating it. A receipt write failure returns
+`storage_failed` and stops before another model request.
 Incompatible stored image or encrypted reasoning history is retained and refused.
 Grok subscription stores the complete reasoning output item, including empty
 `summary` and unknown fields, and replays it unchanged in terminal output order.

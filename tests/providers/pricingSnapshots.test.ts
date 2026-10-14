@@ -145,6 +145,7 @@ test('migration does not certify historical unknown-price zero usage', () => {
     current.close();
     const old = new Database(path);
     // Recreate the historical v5 shape, including absence of later private state.
+    old.run('DROP TABLE tool_executions');
     old.run('DROP TABLE skill_continuity');
     old.run('DROP TABLE usage_estimates');
     old.run('ALTER TABLE sessions DROP COLUMN cost_complete');

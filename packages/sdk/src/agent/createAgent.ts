@@ -75,13 +75,14 @@ import type { HookRunner } from '../hooks/types.js';
 import type { LoopOptions } from '../loop/options.js';
 import type { MemoryRuntime } from '../memory/provider.js';
 import type { CanUseTool } from '../permissions/types.js';
-import type { SessionStore } from '../persistence/sessionStore.js';
+import type { SessionStore, ToolExecutionStore } from '../persistence/sessionStore.js';
 import type { TranscriptStore } from '../persistence/transcriptStore.js';
 import type { ReasoningEffort } from '../providers/effort.js';
 import {
   PersistBeforeRunError,
   RegenerationRollbackUnavailableError,
   SessionPersistenceError,
+  ToolStorageError,
   UnknownToolsetError,
 } from '../providers/errors.js';
 import type { ModelRecord } from '../providers/models/types.js';
@@ -170,6 +171,10 @@ export type AgentConfig = {
    *  NON-verbatim seed on an existing session re-appends everything (duplicates
    *  possible) — verbatim rehydration is required for dedup. */
   sessionStore?: SessionStore;
+  /** Journal-only binding when the host persists canonical messages itself.
+   * Its assistant row must be committed before resuming the assistant yield.
+   * Absent => use sessionStore's optional journal methods. */
+  toolExecutionStore?: ToolExecutionStore;
   /** Omit → no transcript writes. */
   transcripts?: TranscriptStore;
   recall?: RecallTurn;
@@ -611,6 +616,8 @@ export function createAgent(config: AgentConfig): Agent {
     // Conduct attempts belong to the same run. Preserve only restrictions;
     // each attempt rebuilds its host gate from the original caller context.
     let skillRestrictions: SkillRestrictionState | undefined;
+    let assistantMessageId: number | undefined;
+    const journal = config.toolExecutionStore ?? config.sessionStore;
     const startTurn = (extraSegments: SystemSegment[]) => {
       let attemptToolContext = toolContext;
       if (toolContext && skillRestrictions) {
@@ -684,21 +691,63 @@ export function createAgent(config: AgentConfig): Agent {
         ...(contextManager !== undefined ? { contextManager } : {}),
         ...(contextLimits !== undefined ? { contextLimits } : {}),
         ...(maxTurns !== undefined ? { maxTurns } : {}),
-        ...(config.sessionStore !== undefined
+        ...(config.sessionStore !== undefined || config.toolExecutionStore !== undefined
           ? {
               persistBeforeTools: (assistant: AssistantMessage) => {
-                attemptTranscriptWrites += saveBeforeTools({
-                  store: config.sessionStore as SessionStore,
-                  transcripts: config.transcripts,
-                  sessionId,
-                  model,
-                  providerName: provider.name,
-                  systemPrompt: effectiveSystemPrompt,
-                  snapshot: messages,
-                  assistant,
-                  savedThrough,
-                });
+                if (config.sessionStore)
+                  attemptTranscriptWrites += saveBeforeTools({
+                    store: config.sessionStore as SessionStore,
+                    transcripts: config.transcripts,
+                    sessionId,
+                    model,
+                    providerName: provider.name,
+                    systemPrompt: effectiveSystemPrompt,
+                    snapshot: messages,
+                    assistant,
+                    savedThrough,
+                  });
                 if (savedThrough !== undefined) savedThrough = messages.length;
+                const intent = journal?.loadMessages(sessionId).at(-1);
+                if (
+                  intent?.role !== 'assistant' ||
+                  JSON.stringify(intent.content) !== JSON.stringify(assistant.content)
+                ) {
+                  throw new Error('tool journal requires the persisted assistant intent');
+                }
+                assistantMessageId = intent.id;
+                if (assistantMessageId !== undefined) {
+                  for (const block of assistant.content) {
+                    if (block.type === 'tool_use')
+                      journal?.saveToolExecution?.(sessionId, {
+                        assistantMessageId,
+                        toolUseId: block.id,
+                        state: 'interrupted',
+                      });
+                  }
+                }
+              },
+              persistToolExecution: (toolUseId, state, result, newMessages) => {
+                if (assistantMessageId === undefined)
+                  throw new Error('missing durable tool intent');
+                journal?.saveToolExecution?.(sessionId, {
+                  assistantMessageId,
+                  toolUseId,
+                  state,
+                  ...(result ? { result } : {}),
+                  ...(newMessages ? { newMessages } : {}),
+                });
+              },
+              persistAfterTools: (message: Message) => {
+                if (!config.sessionStore) return;
+                const id = config.sessionStore?.saveMessage(sessionId, {
+                  role: message.role,
+                  content: message.content,
+                });
+                if (savedThrough !== undefined) savedThrough = messages.length + 1;
+                if (config.transcripts && id !== undefined) {
+                  config.transcripts.recordMessage(sessionId, message.role, message.content, id);
+                  attemptTranscriptWrites++;
+                }
               },
             }
           : {}),
@@ -1101,7 +1150,9 @@ export function createAgent(config: AgentConfig): Agent {
         });
       } catch (err) {
         const alreadySaved =
-          terminal.reason === 'error' && terminal.error instanceof PersistBeforeRunError;
+          terminal.reason === 'error' &&
+          (terminal.error instanceof PersistBeforeRunError ||
+            terminal.error instanceof ToolStorageError);
         if (!alreadySaved) throw new SessionPersistenceError(err);
       }
     }

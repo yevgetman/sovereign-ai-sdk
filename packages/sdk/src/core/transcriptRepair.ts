@@ -1,6 +1,7 @@
 // Transcript repair helpers. They preserve raw stored history while producing
 // provider-valid message sequences for resume and rollback.
 
+import type { ToolExecution } from '../persistence/sessionStore.js';
 import type { ContentBlock, Message } from './types.js';
 
 type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>;
@@ -12,7 +13,11 @@ export type TranscriptRepairResult = {
   repairedAssistantMessages: number;
 };
 
-export function repairMissingToolResults(messages: readonly Message[]): TranscriptRepairResult {
+export function repairMissingToolResults(
+  messages: readonly Message[],
+  executions?: readonly ToolExecution[],
+  messageIds?: readonly number[],
+): TranscriptRepairResult {
   const repaired: Message[] = [];
   let insertedToolResults = 0;
   let repairedAssistantMessages = 0;
@@ -36,7 +41,28 @@ export function repairMissingToolResults(messages: readonly Message[]): Transcri
     const missing = uses.filter((block) => !nextResultIds.has(block.id));
     if (missing.length === 0) continue;
 
-    const syntheticResults = missing.map(syntheticToolResult);
+    const receipts = new Map(
+      uses.map((use) => {
+        const candidates =
+          executions?.filter(
+            (execution) =>
+              execution.toolUseId === use.id &&
+              (messageIds === undefined || execution.assistantMessageId === messageIds[i]),
+          ) ?? [];
+        // Repeated provider call IDs need their persisted assistant row ID.
+        // Without it, ambiguous old receipts must never certify a later action.
+        return [use.id, candidates.length === 1 ? candidates[0] : undefined] as const;
+      }),
+    );
+    const syntheticResults = missing.map((use) => {
+      const receipt = receipts.get(use.id);
+      if (receipt?.state === 'completed' && receipt.result) return receipt.result;
+      if (receipt?.result && receipt.state === 'interrupted') return receipt.result;
+      return syntheticToolResult(use, receipt?.state === 'interrupted' ? 'interrupted' : 'unknown');
+    });
+    const appended = missing.flatMap(
+      (use) => receipts.get(use.id)?.newMessages?.flatMap((message) => message.content) ?? [],
+    );
     insertedToolResults += syntheticResults.length;
     repairedAssistantMessages++;
 
@@ -54,7 +80,16 @@ export function repairMissingToolResults(messages: readonly Message[]): Transcri
       const nonResults = next.content.filter((block) => !isToolResultBlock(block));
       repaired.push({
         role: 'user',
-        content: [...existingResults, ...syntheticResults, ...nonResults],
+        content: [
+          ...uses.map(
+            (use) =>
+              [...existingResults, ...syntheticResults].find(
+                (result) => result.tool_use_id === use.id,
+              ) as ToolResultBlock,
+          ),
+          ...appended,
+          ...nonResults,
+        ],
       });
       i++;
       continue;
@@ -63,7 +98,7 @@ export function repairMissingToolResults(messages: readonly Message[]): Transcri
     // No following user message (transcript ends on the tool_use, or an
     // assistant message follows) — the synthetics stand alone as the answering
     // user turn.
-    repaired.push({ role: 'user', content: syntheticResults });
+    repaired.push({ role: 'user', content: [...syntheticResults, ...appended] });
   }
 
   return { messages: repaired, insertedToolResults, repairedAssistantMessages };
@@ -77,11 +112,17 @@ function isToolResultBlock(block: ContentBlock): block is ToolResultBlock {
   return block.type === 'tool_result';
 }
 
-function syntheticToolResult(block: ToolUseBlock): ToolResultBlock {
+function syntheticToolResult(
+  block: ToolUseBlock,
+  state: 'interrupted' | 'unknown',
+): ToolResultBlock {
   return {
     type: 'tool_result',
     tool_use_id: block.id,
-    content: `tool call ${block.name} did not have a persisted result; synthesized during transcript repair`,
+    content:
+      state === 'unknown'
+        ? `tool call ${block.name} did not have a persisted result; outcome unknown. The action may already have happened. Do not repeat a non-idempotent action without verifying its effect first; synthesized during transcript repair`
+        : `tool call ${block.name} interrupted before execution; did not have a persisted result; synthesized during transcript repair`,
     is_error: true,
   };
 }
