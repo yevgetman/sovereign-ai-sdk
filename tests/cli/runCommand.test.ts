@@ -102,6 +102,40 @@ async function invoke(
   };
 }
 
+test('real CLI distinguishes omitted permission mode from explicit default against configured bypass', () => {
+  const config = join(home, 'config.json');
+  writeFileSync(config, JSON.stringify({ permissionMode: 'bypass', learning: { disabled: true } }));
+  for (const requested of [undefined, 'default', 'ask', 'bypass'] as const) {
+    const result = spawnSync(
+      process.execPath,
+      [
+        MAIN,
+        'run',
+        '--json',
+        '--stdin',
+        '--provider',
+        'mock',
+        '--no-preflight',
+        ...(requested !== undefined ? ['--permission-mode', requested] : []),
+      ],
+      {
+        cwd,
+        input: 'fixture question',
+        encoding: 'utf8',
+        env: { ...process.env, HARNESS_HOME: home, HARNESS_CONFIG: config },
+      },
+    );
+    expect(result.status).toBe(0);
+    const events = result.stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as JsonEvent);
+    expect(events.find((event) => event.type === 'session.started')?.permissionMode).toBe(
+      requested ?? 'bypass',
+    );
+  }
+});
+
 describe('runRunCommand', () => {
   test('runs multiline stdin as one prompt and emits machine terminal events', async () => {
     const input = 'hello\nworld\n';

@@ -217,8 +217,15 @@ provider and tools and emit a typed terminal failure. Cleanup has a bounded wait
 ## Machine events
 
 `session.started` reports the session id, route, provider, authentication, model,
-effort, toolset and permission mode. Text, thinking and tool progress follow the
+effort, toolset and effective `permissionMode`. `requestedPermissionMode` records
+the explicit CLI mode, or `null` when omitted. These two permission fields also
+persist in each session's `sdkTurns` metadata. Text, thinking and tool progress follow the
 existing JSONL event vocabulary. Tool block ids identify each call.
+
+An explicit `--permission-mode default` overrides configured `ask` or `bypass`
+and uses normal rules and tool self-checks. Omit the option to use the existing
+layered settings and user configuration cascade. Headless permission requests
+are denied because this surface has no interactive approver.
 
 Each recognized request ends with exactly one `turn.completed` or `turn.error`.
 Completion contains `reply`, `sessionId`, `finishReason` and route metadata.

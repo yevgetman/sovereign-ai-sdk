@@ -103,7 +103,6 @@ function resolveAndApplyProfile(argv: string[]): string[] {
 const PARSED_ARGV = resolveAndApplyProfile(process.argv);
 
 const DEFAULT_MAX_TOKENS = 12000;
-const DEFAULT_PERMISSION_MODE: PermissionMode = 'default';
 // Must match DEFAULT_PER_WAKE_TURN_BUDGET exported from src/cli/missionInit.ts.
 // Defined here as a literal because missionInit.ts is imported lazily (inside
 // the action handler) and Commander's .option() default must be a value, not
@@ -240,7 +239,6 @@ async function main(argv: string[]): Promise<void> {
       '--permission-mode <mode>',
       "tool permissions: 'default' honors rules/tool checks, 'ask' prompts on fallthrough, 'bypass' allows on fallthrough",
       parsePermissionMode,
-      DEFAULT_PERMISSION_MODE,
     )
     .option('--resume <id>', 'resume a prior session by its UUID')
     .option('--db <path>', 'session database path (default: ~/.harness/sessions.db)')
@@ -338,7 +336,6 @@ async function main(argv: string[]): Promise<void> {
       '--permission-mode <mode>',
       "tool permissions: 'default' honors rules/tool checks, 'ask' (auto-denied in drive mode), 'bypass' allows on fallthrough",
       parsePermissionMode,
-      DEFAULT_PERMISSION_MODE,
     )
     .option('--resume <id>', 'resume a prior session by its UUID')
     .option('--db <path>', 'session database path (default: ~/.harness/sessions.db)')
@@ -377,7 +374,6 @@ async function main(argv: string[]): Promise<void> {
       '--permission-mode <mode>',
       "tool permissions: 'default' honors rules/tool checks, 'ask' (auto-denied in run mode), 'bypass' allows on fallthrough",
       parsePermissionMode,
-      DEFAULT_PERMISSION_MODE,
     )
     .option('--resume <id>', 'resume a prior session by its UUID')
     .option(
