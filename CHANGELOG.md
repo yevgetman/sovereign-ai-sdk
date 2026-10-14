@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased — complete Grok reasoning replay (#69)
+
+**SDK:** `encrypted_reasoning` adds optional `item`, `routeId` and versioned
+`provenance` envelope fields. The public `ResponsesStateProvenance` type binds
+opaque state to the exact route, model ID and random nonsecret login lineage.
+Refresh preserves that lineage; each new supported login replaces it. Injected
+credential ports must retain the optional `SubscriptionRecord.accountBinding`
+field. This additive SDK surface requires a minor version at the next release.
+The full original Responses reasoning item now persists and replays unchanged,
+including empty `summary` and unknown fields, in terminal output order. Callers
+must retain the entire block on rehydration. Legacy blocks without the complete
+item or provenance cannot be recovered; start a new Grok session after upgrading.
+A model or login change also requires a new session. See the migration details
+in [SDK routes](docs/03-cli-reference/sdk-routes.md#grok-reasoning-continuation-confinement). Other
+providers and authentication routes refuse these blocks before inference.
+A reasoning stream without a terminal output array fails safely because the
+original output order cannot be verified. Full item JSON counts toward input
+budgets. `SubscriptionHttpError.upstream` adds bounded sanitized status, known
+code and fixed message templates; arbitrary upstream text is discarded. Authentication,
+tier and context errors retain the same safe diagnostics and their existing
+classification. Unreadable bodies stay HTTP failures; owner cancellation stays interrupted.
+
+**Harness:** request rejection reports `provider_request_rejected`, with safe
+HTTP diagnostics. Login failure and context overflow keep their distinct codes.
+Two live `grok-4.7` subscription turns succeeded in an isolated persisted session,
+with `store: false`, first `low` effort and then `auto`/`high`. A separate four-request probe also passed two consecutive low→auto turns and
+one pure arithmetic tool call with successful post-tool continuation. No owner
+settings or production credentials were changed. This is one account probe, not a general eligibility claim.
+
 ## harness 0.6.79 / SDK 0.15.1 — Grok subscription pin and catalog policy — 2026-10-13
 
 - Grok subscription defaults to `grok-4.7`, allowlists `grok-4.6`, sends Responses `reasoning.effort` (`max` maps to `xhigh`), and replays encrypted reasoning only on that route. The live subscription probe has not been run.

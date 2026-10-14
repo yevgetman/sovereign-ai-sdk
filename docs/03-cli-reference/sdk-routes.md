@@ -122,6 +122,13 @@ work stays on the selected provider/model; an unconfigured alternate fails.
 writer. Assistant tool calls are durably saved before tool execution. Interrupted
 calls receive explicit interrupted results on resume and are not executed again.
 Incompatible stored image or encrypted reasoning history is retained and refused.
+Grok subscription stores the complete reasoning output item, including empty
+`summary` and unknown fields, and replays it unchanged in terminal output order.
+The block's internal route marker confines it to `grok-subscription`. SDK transports
+also refuse it on API-key and foreign-provider routes before a fetch. A reasoning
+stream without a terminal output array fails because its original order cannot
+be verified. Legacy lossy reasoning blocks cannot be repaired; start a new Grok
+session after upgrading. Stored history stays intact.
 
 `--steer-file` keeps the existing JSONL steering input. SIGINT and SIGTERM cancel
 provider and tools and emit a typed terminal failure. Cleanup has a bounded wait.
@@ -135,7 +142,13 @@ existing JSONL event vocabulary. Tool block ids identify each call.
 Each recognized request ends with exactly one `turn.completed` or `turn.error`.
 Completion contains `reply`, `sessionId`, `finishReason` and route metadata.
 Errors contain safe text and a stable code. No provider response body, token or key
-is included. Missing and truncated terminal streams are failures.
+is included. A subscription HTTP error can also include an `upstream` object
+with bounded status, a recognized code and fixed safe message text. Arbitrary
+provider text and unknown codes are redacted, including request echoes and
+ciphertext. `provider_request_rejected` identifies an upstream HTTP 4xx request
+rejection; `auth_expired`, `tier_blocked`, `model_unsupported`, `rate_limited` and
+`context_overflow` keep their specific meanings. Missing and truncated terminal
+streams are failures.
 
 Exit codes are 0 for completion, 1 for turn failure, 2 for invalid input/options,
 130 for SIGINT and 143 for SIGTERM. A Grok 403 reports `tier_blocked` and never
@@ -203,3 +216,21 @@ pool can rotate between accounts, model metadata stays unavailable rather than
 borrowing the first account's catalog. Discovery does not select a pool slot,
 read credential status, or change rotation state. Duplicate slots with the same
 secret retain single-account discovery.
+
+
+## Grok reasoning continuation confinement
+
+Grok Responses reasoning items are stored whole and replayed unchanged in their
+original output order. Their versioned provenance binds them to
+`grok-subscription`, the exact model ID, and a random nonsecret login lineage.
+A refresh preserves the lineage. Every supported new login creates a new lineage;
+legacy credential records acquire one under the credential mutex before inference.
+The lineage is not a token hash or an upstream account identifier. It confines
+reasoning more narrowly than an account: logging in again requires a new session.
+Changing model, route or login refuses replay before inference. Legacy reasoning
+without complete items or provenance also requires a new session.
+
+Injected credential ports must persist the optional `accountBinding` field.
+Replacing a record without that field creates a new lineage. Out-of-band copying
+of an entire credential record, including its lineage, is outside this identity
+contract. No identity is inferred from the Keychain service name alone.

@@ -645,6 +645,7 @@ describe('routeErrorCodeFor', () => {
       'unsupported_input',
       'interrupted',
       'storage_failed',
+      'provider_request_rejected',
       'provider_failed',
     ]);
   });

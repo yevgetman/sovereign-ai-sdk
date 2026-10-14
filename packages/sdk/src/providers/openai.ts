@@ -31,6 +31,7 @@ import {
   recentMessageCacheBudget,
   recentMessageCacheFrom,
 } from './promptCache.js';
+import { RouteError } from './routes/errors.js';
 import type { ApiMode, ProviderRequest, ToolChoice, ToolSchema, Transport } from './types.js';
 
 /** A multimodal content part. Used ONLY when a message actually carries an
@@ -620,6 +621,16 @@ export function messagesToOpenAI(
   system: SystemSegment[] = [],
   options: MessagesToOpenAIOptions = {},
 ): OpenAIMessage[] {
+  if (
+    messages.some((message) =>
+      message.content.some((block) => block.type === 'encrypted_reasoning'),
+    )
+  ) {
+    throw new RouteError(
+      'unsupported_input',
+      'Grok encrypted reasoning can only use the Grok subscription route',
+    );
+  }
   const out: OpenAIMessage[] = [];
   const promptCache = options.promptCache === true;
   const systemMessage = systemToOpenAI(system, promptCache);

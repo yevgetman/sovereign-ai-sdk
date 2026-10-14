@@ -6,6 +6,7 @@ import {
   SubscriptionHttpError,
   SubscriptionTierBlockedError,
 } from '../errors.js';
+import { subscriptionDiagnostic } from './diagnostics.js';
 import {
   abortError,
   backoffMs,
@@ -61,8 +62,15 @@ export async function subscriptionAttempt(opts: {
     }
 
     if (response.status === 401) {
+      if (refreshedAfter401) {
+        const body = await readFailureBody(response, opts.signal);
+        throw new SubscriptionAuthExpiredError(
+          opts.provider,
+          undefined,
+          subscriptionDiagnostic(response.status, body),
+        );
+      }
       await discard(response);
-      if (refreshedAfter401) throw new SubscriptionAuthExpiredError(opts.provider);
       refreshedAfter401 = true;
       await opts.refresh();
       attempt -= 1;
@@ -70,37 +78,47 @@ export async function subscriptionAttempt(opts: {
     }
 
     if (opts.tierBlockedOn403 && response.status === 403) {
-      await discard(response);
-      throw new SubscriptionTierBlockedError(opts.provider);
+      const body = await readFailureBody(response, opts.signal);
+      throw new SubscriptionTierBlockedError(
+        opts.provider,
+        undefined,
+        subscriptionDiagnostic(response.status, body),
+      );
     }
 
     if (response.status === 400 || response.status === 413) {
-      const body = await readFailureBody(response);
+      const body = await readFailureBody(response, opts.signal);
       if (looksLikeContextOverflow(response.status, body)) {
-        throw new ContextOverflowError(opts.provider);
+        throw new ContextOverflowError(
+          opts.provider,
+          undefined,
+          subscriptionDiagnostic(response.status, body),
+        );
       }
       if (
         /model_not_found|invalid_model|unknown_model|model not found|model.*does not exist/i.test(
           body,
         )
       )
-        throw httpFailure(opts.provider, 404);
-      throw httpFailure(opts.provider, response.status);
+        throw httpFailure(opts.provider, 404, body, response.status);
+      throw httpFailure(opts.provider, response.status, body);
     }
 
     if (isRetryableStatus(response.status)) {
-      await discard(response);
       const delay = retryAfterDelay(response.headers.get('retry-after'), opts.deps.now());
-      if (delay === 'over-limit' || attempt === 3)
-        throw httpFailure(opts.provider, response.status);
+      if (delay === 'over-limit' || attempt === 3) {
+        const body = await readFailureBody(response, opts.signal);
+        throw httpFailure(opts.provider, response.status, body);
+      }
+      await discard(response);
       await waitForRetry(opts, failureIndex, delay);
       failureIndex += 1;
       continue;
     }
 
     if (response.status >= 400) {
-      await discard(response);
-      throw httpFailure(opts.provider, response.status);
+      const body = await readFailureBody(response, opts.signal);
+      throw httpFailure(opts.provider, response.status, body);
     }
 
     const declaredEmpty = response.headers.get('content-length') === '0';
@@ -135,8 +153,18 @@ async function waitForRetry(
   }
 }
 
-function httpFailure(provider: string, status: number): Error {
-  return new SubscriptionHttpError(provider, status);
+function httpFailure(
+  provider: string,
+  status: number,
+  body?: string,
+  upstreamStatus = status,
+): Error {
+  return new SubscriptionHttpError(
+    provider,
+    status,
+    undefined,
+    body === undefined ? undefined : subscriptionDiagnostic(upstreamStatus, body),
+  );
 }
 
 function redactConnection(provider: string, err: unknown): Error {
@@ -157,7 +185,8 @@ async function discard(response: Response): Promise<void> {
     /* Already consumed or closed. */
   }
 }
-async function readFailureBody(response: Response): Promise<string> {
+async function readFailureBody(response: Response, signal?: AbortSignal): Promise<string> {
+  if (signal?.aborted) throw abortError(signal);
   if (!response.body) return '';
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -171,12 +200,15 @@ async function readFailureBody(response: Response): Promise<string> {
       bytes += chunk.byteLength;
       text += decoder.decode(chunk, { stream: true });
     }
+    if (signal?.aborted) throw abortError(signal);
     return text;
+  } catch (err) {
+    if (signal?.aborted || (err instanceof Error && err.name === 'AbortError'))
+      throw abortError(signal);
+    // A failed body read is still an HTTP failure; never expose its raw error.
+    return '';
   } finally {
-    try {
-      await reader.cancel();
-    } finally {
-      reader.releaseLock();
-    }
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
 }

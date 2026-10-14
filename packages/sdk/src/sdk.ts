@@ -28,6 +28,7 @@ export { query } from './core/query.js';
 export type {
   AssistantMessage,
   ContentBlock,
+  ResponsesStateProvenance,
   LoopDetectionInfo,
   Message,
   MicrocompactInfo,

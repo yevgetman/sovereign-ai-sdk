@@ -520,8 +520,18 @@ insufficient cap before contacting the provider.
 ## Skills runtime APIs
 
 SDK 0.15.1 keeps the 0.15.0 skill ports and adds Grok subscription
-`encrypted_reasoning` content. Callers must keep that block on rehydration and must
-not send it to other providers. Subscription catalogs move only by a reviewed pin
+`encrypted_reasoning` content. Callers must keep that entire block on rehydration and must
+not send it to other providers or authentication routes. The block's `item`
+contains the complete original Responses reasoning object, including `summary`
+and future fields. The internal `routeId` marks `grok-subscription`; only this
+route replays the item unchanged. Reasoning without an authoritative terminal
+output array fails safely rather than guessing its original order. Legacy
+blocks stored without `item` cannot be repaired and require a new Grok session.
+Full item JSON counts toward input budgets. Never log the block or ciphertext.
+`SubscriptionHttpError.upstream` carries bounded sanitized status, recognized
+code and fixed safe message templates; unrecognized upstream text is redacted.
+HTTP request rejection maps to `provider_request_rejected`, distinct from
+`auth_expired` and `context_overflow`. Subscription catalogs move only by a reviewed pin
 or a proven read.
 
 SDK 0.15.0 adds explicit discovery, transactional stores,
