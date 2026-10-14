@@ -11,6 +11,7 @@ import {
   preservesEstablishedReasoning,
   reasoningControlFor,
 } from '../modelReasoning.js';
+import { isOwnerGrokModel } from '../models/ownerModelPolicy.js';
 import {
   SUBSCRIPTION_ACCOUNT_CATALOG_SOURCE,
   selectableSubscriptionEfforts,
@@ -40,7 +41,7 @@ export function validateRouteSelection(
   route: RouteRecord,
   input: RouteSelectionInput = {},
 ): RouteSelection {
-  const model = resolveModel(route, input.model);
+  const model = resolveModel(route, input.model, input.modelMetadata);
   const supported = effortsForModel(route, model, input.modelMetadata);
   const effort = resolveEffort(route, model, supported, input.effort);
   return { model, effort };
@@ -81,7 +82,22 @@ export function effortsForModel(
   return REASONING_EFFORTS.filter((level) => levels.has(level));
 }
 
-function resolveModel(route: RouteRecord, requested: string | undefined): string {
+function resolveModel(
+  route: RouteRecord,
+  requested: string | undefined,
+  metadata?: ModelRecord,
+): string {
+  const ownerId =
+    requested === undefined || requested === AUTO_SELECTION ? route.defaultModel : requested;
+  if (route.id === 'grok-subscription' && isOwnerGrokModel(metadata, ownerId)) {
+    if (metadata?.metadata.retired)
+      throw new RouteError(
+        'model_unsupported',
+        'The owner registry marks the selected model retired.',
+        { routeId: route.id },
+      );
+    if (MODEL_ID.test(ownerId)) return ownerId;
+  }
   if (requested === undefined || requested === AUTO_SELECTION) {
     const rejected = route.rejectedConfiguredDefault;
     if (rejected !== undefined) {

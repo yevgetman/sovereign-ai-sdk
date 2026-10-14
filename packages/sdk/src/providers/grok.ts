@@ -1,6 +1,8 @@
 import type { AssistantMessage, ResponsesStateProvenance, StreamEvent } from '../core/types.js';
 import { type ReasoningEffort, mapMaxEffort } from './effort.js';
+import { modelReasoningParams, reasoningControlFor } from './modelReasoning.js';
 import { isGrokSubscriptionModelId } from './models/grokPin.js';
+import { isOwnerGrokModel } from './models/ownerModelPolicy.js';
 import { responsesInput, responsesTools, translateResponsesSse } from './responses.js';
 import { RouteError } from './routes/errors.js';
 import {
@@ -90,7 +92,10 @@ export class GrokSubscriptionProvider implements LLMProvider {
       max_output_tokens: req.maxTokens,
       stream: true,
       store: false,
-      reasoning: { effort: grokWireEffort(req.effort) },
+      reasoning: modelReasoningParams(
+        reasoningControlFor('grok', req.model, req.modelMetadata),
+        req.effort ?? 'high',
+      ).reasoning,
       include: ['reasoning.encrypted_content'],
     };
     if (tools) body.tools = tools;
@@ -145,13 +150,20 @@ export class GrokSubscriptionProvider implements LLMProvider {
 }
 
 function assertGrokSubscriptionRequest(req: ProviderRequest): void {
-  if (!isGrokSubscriptionModelId(req.model)) {
+  if (
+    req.modelMetadata?.metadata.retired ||
+    (!isGrokSubscriptionModelId(req.model) && !isOwnerGrokModel(req.modelMetadata, req.model))
+  ) {
     throw new RouteError(
       'model_unsupported',
       `model ${JSON.stringify(req.model)} is not supported by grok subscription`,
     );
   }
   grokWireEffort(req.effort);
+  modelReasoningParams(
+    reasoningControlFor('grok', req.model, req.modelMetadata),
+    req.effort ?? 'high',
+  );
 }
 
 /** Absent effort means high. `off` is not a disable, so it is refused. */

@@ -39,6 +39,11 @@ export function validateModelRequest(
       'Model metadata does not match the selected model and provider.',
     );
   }
+  if (metadata?.metadata.retired)
+    throw new RouteError(
+      'model_unsupported',
+      'The owner registry marks the selected model retired.',
+    );
   if (metadata?.capabilities.textOutput === 'unsupported') {
     throw new RouteError('unsupported_input', 'The selected model does not support text output.');
   }

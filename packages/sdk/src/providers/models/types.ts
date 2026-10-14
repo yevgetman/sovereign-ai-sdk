@@ -49,7 +49,15 @@ export interface ModelRecord {
       }
     | undefined;
   availability: ModelAvailability;
-  metadata: { source: string; fetchedAt?: string | undefined; stale: boolean };
+  metadata: {
+    source: string;
+    fetchedAt?: string | undefined;
+    stale: boolean;
+    /** Explicit owner facts on grok-subscription; freshness stays visible, facts persist. */
+    ownerManaged?: boolean;
+    /** Owner tombstone: retain the selected ID but refuse inference. */
+    retired?: boolean;
+  };
 }
 export interface ModelCatalog {
   version: typeof MODEL_CATALOG_VERSION;

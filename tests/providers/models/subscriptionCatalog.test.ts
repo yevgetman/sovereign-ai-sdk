@@ -1177,7 +1177,7 @@ describe('subscription catalog disk isolation', () => {
       );
       expect(negativePins.map((model) => model.id)).toEqual(['grok-4.7', 'grok-4.6']);
       expect(negativePins.find((model) => model.id === 'grok-4.7')?.contextWindow).toBe(500_000);
-      expect(negativePins.find((model) => model.id === 'grok-4.6')?.contextWindow).toBeUndefined();
+      expect(negativePins.find((model) => model.id === 'grok-4.6')?.contextWindow).toBe(500_000);
       expect(negativePins.every((model) => model.capabilities.tools === 'supported')).toBe(true);
       expect(negativeAccounts.every((model) => model.capabilities.tools !== 'supported')).toBe(
         true,

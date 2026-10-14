@@ -1760,9 +1760,11 @@ also cannot disable reasoning. OpenRouter KimiK2.5 supports a binary switch: off
 they would falsely imply a verified depth control.
 
 Grok subscription (`grok-subscription`) sends Responses `reasoning.effort` for
-`grok-4.7` and `grok-4.6`. `grok-4.7` keeps the documented context window of
-500000. `grok-4.6` has no published window and stays on the 32768 unknown floor.
-A subscription refresh does not fill that window. It does not send
+the bundled `grok-4.7` and `grok-4.6` records. Both use the documented
+500000-token context window. Exact owner-reviewed subscription IDs can be
+added without a release using `sov models --route grok-subscription --registry FILE --json`.
+See [the registry contract](sdk-routes.md#owner-managed-grok-subscription-registry)
+for metadata validation, retired IDs, freshness and login isolation. It does not send
 `reasoning_effort`. `auto`, or an omitted effort, uses the route default. That
 default is `high` only when `thinking.effort` is missing or `off`, and that
 selection is not a byte-identical request. A stored `low`, `medium`, or `max`
@@ -2636,6 +2638,6 @@ sov auth status --route chatgpt-subscription --json
 
 Each response has `schemaVersion: 1`. Status performs no login, refresh, network request, or credential write. `present` means a local credential exists; it does not prove service entitlement. A locked or unavailable Keychain reports `unavailable`. Model catalogs are offline known examples and may be non-exhaustive. Known incompatible models or unsupported effort are refused. A backend rejection does not change route, payment method, or model.
 
-Set a route default with `sov config set routes.<route-id>.defaultModel <model>`. This overrides an API route's existing `providers.<provider>.model` setting. Subscription routes have their own defaults. ChatGPT supports low, medium, high, and max reasoning effort; max maps to xhigh. Grok subscription supports the same four levels; max maps to xhigh. `auto` or an omitted effort uses the route default, which is high only when `thinking.effort` is missing or `off`. A stored low, medium, or max wins. `--effort off` throws `effort_unsupported` and does not fetch. The route catalog reports the effective model and effort defaults, except when `routes.grok-subscription.defaultModel` is outside the allowlist. Then the record keeps that rejected id in `defaultModel` and `rejectedConfiguredDefault`, does not present built-in `grok-4.7` as the selected default, and `defaultModelNotice` says omission and `auto` fail until `routes.grok-subscription.defaultModel` is changed. An explicit allowlisted `--model` still works.
+Set a route default with `sov config set routes.<route-id>.defaultModel <model>`. This overrides an API route's existing `providers.<provider>.model` setting. Subscription routes have their own defaults. ChatGPT supports low, medium, high, and max reasoning effort; max maps to xhigh. Grok subscription supports the same four levels; max maps to xhigh. `auto` or an omitted effort uses the route default, which is high only when `thinking.effort` is missing or `off`. A stored low, medium, or max wins. `--effort off` throws `effort_unsupported` and does not fetch. The route catalog reports the effective model and effort defaults, except when `routes.grok-subscription.defaultModel` is outside the allowlist. Then the record keeps that rejected id in `defaultModel` and `rejectedConfiguredDefault`, does not present built-in `grok-4.7` as the selected default, and `defaultModelNotice` says omission and `auto` fail until that exact model is registered or `routes.grok-subscription.defaultModel` is changed. SOV route diagnostics include active owner registry IDs and keep retired defaults rejected. An explicit allowlisted `--model` still works.
 
 Login writes, refresh, and logout share an OS-account-and-service mutex under `~/.sov/auth-locks`. Profiles and `HARNESS_HOME` do not split the identity. Concurrent 401 replies rotate one rejected token generation only. Logout waits for a pending refresh and then deletes the credential. A delayed attended-login approval cannot restore a credential after logout. Waits and exchanges are bounded and cancellable. Dead process owners are recovered; live owners are never evicted merely because an exchange is slow. Injected credential ports must supply `lockDirectory` and `lockIdentity` for cross-process coordination; ports without them retain only an in-process mutex.

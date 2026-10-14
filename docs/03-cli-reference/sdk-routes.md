@@ -78,14 +78,91 @@ ChatGPT Codex effort levels are `low`, `medium`, `high` and `max` (`xhigh` on th
 default. That default is `high` only when `thinking.effort` is missing or `off`.
 A stored `low`, `medium`, or `max` wins. `--effort off` throws
 `effort_unsupported` and does not fetch.
-The route accepts only `grok-4.7` and `grok-4.6`. `grok-4.7` keeps the documented
-context window of 500000. `grok-4.6` has no published window and stays on the
-32768 unknown floor. A subscription refresh does not fill that window. If
-`routes.grok-subscription.defaultModel` is outside that allowlist, the catalog
-sets `rejectedConfiguredDefault` and `defaultModel` to the rejected id and does
-not present built-in `grok-4.7` as the selected default. `defaultModelNotice`
-says omission and `auto` fail until `routes.grok-subscription.defaultModel` is
-changed. An explicit allowlisted `--model` still works.
+The bundled Grok subscription records are `grok-4.7` and `grok-4.6`.
+Both use the documented 500000-token context window. The output limit stays
+unknown unless supplied by exact model evidence. [xAI documents Grok 4.6](https://docs.x.ai/developers/models/grok-4.6)
+with text/image input, function calling and low/medium/high/xhigh reasoning.
+Model image capability is separate from this transport: subscription image input
+still fails because its image serializer is not verified.
+
+### Owner-managed Grok subscription registry
+
+No documented subscription catalog endpoint is configured. Owners can add or
+retire exact IDs without a source change, release or upgrade. Import a JSON
+catalog with `sov models --route grok-subscription --registry FILE --json`.
+This explicit write requires an existing SOV Grok login. It never refreshes a
+token, starts inference or changes a saved route, model or effort. `--registry`
+cannot be combined with `--refresh` or another route.
+
+The file uses version 1 normalized catalog records. For example (fixture facts;
+replace these with verified facts for the exact subscription model):
+
+```json
+{
+  "version": 1,
+  "routeId": "grok-subscription",
+  "fetchedAt": "2026-10-14T00:00:00.000Z",
+  "models": [{
+    "id": "grok-exact-owner-id",
+    "displayName": "grok-exact-owner-id",
+    "routeId": "grok-subscription",
+    "provider": "grok",
+    "auth": "subscription",
+    "capabilities": {
+      "textOutput": "supported",
+      "tools": "supported",
+      "images": "unknown",
+      "reasoning": "supported"
+    },
+    "contextWindow": 500000,
+    "efforts": ["low", "medium", "high", "max"],
+    "availability": "unknown",
+    "metadata": {
+      "source": "owner-reviewed publisher source for this exact ID",
+      "fetchedAt": "2026-10-14T00:00:00.000Z",
+      "stale": false
+    }
+  }]
+}
+```
+
+`metadata.source` records provenance. Each row's `metadata.fetchedAt` records its
+review time. Limits must be positive safe integers; omit unknown context/output
+limits. Capabilities must explicitly be `supported`, `unsupported` or `unknown`.
+Omit unknown efforts. Valid published efforts are low/medium/high/max, with max
+sent as xhigh by this transport. Missing effort evidence refuses inference for
+that exact owner model; it does not borrow a bundled model's controls. Credential
+material, API routes, arbitrary wire controls and prices are rejected.
+
+Import replaces the whole owner registry atomically. To retire a model, retain
+its row with `metadata.retired: true`. Tombstones are omitted from selectable
+menus and reported in `retiredModels`. A saved retired model stays saved, but
+inference refuses it. This also applies to a retired bundled ID. Keep tombstones
+for retired bundled IDs so their fallback suggestion cannot authorize them.
+
+Normal `routes`, `models`, `/model`, config model menus and `sov run --sdk` use this same
+registry. Add a new row or change facts and re-import to refresh it. After one
+hour, catalog/row freshness reports stale; owner-reviewed facts remain explicit
+limits and controls until changed by the owner. This durable policy differs from
+stale remote discovery metadata, which stays conservative. `--refresh` cannot
+fetch subscription models; it reports that the registry needs re-import and
+keeps every saved dial unchanged. The `catalogKind` and `catalogNotice` fields
+identify this owner-managed state.
+
+Registry files have private permissions under the active profile's
+`model-catalog/subscription/grok-subscription/`. They are bound to a non-secret
+OS-account login epoch. SOV login/logout rotates that epoch under the credential
+mutex even without optional catalog hooks, so a different login cannot use a
+prior account's file across profiles. Token refresh does not rotate it. Import
+bootstraps an epoch for a pre-existing login. Out-of-band Keychain edits do not
+constitute a supported SOV account switch; use SOV login/logout to switch accounts.
+Offline reads inspect only the epoch file and never read credentials.
+
+`/new` clears the transcript only. Saved route, model and effort remain in force.
+A context/model error therefore needs a model/metadata correction, not another
+`/new`. Model menu and catalog diagnostics state this. No registry operation
+switches payment or authentication routes, and owner facts do not prove account
+entitlement.
 
 ## One native turn
 
@@ -98,7 +175,7 @@ printf '%s' '{"inputVersion":1,"text":"Check this folder","instructions":"","ima
 The route is required. Legacy `--provider` conflicts with SDK mode. `--model auto`
 and `--effort auto` use route defaults. When `rejectedConfiguredDefault` is set,
 the catalog does not present built-in `grok-4.7` as the selected default: omission
-and `--model auto` fail until `routes.grok-subscription.defaultModel` is changed.
+and `--model auto` require that exact ID to be registered or the configured default changed.
 An explicit allowlisted model still accepts `--effort auto`. A route never borrows an unrelated API key,
 model, account or external harness. The SDK path does not perform a billable startup
 preflight or automatic context summarization.
@@ -183,7 +260,7 @@ parent model metadata and prices cannot certify a different child. The native
 `sov sdk run` route receives that evidence before reasoning validation. The
 agent receives the same model-bound capability, pricing and limit snapshot.
 Fresh published context windows can grow beyond former static provider values.
-Stale or unknown evidence uses the SDK's conservative limits. Explicit output
+Stale remote discovery or unknown evidence uses the SDK's conservative limits. Owner-managed Grok records keep their explicitly reviewed limits with visible freshness. Explicit output
 budgets still cap the output reservation. Gateway proactive compaction uses
 those same limits, system/schema/history accounting and output reservation.
 Required capabilities and the model-specific effort selection are checked before
