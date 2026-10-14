@@ -1,4 +1,4 @@
-import { isOwnerGrokModel } from '../providers/models/ownerModelPolicy.js';
+import { isOwnerSubscriptionModel } from '../providers/models/ownerModelPolicy.js';
 // The turn loop — async generator yielding typed events. Phase 2: wraps
 // the Phase-1 single-turn body in a while-loop. When the assistant
 // message contains `tool_use` blocks, dispatches to `runTools()`, yields
@@ -192,7 +192,9 @@ async function* queryInternal(
           ? {
               contextTokens: modelMetadata.contextWindow,
               outputTokens: modelMetadata.maxOutputTokens,
-              stale: modelMetadata.metadata.stale && !isOwnerGrokModel(modelMetadata, params.model),
+              stale:
+                modelMetadata.metadata.stale &&
+                !isOwnerSubscriptionModel(modelMetadata, params.model),
               source: modelMetadata.metadata.source,
             }
           : undefined,

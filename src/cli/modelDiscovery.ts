@@ -31,7 +31,7 @@ import {
   getRoute,
 } from '@yevgetman/sov-sdk/providers/routes/index';
 
-import { readOwnerGrokRegistry } from './ownerModelRegistry.js';
+import { readOwnerSubscriptionRegistry } from './ownerModelRegistry.js';
 
 function subscriptionCacheId(key: string): boolean {
   return key.startsWith('chatgpt-subscription:') || key.startsWith('grok-subscription:');
@@ -239,7 +239,10 @@ export async function readModelCatalog(
   refresh = false,
   cache: ModelCatalogCache = diskModelCache(),
 ): Promise<ModelCatalog> {
-  const owned = routeId === 'grok-subscription' ? readOwnerGrokRegistry() : undefined;
+  const owned =
+    routeId === 'grok-subscription' || routeId === 'chatgpt-subscription'
+      ? readOwnerSubscriptionRegistry(routeId)
+      : undefined;
   if (owned)
     return refresh
       ? {
@@ -386,7 +389,10 @@ export function readModelCatalogSnapshot(
   settings: Settings = {},
   harnessHome = resolveHarnessHome(),
 ): ModelCatalog {
-  const owned = routeId === 'grok-subscription' ? readOwnerGrokRegistry(harnessHome) : undefined;
+  const owned =
+    routeId === 'grok-subscription' || routeId === 'chatgpt-subscription'
+      ? readOwnerSubscriptionRegistry(routeId, harnessHome)
+      : undefined;
   if (owned) return owned;
   const source = modelSource(routeId, settings);
   const root = join(harnessHome, 'model-catalog');
@@ -425,7 +431,11 @@ export function readModelCatalogSnapshot(
 
 /** SOV route diagnostics include explicit owner facts while SDK routes stay disk-free. */
 export function routeWithOwnerModels(route: RouteRecord, catalog: ModelCatalog): RouteRecord {
-  if (route.id !== 'grok-subscription' || catalog.routeId !== route.id) return route;
+  if (
+    !['grok-subscription', 'chatgpt-subscription'].includes(route.id) ||
+    catalog.routeId !== route.id
+  )
+    return route;
   const records = catalog.models.filter((model) => model.metadata.ownerManaged);
   if (!records.length) return route;
   const retired = new Set(

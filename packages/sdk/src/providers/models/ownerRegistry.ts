@@ -3,16 +3,25 @@ import { containsCredentialMaterial } from './subscriptionCatalog.js';
 import type { ModelCatalog } from './types.js';
 import { validateModelRecords } from './validate.js';
 
-export { isOwnerGrokModel } from './ownerModelPolicy.js';
+export {
+  isOwnerGrokModel,
+  isOwnerChatGptModel,
+  isOwnerSubscriptionModel,
+} from './ownerModelPolicy.js';
 
 /** Registry replacement is complete and atomic; retired rows remain as tombstones. */
-export function validateOwnerGrokRegistry(value: unknown, now = Date.now()): ModelCatalog {
-  const invalid = () => new Error('Invalid Grok owner model registry. No changes were saved.');
+export function validateOwnerSubscriptionRegistry(
+  value: unknown,
+  routeId: 'grok-subscription' | 'chatgpt-subscription',
+  now = Date.now(),
+): ModelCatalog {
+  const label = routeId === 'grok-subscription' ? 'Grok' : 'ChatGPT';
+  const invalid = () => new Error(`Invalid ${label} owner model registry. No changes were saved.`);
   if (!value || typeof value !== 'object' || containsCredentialMaterial(value)) throw invalid();
   const input = value as ModelCatalog;
   if (
     input.version !== 1 ||
-    input.routeId !== 'grok-subscription' ||
+    input.routeId !== routeId ||
     typeof input.fetchedAt !== 'string' ||
     !input.fetchedAt ||
     !Number.isFinite(Date.parse(input.fetchedAt)) ||
@@ -47,6 +56,7 @@ export function validateOwnerGrokRegistry(value: unknown, now = Date.now()): Mod
       (row.contextWindow !== undefined &&
         row.maxOutputTokens !== undefined &&
         row.maxOutputTokens > row.contextWindow) ||
+      row.availability !== 'unknown' ||
       row.pricing ||
       row.reasoningControl
     )
@@ -54,7 +64,7 @@ export function validateOwnerGrokRegistry(value: unknown, now = Date.now()): Mod
     return {
       ...row,
       metadata: { ...row.metadata, stale: false, ownerManaged: true },
-      ...(row.efforts?.length
+      ...(routeId === 'grok-subscription' && row.efforts?.length
         ? {
             reasoningControl: {
               parameter: 'grok' as const,
@@ -65,12 +75,12 @@ export function validateOwnerGrokRegistry(value: unknown, now = Date.now()): Mod
         : {}),
     };
   });
-  const models = validateModelRecords(prepared, 'grok-subscription', now);
+  const models = validateModelRecords(prepared, routeId, now);
   if (!models) throw invalid();
-  return presentOwnerGrokRegistry(
+  return presentOwnerSubscriptionRegistry(
     {
       version: 1,
-      routeId: 'grok-subscription',
+      routeId,
       state: 'current',
       fetchedAt: input.fetchedAt,
       models,
@@ -80,7 +90,10 @@ export function validateOwnerGrokRegistry(value: unknown, now = Date.now()): Mod
 }
 
 /** Freshness is advisory for explicit owner facts, but remains visible per row. */
-export function presentOwnerGrokRegistry(catalog: ModelCatalog, now = Date.now()): ModelCatalog {
+export function presentOwnerSubscriptionRegistry(
+  catalog: ModelCatalog,
+  now = Date.now(),
+): ModelCatalog {
   const catalogStale = !catalog.fetchedAt || now - Date.parse(catalog.fetchedAt) >= 3_600_000;
   const models = catalog.models.map((model) => ({
     ...model,
@@ -98,3 +111,12 @@ export function presentOwnerGrokRegistry(catalog: ModelCatalog, now = Date.now()
     models,
   };
 }
+
+/** Backward-compatible route-specific imports. */
+export function validateOwnerGrokRegistry(value: unknown, now = Date.now()): ModelCatalog {
+  return validateOwnerSubscriptionRegistry(value, 'grok-subscription', now);
+}
+export function validateOwnerChatGptRegistry(value: unknown, now = Date.now()): ModelCatalog {
+  return validateOwnerSubscriptionRegistry(value, 'chatgpt-subscription', now);
+}
+export const presentOwnerGrokRegistry = presentOwnerSubscriptionRegistry;

@@ -40,7 +40,8 @@ export function validateModelRecords(
     if (route && (row.provider !== route.provider || row.auth !== route.auth)) return undefined;
     if (
       row.metadata?.ownerManaged === true &&
-      (routeId !== 'grok-subscription' || row.auth !== 'subscription')
+      (!['grok-subscription', 'chatgpt-subscription'].includes(routeId) ||
+        row.auth !== 'subscription')
     )
       return undefined;
     if (ids.has(row.id)) return undefined;

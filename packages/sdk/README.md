@@ -8,6 +8,11 @@ proprietary code** required for a bare turn.
 
 Runs on **Node ≥ 20.19** and **Bun ≥ 1.2**.
 
+SOV can import exact owner-reviewed ChatGPT and Grok subscription model registries
+without a package update. Verified limits and efforts stay usable with visible
+freshness. Unknown facts stay unknown. Catalog membership does not certify
+entitlement or transport image support. See [SDK routes](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/03-cli-reference/sdk-routes.md#owner-managed-subscription-registries).
+
 ## Install
 
 SDK **0.15.1** is published as a tarball in [SOV v0.6.79](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.79), with `SDK-SHA256SUMS`. Download both assets, verify the checksum, then install the local tarball:

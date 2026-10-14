@@ -15,7 +15,7 @@ import {
   readModelCatalogSnapshot,
   routeWithOwnerModels,
 } from './modelDiscovery.js';
-import { importOwnerGrokRegistry, readOwnerGrokRegistryFile } from './ownerModelRegistry.js';
+import { importOwnerSubscriptionRegistry, readOwnerRegistryFile } from './ownerModelRegistry.js';
 
 export const SOV_ROUTE_CAPABILITIES = {
   schemaVersion: 1,
@@ -25,7 +25,12 @@ export const SOV_ROUTE_CAPABILITIES = {
     command: 'models',
     explicitRefresh: true,
     offlineDefault: true,
-    ownerRegistry: { route: 'grok-subscription', importOption: '--registry', schemaVersion: 1 },
+    ownerRegistry: {
+      route: 'grok-subscription',
+      routes: ['grok-subscription', 'chatgpt-subscription'],
+      importOption: '--registry',
+      schemaVersion: 1,
+    },
   },
   routes: true,
   structuredInput: true,
@@ -54,7 +59,7 @@ export function registerRouteCommands(program: Command): void {
       print({
         schemaVersion: 1,
         routes: listRoutes(settings).map((route) =>
-          route.id === 'grok-subscription'
+          ['grok-subscription', 'chatgpt-subscription'].includes(route.id)
             ? routeWithOwnerModels(route, readModelCatalogSnapshot(route.id, settings))
             : route,
         ),
@@ -65,10 +70,7 @@ export function registerRouteCommands(program: Command): void {
     .description('Discover route-scoped models; offline unless --refresh is explicit.')
     .requiredOption('--route <id>', 'authentication route')
     .option('--json', 'versioned JSON')
-    .option(
-      '--registry <file>',
-      'replace owner-reviewed Grok subscription registry (requires login)',
-    )
+    .option('--registry <file>', 'replace owner-reviewed subscription registry (requires login)')
     .option('--refresh', 'refresh metadata without inference or subscription-token refresh')
     .option('--search <text>', 'filter ID and display name')
     .option('--author <id>', 'filter OpenRouter author (not inference host)')
@@ -85,10 +87,16 @@ export function registerRouteCommands(program: Command): void {
         };
         // Validate pagination before a possible explicit network refresh.
         modelPage({ version: 1, routeId: opts.route, models: [], state: 'unavailable' }, query);
-        if (opts.registry && (opts.route !== 'grok-subscription' || opts.refresh))
+        if (
+          opts.registry &&
+          (!['grok-subscription', 'chatgpt-subscription'].includes(opts.route) || opts.refresh)
+        )
           throw new Error('Invalid registry request');
         const catalog = opts.registry
-          ? await importOwnerGrokRegistry(readOwnerGrokRegistryFile(opts.registry))
+          ? await importOwnerSubscriptionRegistry(
+              readOwnerRegistryFile(opts.registry),
+              opts.route as 'grok-subscription' | 'chatgpt-subscription',
+            )
           : await readModelCatalog(opts.route, loadSettings(), !!opts.refresh);
         print(modelPage(catalog, query));
       } catch {
@@ -97,7 +105,7 @@ export function registerRouteCommands(program: Command): void {
           error: {
             code: 'invalid_model_query',
             message: opts.registry
-              ? 'Invalid Grok owner registry or subscription login unavailable. No registry changes were saved.'
+              ? 'Invalid owner registry or subscription login unavailable. No registry changes were saved.'
               : 'Invalid route or model query.',
           },
         });

@@ -1,11 +1,11 @@
-/** SOV disk port for exact owner-reviewed Grok subscription records. */
+/** SOV disk port for exact owner-reviewed subscription records. */
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import {
-  presentOwnerGrokRegistry,
-  validateOwnerGrokRegistry,
+  presentOwnerSubscriptionRegistry,
+  validateOwnerSubscriptionRegistry,
 } from '@yevgetman/sov-sdk/providers/models/ownerRegistry';
 import type { ModelCatalog } from '@yevgetman/sov-sdk/providers/models/types';
 import { validateModelCatalog } from '@yevgetman/sov-sdk/providers/models/validate';
@@ -19,35 +19,47 @@ import { KEYCHAIN_SERVICE } from '@yevgetman/sov-sdk/providers/subscription/name
 import type { SubscriptionCredentialPort } from '@yevgetman/sov-sdk/providers/subscription/port';
 
 const FILE_LIMIT = 16 * 1024 * 1024;
-function registryFile(home: string, port: SubscriptionCredentialPort, epoch: string): string {
+type OwnerRoute = 'grok-subscription' | 'chatgpt-subscription';
+function serviceFor(routeId: OwnerRoute): string {
+  return routeId === 'grok-subscription' ? KEYCHAIN_SERVICE.grok : KEYCHAIN_SERVICE.chatgpt;
+}
+function registryFile(
+  home: string,
+  port: SubscriptionCredentialPort,
+  epoch: string,
+  routeId: OwnerRoute,
+): string {
   const account = createHash('sha256')
     .update(`${port.lockIdentity ?? ''}:${epoch}`)
     .digest('hex');
-  return join(home, 'model-catalog', 'subscription', 'grok-subscription', `owner-${account}.json`);
+  return join(home, 'model-catalog', 'subscription', routeId, `owner-${account}.json`);
 }
 
 /** Explicit write; requires current login, never refreshes or sends inference. */
-export async function importOwnerGrokRegistry(
+export async function importOwnerSubscriptionRegistry(
   value: unknown,
+  routeId: OwnerRoute,
   options: {
     harnessHome?: string;
     port?: SubscriptionCredentialPort;
     now?: number;
   } = {},
 ): Promise<ModelCatalog> {
-  const catalog = validateOwnerGrokRegistry(value, options.now ?? Date.now());
+  const catalog = validateOwnerSubscriptionRegistry(value, routeId, options.now ?? Date.now());
   const serialized = JSON.stringify(catalog);
   if (Buffer.byteLength(serialized, 'utf8') > FILE_LIMIT)
-    throw new Error('Invalid Grok owner model registry. No changes were saved.');
+    throw new Error(
+      `Invalid ${routeId === 'grok-subscription' ? 'Grok' : 'ChatGPT'} owner model registry. No changes were saved.`,
+    );
   const port = options.port ?? macKeychainPort({ timeoutMs: 4_000 });
   const home = options.harnessHome ?? resolveHarnessHome();
-  await withCredentialLock(KEYCHAIN_SERVICE.grok, port, async () => {
-    if (!(await port.read(KEYCHAIN_SERVICE.grok)))
-      throw new Error('Grok owner registry requires a subscription login.');
+  const service = serviceFor(routeId);
+  await withCredentialLock(service, port, async () => {
+    if (!(await port.read(service)))
+      throw new Error('Owner registry requires a subscription login.');
     const epoch =
-      subscriptionLoginEpoch(port, KEYCHAIN_SERVICE.grok) ??
-      (await rotateSubscriptionLoginEpoch(port, KEYCHAIN_SERVICE.grok));
-    const file = registryFile(home, port, epoch);
+      subscriptionLoginEpoch(port, service) ?? (await rotateSubscriptionLoginEpoch(port, service));
+    const file = registryFile(home, port, epoch, routeId);
     mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
     const temp = `${file}.${randomUUID()}.tmp`;
     try {
@@ -61,28 +73,59 @@ export async function importOwnerGrokRegistry(
 }
 
 /** Offline and read-only: login epoch is non-secret; missing epoch fails closed. */
-export function readOwnerGrokRegistry(
+export function readOwnerSubscriptionRegistry(
+  routeId: OwnerRoute,
   home = resolveHarnessHome(),
   port = macKeychainPort(),
   now = Date.now(),
 ): ModelCatalog | undefined {
-  const epoch = subscriptionLoginEpoch(port, KEYCHAIN_SERVICE.grok);
+  const service = serviceFor(routeId);
+  const epoch = subscriptionLoginEpoch(port, service);
   if (!epoch) return undefined;
-  const file = registryFile(home, port, epoch);
+  const file = registryFile(home, port, epoch, routeId);
   try {
     if (statSync(file).size > FILE_LIMIT) return undefined;
     const raw = JSON.parse(readFileSync(file, 'utf8'));
-    const validated = validateModelCatalog(raw, 'grok-subscription', now);
+    const validated = validateModelCatalog(raw, routeId, now);
     if (!validated || validated.models.some((model) => model.metadata.ownerManaged !== true))
       return undefined;
-    return presentOwnerGrokRegistry(validated, now);
+    return presentOwnerSubscriptionRegistry(validated, now);
   } catch {
     return undefined;
   }
 }
 
-export function readOwnerGrokRegistryFile(file: string): unknown {
+export function readOwnerRegistryFile(file: string): unknown {
   if (!statSync(file).isFile() || statSync(file).size > FILE_LIMIT)
     throw new Error('Invalid owner registry file.');
   return JSON.parse(readFileSync(file, 'utf8'));
 }
+
+export function importOwnerGrokRegistry(
+  value: unknown,
+  options: Parameters<typeof importOwnerSubscriptionRegistry>[2] = {},
+) {
+  return importOwnerSubscriptionRegistry(value, 'grok-subscription', options);
+}
+export function importOwnerChatGptRegistry(
+  value: unknown,
+  options: Parameters<typeof importOwnerSubscriptionRegistry>[2] = {},
+) {
+  return importOwnerSubscriptionRegistry(value, 'chatgpt-subscription', options);
+}
+export function readOwnerGrokRegistry(
+  home = resolveHarnessHome(),
+  port = macKeychainPort(),
+  now = Date.now(),
+) {
+  return readOwnerSubscriptionRegistry('grok-subscription', home, port, now);
+}
+export function readOwnerChatGptRegistry(
+  home = resolveHarnessHome(),
+  port = macKeychainPort(),
+  now = Date.now(),
+) {
+  return readOwnerSubscriptionRegistry('chatgpt-subscription', home, port, now);
+}
+export const readOwnerGrokRegistryFile = readOwnerRegistryFile;
+export const readOwnerChatGptRegistryFile = readOwnerRegistryFile;

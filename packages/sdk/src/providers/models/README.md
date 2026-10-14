@@ -60,9 +60,8 @@ subscription suggestions separate. No subscription catalog endpoint is known, so
 fetch. A cold Grok cache returns the unavailable publisher pin for `grok-4.7`
 and `grok-4.6`; availability stays `unknown`. The pin is not a live account
 probe. It is re-applied with `stale: false` and the documented window
-(both exact pins are 500000). ChatGPT stays on
-unavailable bundled suggestions. When a timestamped account catalog already
-exists, failure returns that catalog as stale, keeps its `fetchedAt`, and
+(both exact pins are 500000). ChatGPT has unavailable bundled suggestions when no
+owner registry is imported. When a timestamped account catalog already exists, failure returns that catalog as stale, keeps its `fetchedAt`, and
 tightens the account rows. Failure does not mark the catalog current. It does
 not borrow API records, start login, or add Claude-Max HTTP support. The cache
 key is `${service}:${identity}` (default `SOV_SUB_CHATGPT:SOV_SUB_CHATGPT` or
@@ -72,9 +71,10 @@ is never a token and never `public`.
 It does not move `SUBSCRIPTION_DEFAULT_MODEL`. Custom sources can implement other
 SDK providers without changing the six built-in authentication routes.
 
-`validateOwnerGrokRegistry()` validates an explicit owner-managed version-1 Grok
-subscription catalog. It preserves provenance, review time, unknown facts and
-retired tombstones. New IDs are selectable only with matching route/model owner
+`validateOwnerSubscriptionRegistry(value, routeId)` validates explicit owner-managed
+version-1 ChatGPT or Grok subscription catalogs. `validateOwnerChatGptRegistry()`
+and the existing `validateOwnerGrokRegistry()` are route-specific helpers. The
+registry preserves provenance, review time, unknown facts and retired tombstones. New IDs are selectable only with matching route/model owner
 metadata. SOV's disk adapter binds these records to a private non-secret login
 epoch; token refresh preserves that epoch and login/logout rotates it. Owner
 facts stay usable with visible stale freshness until re-imported. This path does
