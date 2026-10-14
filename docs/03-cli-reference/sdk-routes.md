@@ -82,8 +82,13 @@ The bundled Grok subscription records are `grok-4.7` and `grok-4.6`.
 Both use the documented 500000-token context window. The output limit stays
 unknown unless supplied by exact model evidence. [xAI documents Grok 4.6](https://docs.x.ai/developers/models/grok-4.6)
 with text/image input, function calling and low/medium/high/xhigh reasoning.
-Model image capability is separate from this transport: subscription image input
-still fails because its image serializer is not verified.
+Model image capability is separate from exact subscription transport certification.
+Only `grok-4.7` has live image-input proof: two bounded PNG perception turns passed
+on 2026-10-14 with correct visual answers and no credential writes or refresh.
+Its image certificate permits PNG/JPEG, cites the
+[xAI image contract](https://docs.x.ai/developers/model-capabilities/images/understanding),
+and expires on 2026-11-13. Unknown, stale or expired exact-model certification
+refuses images. Grok 4.6 and ChatGPT have no live image proof and remain refused.
 
 ### Owner-managed subscription registries
 
@@ -195,6 +200,12 @@ Images use ordered absolute local paths and a declared media type. The host vali
 file type, media signature, count and byte limits before inference. No attachment
 URL is fetched. Unsupported images fail instead of disappearing. Discovery lists
 supported route input encodings; an individual model can still reject image input.
+Subscription attachments require current exact-model live certification before
+credential resolution or runtime boot. Resume rechecks stored images against the
+selected exact model before inference. Tool continuations retain the original
+image blocks. Compaction carries older reference images into the child once;
+the original tail remains intact. Image token costs remain explicitly uncounted
+when no verified model-aware image counter is available.
 
 Toolsets are `chat`, `web`, `ops` and `coding`. Omitted means `coding`. The selected
 pool constrains both model schemas and execution, including delegated children.

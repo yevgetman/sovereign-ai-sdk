@@ -177,7 +177,7 @@ describe('route catalog', () => {
     expect(route.efforts).toEqual(['low', 'medium', 'high', 'max']);
     expect(route.modelEfforts['grok-4.7']).toEqual(['low', 'medium', 'high', 'max']);
     expect(route.modelEfforts['grok-4.6']).toEqual(['low', 'medium', 'high', 'max']);
-    expect(routeSupportsImages('grok-subscription')).toBe(false);
+    expect(routeSupportsImages('grok-subscription')).toBe(true);
     for (const other of listRoutes()) {
       if (other.id !== 'grok-subscription') expect(other.modelsAuthoritative).toBe(false);
     }
@@ -257,9 +257,15 @@ describe('route catalog', () => {
   });
 
   test('image support is declared per route', () => {
-    expect(imageRoutes()).toEqual(['openrouter-api', 'anthropic-api', 'openai-api', 'grok-api']);
+    expect(imageRoutes()).toEqual([
+      'openrouter-api',
+      'anthropic-api',
+      'openai-api',
+      'grok-api',
+      'grok-subscription',
+    ]);
     expect(routeSupportsImages('chatgpt-subscription')).toBe(false);
-    expect(routeSupportsImages('grok-subscription')).toBe(false);
+    expect(routeSupportsImages('grok-subscription')).toBe(true);
     expect(routeSupportsImages('nope')).toBe(false);
   });
 });

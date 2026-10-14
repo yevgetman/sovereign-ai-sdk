@@ -1,6 +1,7 @@
 // Context-window compaction. Splits a long session into an immutable parent
 // plus a child carrying a guarded handoff summary and recent tail.
 
+import { createHash } from 'node:crypto';
 import type { CompactResult } from '@yevgetman/sov-sdk/core/compactPort';
 import {
   estimateMessageTokens,
@@ -27,6 +28,7 @@ import {
   isModelUnavailable,
 } from '@yevgetman/sov-sdk/providers/errors';
 import { type CostEstimate, estimateUsageCost } from '@yevgetman/sov-sdk/providers/pricing';
+import { RouteError } from '@yevgetman/sov-sdk/providers/routes/errors';
 import type { FileTranscriptStore } from '@yevgetman/sov-sdk/transcript/store';
 import { persistMessage } from '../agent/persistMessage.js';
 import type { SessionDb } from '../agent/sessionDb.js';
@@ -135,6 +137,7 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
     };
   }
 
+  const retainedImages = retainHeadImages(head, tail);
   const previousSummary = extractLatestHandoffSummary(options.history);
   const transcript = capTranscript(renderMessages(head));
   const summaryResult = await runSummarizer(options, {
@@ -184,6 +187,9 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
     sessionDb: options.db,
     ...(options.transcripts !== undefined ? { transcripts: options.transcripts } : {}),
   };
+  // The old reference images precede the assistant summary. This keeps the
+  // original tail intact and avoids adjacent user rows on strict transports.
+  if (retainedImages) persistMessage(persistHost, newSessionId, retainedImages);
   persistMessage(persistHost, newSessionId, {
     role: 'assistant',
     content: summaryMessage.content,
@@ -207,15 +213,20 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
   }
 
   const estimatedAfterTokens =
-    options.estimateHistoryTokens?.([summaryMessage, ...guardedTail]) ??
+    options.estimateHistoryTokens?.([
+      ...(retainedImages ? [retainedImages] : []),
+      summaryMessage,
+      ...guardedTail,
+    ]) ??
     estimateSystemPromptTokens(options.systemPrompt) +
+      (retainedImages ? estimateMessageTokens(retainedImages) : 0) +
       estimateMessageTokens(summaryMessage) +
       estimateMessagesTokens(guardedTail);
   return {
     parentSessionId: options.sessionId,
     newSessionId,
     summary,
-    tail: guardedTail,
+    tail: retainedImages ? [retainedImages, ...guardedTail] : guardedTail,
     compactedMessages: head.length,
     estimatedBeforeTokens,
     estimatedAfterTokens,
@@ -540,7 +551,51 @@ function cloneMessage(message: Message): Message {
 }
 
 function cloneBlock(block: ContentBlock): ContentBlock {
+  if (block.type === 'image') return { ...block, source: { ...block.source } };
   return JSON.parse(JSON.stringify(block)) as ContentBlock;
+}
+
+/** Carry old images as references; a tail occurrence wins and remains untouched. */
+function retainHeadImages(head: readonly Message[], tail: readonly Message[]): Message | undefined {
+  const seen = new Set<string>();
+  let count = 0;
+  let bytes = 0;
+  const key = (block: Extract<ContentBlock, { type: 'image' }>) =>
+    `${block.source.media_type}:${createHash('sha256').update(block.source.data).digest('hex')}`;
+  const bound = (block: Extract<ContentBlock, { type: 'image' }>) => {
+    const data = block.source.data;
+    const size =
+      Math.floor(data.length / 4) * 3 - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
+    count++;
+    bytes += size;
+    if (size < 1 || size > 20 * 1024 * 1024 || count > 10 || bytes > 40 * 1024 * 1024)
+      throw new RouteError('unsupported_input', 'Retained images exceed attachment limits.');
+  };
+  for (const message of tail)
+    for (const block of message.content) {
+      if (block.type !== 'image') continue;
+      bound(block);
+      seen.add(key(block));
+    }
+  const images: ContentBlock[] = [];
+  for (const message of head)
+    for (const block of message.content) {
+      if (block.type !== 'image') continue;
+      const identity = key(block);
+      if (seen.has(identity)) continue;
+      bound(block);
+      seen.add(identity);
+      images.push(cloneBlock(block));
+    }
+  return images.length
+    ? {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Image references retained from earlier user messages.' },
+          ...images,
+        ],
+      }
+    : undefined;
 }
 
 function safeJson(value: unknown): string {

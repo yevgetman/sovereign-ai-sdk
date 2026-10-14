@@ -504,8 +504,13 @@ provider and exact model ID.
 Serializer support is separate from model support. Direct xAI's
 OpenAI-compatible image and function-call body is fixture-tested against the
 [published chat contract](https://docs.x.ai/developers/rest-api-reference/inference/chat-completions).
-Subscription image paths remain fenced. Route image flags describe serialization,
-not universal model vision. Local Ollama/SOV/Manifest image paths retain their serializer behavior.
+Grok subscription image input is certified only for exact `grok-4.7`, using PNG or
+JPEG. Two bounded live subscription PNG perception turns passed on 2026-10-14.
+`ModelRecord.imageInputCertification` records the exact route/model, publisher
+source, live verification and explicit expiry. The bundled proof expires after
+30 days; unknown, stale, failed or expired proof refuses images. Grok 4.6 and
+ChatGPT remain fenced. Route image flags describe serialization, not universal
+model vision. Local Ollama/SOV/Manifest image paths retain their serializer behavior.
 Injected providers own their serializer contract. Without supplied model
 metadata, existing custom provider behavior is retained; hosts must use discovered metadata to certify
 capability. No fixture certifies an account entitlement or a paid live request.

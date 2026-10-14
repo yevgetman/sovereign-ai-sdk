@@ -1,5 +1,59 @@
 ## 2026-10-14 — #78 provider-aware request accounting and honest fallback
 
+## 2026-10-14 — Issue 79: native image preservation and final acceptance
+
+Scope: exact subscription image input, pre-credential current-attachment gates,
+stored-image model recheck, tool continuation, compaction image carry and resume.
+Branch `review-fix/79` now follows #78 accounting parent `9979ffe6`. Images older
+than the preserved tail remain reference data in the child, before its assistant
+summary; tail order/content stays intact. A tail occurrence wins over an older
+copy. Carry count/byte limits are checked before summarization. Original parent
+history stays unchanged. Unknown image-token costs remain explicit.
+
+Before correction, the head-image compaction regression failed because the
+original image was absent from the child. After correction both preservation and
+deduplication witnesses passed. The native tests cover image-only and multiple
+images, exact-model refusal, MIME refusal before resolver/credentials, durable
+resume, an unverified-model switch, completed tool receipts, an actual scripted
+provider-overflow summary/pivot and the resumed child. A stored-image refusal
+initially hit the storage-stage error mapper; it now preserves `unsupported_input`
+and exit 2 before provider start. Focused final checks passed 41 tests / zero
+failures / 337 assertions across five files.
+
+`bun run build`, `bun run tui:build`, `bun run lint` (including boundary),
+`bun run typecheck` and `env -u FORCE_COLOR bun run test` passed. Final suite:
+**6357 passed / 19 existing skips / zero failures**, 27785 assertions across
+612 files in 136.56 seconds. The first suite retained two intentional old
+expectations: owner-registry serializer wording and the SDK public-value snapshot.
+Updating those expected contracts fixed both (first run: 6355/19/2). A new fixture
+Tool generic variance was caught by typecheck and corrected without changing its
+runtime behavior. `bun run canary` passed real packed protocol/SDK consumers under
+Node and Bun, public types and artifact purity. `git diff --check` passed.
+
+Independent actual native live proof on the frozen source passed two exact
+`grok-4.7` subscription calls. First: valid PNG input, correct objective visual
+answer, 1348 input / 51 output tokens. Second: the same valid isolated session
+resumed with no new attachment, correct visual answer, one retained image and
+one replayed reasoning item, 1428 / 47 tokens. Both ended `end_turn`, exit 0.
+The synthetic 160×80 PNG was 277 bytes, SHA-256
+`48370c0053b95fbb227af922f55516b9cc8ce5587486f041dccc3763246472ab`.
+Production credential writes/deletes/refreshes and settings/session writes were
+zero. Source hashes in
+`/private/tmp/sdk-issue79-native-certification-20261014/evidence.json` still match
+all ten final runtime/provider files. The reproducible safe probe sits beside it.
+This supersedes the earlier direct-provider-only certification limit.
+
+Root also checked matching released Telekit 0.64.23 source `ce40ceb6` read-only:
+`/Users/julie/code/telekit/.venv/bin/python -m pytest -q tests/test_photo_agent.py
+tests/test_sov_completion.py tests/test_sov_route_honesty.py
+tests/test_sov_batch_safety.py tests/test_sov_routes.py`, from
+`/private/tmp/telekit-cut-0.64.23`, passed **301 tests**. Collection receipt:
+`/private/tmp/sdk-medium-telekit-collection.log`. These are adapter-contract
+fixtures, not a live Telegram end-to-end turn. No Telekit source edit, external
+message, release or installed-host upgrade occurred. ChatGPT/Grok 4.6 image
+certification remains unknown; only Grok 4.7 is exposed by this source change.
+
+
 **Scope:** Issue #78 against master `3c855f87`, on `review-fix/78`. Native and
 SDK admission, proactive compaction, minimal-tail reduction checks, summary
 admission, post-pivot admission, and before/after diagnostics use one selected
@@ -56,6 +110,47 @@ explicit. Provider validation and one bounded overflow-compaction retry remain
 authoritative. No production auth/config changes, upgrade or release ran.
 
 ## 2026-10-14 — Select nine merged Critical/High fixes for the next manifest
+
+## 2026-10-14 — Issue 79: exact-model image certification (disjoint stage)
+
+Scope: exact subscription image evidence, model/cache normalization, safe bounded
+serialization and truthful operator copy. Worktree
+`/private/tmp/sdk-medium-fix79-20261014`, branch `review-fix/79`, baseline
+`3c855f87`; macOS arm64, Bun 1.3.13. The three original focused regressions failed
+before the fix: route fenced, SDK exact-model image validation fenced, and no
+certification metadata. After the disjoint fix, the five-file focused provider
+suite passed 85 tests / zero failures / 848 assertions. Additional clock-stable
+certificate/bounds tests plus model modality coverage passed 17 / zero failures /
+70 assertions. `bun run build`, `bun run lint` (including boundary) and
+`bun run typecheck` passed. Dependencies installed with
+`bun install --ignore-scripts --frozen-lockfile`. An initial attempted multi-file
+run before dependency installation could not resolve workspace packages; this
+was corrected by installing/building before the passing run.
+
+Root-authorized read-only live certification: two exact `grok-4.7` Responses
+requests independently identified the colors in a synthetic 160×80 PNG correctly.
+Both returned complete assistant messages. Final call reported 1330 input tokens
+and 51 output tokens. Fixture: 277 bytes, SHA-256
+`48370c0053b95fbb227af922f55516b9cc8ce5587486f041dccc3763246472ab`.
+Only `https://api.x.ai/v1/responses` was allowed; each request had a 45-second
+deadline and 512 output-token ceiling, low effort and `store:false`. Existing
+unexpired SOV Grok credentials were read once per process into memory via a
+read-only Keychain child using real HOME. Runtime HOME/HARNESS_HOME were isolated.
+Credential writes/deletes, refresh, retries, endpoint fallback and production
+session/settings writes were forbidden and their counts remained zero. Safe
+scratch probe/evidence: `/private/tmp/sdk-issue79-certification-20261014/`.
+No tokens, account identifiers, raw failure bodies or model replies were saved.
+The first receipt missed usage events; the second authorized call retained safe
+usage scalars. No extra model or tokenization endpoint was called.
+
+Primary source: https://docs.x.ai/developers/grok-4-7 and
+https://docs.x.ai/developers/model-capabilities/images/understanding, checked
+2026-10-14. Documented Grok MIME support is PNG/JPEG, 20 MiB per image.
+The live proof is exact Grok 4.7 transport proof, not ChatGPT/Grok 4.6, general
+account entitlement or exact tokenizer proof. Native pre-credential gates,
+compaction/pivot preservation and full-suite acceptance remain pending the
+coordinated #78 parent integration. No commit/push/release/upgrade has occurred.
+
 
 Owner asked to add all fixed and merged items from this run. Editable SDK0.15.2 /
 CLI0.6.80 draft now lists PR81,82,88,83,85,87,84,86,89 once in dependency order,

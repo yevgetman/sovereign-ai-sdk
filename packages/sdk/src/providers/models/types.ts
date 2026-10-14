@@ -3,6 +3,16 @@ import type { ReasoningEffort } from '../effort.js';
 export const MODEL_CATALOG_VERSION = 1 as const;
 export type CapabilitySupport = 'supported' | 'unsupported' | 'unknown';
 export type ModelAvailability = 'advertised' | 'account' | 'unknown';
+/** Exact transport/model proof, separate from publisher vision capability. */
+export type ImageInputCertification = {
+  routeId: string;
+  modelId: string;
+  source: string;
+  verifiedAt: string;
+  expiresAt: string;
+  liveVerification: 'passed' | 'failed' | 'unverified';
+  mimeTypes: string[];
+};
 /** Unknown properties are omitted, never represented by zero or guessed from an ID. */
 export interface ModelRecord {
   id: string;
@@ -10,6 +20,7 @@ export interface ModelRecord {
   routeId: string;
   provider: string;
   auth: 'api_key' | 'subscription' | 'custom';
+  imageInputCertification?: ImageInputCertification;
   author?: string | undefined;
   inferenceHost?: string | undefined;
   capabilities: {

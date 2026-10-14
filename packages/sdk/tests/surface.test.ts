@@ -396,6 +396,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'skillTextTokenBound',
   'validateModelRequest',
   'validateOpenRouterPolicy',
+  'verifiedSubscriptionImageInput',
   'wrapConductAuditSink',
 ];
 

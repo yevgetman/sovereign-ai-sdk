@@ -16,6 +16,7 @@ import {
   UnknownToolsetError,
   isContextOverflowError,
 } from '@yevgetman/sov-sdk/providers/errors';
+import { verifiedSubscriptionImageInput } from '@yevgetman/sov-sdk/providers/models/imageInput';
 import { type ModelRecord, findModel } from '@yevgetman/sov-sdk/providers/models/index';
 import { validateModelRequest } from '@yevgetman/sov-sdk/providers/models/validateRequest';
 import {
@@ -208,18 +209,29 @@ export async function runSdkRunCommand(
       deadline = setTimeout(sigint, opts.deadlineMs);
     }
     const raw = await Promise.race([(io.readStdin ?? readSdkStdin)(), canceled]);
-    // Validate input and bounded attachments BEFORE credential access or runtime boot.
-    const input = await Promise.race([
-      parseSdkInput(raw, opts.inputFormat, routeSupportsImages(routeId)),
-      canceled,
-    ]);
-    stage = 'route';
     const settings = loadSettings();
+    const requestedRoute = getRoute(routeId, settings);
     const requestedModel =
       string(opts.model) && opts.model !== 'auto'
         ? String(opts.model)
-        : getRoute(routeId, settings).defaultModel;
+        : requestedRoute.defaultModel;
     selectedMetadata = findModel(readModelCatalogSnapshot(routeId, settings), requestedModel);
+    const imageProof = verifiedSubscriptionImageInput(selectedMetadata);
+    const supportsImages =
+      routeSupportsImages(routeId) &&
+      (requestedRoute.auth !== 'subscription' || imageProof !== undefined);
+    // Validate input and bounded attachments BEFORE credential access or runtime boot.
+    const input = await Promise.race([
+      parseSdkInput(raw, opts.inputFormat, supportsImages, imageProof?.mimeTypes),
+      canceled,
+    ]);
+    if (input.message.content.some((block) => block.type === 'image'))
+      validateModelRequest(
+        { model: requestedModel, system: [], messages: [input.message], maxTokens: 1 },
+        requestedRoute.provider,
+        selectedMetadata,
+      );
+    stage = 'route';
     selected = await Promise.race([
       (deps.resolve ?? resolveRouteProvider)(routeId, {
         settings,
@@ -297,6 +309,22 @@ export async function runSdkRunCommand(
       stored.some((m) => m.content.some((b) => b.type === 'image'))
     )
       throw new SdkInputError('unsupported_input', 'stored session images unsupported');
+    if (stored.some((message) => message.content.some((block) => block.type === 'image'))) {
+      try {
+        validateModelRequest(
+          { model: selected.model, system: [], messages: stored, maxTokens: 1 },
+          selected.provider.name,
+          selectedMetadata,
+        );
+      } catch (error) {
+        if (error instanceof RouteError && error.code === 'unsupported_input')
+          throw new SdkInputError(
+            'unsupported_input',
+            'stored images are not certified for the selected model',
+          );
+        throw error;
+      }
+    }
     if (
       selected.route.provider !== 'anthropic' &&
       stored.some((m) =>
