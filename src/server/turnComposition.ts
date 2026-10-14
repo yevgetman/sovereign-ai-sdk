@@ -8,7 +8,7 @@
 //
 // What the CALLER still owns (host-specific, not composed here):
 //   - the event sink (SSE bus vs JSONL) and the relay (src/server/turnRelay.ts)
-//   - compaction and the session-id pivot (gateway only; SDK mode adds none)
+//   - compaction and the session-id pivot (both gateway and native SDK hosts)
 //   - attestation turn-id minting (passed in per drive as `TurnHop.turnId`)
 //   - abort wiring (pass the combined `signal`)
 //

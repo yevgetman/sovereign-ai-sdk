@@ -1,3 +1,76 @@
+## 2026-10-14 — Native context recovery and durable retry (#70)
+
+Scope: isolated `fix/70-native-context-recovery` worktree from critical-fix merge
+`216cf716`, with the durable tool-receipt fix `ef12f92f` merged before final checks.
+Environment: macOS arm64, Bun 1.3.13; dependencies installed with
+`bun install --ignore-scripts --frozen-lockfile`. No release, upgrade or owner
+settings/session changes.
+
+Failed-before evidence: `bun test tests/cli/sdkRunCompaction.test.ts` against the
+unchanged native host returned **0 pass / 1 fail**. The provider overflow ended
+with exit 1; no summary or retry ran. After correction, the same fixture succeeds
+through one persisted child and returns the newest terminal `activeSessionId`.
+
+Focused final command: `bun test tests/cli/sdkRunCompaction.test.ts
+ tests/cli/nativeTurnMetrics.test.ts tests/server/compactor.test.ts` passed
+**18 tests / 177 assertions / 0 failures**. Fixtures cover proactive-only,
+overflow-only, both in one turn with two distinct child pivots, no-op refusal,
+second-overflow failure, cancellation during summary and retry, post-pivot setup
+failure, latest-child resume, trace/effort/tool/context rebuilding, and retry after
+one real tool effect with exactly one execution and its genuine durable result.
+Irreducible system/schema/latest-input fixtures perform no summary request and
+preserve the parent. The high-only subscription fixture verifies the actual summary
+request carries the selected effort and metadata, caps output to the exact 128-token
+evidence, and refuses a 900-token summary window before provider transport starts.
+The summary retains a 100000-token owner-managed subscription window despite
+advisory staleness, while the marker alone cannot certify API-key limits. A combined
+#75 transport witness confirms one high-effort summary request and one child,
+with exact owner evidence; direct omitted-effort inference is refused before
+credentials. The owner policy guard matches exact model, auth, provider and route.
+Usage sums failed drive, summary and retry without duplicate rows or billing.
+Separate billing fixtures cover complete paid totals, partial known tokens,
+unknown components and subscription provenance without fabricated API cost.
+
+The first full suite passed **6171 tests / 19 existing skips / 0 failures**,
+26965 assertions across 600 files in 120.12 seconds. A final small correction
+records failed/cancelled summaries in the existing compaction counters rather
+than main-call counters; the focused 14-test check passed again afterward.
+Final required gates passed on the corrected frozen source: `bun run build`,
+`bun run tui:build`, `bun run lint` (including boundary), `bun run typecheck`, and
+`env -u FORCE_COLOR bun run test`. The final suite passed **6175 tests / 19 existing
+skips / 0 failures**, 27015 assertions across 600 files in 127.96 seconds. Boundary
+lint found no violations across 246 modules and 983 dependencies. `git diff --check`
+also passed. This includes the late peer corrections for selected summary effort,
+actual summary budgets, irreducible recovery and owner-managed stale evidence.
+
+Root's bounded live native Grok probe **passed**: exact `grok-4.7`, **3 Responses
+requests**, **1 proactive child pivot**, **1 resumed child turn**, `store: false`,
+and **zero production credential or session writes**. The probe seeded a long
+arithmetic history in an isolated temporary runtime/db, compacted it through the
+selected subscription transport and resumed the returned child. It proves this
+account's bounded native compaction/continuation, not general eligibility or a
+natural provider-overflow stress test. Parent `57c30e13-e0de-41ec-8aa0-8614df26ffd3`
+pivoted to child `15319feb-3c21-4363-9e49-6236127923d1`.
+
+The initial probe falsely reported unavailable because fresh HOME changed macOS
+`security` default-keychain discovery. Root corrected only the scratch read harness:
+the `security find-generic-password` child used the real home while runtime
+HOME/HARNESS_HOME stayed `/private/tmp/sov-live70.l5ten97d`. The login was copied
+once into memory with an ephemeral binding. No token appeared in command arguments,
+logs, files or environment. All refresh/write/delete and fallback URLs were
+forbidden; only the exact Grok Responses endpoint was allowed, with a three-request
+limit and 45-second per-request bound. ChatGPT native live proof is unavailable.
+
+Telekit integration was inspected read-only: its SOV parser reads
+`activeSessionId` with `sessionId` fallback, and its collector retains both
+completion and failure terminals. The host now returns the newest id on both
+paths. Root ran four fixtures through the actual AST-extracted `_parse_result`:
+completed, failed and cancelled turns all select live child `15319feb…` over
+parent `57c30e13…`; the legacy fallback is also correct. **All four passed.**
+No Telekit files were changed. SDK compaction result fields are additive;
+the summary implementation remains proprietary. Learning is disabled only in
+isolated test fixtures; these tests add no day-to-day learning-soak evidence.
+
 ## 2026-10-14 — Durable per-tool receipts and crash recovery (#71)
 
 Scope: isolated `fix/71-durable-tool-receipts` worktree, based on `65a6b2aa`.

@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased — native context recovery (#70)
+
+**Harness:** `sov run --sdk` now applies model-aware proactive compaction and
+one independent same-route overflow compact/retry. A no-op does not retry; a
+second overflow fails with `context_overflow`. Each pivot reloads the newest
+persisted transcript and completed tool receipts, then rebuilds the child's
+context, effort, tools, skill continuity, trace/evidence and persistence boundary.
+Summary and inference stay on the selected route, provider and model. No auxiliary
+or API-key fallback is introduced. Summaries retain selected effort and exact
+model evidence. Irreducible system/schema/tail budgets and oversized summary
+requests fail before paid summarization or an unnecessary child pivot.
+
+`compaction_complete`, completion and error events carry the newest
+`activeSessionId`; terminal `sessionId` retains the compatible newest-id value.
+Adapters must save that value for the next turn. Telekit's existing SOV parser
+already accepts it on successful and failed terminals. Usage/cost totals include
+failed drives, summaries and retry; missing/partial receipts remain unknown.
+Cancellation is bounded, keeps observed usage and cannot mint a late summary
+child or bill a cooperative late finalizer twice.
+
+**SDK:** `CompactResult` gains optional `usage`, `costEstimate` and
+`estimatedCostUsd` fields. The result DTO remains in open core; the compactor and
+same-route summarizer stay in the proprietary host. Existing compaction callers
+remain compatible. No release or installed runtime update is part of this change.
+
 ## Unreleased — durable individual tool receipts (#71)
 
 **SDK:** `SessionStore` adds optional `saveToolExecution` and `loadToolExecutions`
