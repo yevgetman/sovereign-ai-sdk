@@ -1,0 +1,34 @@
+{
+  "artifact_sha256": "c10ce8dd462bd697f2939f8b968005dd2501a5930291487be96f330854dae0e1",
+  "all_operator_occurrences": 39,
+  "rejected_occurrences": [
+    {
+      "path": "package/README.md",
+      "line": 21,
+      "column": 79,
+      "line_text": "curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/yevgetman-sov-sdk-0.16.0.tgz",
+      "offset": 1170
+    },
+    {
+      "path": "package/README.md",
+      "line": 24,
+      "column": 15,
+      "line_text": "npm install ./yevgetman-sov-sdk-0.16.0.tgz   # Node",
+      "offset": 1338
+    },
+    {
+      "path": "package/README.md",
+      "line": 26,
+      "column": 11,
+      "line_text": "bun add ./yevgetman-sov-sdk-0.16.0.tgz       # Bun",
+      "offset": 1392
+    },
+    {
+      "path": "package/README.md",
+      "line": 342,
+      "column": 29,
+      "line_text": ").messages; // import from @yevgetman/sov-sdk/core/transcriptRepair",
+      "offset": 18616
+    }
+  ]
+}

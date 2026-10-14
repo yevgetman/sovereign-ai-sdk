@@ -1,0 +1,310 @@
+{
+  "architecture": "windows-x64",
+  "artifact_sha256": "99ddef9177ad748bf6ba1674755f5ca667f83159f9b9e32b1e5e40d11ff6d2f4",
+  "coverage": {
+    "archive_members": 32,
+    "bytes": 159073114,
+    "files": 33,
+    "links": 0,
+    "metadata": 97
+  },
+  "errors": [],
+  "errors_count": 0,
+  "exclusions": [],
+  "exit_code": 0,
+  "findings": [],
+  "findings_count": 0,
+  "findings_count_unit": "file/rule pairs",
+  "input_kind": "artifact",
+  "inventory": [
+    {
+      "kind": "zip",
+      "mode": null,
+      "path": "sov-windows-x64.zip",
+      "path_sha256": "7d523e7e57ffe085aaaa8cb1746a3fe3c15b2fb8a0f17af2e8dde9252a0866a5",
+      "sha256": "99ddef9177ad748bf6ba1674755f5ca667f83159f9b9e32b1e5e40d11ff6d2f4",
+      "size": 48410340
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!LICENSE.txt",
+      "path_sha256": "a27706fc55c245219d13aee2819d26965e368da18161d484d7cbbc675a123249",
+      "sha256": "043effdda1399ae47d7bde10e059f9ffa3ad1afd9ec2af667c1d5355215975bd",
+      "size": 816
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!README.md",
+      "path_sha256": "bfa06f4a14676ab853634107d8c95edac3079a98aa4048703a62f14817792330",
+      "sha256": "7d4c8a54bb87b3662f51e2e95d5f50e774dccd6841e8850a1775fab58d43149b",
+      "size": 1077
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bin/sov-tui.exe",
+      "path_sha256": "786d7ebdd8e66bd7a85e11c29cbf06db96f7aced4746af8caa9e64f4adec5620",
+      "sha256": "bc5d3dbd84d68347f7a70bd037af879e18fcfd802957a18dea890c307bfc5a5e",
+      "size": 16082944
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bin/sov.exe",
+      "path_sha256": "9270d4ab765a21f0640f46c60c66a853306295fe5e481af6459c8b3316c383d7",
+      "sha256": "0e5e17c03f66ed48e307a690f3f47e6a991113847e1d1f1ecfb9a362b91b40e4",
+      "size": 94493184
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!build-inputs.json",
+      "path_sha256": "8ca3072ce810b494799ad911138ea5fb91d6d8b70f759b69b34196141e202773",
+      "sha256": "dc864e7b68d6299d2adc7e5db07b9a8983deb165a754a2b5bc22a0fbe600220d",
+      "size": 27896
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/BUNDLE-CONTRACT.md",
+      "path_sha256": "870307ee3e8843ff1c0c91c40713f0eba92098f2175da67caa9bffe196f48a3a",
+      "sha256": "925cb873e625373643f7f509b005f0c576d14d0a267da55dde50bb17af59dbbd",
+      "size": 1062
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/agents/cheap-task.md",
+      "path_sha256": "e5373e90e3cf05949c1ba3bdf0b1d8315ed31c3b049b3d97a3d692c9745e47fe",
+      "sha256": "d5193db09d3cce2aaf7d049c3aa63dc2b0ef8f260f409439b0aa2a7aef6559a3",
+      "size": 861
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/agents/delegator.md",
+      "path_sha256": "694938b7d322b849af0d59a0f6e9048af871fffd76444fa613d7eedfaa4d0d54",
+      "sha256": "33db7dfb6cd7d1d86170e0248e0bf87ac4804eab01323d9c234efe675ff388d7",
+      "size": 3117
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/agents/explore.md",
+      "path_sha256": "13be5474bf011fc05c5d4039cc5ce08a040fba1f75c5e99099852f01152e3608",
+      "sha256": "f076fe66bd0941ef6d51da8ff32990e02464fac37e31a32eb3d3d95598cc538a",
+      "size": 2124
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/agents/frontier-task.md",
+      "path_sha256": "1292ee965cdb8c68a0daac6fe52efa5b82f0b9f4523be33dbf2aa5e9beedf538",
+      "sha256": "e5f2f90e8e8d5bc09c0a27a1e538554d05a95cbbd3b1bec70bfd6c13e58bb245",
+      "size": 1049
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/agents/instinct-synthesizer.md",
+      "path_sha256": "dfad5cd7e027bbcaa7f3ec2d46df67191dd25433db36fa048b4bdd3b8cf215ff",
+      "sha256": "49bd3abacd485b87af5c15bc40f9fa95961ab0783d64dc6cf2b4bd71018b2508",
+      "size": 4447
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/agents/moderate-task.md",
+      "path_sha256": "e124b77e91dbf59449321918e9ef74db637e9e49f8b2ab10e6a15da04e5215cb",
+      "sha256": "fc8d8b01b12a278fc8236518d30c57b14ff128cfb7748bc745605b5945d8593d",
+      "size": 829
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/agents/plan.md",
+      "path_sha256": "f2b41772f7fe3bba8a43f34739cc9a5697ddbb8183bdb29f330bcfef8d50bca8",
+      "sha256": "4d7f514a6e13cee1632ccf28143d2e209526c52b5dae0644c86aaa5cbb078187",
+      "size": 2335
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/agents/review-consolidate.md",
+      "path_sha256": "eb4dae81a499dc6def5d09111125c34fb87312e0214c94f18e0df3533e679249",
+      "sha256": "8e1372ef6f0d29228153cee6f2c31dedf48527cb657f6131961cb4154bf865f6",
+      "size": 1161
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/agents/review-memory.md",
+      "path_sha256": "5b083650479e6a4f0c2a46ee2fedf793f29f9355d8a51875e6a70ad5c25924d4",
+      "sha256": "c2442bcb0f07b210238057bbc11965c4dd19144ac3a457852696c3d502573a96",
+      "size": 2806
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/agents/review-skill.md",
+      "path_sha256": "0ed0d9cfc9e8e8e5567e13bdb7f44da01d84dd52f61078984d46b0cfdb932981",
+      "sha256": "2c4e08eda0302b6eef6f5a6483f61c44f6d4c31d66469c9e20347b02a9f404ba",
+      "size": 1859
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/agents/scheduled-mission.md",
+      "path_sha256": "b2153840ef249a50496aa40e92fca8cccfe5bc882c9d0c93c37fd7bf193de475",
+      "sha256": "46196f1ef69fd2f924d136e6621f95dc3624eeb70cd6a2d818dcada00bb4a5ad",
+      "size": 2493
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/agents/subscription-executor.md",
+      "path_sha256": "12d200565928506e5109383e4522ef4d1b22460a28027a51abe0dc185a7cbe42",
+      "sha256": "e80e25bca42f53d7363bdbc3ecd93b30e3d0bf7303538e90bfd081e215eef4ce",
+      "size": 1706
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/agents/verify.md",
+      "path_sha256": "c8ee7051f4b0c7da95adb7e6ffb7d81c2d0f5225af890321741ccfb0c04f2fdb",
+      "sha256": "a9be9c7cd0d53ac25caa043aa1d0d9b0763350b94f9768ce079317767755fed5",
+      "size": 1850
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/business/README.md",
+      "path_sha256": "a4da22a0fdf6ac6e552bd95d51046b04faa43d0f4c4a9bd4bff3589d1f403512",
+      "sha256": "11ab79fcc432794c1be5ba6c47ae0d24d1fb76ebe643f5e34312b0dcfe8e4a21",
+      "size": 2367
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/business/system-prompt.md",
+      "path_sha256": "b3886c4d2d43accea1282b6f30e685701aa8ce288986fe50015ae1514f51eba6",
+      "sha256": "612dd3fe14d00f2aadff9f195f6de9f6c2b9ccaed45e1639fdc23d28fa34cda7",
+      "size": 2265
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/harness/schemas/.gitkeep",
+      "path_sha256": "0c3b6cda1bf972375aa3bc9b980498fd65dcbf0fcc4dd29a235ab642a55f00d9",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/index.yaml",
+      "path_sha256": "7f31d3eb48b345adf048a474460ce4522909ef0a85b56b920e692cfdd7e93844",
+      "sha256": "f742f6a687480270bad36ac0da4c3c75f622f440ade72c796bd853dc6a7e6e87",
+      "size": 1045
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/prompts/smart-router-trivial-fast-path.md",
+      "path_sha256": "feed0200ccb73d1d60bd1adf69096f9f4aec6d5efd441b1293aab19d98a6f2f4",
+      "sha256": "2661f45ad1b59a174ac59d50f6b1a7ec9b00532864e8d51b675eb0726ff30e1f",
+      "size": 1067
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/prompts/smart-router.md",
+      "path_sha256": "a39684f324b722d0dcc7d25dc29800a1a77b700a12c7180350b28cc7506622d8",
+      "sha256": "c50a8607d94a7e2c07b76f46c249c9a0abc481c924310001439e76a8567a9fea",
+      "size": 1287
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/prompts/subscription-executor.md",
+      "path_sha256": "010c9de3667e19547dcc97f61e8698903cff43d6141f5930f5834ba6366c665e",
+      "sha256": "89dd3a4590124cccf39091a956bf12692d3290e8c0170a2e84a8591ff46242e6",
+      "size": 1314
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/skills/review.md",
+      "path_sha256": "7ac9df7d09580ed00c741386a6bf368bc9538bd178c96a8e60fc76d71fd773cc",
+      "sha256": "3f3bbb326492bd2e3b4b3dff6f3f0f0b5049a2a39c05f2cac627af8b82ba855f",
+      "size": 2083
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/skills/security-audit.md",
+      "path_sha256": "6776b024204e9c48d378489a8199bf9fe50fa8590f522ff18a825eedc5139489",
+      "sha256": "38d786fb478b0c5979e17bf1800946177d7efcf1d33d924182f9996a484a2125",
+      "size": 11875
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/skills/summarize.md",
+      "path_sha256": "3ecbbc936c35d11413e539da30b7aefe9ac099594ef9d5055499cd60276598f2",
+      "sha256": "e13d15cc4cf66daf5b54e98f789bdea106056398b8a201ea8322496d8d292e36",
+      "size": 1822
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/state/.gitkeep",
+      "path_sha256": "0d2979b6bc87154398c019fb810053394c77db233d8ed031df3d9a868f1cc18d",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!bundle-default/workflows/review.yaml",
+      "path_sha256": "1e7f56f4fc21bb1d65d346a63acdd967d9772a7f7c5b64443296e5c000ac5df3",
+      "sha256": "fc46179ea37b0fba0171b2259651dad780f580df2ffef8ba1fd7f6a7125240d5",
+      "size": 4025
+    },
+    {
+      "kind": "file",
+      "mode": null,
+      "path": "sov-windows-x64.zip!version",
+      "path_sha256": "4ecd9b3c54a72cdee60cc77004aa8de18886e563bf90d4955d13a18e0ca69c92",
+      "sha256": "fc5458e0454fcdf0d8d8003474b80e7670b03508e0564c122f663cf0011594ae",
+      "size": 8
+    }
+  ],
+  "inventory_sha256": "d7fe97a67145b4bb5d3ee1eb5c1ff17e0db6070d2006e695abfe645a3ae36d8f",
+  "limits": {
+    "chunk_size": 1048576,
+    "max_depth": 12,
+    "max_diagnostics": 200,
+    "max_expanded_bytes": 34359738368,
+    "max_members": 200000,
+    "max_metadata_bytes": 16777216,
+    "max_temporary_bytes": 34359738368
+  },
+  "policy_sha256": "8e04fd1980cd9a1a534eaa51e993f632a79f62b603efabaf99cbf6c65a95e1c2",
+  "policy_version": "2026-10-01.2",
+  "required_paths": [
+    "bin/sov.exe",
+    "bin/sov-tui.exe",
+    "bundle-default/index.yaml",
+    "bundle-default/BUNDLE-CONTRACT.md",
+    "README.md",
+    "LICENSE.txt",
+    "version",
+    "build-inputs.json"
+  ],
+  "result": "clean",
+  "scanner_version": "1.0.1",
+  "schema_version": 1
+}

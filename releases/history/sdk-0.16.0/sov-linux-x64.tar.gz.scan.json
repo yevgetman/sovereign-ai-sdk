@@ -1,0 +1,368 @@
+{
+  "architecture": "linux-x64",
+  "artifact_sha256": "553925dc979852945b4b0cae354484f7a552f0b3789f17f5b5ca41440712c6f8",
+  "coverage": {
+    "archive_members": 42,
+    "bytes": 256461975,
+    "files": 34,
+    "links": 0,
+    "metadata": 169
+  },
+  "errors": [],
+  "errors_count": 0,
+  "exclusions": [],
+  "exit_code": 0,
+  "findings": [],
+  "findings_count": 0,
+  "findings_count_unit": "file/rule pairs",
+  "input_kind": "artifact",
+  "inventory": [
+    {
+      "kind": "tar",
+      "mode": null,
+      "path": "sov-linux-x64.tar",
+      "path_sha256": "7094145a13cd09ec355e871bcd276e8dddbb5ebecdee56c84a6e1402cc879bcb",
+      "sha256": "09bb6a0c9a161c4a61558d4df19afe09d0fa7760087516a3696404fdaf770053",
+      "size": 105605120
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!LICENSE.txt",
+      "path_sha256": "b1140951d9b9dbcb0f2a9d269c5d92024f6ad3842f4d1cf2ef1de41d28441eb7",
+      "sha256": "043effdda1399ae47d7bde10e059f9ffa3ad1afd9ec2af667c1d5355215975bd",
+      "size": 816
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!README.md",
+      "path_sha256": "55851581455666e1afa7a11eb2075e619f073851f410e466d3d81d7a51cd449f",
+      "sha256": "7d4c8a54bb87b3662f51e2e95d5f50e774dccd6841e8850a1775fab58d43149b",
+      "size": 1077
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-x64.tar!bin",
+      "path_sha256": "79f1fdd5d7461b7e652fb967e417beda4735f2a0ec6128377defaa6e206e6ece"
+    },
+    {
+      "kind": "file",
+      "mode": 493,
+      "path": "sov-linux-x64.tar!bin/sov",
+      "path_sha256": "5ab0990e8f559da51df7340453b3e5ff1728788e911665a6ad6899537d8224a8",
+      "sha256": "23b71cf4dc5b1e0a1f9d2fa87c93be0dd005981b8c4043e4e0f2fe5bebe1d00b",
+      "size": 89720288
+    },
+    {
+      "kind": "file",
+      "mode": 493,
+      "path": "sov-linux-x64.tar!bin/sov-tui",
+      "path_sha256": "65f614c01ae9982f58d370fcc29f8c70ae33717296818d2398a64ad1b30d5662",
+      "sha256": "7ad4684d736f6072ba43db5313e8008ff702ced44f4552ad0cf1b515b998b1ae",
+      "size": 15757604
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!build-inputs.json",
+      "path_sha256": "68ed00923e6074767be1023d477b85ff96b6b3620d020054b14969793699bc8b",
+      "sha256": "6c810d2103482a6b2b31855eb1005ba72b4d69f11c364db1d723cf0767d8be98",
+      "size": 27894
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-x64.tar!bundle-default",
+      "path_sha256": "fa11e7b0c32f8cbd74aa1c3b5e3cb5c46f1a0473f026e82f6ff3a5dd9586bdec"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/BUNDLE-CONTRACT.md",
+      "path_sha256": "f87abfce1b0b72a15c3f9c08614569aa94749666a9f05b5240bd3f5b108fb723",
+      "sha256": "925cb873e625373643f7f509b005f0c576d14d0a267da55dde50bb17af59dbbd",
+      "size": 1062
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-x64.tar!bundle-default/agents",
+      "path_sha256": "b665f7b8f0550f2059a605df014b359163dd6b0375b2b6e908f0088b18e2a7a1"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/agents/cheap-task.md",
+      "path_sha256": "da810ad3cbea6a553a52dbccf46bf4ada90d7664d1ad03215e5ff9e001e1cfc5",
+      "sha256": "d5193db09d3cce2aaf7d049c3aa63dc2b0ef8f260f409439b0aa2a7aef6559a3",
+      "size": 861
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/agents/delegator.md",
+      "path_sha256": "dd1302b05b8cbc92e2c075a5a45e3845bfbdbb097fbf3709abacd8659012a934",
+      "sha256": "33db7dfb6cd7d1d86170e0248e0bf87ac4804eab01323d9c234efe675ff388d7",
+      "size": 3117
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/agents/explore.md",
+      "path_sha256": "0a38fabb3e1181d9e060274c2fdb88bd44449b6a122d9c69554cd6eb7ba4477e",
+      "sha256": "f076fe66bd0941ef6d51da8ff32990e02464fac37e31a32eb3d3d95598cc538a",
+      "size": 2124
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/agents/frontier-task.md",
+      "path_sha256": "eced43422ce1a164dc012d91a046f9270a4dc8d44c0e0383be73484051db2f8a",
+      "sha256": "e5f2f90e8e8d5bc09c0a27a1e538554d05a95cbbd3b1bec70bfd6c13e58bb245",
+      "size": 1049
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/agents/instinct-synthesizer.md",
+      "path_sha256": "040e1c7254725966166084eaf0ece51ec833239a494bf201be5eadc87a2c886f",
+      "sha256": "49bd3abacd485b87af5c15bc40f9fa95961ab0783d64dc6cf2b4bd71018b2508",
+      "size": 4447
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/agents/moderate-task.md",
+      "path_sha256": "a6fa30b41c1e712bdddf61e046d3aa27cfc8568813433a4cf5bf2694ec110e1e",
+      "sha256": "fc8d8b01b12a278fc8236518d30c57b14ff128cfb7748bc745605b5945d8593d",
+      "size": 829
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/agents/plan.md",
+      "path_sha256": "c4b65049dfb4d0d08955e87cf2dfdc40a44ccf1344fc8f04d425cf6d1a5715ff",
+      "sha256": "4d7f514a6e13cee1632ccf28143d2e209526c52b5dae0644c86aaa5cbb078187",
+      "size": 2335
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/agents/review-consolidate.md",
+      "path_sha256": "463cdbcc6243f650bcf40b6bd5ab7f788f03d98792d69ce5287add7befebc83b",
+      "sha256": "8e1372ef6f0d29228153cee6f2c31dedf48527cb657f6131961cb4154bf865f6",
+      "size": 1161
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/agents/review-memory.md",
+      "path_sha256": "7e43543ec1f8b54ff253db5523b1fb1f0c7f1aa4863f832422998c78b161907e",
+      "sha256": "c2442bcb0f07b210238057bbc11965c4dd19144ac3a457852696c3d502573a96",
+      "size": 2806
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/agents/review-skill.md",
+      "path_sha256": "b5d1a4719cb1dbfeeb510f6646b3fd7e59c6c4aa28f9085004c3e5f77964b142",
+      "sha256": "2c4e08eda0302b6eef6f5a6483f61c44f6d4c31d66469c9e20347b02a9f404ba",
+      "size": 1859
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/agents/scheduled-mission.md",
+      "path_sha256": "ac87e4f543162449b314dc12c66fffb69ca41195b905d1acb2d2aa11289ad2ca",
+      "sha256": "46196f1ef69fd2f924d136e6621f95dc3624eeb70cd6a2d818dcada00bb4a5ad",
+      "size": 2493
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/agents/subscription-executor.md",
+      "path_sha256": "52a6cd7b8f6ec527097fc20fe5e7010c1b233829f7c0619888d8a6d5dd4e8704",
+      "sha256": "e80e25bca42f53d7363bdbc3ecd93b30e3d0bf7303538e90bfd081e215eef4ce",
+      "size": 1706
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/agents/verify.md",
+      "path_sha256": "7347500d62933fa256b61375edb623ff1455a89507062f00f5e9dbbd84232984",
+      "sha256": "a9be9c7cd0d53ac25caa043aa1d0d9b0763350b94f9768ce079317767755fed5",
+      "size": 1850
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-x64.tar!bundle-default/business",
+      "path_sha256": "f739f777bc36a546480164eb55e8ee036283eb0a9f70fd603135e05719af4213"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/business/README.md",
+      "path_sha256": "c73ead7fbb368598b07ed1725bc8dcb0d0d97f3375b4b4918221d07e8b8a30b6",
+      "sha256": "11ab79fcc432794c1be5ba6c47ae0d24d1fb76ebe643f5e34312b0dcfe8e4a21",
+      "size": 2367
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/business/system-prompt.md",
+      "path_sha256": "041c7ff93692a2a7c284725e3006ada28a561b7d5e30b780b5c5537a0db75449",
+      "sha256": "612dd3fe14d00f2aadff9f195f6de9f6c2b9ccaed45e1639fdc23d28fa34cda7",
+      "size": 2265
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-x64.tar!bundle-default/harness",
+      "path_sha256": "1ae4b31363bb1dbdfcf8b22e76cc7ca253a6522e89a4e7419aa5e591de24aa72"
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-x64.tar!bundle-default/harness/schemas",
+      "path_sha256": "26f91a1ccb9cbf20824812bdfc3f98cfd20db98ede04852c846a45bd154512d8"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/harness/schemas/.gitkeep",
+      "path_sha256": "339c528546f72651084f89d75e9e2e2fe5821a48516d0c7689cc04bf6891ecdc",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/index.yaml",
+      "path_sha256": "e5da02b082cd1340a0018bf8b10406f53cd20d21951a609fa741467a78a31d5e",
+      "sha256": "f742f6a687480270bad36ac0da4c3c75f622f440ade72c796bd853dc6a7e6e87",
+      "size": 1045
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-x64.tar!bundle-default/prompts",
+      "path_sha256": "46fdaf68a1b978d3c39c62c268d25d92eef4611cf9b10b265770a431500549b5"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/prompts/smart-router-trivial-fast-path.md",
+      "path_sha256": "986a699e52be676ab075d3a8f8d59fcae505897518a9d883e46e3386d9b6ccaf",
+      "sha256": "2661f45ad1b59a174ac59d50f6b1a7ec9b00532864e8d51b675eb0726ff30e1f",
+      "size": 1067
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/prompts/smart-router.md",
+      "path_sha256": "34616364fc3168a5d7c835155c417c637beeecc8036526ffc9cb824542b16744",
+      "sha256": "c50a8607d94a7e2c07b76f46c249c9a0abc481c924310001439e76a8567a9fea",
+      "size": 1287
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/prompts/subscription-executor.md",
+      "path_sha256": "4ce57c5fb423d8afddfcb83c089fbbbd78a93b929bdadd68ebbfcac060f82570",
+      "sha256": "89dd3a4590124cccf39091a956bf12692d3290e8c0170a2e84a8591ff46242e6",
+      "size": 1314
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-x64.tar!bundle-default/skills",
+      "path_sha256": "7fc59486e5a43847fc75aa20f0285cda833dc9cc9b623cee48d18c7979514ab7"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/skills/review.md",
+      "path_sha256": "7564ce92c89e274d3e0329fffc474fa26040b795bd03313884732849124b7d8e",
+      "sha256": "3f3bbb326492bd2e3b4b3dff6f3f0f0b5049a2a39c05f2cac627af8b82ba855f",
+      "size": 2083
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/skills/security-audit.md",
+      "path_sha256": "826bb11ce75d206cc9917341df84e2795011faa249f05e51acdfd187e9c16853",
+      "sha256": "38d786fb478b0c5979e17bf1800946177d7efcf1d33d924182f9996a484a2125",
+      "size": 11875
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/skills/summarize.md",
+      "path_sha256": "43a180fb4caaf1d4c1f1df28a23b5e3ee9448babeaaa26c9170b97e897c32b5a",
+      "sha256": "e13d15cc4cf66daf5b54e98f789bdea106056398b8a201ea8322496d8d292e36",
+      "size": 1822
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-x64.tar!bundle-default/state",
+      "path_sha256": "4e749c210d29d0570903f075993795fbdd37f9b2f4374eefd15928f22a8ddb9b"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/state/.gitkeep",
+      "path_sha256": "4c809cf2a719589d14b42a74ead94ee9746f965ce1f7feb7e4f575a8fb47abf7",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-x64.tar!bundle-default/workflows",
+      "path_sha256": "6b39b2e453f779ffcb1128560045b298e142184f634eedd8f78514d7ec7b2ed5"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!bundle-default/workflows/review.yaml",
+      "path_sha256": "486296d35a376ee793a498d5b417401d6cbcc6172cd1e31de0dc9c5fe13054a0",
+      "sha256": "fc46179ea37b0fba0171b2259651dad780f580df2ffef8ba1fd7f6a7125240d5",
+      "size": 4025
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-x64.tar!version",
+      "path_sha256": "168ea06a5133593e0359a958928f2829999d4422e0f64395dfbdd5420d919a2e",
+      "sha256": "fc5458e0454fcdf0d8d8003474b80e7670b03508e0564c122f663cf0011594ae",
+      "size": 8
+    },
+    {
+      "kind": "gzip",
+      "mode": null,
+      "path": "sov-linux-x64.tar.gz",
+      "path_sha256": "6d1b49f4bf1800ecdb52b7eaecfa81b3ff6490ffa2017ce0267fb39aad22be62",
+      "sha256": "553925dc979852945b4b0cae354484f7a552f0b3789f17f5b5ca41440712c6f8",
+      "size": 45292319
+    }
+  ],
+  "inventory_sha256": "979c454ca08058255507106c5db6c2cc1bf6b75b7ad0c019ea6b83e8d3251b91",
+  "limits": {
+    "chunk_size": 1048576,
+    "max_depth": 12,
+    "max_diagnostics": 200,
+    "max_expanded_bytes": 34359738368,
+    "max_members": 200000,
+    "max_metadata_bytes": 16777216,
+    "max_temporary_bytes": 34359738368
+  },
+  "policy_sha256": "8e04fd1980cd9a1a534eaa51e993f632a79f62b603efabaf99cbf6c65a95e1c2",
+  "policy_version": "2026-10-01.2",
+  "required_paths": [
+    "bin/sov",
+    "bin/sov-tui",
+    "bundle-default/index.yaml",
+    "bundle-default/BUNDLE-CONTRACT.md",
+    "README.md",
+    "LICENSE.txt",
+    "version",
+    "build-inputs.json"
+  ],
+  "result": "clean",
+  "scanner_version": "1.0.1",
+  "schema_version": 1
+}

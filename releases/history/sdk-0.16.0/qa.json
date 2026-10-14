@@ -1,0 +1,78 @@
+{
+  "result": "pass",
+  "build_commit": "48a287d01d74cfd2e15ba7a164b93c9a56aeb164",
+  "source_tests": {
+    "pass": 6447,
+    "skip": 19,
+    "fail": 0,
+    "assertions": 28330,
+    "files": 616,
+    "seconds": 169.66
+  },
+  "planning_tests": {
+    "pass": 6459,
+    "skip": 19,
+    "fail": 0,
+    "assertions": 28349,
+    "files": 617,
+    "seconds": 172.39
+  },
+  "source_gates": [
+    "frozen hoisted install",
+    "build",
+    "lint and open-core boundary",
+    "root/browser types",
+    "Go suite",
+    "packed SDK/protocol canaries Node/Bun and strict exported types",
+    "dependency audit: zero advisories",
+    "protocol/sdk/debug-console npm dry-runs (no registry publication)"
+  ],
+  "exact_ci": {
+    "url": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38636633930",
+    "result": "pass",
+    "head_sha": "48a287d01d74cfd2e15ba7a164b93c9a56aeb164",
+    "engine_floors": {
+      "node": "20.19.0",
+      "bun": "1.2.0"
+    }
+  },
+  "platform_candidate": {
+    "url": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38636631026",
+    "dry_run": true,
+    "result": "pass",
+    "head_sha": "48a287d01d74cfd2e15ba7a164b93c9a56aeb164",
+    "promised_targets": [
+      "darwin-arm64",
+      "darwin-x64",
+      "linux-arm64",
+      "linux-x64",
+      "windows-x64"
+    ],
+    "native_smokes": [
+      "darwin-arm64",
+      "linux-x64",
+      "windows-x64"
+    ]
+  },
+  "local_archive_recheck": "five pinned scanner clean results, zero findings/coverage errors; versions/targets/source/license metadata verified; local both-Mac version and strict ad-hoc signatures pass",
+  "sdk_privacy": {
+    "raw_scan": "sdk-scan.json",
+    "raw_exit_code": 1,
+    "files": 701,
+    "coverage_errors": 0,
+    "adjudication": "sdk-privacy-adjudication.md",
+    "occurrences": "sdk-privacy-occurrences.json",
+    "result": "pass under finite known-residue policy",
+    "private_findings": 0,
+    "approved_exceptions": "four rejected README occurrences are exact public tarball names or a shipped SDK deep import; no source/scanner policy change"
+  },
+  "limits": [
+    "Linux arm64 cross-compiled, no native Linux arm64 run",
+    "No Developer ID signing or notarization claim; Mac signatures ad-hoc",
+    "ChatGPT live replay remains unverified for available exact selected model login",
+    "Unknown tokenizer/modality accounting remains advisory",
+    "Exact Grok4.7 image proof expires2026-11-13; other unverified combinations remain refused",
+    "Fault fixtures do not certify physical power-loss recovery or general paid-provider eligibility",
+    "No live paid-provider or learning recall probe during release"
+  ]
+}

@@ -1,0 +1,114 @@
+[
+  {
+    "arch": "darwin-arm64",
+    "filename": "sov-darwin-arm64.tar.gz",
+    "sha256": "76ae2ecbf533a3afca34aff100f25c62750acc670fdbb8bcff18826a7ad76bbd",
+    "size": 34272069,
+    "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-darwin-arm64.tar.gz",
+    "build_inputs": {
+      "schema": 1,
+      "target": "darwin-arm64",
+      "version": "v0.6.80",
+      "dependencyDigest": "e65992f61dc15a7dc7873f5d6480fcc96322b419ddba8b55da08dd2cd7701b03",
+      "license": {
+        "revision": "72746d0ec04f719a7498e0c88d0941071ea97d3f",
+        "sha256": "043effdda1399ae47d7bde10e059f9ffa3ad1afd9ec2af667c1d5355215975bd"
+      },
+      "source": {
+        "revision": "48a287d01d74cfd2e15ba7a164b93c9a56aeb164",
+        "digest": "60747bbc93f99fbb4040ba7f75640a08d65f9efc283d3e4a9ac7af3df3712637"
+      }
+    }
+  },
+  {
+    "arch": "darwin-x64",
+    "filename": "sov-darwin-x64.tar.gz",
+    "sha256": "9bac992de712aa92f020c8fbb8861c990bd5e81cc95ad58452943550a4cf000b",
+    "size": 37342348,
+    "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-darwin-x64.tar.gz",
+    "build_inputs": {
+      "schema": 1,
+      "target": "darwin-x64",
+      "version": "v0.6.80",
+      "dependencyDigest": "e65992f61dc15a7dc7873f5d6480fcc96322b419ddba8b55da08dd2cd7701b03",
+      "license": {
+        "revision": "72746d0ec04f719a7498e0c88d0941071ea97d3f",
+        "sha256": "043effdda1399ae47d7bde10e059f9ffa3ad1afd9ec2af667c1d5355215975bd"
+      },
+      "source": {
+        "revision": "48a287d01d74cfd2e15ba7a164b93c9a56aeb164",
+        "digest": "60747bbc93f99fbb4040ba7f75640a08d65f9efc283d3e4a9ac7af3df3712637"
+      }
+    }
+  },
+  {
+    "arch": "linux-arm64",
+    "filename": "sov-linux-arm64.tar.gz",
+    "sha256": "009ef0de45e386c875206fd878836105a7c91a4d95f2eda0a50f53bb0c53628d",
+    "size": 44847656,
+    "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-linux-arm64.tar.gz",
+    "build_inputs": {
+      "schema": 1,
+      "target": "linux-arm64",
+      "version": "v0.6.80",
+      "dependencyDigest": "64b96ab13b005a530032014f1e8110a4051d513d455a89f5adb811abd725401d",
+      "license": {
+        "revision": "72746d0ec04f719a7498e0c88d0941071ea97d3f",
+        "sha256": "043effdda1399ae47d7bde10e059f9ffa3ad1afd9ec2af667c1d5355215975bd"
+      },
+      "source": {
+        "revision": "48a287d01d74cfd2e15ba7a164b93c9a56aeb164",
+        "digest": "60747bbc93f99fbb4040ba7f75640a08d65f9efc283d3e4a9ac7af3df3712637"
+      }
+    }
+  },
+  {
+    "arch": "linux-x64",
+    "filename": "sov-linux-x64.tar.gz",
+    "sha256": "553925dc979852945b4b0cae354484f7a552f0b3789f17f5b5ca41440712c6f8",
+    "size": 45292319,
+    "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-linux-x64.tar.gz",
+    "build_inputs": {
+      "schema": 1,
+      "target": "linux-x64",
+      "version": "v0.6.80",
+      "dependencyDigest": "64b96ab13b005a530032014f1e8110a4051d513d455a89f5adb811abd725401d",
+      "license": {
+        "revision": "72746d0ec04f719a7498e0c88d0941071ea97d3f",
+        "sha256": "043effdda1399ae47d7bde10e059f9ffa3ad1afd9ec2af667c1d5355215975bd"
+      },
+      "source": {
+        "revision": "48a287d01d74cfd2e15ba7a164b93c9a56aeb164",
+        "digest": "60747bbc93f99fbb4040ba7f75640a08d65f9efc283d3e4a9ac7af3df3712637"
+      }
+    }
+  },
+  {
+    "arch": "windows-x64",
+    "filename": "sov-windows-x64.zip",
+    "sha256": "99ddef9177ad748bf6ba1674755f5ca667f83159f9b9e32b1e5e40d11ff6d2f4",
+    "size": 48410340,
+    "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-windows-x64.zip",
+    "build_inputs": {
+      "schema": 1,
+      "target": "windows-x64",
+      "version": "v0.6.80",
+      "dependencyDigest": "64b96ab13b005a530032014f1e8110a4051d513d455a89f5adb811abd725401d",
+      "license": {
+        "revision": "72746d0ec04f719a7498e0c88d0941071ea97d3f",
+        "sha256": "043effdda1399ae47d7bde10e059f9ffa3ad1afd9ec2af667c1d5355215975bd"
+      },
+      "source": {
+        "revision": "48a287d01d74cfd2e15ba7a164b93c9a56aeb164",
+        "digest": "60747bbc93f99fbb4040ba7f75640a08d65f9efc283d3e4a9ac7af3df3712637"
+      }
+    }
+  },
+  {
+    "arch": "package",
+    "filename": "yevgetman-sov-sdk-0.16.0.tgz",
+    "sha256": "c10ce8dd462bd697f2939f8b968005dd2501a5930291487be96f330854dae0e1",
+    "size": 1108214,
+    "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/yevgetman-sov-sdk-0.16.0.tgz"
+  }
+]

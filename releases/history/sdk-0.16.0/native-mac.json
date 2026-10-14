@@ -1,0 +1,14 @@
+{
+  "darwin-arm64": {
+    "version": "0.6.80",
+    "codesign_strict": "pass",
+    "signature": "adhoc",
+    "team_identifier": null
+  },
+  "darwin-x64": {
+    "version": "0.6.80",
+    "codesign_strict": "pass",
+    "signature": "adhoc",
+    "team_identifier": null
+  }
+}

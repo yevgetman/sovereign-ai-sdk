@@ -244,3 +244,30 @@ items:
       - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38625100175/job/116062121057
       - Actual released Telekit0.64.23 parser accepts24/24 native streams with zero false success. Unsafe tool effects require inspection; fault fixtures do not certify physical power-loss recovery.
       - "Compatibility: Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14; this minor SDK version covers the selected additive public APIs."
+  - id: sdk-pr-94
+    product: sovereign-ai-sdk
+    title: Reviewed Owner-approved SDK 0.16.0 / SOV 0.6.80 version, lockfile, migration and release text
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/94
+    merged_at: 2026-10-14T20:57:16Z
+    commits:
+      - sha: 520a23e090cec857b32dff4ae3fece7f466af52a
+        mainline: 1
+    requires:
+      - sdk-pr-81
+      - sdk-pr-82
+      - sdk-pr-88
+      - sdk-pr-83
+      - sdk-pr-85
+      - sdk-pr-87
+      - sdk-pr-84
+      - sdk-pr-86
+      - sdk-pr-89
+      - sdk-pr-90
+      - sdk-pr-91
+      - sdk-pr-92
+      - sdk-pr-93
+    reason: null
+    qa:
+      - releases/history/sdk-0.16.0/preparation-review.md
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38635592152
+      - releases/history/sdk-0.16.0/final-source-review.md

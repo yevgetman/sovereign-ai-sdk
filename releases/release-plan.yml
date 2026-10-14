@@ -1,7 +1,7 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: 2026-10-14T20:50:13.009Z
+updated_at: 2026-10-14T21:14:08.927Z
 checkout: .
 last_release: &a1
   version: 0.15.1
@@ -10,23 +10,117 @@ last_release: &a1
   evidence: releases/history/sdk-0.15.1/publication.json
 reconciliation:
   history_start_commit: 85350f48cc726f62b7b6396919015960d810b2f5
-  through_main_commit: d8c96f7621088f8f237b934776a6c007635f58d5
-  checked_at: 2026-10-14T19:41:52.102Z
-  evidence: "All 13 selected fix merge units verified reachable after SDK0.15.1 baseline 85350f48cc726f62b7b6396919015960d810b2f5; PR90–93 merged in dependency order, each exact master merge once/mainline1. Combined source runtime/test/package inputs match independently reviewed QA8ea82206fb1c8d5e8c0b7017362fea4df440ccfe; source receipt https://github.com/yevgetman/sovereign-ai-sdk/blob/d8c96f7621088f8f237b934776a6c007635f58d5/docs/06-testing/testing-log.md. All requested final PR-head CI checks pass. SDK0.15.2/CLI0.6.80 assigned draft retained; additive APIs require Owner-directed minor SDK version before freeze. Issue #74 live acceptance remains open. Source selection is not assembly, freeze or publication. Owner approved SDK0.16.0 / SOV0.6.80 for the full selected release on 2026-10-14; earlier assigned-version references above are historical. Preparation is not assembly, freeze or publication."
+  through_main_commit: 520a23e090cec857b32dff4ae3fece7f466af52a
+  checked_at: 2026-10-14T21:01:17.998Z
+  evidence: Full14-unit planned source from verified SDK0.15.1 baseline:13 fix units plus actual PR94 preparation. All mappings exact; independent final review passes. Exact candidate CI and dry-run all-platform workflow pass at48a287d0; every staged artifact version/source/license/hash verified. Owner approved SDK0.16.0/SOV0.6.80 and public/pin work. The cited Owner request authorizes publication of this exact reviewed cut; public downloads remain to verify before marking released.
 release:
   id: sdk-0.16.0
   product: sovereign-ai-sdk
   version: 0.16.0
   cli_version: 0.6.80
-  status: draft
+  status: frozen
   base: *a1
-  applied_commits: []
-  preparation_commits: []
-  build_commit: null
+  applied_commits:
+    - item_id: sdk-pr-81
+      source_commit: 216cf71668cfba7aae13da5ea83c8e44cc3fd6a2
+      release_commit: 5f25e25440161ff0cf8f21689b71810e1cb81b98
+    - item_id: sdk-pr-82
+      source_commit: ea9e6ae8ff9bdc8db32958c3594774cfb2f0bdd4
+      release_commit: 096b18bac7cb19199866a8173d619649ba6a4e23
+    - item_id: sdk-pr-88
+      source_commit: 0ef3c0ea670fee22c16f09af32897de00b0fd3e1
+      release_commit: 8ec799aa64f0479cf112f4dc472bebb1cf824100
+    - item_id: sdk-pr-83
+      source_commit: d1568102b1635401a5e5f34553e402418e550662
+      release_commit: f1a5ea3d58b3f2ba8b7e8c9f9b7e5300a1fbb592
+    - item_id: sdk-pr-85
+      source_commit: db243bcf171c87540fad63d725d9bdb27d52eaf2
+      release_commit: b25455804ac84a20e129157a913db0da35f1d47b
+    - item_id: sdk-pr-87
+      source_commit: 8c3f7c35bd0aa92532150ffc611cc5569c08b2a7
+      release_commit: 4a5b80d0966ba1f48aef270f0d35282158a6f309
+    - item_id: sdk-pr-84
+      source_commit: 27647ee9a0256d83feaf47833a2250314e4a0c2c
+      release_commit: f103d21bccbf0bb82bd7ce6be7fa774c32de5baa
+    - item_id: sdk-pr-86
+      source_commit: e64665f4c2105e31defa72c90c17da4bd22b81fb
+      release_commit: c2dc6c94ebc12e5695e9d1d33493ed5b47e60e25
+    - item_id: sdk-pr-89
+      source_commit: 755d5c8314b54e0c9f0c9482ec40cf806ddcaa44
+      release_commit: bfe3f5a000cd1d5c383f1d375f21cccb94805434
+    - item_id: sdk-pr-90
+      source_commit: 67645b13035839d3aacbfb035cceb744c6d794d9
+      release_commit: d52e1737e1db0cfaced6f06ddda028858a58b93f
+    - item_id: sdk-pr-91
+      source_commit: f593f0bc3a7ac19e0320d61447b9d63454d377b4
+      release_commit: cf709536998b8fc074b227e0822b1149d32a1339
+    - item_id: sdk-pr-92
+      source_commit: 88fe02eaba878ac55cd61e3339c864b82cbcad6f
+      release_commit: f02a04d983b8a3f57d99b9f1875d239e6a9bddab
+    - item_id: sdk-pr-93
+      source_commit: d8c96f7621088f8f237b934776a6c007635f58d5
+      release_commit: 90d158dd63582bc8eee9a4436dad8bc17a87ed25
+    - item_id: sdk-pr-94
+      source_commit: 520a23e090cec857b32dff4ae3fece7f466af52a
+      release_commit: 48a287d01d74cfd2e15ba7a164b93c9a56aeb164
+  preparation_commits:
+    - item_id: sdk-pr-94
+      commit: 48a287d01d74cfd2e15ba7a164b93c9a56aeb164
+      reason: Approved SDK minor/CLI stamps, lockfile, install examples and release/migration text; document-only conflict resolutions preserve selected receipts and immutable baseline history links.
+      review: releases/history/sdk-0.16.0/final-source-review.md
+  build_commit: 48a287d01d74cfd2e15ba7a164b93c9a56aeb164
   frozen_manifest_commit: null
-  authorization: null
-  validation: []
-  artifacts: []
+  authorization:
+    kind: owner-approval
+    reference: "Authenticated Owner Telegram request: cut SDK/SOV, publish public channel, update all3 consumer pins/manifests; explicit subsequent approval of SDK0.16.0/SOV0.6.80 on2026-10-14. Authority applies to exact reviewed build48a287d01d74cfd2e15ba7a164b93c9a56aeb164; npm stays Owner-only; no consumer product publication/restart."
+    at: 2026-10-14T21:14:08.927Z
+    build_commit: 48a287d01d74cfd2e15ba7a164b93c9a56aeb164
+  validation:
+    - check: source lint/types/full tests/build and Go
+      result: pass
+      build_commit: 48a287d01d74cfd2e15ba7a164b93c9a56aeb164
+      evidence: releases/history/sdk-0.16.0/qa.json; releases/history/sdk-0.16.0/final-source-review.md
+    - check: Node/Bun packed consumers including engine floors/types/purity and npm dry-runs
+      result: pass
+      build_commit: 48a287d01d74cfd2e15ba7a164b93c9a56aeb164
+      evidence: releases/history/sdk-0.16.0/qa.json; releases/history/sdk-0.16.0/final-source-review.md
+    - check: all5 platform builds/scans/version+source metadata and supported native smokes
+      result: pass
+      build_commit: 48a287d01d74cfd2e15ba7a164b93c9a56aeb164
+      evidence: releases/history/sdk-0.16.0/qa.json; releases/history/sdk-0.16.0/final-source-review.md
+    - check: SDK package contents/license and exact public identity privacy adjudication
+      result: pass
+      build_commit: 48a287d01d74cfd2e15ba7a164b93c9a56aeb164
+      evidence: releases/history/sdk-0.16.0/qa.json; releases/history/sdk-0.16.0/final-source-review.md
+    - check: independent source/assembly review and exact14 mappings/no unlisted build commit
+      result: pass
+      build_commit: 48a287d01d74cfd2e15ba7a164b93c9a56aeb164
+      evidence: releases/history/sdk-0.16.0/qa.json; releases/history/sdk-0.16.0/final-source-review.md
+  artifacts:
+    - arch: darwin-arm64
+      filename: sov-darwin-arm64.tar.gz
+      sha256: 76ae2ecbf533a3afca34aff100f25c62750acc670fdbb8bcff18826a7ad76bbd
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-darwin-arm64.tar.gz
+    - arch: darwin-x64
+      filename: sov-darwin-x64.tar.gz
+      sha256: 9bac992de712aa92f020c8fbb8861c990bd5e81cc95ad58452943550a4cf000b
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-darwin-x64.tar.gz
+    - arch: linux-arm64
+      filename: sov-linux-arm64.tar.gz
+      sha256: 009ef0de45e386c875206fd878836105a7c91a4d95f2eda0a50f53bb0c53628d
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-linux-arm64.tar.gz
+    - arch: linux-x64
+      filename: sov-linux-x64.tar.gz
+      sha256: 553925dc979852945b4b0cae354484f7a552f0b3789f17f5b5ca41440712c6f8
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-linux-x64.tar.gz
+    - arch: windows-x64
+      filename: sov-windows-x64.zip
+      sha256: 99ddef9177ad748bf6ba1674755f5ca667f83159f9b9e32b1e5e40d11ff6d2f4
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/sov-windows-x64.zip
+    - arch: package
+      filename: yevgetman-sov-sdk-0.16.0.tgz
+      sha256: c10ce8dd462bd697f2939f8b968005dd2501a5930291487be96f330854dae0e1
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/yevgetman-sov-sdk-0.16.0.tgz
   published_at: null
   publication_evidence: null
-  manifest_sha256: null
+  manifest_sha256: 057aad489506f9d615cc2ab12fb33b307c56cb9704bf88cad79117d0da32e458
