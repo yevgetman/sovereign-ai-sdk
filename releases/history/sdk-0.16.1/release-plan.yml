@@ -1,0 +1,105 @@
+schema_version: 4
+node: sovereign-ai
+product: sovereign-ai-sdk
+updated_at: 2026-10-15T12:44:19.434Z
+checkout: .
+last_release: &a1
+  version: 0.16.0
+  cli_version: 0.6.80
+  source_commit: 48a287d01d74cfd2e15ba7a164b93c9a56aeb164
+  evidence: releases/history/sdk-0.16.0/publication.json
+reconciliation:
+  history_start_commit: 48a287d01d74cfd2e15ba7a164b93c9a56aeb164
+  through_main_commit: 47f23334888860d3d74339df5e20045310477e5b
+  checked_at: 2026-10-15T12:32:55.107Z
+  evidence: Owner requested PR95 merge, selection and publication on 2026-10-15.
+    All8 current public baseline files downloaded and hash/size checked against
+    sdk-0.16.0 immutable publication proof. Only PR95 is selected; required
+    release preparation will be a separate mapped unit, not a second feature.
+    Prior unlisted bookkeeping remains outside the assembled build.
+release:
+  id: sdk-0.16.1
+  product: sovereign-ai-sdk
+  version: 0.16.1
+  cli_version: 0.6.81
+  status: frozen
+  base: *a1
+  applied_commits:
+    - item_id: sdk-pr-95
+      source_commit: 07fcc250950839c56140258db6a2c1d7973197f3
+      release_commit: 0895dafbd1d83858b6b39af30f7e598148754dd2
+    - item_id: sdk-pr-96-preparation
+      source_commit: 47f23334888860d3d74339df5e20045310477e5b
+      release_commit: 0b7a69e31b26ae91201558a1a500bab25402a1bb
+  preparation_commits:
+    - item_id: sdk-pr-96-preparation
+      commit: 0b7a69e31b26ae91201558a1a500bab25402a1bb
+      reason: Reviewed version, lockfile and release/install/migration preparation
+        mapped as a normal item.
+      review: releases/history/sdk-0.16.1/preparation-review.md
+  build_commit: 0b7a69e31b26ae91201558a1a500bab25402a1bb
+  frozen_manifest_commit: null
+  authorization:
+    kind: owner-approval
+    reference: "Authenticated Owner Telegram request2026-10-15: merge PR95, add its
+      one feature to SDK manifest, cut and publish complete new SDK version.
+      Covers exact reviewed SDK0.16.1/SOV0.6.81 build
+      0b7a69e31b26ae91201558a1a500bab25402a1bb; public GitHub artifacts,
+      consumer source pins/records and local public binary update. npm remains
+      Owner-only; no consumer publication or service restart."
+    at: 2026-10-15T12:44:19.434Z
+    build_commit: 0b7a69e31b26ae91201558a1a500bab25402a1bb
+  validation:
+    - check: exact-source full gates, packed engines/types/purity, audit and dry-runs
+      result: pass
+      build_commit: 0b7a69e31b26ae91201558a1a500bab25402a1bb
+      evidence: releases/history/sdk-0.16.1/qa.json;
+        releases/history/sdk-0.16.1/final-source-review.md;
+        releases/history/sdk-0.16.1/sdk-privacy-adjudication.md
+    - check: all5 platform archives clean, inventory/source/version/license and
+        supported native checks
+      result: pass
+      build_commit: 0b7a69e31b26ae91201558a1a500bab25402a1bb
+      evidence: releases/history/sdk-0.16.1/qa.json;
+        releases/history/sdk-0.16.1/final-source-review.md;
+        releases/history/sdk-0.16.1/sdk-privacy-adjudication.md
+    - check: independent assembly/preparation/source review
+      result: pass
+      build_commit: 0b7a69e31b26ae91201558a1a500bab25402a1bb
+      evidence: releases/history/sdk-0.16.1/qa.json;
+        releases/history/sdk-0.16.1/final-source-review.md;
+        releases/history/sdk-0.16.1/sdk-privacy-adjudication.md
+    - check: SDK privacy adjudication and allow-list/license/README parity
+      result: pass
+      build_commit: 0b7a69e31b26ae91201558a1a500bab25402a1bb
+      evidence: releases/history/sdk-0.16.1/qa.json;
+        releases/history/sdk-0.16.1/final-source-review.md;
+        releases/history/sdk-0.16.1/sdk-privacy-adjudication.md
+  artifacts:
+    - arch: darwin-arm64
+      filename: sov-darwin-arm64.tar.gz
+      sha256: e6f61470a70c5de2cac7c4efc161dedda68fc24b79fb5bb7592e9ddd94b1d833
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.81/sov-darwin-arm64.tar.gz
+    - arch: darwin-x64
+      filename: sov-darwin-x64.tar.gz
+      sha256: 93bc69e833236e93026439ddf82fc869e815ca2cf7739915dd3f2d1160aa44ac
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.81/sov-darwin-x64.tar.gz
+    - arch: linux-arm64
+      filename: sov-linux-arm64.tar.gz
+      sha256: 82fad4214aff4057f3f096e577aba4e68203fc4aacfc67dff22a5b3d1de4e633
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.81/sov-linux-arm64.tar.gz
+    - arch: linux-x64
+      filename: sov-linux-x64.tar.gz
+      sha256: 8893c887373fb6692f207d81ddb6fc2f437efd25867ad6b3a2c1f821940a4f0f
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.81/sov-linux-x64.tar.gz
+    - arch: windows-x64
+      filename: sov-windows-x64.zip
+      sha256: baae0e1adf91b2d3acc0258c8107057f31fabe822fd0dab3395226853c82763e
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.81/sov-windows-x64.zip
+    - arch: package
+      filename: yevgetman-sov-sdk-0.16.1.tgz
+      sha256: 0c423696e35e6e924e81eaa7338361dcc543a9176aa28326abd0284877462f51
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.81/yevgetman-sov-sdk-0.16.1.tgz
+  published_at: null
+  publication_evidence: null
+  manifest_sha256: c7df78305d4e614e17cb822cec393744a1af8152e580f558729a9f3543b461fa

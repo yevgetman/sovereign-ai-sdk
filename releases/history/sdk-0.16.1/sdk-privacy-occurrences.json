@@ -1,0 +1,451 @@
+{
+  "source_commit": "0b7a69e31b26ae91201558a1a500bab25402a1bb",
+  "artifact": "yevgetman-sov-sdk-0.16.1.tgz",
+  "artifact_sha256": "0c423696e35e6e924e81eaa7338361dcc543a9176aa28326abd0284877462f51",
+  "raw_scan_sha256": "96a7429b0c6cc4a0b1f40371190d1da20f5bfa1849a01a9f229d39481a9b4961",
+  "scanner_version": "1.0.1",
+  "policy_version": "2026-10-01.2",
+  "policy_sha256": "8e04fd1980cd9a1a534eaa51e993f632a79f62b603efabaf99cbf6c65a95e1c2",
+  "member_count": 699,
+  "policy_encodings": [
+    "utf-8",
+    "utf-16-le",
+    "utf-16-be"
+  ],
+  "literal_rule_occurrence_counts": {
+    "operator-alert-routing": 0,
+    "private-integration": 0,
+    "incident-secret-fixture": 0,
+    "private-contact": 0,
+    "private-machine": 0,
+    "operator-namespace": 40,
+    "builder-home": 0,
+    "private-bot-handle": 0,
+    "owner-bound-prompt": 0,
+    "private-checkout": 0
+  },
+  "private_literal_occurrences": [],
+  "operator_namespace_occurrences": [
+    {
+      "file": "package/dist/debug.js",
+      "encoding": "utf-8",
+      "byte_offset": 249,
+      "line": 5,
+      "column": 17,
+      "identity": "@yevgetman/sov-debug-console",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/dist/sdk.js",
+      "encoding": "utf-8",
+      "byte_offset": 132,
+      "line": 3,
+      "column": 55,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/dist/debug/types.js",
+      "encoding": "utf-8",
+      "byte_offset": 71,
+      "line": 2,
+      "column": 6,
+      "identity": "@yevgetman/sov-debug-console",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/dist/version.js",
+      "encoding": "utf-8",
+      "byte_offset": 57,
+      "line": 1,
+      "column": 58,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/package.json",
+      "encoding": "utf-8",
+      "byte_offset": 14,
+      "line": 2,
+      "column": 13,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/package.json",
+      "encoding": "utf-8",
+      "byte_offset": 460,
+      "line": 14,
+      "column": 38,
+      "identity": "yevgetman/sovereign-ai-sdk.git",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/package.json",
+      "encoding": "utf-8",
+      "byte_offset": 564,
+      "line": 17,
+      "column": 35,
+      "identity": "yevgetman/sovereign-ai-sdk/tree/master/packages/sdk#readme",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/package.json",
+      "encoding": "utf-8",
+      "byte_offset": 668,
+      "line": 19,
+      "column": 32,
+      "identity": "yevgetman/sovereign-ai-sdk/issues",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 3,
+      "line": 1,
+      "column": 4,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 734,
+      "line": 14,
+      "column": 77,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/03-cli-reference/sdk-routes.md#owner-managed-subscription-registries",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 968,
+      "line": 18,
+      "column": 107,
+      "identity": "yevgetman/sov-releases/releases/tag/v0.6.81",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 1125,
+      "line": 21,
+      "column": 30,
+      "identity": "yevgetman/sov-releases/releases/download/v0.6.81/yevgetman-sov-sdk-0.16.1.tgz",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 1174,
+      "line": 21,
+      "column": 79,
+      "identity": "yevgetman-sov-sdk-0.16.1.tgz",
+      "matcher_approved": false,
+      "decision": "approved exact required public SDK tarball filename"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 1232,
+      "line": 22,
+      "column": 30,
+      "identity": "yevgetman/sov-releases/releases/download/v0.6.81/SDK-SHA256SUMS",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 1342,
+      "line": 24,
+      "column": 15,
+      "identity": "yevgetman-sov-sdk-0.16.1.tgz",
+      "matcher_approved": false,
+      "decision": "approved exact required public SDK tarball filename"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 1396,
+      "line": 26,
+      "column": 11,
+      "identity": "yevgetman-sov-sdk-0.16.1.tgz",
+      "matcher_approved": false,
+      "decision": "approved exact required public SDK tarball filename"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 1668,
+      "line": 31,
+      "column": 59,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/PUBLISHING.md",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 2439,
+      "line": 47,
+      "column": 70,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 2525,
+      "line": 48,
+      "column": 67,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 5249,
+      "line": 137,
+      "column": 56,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 6014,
+      "line": 148,
+      "column": 64,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/routing-an-agent.md",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 7386,
+      "line": 166,
+      "column": 44,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-activation.md",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 8127,
+      "line": 175,
+      "column": 39,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-catalog.md",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 8438,
+      "line": 179,
+      "column": 38,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-storage.md",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 9347,
+      "line": 190,
+      "column": 69,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-runtime.md",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 9854,
+      "line": 199,
+      "column": 26,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 10267,
+      "line": 207,
+      "column": 50,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/STABILITY.md",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 18620,
+      "line": 342,
+      "column": 29,
+      "identity": "@yevgetman/sov-sdk/core/transcriptRepair",
+      "matcher_approved": false,
+      "decision": "approved published SDK deep-subpath import with shipped source/dist and wildcard export"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 21378,
+      "line": 384,
+      "column": 37,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 28092,
+      "line": 488,
+      "column": 51,
+      "identity": "yevgetman/sovereign-ai-sdk/issues/15",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 28170,
+      "line": 489,
+      "column": 40,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/05-conventions/consumer-contract.md",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 36924,
+      "line": 618,
+      "column": 50,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-compatibility.md#migrating-to-sdk-0161",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 38439,
+      "line": 640,
+      "column": 39,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-continuity.md",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/src/providers/models/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 79,
+      "line": 3,
+      "column": 40,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/SECURITY.md",
+      "encoding": "utf-8",
+      "byte_offset": 25,
+      "line": 1,
+      "column": 26,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/SECURITY.md",
+      "encoding": "utf-8",
+      "byte_offset": 315,
+      "line": 6,
+      "column": 20,
+      "identity": "@yevgetman/sov",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/src/debug.ts",
+      "encoding": "utf-8",
+      "byte_offset": 249,
+      "line": 5,
+      "column": 17,
+      "identity": "@yevgetman/sov-debug-console",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/src/sdk.ts",
+      "encoding": "utf-8",
+      "byte_offset": 132,
+      "line": 3,
+      "column": 55,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/src/debug/types.ts",
+      "encoding": "utf-8",
+      "byte_offset": 71,
+      "line": 2,
+      "column": 6,
+      "identity": "@yevgetman/sov-debug-console",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    },
+    {
+      "file": "package/src/version.ts",
+      "encoding": "utf-8",
+      "byte_offset": 57,
+      "line": 1,
+      "column": 58,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true,
+      "decision": "existing policy exception"
+    }
+  ],
+  "matcher_file_rule_findings": [
+    {
+      "file": "package/README.md",
+      "rule": "operator-namespace"
+    },
+    {
+      "file": "package/README.md",
+      "rule": "operator-namespace"
+    },
+    {
+      "file": "package/README.md",
+      "rule": "operator-namespace"
+    },
+    {
+      "file": "package/README.md",
+      "rule": "operator-namespace"
+    }
+  ],
+  "rejected_count": 4,
+  "result": "approved exact public identities; raw generic scanner findings unchanged",
+  "limits": "finite known-residue policy; no arbitrary-secret absence claim"
+}

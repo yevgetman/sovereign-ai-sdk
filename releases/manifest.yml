@@ -21,3 +21,20 @@ items:
       - "Limit: matching Kernel producer contract and installed cross-product
         support remain unverified; synthetic fixtures certify only the SOV
         mechanism."
+  - id: sdk-pr-96-preparation
+    product: sovereign-ai-sdk
+    title: Prepare SDK 0.16.1 / SOV 0.6.81 versions and release text
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/96
+    merged_at: 2026-10-15T12:31:47Z
+    commits:
+      - sha: 47f23334888860d3d74339df5e20045310477e5b
+        mainline: 1
+    requires:
+      - sdk-pr-95
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38734574129
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/47f23334888860d3d74339df5e20045310477e5b/docs/06-testing/testing-log.md
+      - releases/history/sdk-0.16.1/preparation-review.md
+      - Required release preparation only; no second feature, dependency update,
+        frozen export addition or permission change.

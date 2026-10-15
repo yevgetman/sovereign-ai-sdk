@@ -1,0 +1,368 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026-10-01.2",
+  "policy_sha256": "8e04fd1980cd9a1a534eaa51e993f632a79f62b603efabaf99cbf6c65a95e1c2",
+  "scanner_version": "1.0.1",
+  "architecture": "darwin-arm64",
+  "limits": {
+    "chunk_size": 1048576,
+    "max_depth": 12,
+    "max_members": 200000,
+    "max_expanded_bytes": 34359738368,
+    "max_temporary_bytes": 34359738368,
+    "max_diagnostics": 200,
+    "max_metadata_bytes": 16777216
+  },
+  "coverage": {
+    "files": 34,
+    "bytes": 206716023,
+    "archive_members": 42,
+    "metadata": 169,
+    "links": 0
+  },
+  "exclusions": [],
+  "findings": [],
+  "errors": [],
+  "findings_count_unit": "file/rule pairs",
+  "required_paths": [
+    "bin/sov",
+    "bin/sov-tui",
+    "bundle-default/index.yaml",
+    "bundle-default/BUNDLE-CONTRACT.md",
+    "README.md",
+    "LICENSE.txt",
+    "version",
+    "build-inputs.json"
+  ],
+  "input_kind": "artifact",
+  "artifact_sha256": "e6f61470a70c5de2cac7c4efc161dedda68fc24b79fb5bb7592e9ddd94b1d833",
+  "inventory": [
+    {
+      "path": "sov-darwin-arm64.tar",
+      "path_sha256": "23272323c496a0c8fea4a2945d33c7aa4a2761ba9014a8c9dbd8520595c8fcf0",
+      "kind": "tar",
+      "sha256": "ece66b11e19c2187c07d2489e1249d242ca6b3e491492665da221f8b2e047ea0",
+      "size": 86241280,
+      "mode": null
+    },
+    {
+      "path": "sov-darwin-arm64.tar!LICENSE.txt",
+      "path_sha256": "695d4827e9a34858eae487ffdb235e639c6981b2e1dcad17b45472c9f7c18f02",
+      "kind": "file",
+      "sha256": "043effdda1399ae47d7bde10e059f9ffa3ad1afd9ec2af667c1d5355215975bd",
+      "size": 816,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!README.md",
+      "path_sha256": "60d5753c26ab516f3fd86cf8941af3e2e4201d9f998389426313141a39aa9e34",
+      "kind": "file",
+      "sha256": "7d4c8a54bb87b3662f51e2e95d5f50e774dccd6841e8850a1775fab58d43149b",
+      "size": 1077,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bin",
+      "path_sha256": "9bf24296dd50c402292c785821c0a7b133aabb8dce9d41a1cea4dad099e7cd76",
+      "kind": "directory"
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bin/sov",
+      "path_sha256": "56dfaa7206bd49e3a54e58460719cc35e19d4c64ccfeed180fd2cde7ae08dbe4",
+      "kind": "file",
+      "sha256": "5e53349b6f4b7c8cae1d64fc99fee76a1fa3cda7e0a5c17a201a18e89872b74f",
+      "size": 70715696,
+      "mode": 493
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bin/sov-tui",
+      "path_sha256": "8e781774b975308b90a0bf924de035ee71f29f8f0c02aa4eb70677617b2a913d",
+      "kind": "file",
+      "sha256": "a42f6cf7ab292b8a344eefeb3a8cbd8d0d42e51579f6c59925e629ef6a77a0de",
+      "size": 15400224,
+      "mode": 493
+    },
+    {
+      "path": "sov-darwin-arm64.tar!build-inputs.json",
+      "path_sha256": "421946cc2377de6cb0461e35c055c7a812e1221e2e13ffe8fe4c4f1f850b1ead",
+      "kind": "file",
+      "sha256": "784585837195c9f497461d75d7ad81a991b1e75f5c01b900e114fc8d4253963e",
+      "size": 27897,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default",
+      "path_sha256": "a6230e8f82b78d0589668ca55b74f8526ff18bbe26049585e0bba46e28ddc27b",
+      "kind": "directory"
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/BUNDLE-CONTRACT.md",
+      "path_sha256": "c25bf1bae8de1397d11e7f4fd249d889f9c2cd81bc60b9cabc76ffa8e498bada",
+      "kind": "file",
+      "sha256": "925cb873e625373643f7f509b005f0c576d14d0a267da55dde50bb17af59dbbd",
+      "size": 1062,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/agents",
+      "path_sha256": "68c296eec6ff1b3cd69ee2ebd43ed0bca29930cd44ccda235f07664b4877f819",
+      "kind": "directory"
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/agents/cheap-task.md",
+      "path_sha256": "f4168e789dddd2c4376f249b898dcfc8d3100ad41966f10116a1e5a535c71730",
+      "kind": "file",
+      "sha256": "d5193db09d3cce2aaf7d049c3aa63dc2b0ef8f260f409439b0aa2a7aef6559a3",
+      "size": 861,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/agents/delegator.md",
+      "path_sha256": "0360e909f8145273f08bca1a3088ca3be7e7862769314d8e954306bba9f93a13",
+      "kind": "file",
+      "sha256": "33db7dfb6cd7d1d86170e0248e0bf87ac4804eab01323d9c234efe675ff388d7",
+      "size": 3117,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/agents/explore.md",
+      "path_sha256": "61a76d6cc7c6de76869f19b63d0d4515050dde1fc7073ef1867e313afa39ea6a",
+      "kind": "file",
+      "sha256": "f076fe66bd0941ef6d51da8ff32990e02464fac37e31a32eb3d3d95598cc538a",
+      "size": 2124,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/agents/frontier-task.md",
+      "path_sha256": "4d6557cea0948ed5011b486fea290a6e5d7f25404ab9245d286a3b120908d243",
+      "kind": "file",
+      "sha256": "e5f2f90e8e8d5bc09c0a27a1e538554d05a95cbbd3b1bec70bfd6c13e58bb245",
+      "size": 1049,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/agents/instinct-synthesizer.md",
+      "path_sha256": "b3f5459adf02a25315ca735c315d4e91243b60cb4abb31b23691e6bb52a32151",
+      "kind": "file",
+      "sha256": "49bd3abacd485b87af5c15bc40f9fa95961ab0783d64dc6cf2b4bd71018b2508",
+      "size": 4447,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/agents/moderate-task.md",
+      "path_sha256": "d011b82d80779c6fc57cd6053ae43a84ebea84dc0b39b51a8466fa1ce3ea597e",
+      "kind": "file",
+      "sha256": "fc8d8b01b12a278fc8236518d30c57b14ff128cfb7748bc745605b5945d8593d",
+      "size": 829,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/agents/plan.md",
+      "path_sha256": "edff828adef9aced3c71376c2074ad378040446c1a2cb315acfda59fc7c7d885",
+      "kind": "file",
+      "sha256": "4d7f514a6e13cee1632ccf28143d2e209526c52b5dae0644c86aaa5cbb078187",
+      "size": 2335,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/agents/review-consolidate.md",
+      "path_sha256": "462ae29fe9b36541fb3a1024ae1cba4d2279cf6b88450f62c7b21c3d0b5b6929",
+      "kind": "file",
+      "sha256": "8e1372ef6f0d29228153cee6f2c31dedf48527cb657f6131961cb4154bf865f6",
+      "size": 1161,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/agents/review-memory.md",
+      "path_sha256": "cd0421aafb6a4184e1a09719fb5e9f37ee3f4d7baca29d04f46d38e26bf74eaa",
+      "kind": "file",
+      "sha256": "c2442bcb0f07b210238057bbc11965c4dd19144ac3a457852696c3d502573a96",
+      "size": 2806,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/agents/review-skill.md",
+      "path_sha256": "915568e3915d20cc1e600b1341f0601d658fbc98241fb5572b9952294e7d6f09",
+      "kind": "file",
+      "sha256": "2c4e08eda0302b6eef6f5a6483f61c44f6d4c31d66469c9e20347b02a9f404ba",
+      "size": 1859,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/agents/scheduled-mission.md",
+      "path_sha256": "006cb16067fe1efc14d3a2d18da2a9ece654a22a70ab4c2c1a3b76835d344e51",
+      "kind": "file",
+      "sha256": "46196f1ef69fd2f924d136e6621f95dc3624eeb70cd6a2d818dcada00bb4a5ad",
+      "size": 2493,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/agents/subscription-executor.md",
+      "path_sha256": "77d0fbdfea0c1ce0ab564ab8aeb16c640c101a3de24669048c7944255f57d241",
+      "kind": "file",
+      "sha256": "e80e25bca42f53d7363bdbc3ecd93b30e3d0bf7303538e90bfd081e215eef4ce",
+      "size": 1706,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/agents/verify.md",
+      "path_sha256": "e03698adad361d11543fbad1cd1a2ceb83b1745042394f1f7d267cb94d3caa08",
+      "kind": "file",
+      "sha256": "a9be9c7cd0d53ac25caa043aa1d0d9b0763350b94f9768ce079317767755fed5",
+      "size": 1850,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/business",
+      "path_sha256": "7dbe764926beb165bc6575c9c6f04fd6ba0f6aa075fa489f904419bb7c417018",
+      "kind": "directory"
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/business/README.md",
+      "path_sha256": "be29f8327a53448eb69d6735f0b541218d0bcd6f15931590f34bc21d922e1cf4",
+      "kind": "file",
+      "sha256": "11ab79fcc432794c1be5ba6c47ae0d24d1fb76ebe643f5e34312b0dcfe8e4a21",
+      "size": 2367,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/business/system-prompt.md",
+      "path_sha256": "a4c03c9b4e8c074d49894422e25cac511f5986f36e789c1172dfd9364f814c66",
+      "kind": "file",
+      "sha256": "612dd3fe14d00f2aadff9f195f6de9f6c2b9ccaed45e1639fdc23d28fa34cda7",
+      "size": 2265,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/harness",
+      "path_sha256": "e3479f46d1838e5f7d358f257fc1c8c91fafd09b847b34f9414bfcbde586ccdd",
+      "kind": "directory"
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/harness/schemas",
+      "path_sha256": "c355a8e5108c3b2873a65d55b92ff6209a8a817a60af8880ab372c05b7369447",
+      "kind": "directory"
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/harness/schemas/.gitkeep",
+      "path_sha256": "c32f8a581d42e397d97b5f5eff2c65020388f4539c5045f56501b886bc6747d0",
+      "kind": "file",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/index.yaml",
+      "path_sha256": "756364bc772c63f26ff8ea7fa5df29f016c53a33e022754d28292bd342d7bdce",
+      "kind": "file",
+      "sha256": "f742f6a687480270bad36ac0da4c3c75f622f440ade72c796bd853dc6a7e6e87",
+      "size": 1045,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/prompts",
+      "path_sha256": "3f22cc398e04aaad75e452900a70ebf683f5746cd05f2b6663a79e62bb4713d1",
+      "kind": "directory"
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/prompts/smart-router-trivial-fast-path.md",
+      "path_sha256": "bcb69b6463b7d8d202c6f8aee50467cd7a70894f4aeeab09f468d8c818f1601c",
+      "kind": "file",
+      "sha256": "2661f45ad1b59a174ac59d50f6b1a7ec9b00532864e8d51b675eb0726ff30e1f",
+      "size": 1067,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/prompts/smart-router.md",
+      "path_sha256": "bdc775aa2435e6e36132ce21502ea4e1eb33eb28e0f18e8fd02c0ec9477b17e8",
+      "kind": "file",
+      "sha256": "c50a8607d94a7e2c07b76f46c249c9a0abc481c924310001439e76a8567a9fea",
+      "size": 1287,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/prompts/subscription-executor.md",
+      "path_sha256": "2372fdfb6c4ba45ecc37e3c084d85120b2070bcfb3deb3091b7f8dd4175eb78a",
+      "kind": "file",
+      "sha256": "89dd3a4590124cccf39091a956bf12692d3290e8c0170a2e84a8591ff46242e6",
+      "size": 1314,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/skills",
+      "path_sha256": "69b18ddcbaea05647cd1b501f02d643703355e21d98af33080d280ffbbe3ed30",
+      "kind": "directory"
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/skills/review.md",
+      "path_sha256": "e0d7f6eef545627552d80f622192aa69f64129eb4ea309265c3a82c1b15a36c6",
+      "kind": "file",
+      "sha256": "3f3bbb326492bd2e3b4b3dff6f3f0f0b5049a2a39c05f2cac627af8b82ba855f",
+      "size": 2083,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/skills/security-audit.md",
+      "path_sha256": "0a5d4d8441651af60726596b2bb578fba583e5c783747cd08f491154c2468995",
+      "kind": "file",
+      "sha256": "38d786fb478b0c5979e17bf1800946177d7efcf1d33d924182f9996a484a2125",
+      "size": 11875,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/skills/summarize.md",
+      "path_sha256": "a441eec18150f6eb693fbbb5127ab066d2283ec88df817ca8c0afba5833f830c",
+      "kind": "file",
+      "sha256": "e13d15cc4cf66daf5b54e98f789bdea106056398b8a201ea8322496d8d292e36",
+      "size": 1822,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/state",
+      "path_sha256": "317ee6967b32f665407073a5d9a9e38766e5e7465a730111309c611d54370613",
+      "kind": "directory"
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/state/.gitkeep",
+      "path_sha256": "8d315a3db5ef79c37ef91de33448556d64a27d4598edd8c535af2624b07d8e9a",
+      "kind": "file",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/workflows",
+      "path_sha256": "c498d5959df7e9b368be125b9aa735a1362d0da1365fe729bf71108ae6986e15",
+      "kind": "directory"
+    },
+    {
+      "path": "sov-darwin-arm64.tar!bundle-default/workflows/review.yaml",
+      "path_sha256": "5c37080ac9a1747508dea6cc13176fbc6341ab9c491f01767c1df9d3717e2ee1",
+      "kind": "file",
+      "sha256": "fc46179ea37b0fba0171b2259651dad780f580df2ffef8ba1fd7f6a7125240d5",
+      "size": 4025,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar!version",
+      "path_sha256": "650310c1fc2383df903361fb99a8db73822221949fa76a8cd1e1ad52fd81361d",
+      "kind": "file",
+      "sha256": "633a6c7b2542ad33dc643c0b1ac747b4a1aa4f9a447545450dbb1c5c060561d5",
+      "size": 8,
+      "mode": 420
+    },
+    {
+      "path": "sov-darwin-arm64.tar.gz",
+      "path_sha256": "f6f739c9b98ccc9bf6ac793f48d33255bff0b3f666f7eef2894542183684968a",
+      "kind": "gzip",
+      "sha256": "e6f61470a70c5de2cac7c4efc161dedda68fc24b79fb5bb7592e9ddd94b1d833",
+      "size": 34272176,
+      "mode": null
+    }
+  ],
+  "inventory_sha256": "72cbd240801750b1fca7c9fe900e4c2b7ea0eb3ffb744a884ec0e5d652963c64",
+  "findings_count": 0,
+  "errors_count": 0,
+  "result": "clean",
+  "exit_code": 0
+}

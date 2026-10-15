@@ -1,0 +1,89 @@
+{
+  "result": "pass",
+  "checked_at": "2026-10-15T12:44:19.434Z",
+  "build_commit": "0b7a69e31b26ae91201558a1a500bab25402a1bb",
+  "sdk_version": "0.16.1",
+  "cli_version": "0.6.81",
+  "source_tests": {
+    "pass": 6485,
+    "skip": 19,
+    "fail": 0,
+    "assertions": 28715,
+    "files": 619
+  },
+  "checks": [
+    "strict package builds",
+    "lint/boundary",
+    "root and browser typecheck",
+    "Go build and complete tests",
+    "Node25.9/Bun1.3.13 packed consumers, purity and exported types",
+    "Node20.19/Bun1.2 packed consumers, purity and exported types",
+    "dependency audit: zero advisories",
+    "protocol/sdk/debug-console npm dry-runs only",
+    "SDK 699-file allow-list/license/README/source and dist parity",
+    "all5 CLI pinned scans clean; required inventories, build-source and license metadata pass",
+    "both native Mac CLI version and sov/sov-tui strict ad-hoc codesign pass",
+    "native Linuxx64 and Windows CI smoke passed"
+  ],
+  "ci_exact": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38735486848",
+  "ci_dry_run": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38735483308",
+  "privacy": "CLI generic scans all clean. SDK raw generic scanner reports one README/operator-namespace pair, zero coverage errors. Independent SDK-specific adjudication passes all4 rejected required public identities; no policy or package mutation.",
+  "limitations": [
+    "19 existing skips",
+    "No native Linuxarm64 smoke",
+    "Ad-hoc Mac signatures only",
+    "Installed Kernel producer contract/integration unverified; synthetic fixtures certify SOV mechanism only",
+    "No new paid provider certification",
+    "npm publication Owner-only"
+  ],
+  "logs": [
+    {
+      "command_log": "source-install",
+      "sha256": "b43f1d29b5cde4b259ceb00f37b37a96bad6bb666f22b1342976590fcc9962c4"
+    },
+    {
+      "command_log": "source-build",
+      "sha256": "3c8ab8a30defa8d78a82a344959d1a197d50cf3d1570cd4221815a041f13ec7b"
+    },
+    {
+      "command_log": "source-lint",
+      "sha256": "fa340a4af0f2e40a4e8fe8e36e0e4c246ee2249f113f46c0ce76f480f3af10e8"
+    },
+    {
+      "command_log": "source-types",
+      "sha256": "406092c9a31f5632c17a28209711b7e5e2246c6e63f1e44f1faa2f7f0bbe191a"
+    },
+    {
+      "command_log": "source-test",
+      "sha256": "fccbd3a524df6b84b6975e5e1f88543a3dfea191354b78c0960aabf1c8d37f7e"
+    },
+    {
+      "command_log": "source-go",
+      "sha256": "905d20eb29c00fdce569cc6b773576051b563269e40d47ee1201f6c59b1431dc"
+    },
+    {
+      "command_log": "source-canary",
+      "sha256": "2d7ca504e08f39e364396339ac0449c73ff6a2d65f1a68b216b7471e53c2c9b9"
+    },
+    {
+      "command_log": "source-canary-floors",
+      "sha256": "2d7ca504e08f39e364396339ac0449c73ff6a2d65f1a68b216b7471e53c2c9b9"
+    },
+    {
+      "command_log": "source-audit",
+      "sha256": "1da731dde6b34a7c4111414b4ed7d86826ff3e41a0a4c323030147f5582e3f40"
+    },
+    {
+      "command_log": "protocol-dryrun",
+      "sha256": "a12a5a21869ebe9865d0bfd79c57eb234243ae3282966e91b100483e75f2225d"
+    },
+    {
+      "command_log": "sdk-dryrun",
+      "sha256": "3831e9bc8c1366cf2f8481d52df12dc5a5ad09a658e143df1e930b0a0014ec22"
+    },
+    {
+      "command_log": "debug-console-dryrun",
+      "sha256": "74bcf57bfa51f7190a5303e11b87dc46e105c7b8937901ca1f54b86d252a51db"
+    }
+  ]
+}
