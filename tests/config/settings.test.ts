@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -13,7 +13,7 @@ import {
 const roots: string[] = [];
 
 function tempRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'harness-settings-test-'));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'harness-settings-test-')));
   roots.push(root);
   return root;
 }
@@ -124,7 +124,7 @@ describe('loadMcpServerSettings', () => {
     writeJson(join(cwd, '.harness', 'settings.json'), {
       mcpServers: { fs: { command: 'fs-project' } },
     });
-    expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow(/fs/);
+    expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow(/mcpServers/);
   });
 
   test('two REMOTE aliases that normalize to the same SOV_MCP_* env var throw', () => {

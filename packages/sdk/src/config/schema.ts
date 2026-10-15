@@ -1,3 +1,4 @@
+import { ProfileSkillSettingsSchema } from './discoverySchema.js';
 // Settings schema. Zod-validated; strict (unknown keys rejected). Phase 5
 // adds provider defaults and credentials; later phases add project layering.
 //
@@ -310,18 +311,7 @@ export type TaskRoutingConfig = z.infer<typeof TaskRoutingSchema>;
 export const SettingsSchema = z
   .object({
     /** Profile-scoped discovery approvals. Linked targets retain source trust. */
-    skills: z
-      .object({
-        discovery: z
-          .object({
-            projectRoot: z.string().min(1).optional(),
-            allowedLinkRoots: z.array(z.string().min(1)).optional(),
-          })
-          .strict()
-          .optional(),
-      })
-      .strict()
-      .optional(),
+    skills: ProfileSkillSettingsSchema.optional(),
     defaultProvider: z.string().optional(),
     defaultModel: z.string().optional(),
     permissionMode: z.enum(['default', 'ask', 'bypass']).optional(),

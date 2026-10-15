@@ -20,6 +20,13 @@ import { importOwnerSubscriptionRegistry, readOwnerRegistryFile } from './ownerM
 export const SOV_ROUTE_CAPABILITIES = {
   schemaVersion: 1,
   sdkRun: true,
+  skillSettings: {
+    schemaVersion: 1,
+    sources: ['node-local', 'profile-settings', 'profile-config'],
+    listPolicy: 'replace',
+    approvalFileOption: '--skill-approval-file',
+    doctorSchemaVersion: 1,
+  },
   modelDiscovery: {
     schemaVersion: 1,
     command: 'models',

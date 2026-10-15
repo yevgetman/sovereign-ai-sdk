@@ -23,6 +23,7 @@ export type RunOptions = {
   db?: unknown;
   resume?: unknown;
   steerFile?: unknown;
+  skillApprovalFile?: unknown;
   cache?: unknown;
   preflight?: unknown;
   effort?: unknown;
@@ -163,6 +164,8 @@ export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Pr
   if (db !== undefined) buildOpts.dbPath = db;
   const resume = pickString(opts.resume);
   if (resume !== undefined) buildOpts.resumeId = resume;
+  const skillApprovalFile = pickString(opts.skillApprovalFile);
+  if (skillApprovalFile !== undefined) buildOpts.skillApprovalFile = skillApprovalFile;
   const steerFile = pickString(opts.steerFile);
   if (steerFile !== undefined) buildOpts.steerFile = steerFile;
   const effort = pickEffort(opts.effort);

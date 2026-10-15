@@ -292,6 +292,7 @@ async function main(argv: string[]): Promise<void> {
     .description('Report searched roots and skill compatibility without starting a provider.')
     .option('--json', 'machine-readable local diagnostics (includes paths)')
     .option('--harness-home <path>', 'explicit profile state root')
+    .option('--skill-approval-file <path>', 'validated host skill approval settings')
     .option('-b, --bundle <path>', 'explicit harness bundle root')
     .option(
       '--allowed-link-roots <paths...>',
@@ -304,6 +305,9 @@ async function main(argv: string[]): Promise<void> {
         ...(opts.harnessHome !== undefined ? { harnessHome: opts.harnessHome } : {}),
         ...(opts.bundle !== undefined ? { bundleRoot: opts.bundle } : {}),
         ...(opts.allowedLinkRoots !== undefined ? { allowedLinkRoots: opts.allowedLinkRoots } : {}),
+        ...(opts.skillApprovalFile !== undefined
+          ? { skillApprovalFile: opts.skillApprovalFile }
+          : {}),
       });
       process.exit(code);
     });
@@ -314,11 +318,15 @@ async function main(argv: string[]): Promise<void> {
       'Headless slash-command dispatch — boots a minimum context, reads slash commands from stdin (one per line), prints output to stdout, exits on EOF or /quit. Used for mechanical testing of read-only commands; commands that need the session DB, compactor, task manager, or review manager error informatively.',
     )
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')
+    .option('--skill-approval-file <path>', 'validated host skill approval settings')
     .action(async (opts) => {
       const bundlePath = resolveBundlePath(opts.bundle);
       const { runDispatch } = await import('./cli/dispatchCommand.js');
       const exitCode = await runDispatch({
         ...(bundlePath !== null ? { bundlePath } : {}),
+        ...(opts.skillApprovalFile !== undefined
+          ? { skillApprovalFile: opts.skillApprovalFile }
+          : {}),
       });
       process.exit(exitCode);
     });
@@ -357,6 +365,10 @@ async function main(argv: string[]): Promise<void> {
       'Headless one-shot machine contract — reads all stdin as one prompt, runs one turn through the same server/runtime path as the TUI, and emits JSONL events. Initial contract requires --json --stdin.',
     )
     .option('--sdk', 'run the selected route directly through the SDK, without a listener')
+    .option(
+      '--skill-approval-file <path>',
+      'validated host skill approval settings (native SDK only)',
+    )
     .option('--route <id>', 'explicit authentication route (required with --sdk)')
     .option('--input-format <format>', 'stdin format: text or strict JSON envelope', 'text')
     .option('--toolset <name>', 'native SDK toolset: chat, web, ops, coding', 'coding')

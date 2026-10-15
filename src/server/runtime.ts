@@ -27,12 +27,13 @@ import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import type { Settings } from '@yevgetman/sov-sdk/config/schema';
 import { resolveTranscriptsConfig } from '@yevgetman/sov-sdk/config/schema';
 import {
+  type RuntimeSettingsSnapshot,
   getPermissionSettingsPaths,
   loadHookSettings,
   loadMcpServerSettings,
   loadPermissionSettings,
+  loadRuntimeSettingsSnapshot,
 } from '@yevgetman/sov-sdk/config/settings';
-import { readConfig } from '@yevgetman/sov-sdk/config/store';
 import { auditContextBudget } from '@yevgetman/sov-sdk/context/budget';
 import type { ConductProvider } from '@yevgetman/sov-sdk/core/conductPort';
 import { buildSystemSegments } from '@yevgetman/sov-sdk/core/systemPrompt';
@@ -55,6 +56,7 @@ import type {
   PermissionMode,
 } from '@yevgetman/sov-sdk/permissions/types';
 import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
+import { SessionPersistenceError } from '@yevgetman/sov-sdk/providers/errors';
 import { preflightProvider, preflightToolCalling } from '@yevgetman/sov-sdk/providers/preflight';
 import { type ResolvedProvider, resolveProvider } from '@yevgetman/sov-sdk/providers/resolver';
 import type { LLMProvider, Transport } from '@yevgetman/sov-sdk/providers/types';
@@ -62,7 +64,7 @@ import { LaneSemaphores, type LaneSemaphoresOpts } from '@yevgetman/sov-sdk/runt
 import { PathLockManager } from '@yevgetman/sov-sdk/runtime/pathLock';
 import { SubagentScheduler } from '@yevgetman/sov-sdk/runtime/scheduler';
 import type { LoadSkillsOptions } from '@yevgetman/sov-sdk/skills/loader';
-import type { SkillRegistryManager } from '@yevgetman/sov-sdk/skills/registry';
+import { type SkillRegistryManager, loadSkillRegistry } from '@yevgetman/sov-sdk/skills/registry';
 import { type SkillRuntime, createSkillRuntime } from '@yevgetman/sov-sdk/skills/runtime';
 import type { SkillWritableStore } from '@yevgetman/sov-sdk/skills/storeTypes';
 import type { SkillRegistry } from '@yevgetman/sov-sdk/skills/types';
@@ -291,6 +293,8 @@ export type RuntimeOptions = {
   >;
   /** Explicit host-owned composition for programmatic SOV profiles. */
   skillRuntime?: SkillRuntime;
+  skillApprovalFile?: string;
+  settingsSnapshot?: RuntimeSettingsSnapshot;
   /** Provider name override; mock for tests, otherwise resolveProvider's
    *  precedence applies (settings → env). */
   provider?: string;
@@ -781,7 +785,18 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // previously read config three+ times). The layered settings.json loaders
   // (permissions / mcp / hooks) are bypassed only when `opts.settings` is
   // injected — see the `opts.settings` spreads at their call sites.
-  const settings = opts.settings ?? readConfig({ harnessHome });
+  const snapshotOptions = {
+    cwd: opts.cwd,
+    harnessHome,
+    ...(opts.settings !== undefined ? { settings: opts.settings } : {}),
+    ...(opts.skillApprovalFile !== undefined ? { skillApprovalFile: opts.skillApprovalFile } : {}),
+    ...(opts.skillDiscovery !== undefined ? { skillDiscovery: opts.skillDiscovery } : {}),
+  };
+  const settingsSnapshot =
+    opts.settings !== undefined
+      ? loadRuntimeSettingsSnapshot(snapshotOptions)
+      : (opts.settingsSnapshot ?? loadRuntimeSettingsSnapshot(snapshotOptions));
+  const settings = settingsSnapshot.config;
   // Task 4.3 — the raw injected settings, captured for the scheduler's
   // child-provider resolution + the live-reload closures below
   // (reresolveProvider / reloadHooks / reloadMcpServers / rebuildTaskRouting).
@@ -823,23 +838,27 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
 
   // One profile-owned manager publishes complete generations. Contexts retain
   // the manager reference, so new calls observe successful mutations.
+  let initialSkillLoad = true;
   const skillRuntime =
     opts.skillRuntime ??
     createSkillRuntime({
-      discovery: {
-        mode: 'metadata',
-        ...(settings.skills?.discovery?.projectRoot !== undefined
-          ? { projectRoot: settings.skills.discovery.projectRoot }
-          : {}),
-        ...(settings.skills?.discovery?.allowedLinkRoots !== undefined
-          ? { allowedLinkRoots: settings.skills.discovery.allowedLinkRoots }
-          : {}),
-        ...opts.skillDiscovery,
-        cwd: opts.cwd,
-        harnessHome,
-        ...(bundle ? { bundleRoot: bundle.root } : {}),
-        extraRoots: pluginContributions.skillRoots,
-        warn: (msg) => process.stderr.write(`[skills] ${msg}\n`),
+      load: () => {
+        const snapshot = initialSkillLoad
+          ? settingsSnapshot
+          : loadRuntimeSettingsSnapshot(snapshotOptions);
+        initialSkillLoad = false;
+        for (const root of snapshot.unavailableApprovalRoots)
+          process.stderr.write(`[skills] approved link root is unavailable: ${root}\n`);
+        return loadSkillRegistry({
+          mode: 'metadata',
+          ...opts.skillDiscovery,
+          ...snapshot.discovery,
+          cwd: opts.cwd,
+          harnessHome,
+          ...(bundle ? { bundleRoot: bundle.root } : {}),
+          extraRoots: pluginContributions.skillRoots,
+          warn: (msg) => process.stderr.write(`[skills] ${msg}\n`),
+        });
       },
       store: createSovSkillStore(join(harnessHome, 'skills', 'agent-created')),
     });
@@ -866,6 +885,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     cwd: opts.cwd,
     harnessHome,
     ...(opts.settings !== undefined ? { settings: opts.settings } : {}),
+    snapshot: settingsSnapshot,
   });
   let mcpClientPool: McpClientPool | undefined =
     opts.mcpClientPool ??
@@ -926,9 +946,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       cwd: opts.cwd,
       harnessHome,
       ...(opts.settings !== undefined ? { settings: opts.settings } : {}),
+      snapshot: settingsSnapshot,
     });
     const settingsPaths = getPermissionSettingsPaths({ cwd: opts.cwd, harnessHome });
-    const presentSources = new Set(ps.sources);
+    const presentSources = new Set(settingsSnapshot.layers.map((layer) => layer.name));
     const liveByServer = new Map<string, string[]>();
     if (mcpClientPool !== undefined) {
       for (const handle of mcpClientPool.servers()) {
@@ -943,7 +964,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       settingsLayers: settingsPaths.map((p) => ({
         name: p.name,
         path: p.path,
-        present: presentSources.has(p.path),
+        present: presentSources.has(p.name),
       })),
       mcpServers: Object.entries(mcpSettings.servers).map(([name, cfg]) => {
         const liveTools = liveByServer.get(name);
@@ -1353,34 +1374,48 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // unset (a real dev machine / any embedder), which silently opened the
   // GLOBAL ~/.harness/sessions.db. Threading `harnessHome` here makes the DB
   // land under the home the runtime was actually built with.
-  const sessionDb = SessionDb.open({
-    path: opts.dbPath ?? join(harnessHome, 'sessions.db'),
-  });
-  const phantomsCleaned = sessionDb.cleanupPhantomReviews();
-  if (phantomsCleaned > 0) {
-    process.stderr.write(`[review] cleaned up ${phantomsCleaned} phantom review row(s)\n`);
-  }
-  const cronSessionsCleaned = sessionDb.cleanupOldCronSessions();
-  if (cronSessionsCleaned > 0) {
-    process.stderr.write(`[cron] cleaned up ${cronSessionsCleaned} old cron session row(s)\n`);
-  }
-  // Fix F6 — sweep idle channel sessions on the same boot cadence as the cron
-  // sweep. Channel sessions reuse deterministic colon-ids forever and aren't
-  // REST-deletable, so without this their rows/messages/trajectories grow
-  // unbounded. Ages by last_updated (30-day default) so active chats survive.
-  const channelSessionsCleaned = sessionDb.cleanupOldChannelSessions();
-  if (channelSessionsCleaned > 0) {
-    process.stderr.write(
-      `[channels] cleaned up ${channelSessionsCleaned} old channel session row(s)\n`,
-    );
-  }
-
-  if (opts.resumeId !== undefined) {
-    const existing = sessionDb.getSession(opts.resumeId);
-    if (existing === null) {
-      sessionDb.close();
-      throw new SessionNotFoundError(opts.resumeId);
+  const sessionDb = (() => {
+    try {
+      return SessionDb.open({ path: opts.dbPath ?? join(harnessHome, 'sessions.db') });
+    } catch (error) {
+      throw new SessionPersistenceError(error);
     }
+  })();
+  try {
+    const phantomsCleaned = sessionDb.cleanupPhantomReviews();
+    if (phantomsCleaned > 0) {
+      process.stderr.write(`[review] cleaned up ${phantomsCleaned} phantom review row(s)\n`);
+    }
+    const cronSessionsCleaned = sessionDb.cleanupOldCronSessions();
+    if (cronSessionsCleaned > 0) {
+      process.stderr.write(`[cron] cleaned up ${cronSessionsCleaned} old cron session row(s)\n`);
+    }
+    // Fix F6 — sweep idle channel sessions on the same boot cadence as the cron
+    // sweep. Channel sessions reuse deterministic colon-ids forever and aren't
+    // REST-deletable, so without this their rows/messages/trajectories grow
+    // unbounded. Ages by last_updated (30-day default) so active chats survive.
+    const channelSessionsCleaned = sessionDb.cleanupOldChannelSessions();
+    if (channelSessionsCleaned > 0) {
+      process.stderr.write(
+        `[channels] cleaned up ${channelSessionsCleaned} old channel session row(s)\n`,
+      );
+    }
+
+    if (opts.resumeId !== undefined) {
+      const existing = sessionDb.getSession(opts.resumeId);
+      if (existing === null) {
+        sessionDb.close();
+        throw new SessionNotFoundError(opts.resumeId);
+      }
+    }
+  } catch (error) {
+    if (error instanceof SessionNotFoundError) throw error;
+    try {
+      sessionDb.close();
+    } catch {
+      /* Preserve the original persistence failure. */
+    }
+    throw new SessionPersistenceError(error);
   }
 
   // Permission cascade — honors the user's `~/.harness/config.json`
@@ -1393,6 +1428,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     cwd: opts.cwd,
     harnessHome,
     ...(opts.settings !== undefined ? { settings: opts.settings } : {}),
+    snapshot: settingsSnapshot,
   });
   const permissionMode: PermissionMode =
     opts.permissionMode !== undefined
@@ -1446,6 +1482,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
     cwd: opts.cwd,
     harnessHome,
     ...(opts.settings !== undefined ? { settings: opts.settings } : {}),
+    snapshot: settingsSnapshot,
   });
   const hookConsentStore = buildFileConsentStore(join(harnessHome, 'shell-hooks-allowlist.json'));
   const hookConsent = buildConsentChecker({
@@ -1714,7 +1751,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const rebuildTaskRouting = async (): Promise<void> => {
     // Backlog #55 — hot-reload from the runtime's harnessHome, not the global.
     // Task 4.3 — injected settings are re-applied verbatim (no disk read).
-    const fresh = injected ?? readConfig({ harnessHome });
+    const fresh = loadRuntimeSettingsSnapshot(snapshotOptions).config;
     const freshEnabled = resolveTaskRoutingEnabled(
       process.env.SOV_TASK_ROUTING_ENABLED,
       fresh.taskRouting?.enabled,
@@ -1799,7 +1836,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   ): Promise<void> => {
     // Task 4.3 — injected settings are re-applied verbatim (no disk read).
     if (opts.sdkRoute !== undefined) throw new Error('SDK route cannot change provider');
-    const fresh = injected ?? readConfig({ harnessHome });
+    const fresh = loadRuntimeSettingsSnapshot(snapshotOptions).config;
     const nextProviderName = providerOverride ?? runtime.resolvedProvider.transport.name;
     const useRouterNow =
       nextProviderName === 'router' ||
@@ -1915,6 +1952,7 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       cwd: opts.cwd,
       harnessHome,
       ...(injected !== undefined ? { settings: injected } : {}),
+      snapshot: loadRuntimeSettingsSnapshot(snapshotOptions),
     });
     const freshConsentStore = buildFileConsentStore(
       join(harnessHome, 'shell-hooks-allowlist.json'),
@@ -1939,32 +1977,33 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   // is never severed mid-turn (this runs between turns).
   const reloadMcpServers = async (): Promise<void> => {
     const previousPool = mcpClientPool;
+    const freshSnapshot = loadRuntimeSettingsSnapshot(snapshotOptions);
     // Task 4.3 — same conditional spread as the boot-time loadMcpServerSettings
     // call: injected settings ⇒ no settings.json read; otherwise unchanged.
-    mcpSettings = loadMcpServerSettings({
+    const nextSettings = loadMcpServerSettings({
       cwd: opts.cwd,
       harnessHome,
       ...(injected !== undefined ? { settings: injected } : {}),
+      snapshot: freshSnapshot,
     });
-    mcpClientPool =
-      Object.keys(mcpSettings.servers).length > 0
+    const nextClientPool =
+      Object.keys(nextSettings.servers).length > 0
         ? await buildMcpClientPool({
-            servers: mcpSettings.servers,
+            servers: nextSettings.servers,
             log: (msg) => process.stderr.write(`${msg}\n`),
             env: process.env,
           })
         : undefined;
-    mcpTools = mcpClientPool
-      ? wrapMcpTools(mcpClientPool.tools(), mcpClientPool, (msg) =>
+    const nextTools = nextClientPool
+      ? wrapMcpTools(nextClientPool.tools(), nextClientPool, (msg) =>
           process.stderr.write(`${msg}\n`),
         )
       : [];
-    runtime.mcpClientPool = mcpClientPool;
 
     // Recompute tool visibility from fresh config (same flags rebuildTaskRouting
     // uses) and reassemble the pool with the new MCP tools, mutating in place.
     // Task 4.3 — injected settings are re-applied verbatim (no disk read).
-    const fresh = injected ?? readConfig({ harnessHome });
+    const fresh = freshSnapshot.config;
     const freshEnabled = resolveTaskRoutingEnabled(
       process.env.SOV_TASK_ROUTING_ENABLED,
       fresh.taskRouting?.enabled,
@@ -1983,10 +2022,14 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
       ...(fresh.webSearch !== undefined ? { webSearch: fresh.webSearch } : {}),
     };
     const freshPool = assembleToolPool(freshToolCtx, {
-      mcpTools,
+      mcpTools: nextTools,
       harnessInfoSnapshot,
       workflowRunTool,
     });
+    mcpSettings = nextSettings;
+    mcpClientPool = nextClientPool;
+    mcpTools = nextTools;
+    runtime.mcpClientPool = nextClientPool;
     runtime.toolPool.length = 0;
     runtime.toolPool.push(...freshPool);
     finalToolPoolRef = runtime.toolPool;
