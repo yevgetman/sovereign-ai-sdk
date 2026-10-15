@@ -20,6 +20,7 @@ import { estimateUsageCost, SessionWorkQueue, SessionWorkQueueError, buildTool, 
 // lives at the `./version` public subpath, not on the frozen `./sdk` barrel.
 import { VERSION } from '@yevgetman/sov-sdk/version';
 import { runTools } from '@yevgetman/sov-sdk/core/orchestrator';
+import { normalizeSkillDescriptor } from '@yevgetman/sov-sdk/skills/descriptor';
 import { z } from 'zod';
 
 /** The one user turn this canary runs. */
@@ -27,6 +28,19 @@ const QUESTION = 'echo this please';
 
 /** The deterministic sentinel the scripted provider ends the turn with. */
 const SENTINEL = `Echoed: ${QUESTION}`;
+
+// Exercise the built descriptor through the installed public subpath under
+// Node and Bun, including their supported engine floors. Kernel data cannot
+// turn an unsupported execution request into permission or routing authority.
+const kernelDescriptor = normalizeSkillDescriptor({
+  context: 'kernel', version: 3, composition: { schema_version: 1, members: [] },
+});
+assert.equal(kernelDescriptor.execution.supported, true);
+assert.equal(kernelDescriptor.frontmatter.context, 'kernel');
+assert.deepEqual(kernelDescriptor.toolPolicy, { restrictedTools: [], preapprovedTools: [] });
+for (const unsupported of [{ context: 'fork' }, { context: 'future' }, { context: 'kernel', hooks: {} }]) {
+  assert.equal(normalizeSkillDescriptor(unsupported).execution.supported, false);
+}
 
 // ── Resolution probe: pin which exports condition THIS runtime resolved ─────
 // Guarded because import.meta.resolve is unflagged only on node >= 20.6 (the
