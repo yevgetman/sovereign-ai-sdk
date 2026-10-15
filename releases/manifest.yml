@@ -1,4 +1,23 @@
 schema_version: 4
 product: sovereign-ai-sdk
 version: 0.16.1
-items: []
+items:
+  - id: sdk-pr-95
+    product: sovereign-ai-sdk
+    title: Native Kernel skill compatibility with unchanged host authority
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/95
+    merged_at: 2026-10-15T12:18:12Z
+    commits:
+      - sha: 07fcc250950839c56140258db6a2c1d7973197f3
+        mainline: 1
+    requires: []
+    reason: null
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38730805582
+      - https://github.com/yevgetman/sovereign-ai-sdk/blob/850451449016c3c3e2dd5c42b1f71b7c35a58be3/docs/06-testing/testing-log.md
+      - https://github.com/yevgetman/sovereign-ai-docs/blob/8282881/state/memory/session-log.md
+      - "Patch policy: no frozen barrel export names change; additive optional
+        diagnostics and deep-subpath compatibility preserve consumers."
+      - "Limit: matching Kernel producer contract and installed cross-product
+        support remain unverified; synthetic fixtures certify only the SOV
+        mechanism."
