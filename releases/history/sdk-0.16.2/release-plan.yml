@@ -1,7 +1,7 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: 2026-10-15T20:55:07.585Z
+updated_at: 2026-10-15T21:08:15.335Z
 checkout: .
 last_release: &a1
   version: 0.16.1
@@ -24,7 +24,7 @@ release:
   product: sovereign-ai-sdk
   version: 0.16.2
   cli_version: 0.6.82
-  status: frozen
+  status: released
   base: *a1
   applied_commits:
     - item_id: sdk-pr-97
@@ -108,6 +108,6 @@ release:
       filename: yevgetman-sov-sdk-0.16.2.tgz
       sha256: a8c4f8fab29a2bd793b97fbe0540cf80d09118eae1cc9b4c1810ace9985f3850
       location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.82/yevgetman-sov-sdk-0.16.2.tgz
-  published_at: null
-  publication_evidence: null
+  published_at: 2026-10-15T21:02:40Z
+  publication_evidence: releases/history/sdk-0.16.2/publication.json
   manifest_sha256: 11b56e18e83c5e3c210606d93379a28cc118080759400fe708ef31c3ed2b567d
