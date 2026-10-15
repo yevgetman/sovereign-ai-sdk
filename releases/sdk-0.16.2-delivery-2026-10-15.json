@@ -1,0 +1,210 @@
+{
+  "operation": "complete-published-release-delivery",
+  "release_id": "sdk-0.16.2",
+  "sdk_version": "0.16.2",
+  "cli_version": "0.6.82",
+  "source_commit": "d1af49f5f4640ac0525f5cb61fb1a81c73c09684",
+  "frozen_manifest_commit": "b3bad9280416f4948de89b6b4fdf725cb30788c5",
+  "frozen_manifest_sha256": "11b56e18e83c5e3c210606d93379a28cc118080759400fe708ef31c3ed2b567d",
+  "immutable_archive_commit": "6635d413529f926c71bd13e8e5d3912683ca2431",
+  "immutable_archive": "https://github.com/yevgetman/sovereign-ai-sdk/tree/6635d413529f926c71bd13e8e5d3912683ca2431/releases/history/sdk-0.16.2",
+  "publication": "https://github.com/yevgetman/sov-releases/releases/tag/v0.6.82",
+  "publication_verified": {
+    "all_eight_public_files_match_frozen_bytes": true,
+    "both_checksum_sets_match": true,
+    "five_platform_metadata_and_source_match": true,
+    "both_downloaded_mac_versions_and_strict_adhoc_signatures": "pass",
+    "actual_tag_workflow": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38806961535",
+    "actual_tag_workflow_result": "success; existing verified release upload skipped without overwriting artifacts"
+  },
+  "local_public_binary": {
+    "result": "pass",
+    "at": "2026-10-15T21:09:31.426567+00:00",
+    "version": "0.6.82",
+    "path": "/Users/julie/.sov/bin/sov",
+    "binary_sha256": "dffbfa690d1a0e7516941009b86cf91bea3000fe010b6d9c77309773d9bbe133",
+    "published_binary_match": true,
+    "all_public_payload_files_match": 32,
+    "method": "Atomic same-path replacement of only3verified published files; standard directory-swapping updater dry-run only. Preserve login epoch/generation path and all other installation state.",
+    "replaced": [
+      "build-inputs.json",
+      "version",
+      "bin/sov"
+    ],
+    "root_inode_unchanged": true,
+    "auth_lock_directory_inode_unchanged": true,
+    "configuration_credentials_sessions_untouched": true,
+    "running_processes_stopped": false,
+    "signatures": "both strict pass"
+  },
+  "independent_local_review": {
+    "result": "pass",
+    "method_review": "Only3different public payload files atomically replaced at existing paths; directory-swapping updater withheld due auth state continuity concern.",
+    "installed_path": "/Users/julie/.sov/bin/sov",
+    "public_payload_files_match": 32,
+    "root_inode_unchanged": true,
+    "binary_sha256": "dffbfa690d1a0e7516941009b86cf91bea3000fe010b6d9c77309773d9bbe133",
+    "no_auth_config_session_values_opened": true
+  },
+  "consumer_source_pins": [
+    {
+      "repository": "yevgetman/kernel-runtime",
+      "pin_pr": "https://github.com/yevgetman/kernel-runtime/pull/410",
+      "pin_head": "363d868dfee265e2f1a4796bbe5ffc005c482f41",
+      "pin_merge_sha": "8360b85b73d023727943ceb6dcfd16cd1e1bd8c4",
+      "manifest_pr": "https://github.com/yevgetman/kernel-runtime/pull/411",
+      "manifest_head": "511fb4fe072660ac50e681109527548c21d080e8",
+      "manifest_merge_sha": "11c4c604fd24ae0a60c729927920ab4b77548987",
+      "planned_version": "0.50.77",
+      "tests": "149passed; typecheck/build/Node20.19.0 import/packed integrity/lock isolation/kernel lint/schema relationships pass",
+      "consumer_publication": false
+    },
+    {
+      "repository": "yevgetman/kernel-installer",
+      "pin_pr": "https://github.com/yevgetman/kernel-installer/pull/301",
+      "pin_head": "44cf3577798dd1c1dc9caf101e335828de65a7a7",
+      "pin_merge_sha": "0fca3ddb459d7217b4807beab69a7486cea7e674",
+      "manifest_pr": "https://github.com/yevgetman/kernel-installer/pull/302",
+      "manifest_merge_sha": "b6e4e219979444e4e5cd59c62eb7b2e0c72d65f3",
+      "planned_version": "0.72.96",
+      "tests": "3068frontendpassed/1skip;1122Rustpassed/15ignored;typecheck/build/check;61releaseguards+extra suites pass; GitHub pin frontend passed; GitHub bookkeeping frontend passed; archived/active Draft202012 formats and relationships pass",
+      "consumer_publication": false,
+      "manifest_head": "b3bc05aa89c2379183148aeb0601f7127677d584",
+      "archive_commit": "64bb5fa3c9759905cbe6457d3a08e515ed313df1",
+      "in_flight_version": "0.72.95",
+      "in_flight_status": "frozen",
+      "verified_baseline": "0.72.94",
+      "following_freeze_blocker": "Preceding0.72.95 must validate publication and advance baseline before0.72.96 can freeze."
+    },
+    {
+      "repository": "https://github.com/yevgetman/telekit",
+      "checked_at": "2026-10-15T21:25:11.457160+00:00",
+      "pin_pr": "https://github.com/yevgetman/telekit/pull/77",
+      "pin_head": "6076e5e56cfcf2e3d8180f7efbcdb06e76098c0a",
+      "pin_merge_sha": "60bf11e6e5a8527dce2ed387ec593a4e80c0d2ac",
+      "manifest_pr": "https://github.com/yevgetman/telekit/pull/90",
+      "manifest_head": "d760bc7973ec6e8b871fee7fcf636166b73f0d52",
+      "manifest_merge_sha": "5ede678f0a932aedcee9206bb4c91f23f192a18a",
+      "planned_version": "0.64.25",
+      "sdk_version": "0.16.2",
+      "cli_version": "0.6.82",
+      "source_commit": "d1af49f5f4640ac0525f5cb61fb1a81c73c09684",
+      "manifest_archive_commit": "6635d413529f926c71bd13e8e5d3912683ca2431",
+      "tests": {
+        "python": "3.13.12",
+        "environment": "All inherited TELEKIT_* variables removed; PYTHONDONTWRITEBYTECODE=1",
+        "full_pytest": {
+          "passed": 4399,
+          "failed": 0,
+          "seconds": 586.96,
+          "log": "releases/sov-0.6.82-source-gates-pytest.txt",
+          "log_sha256": "832fa2b9a7f583471c8b83354855a321d637c9b1db3d92dccd46a88faf9023ce"
+        },
+        "installer_pytest": {
+          "passed": 22,
+          "failed": 0
+        },
+        "shell_syntax": "pass: install.sh, scripts/install-sov.sh, telekit/assets/install-sov.sh, build/install.sh",
+        "source_residue_scan": "clean",
+        "user_docs": "pass: scripts/check-user-docs.py --all",
+        "vendored_decision_check": "pass: scripts/check_decision_vendor.py",
+        "manifest_schemas": "Draft2020-12 with format checking pass; draft remains0.64.25 with PR62/65 preserved",
+        "live_runtime_change": false
+      },
+      "independent_review": "Parent coordinator reviewed original functional diff, final evidence head and manifest head; all pass, no findings above Low.",
+      "manifest_items": [
+        "telekit-pr-62",
+        "telekit-pr-65",
+        "telekit-pr-77"
+      ],
+      "manifest_pin_mainline": 1,
+      "manifest_pin_requires": [
+        "telekit-pr-62"
+      ],
+      "consumer_published": false,
+      "consumer_installed": false,
+      "daemon_restarted": false,
+      "live_messages_sent": false,
+      "fixed_store": "/Users/julie/code/sovereign-ai-sdk/build/release/0.6.82",
+      "fixed_store_verified": true,
+      "receipts": [
+        "releases/sov-0.6.82-pin-2026-10-15.json",
+        "releases/sov-0.6.82-pin-review-2026-10-15.json",
+        "releases/sov-0.6.82-source-gates-pytest.txt"
+      ],
+      "limitations": [
+        "No Telekit runtime build or publication was requested. Source pin is scheduled in the existing0.64.25 draft.",
+        "Full source gate uses isolated fixtures and does not certify paid-provider behavior."
+      ],
+      "retry": "One normal push returned remote Internal Server Error; remote ref was verified unchanged and identical normal push then succeeded."
+    }
+  ],
+  "next_draft": {
+    "sdk": "0.16.3",
+    "sov": "0.6.83",
+    "items": 0,
+    "derived_cut_fields_reset": true
+  },
+  "boundaries": {
+    "npm_published": false,
+    "consumer_products_published_by_this_operation": false,
+    "consumer_installations_or_service_restarts": false,
+    "paid_provider_or_installed_kernel_producer_certification": false
+  },
+  "limits": [
+    "Linux arm64 is cross-compiled.",
+    "Mac executable signatures are ad hoc; no Developer ID or notarization claim.",
+    "Archived SDK raw scan finding is retained with independent public-identity adjudication.",
+    "Existing failure and retry records remain in the immutable archive."
+  ],
+  "checked_at": "2026-10-15T21:25:39.454099+00:00",
+  "independent_consumer_review": {
+    "reviewer": "parent-independent-functional-review",
+    "checked_at": "2026-10-15T21:22:04.462885+00:00",
+    "installer": {
+      "head": "44cf3577798dd1c1dc9caf101e335828de65a7a7",
+      "result": "pass",
+      "scope": "SOV default and both exact public Mac hashes only; README and verified provenance/gates. Unrelated pins and compatibility floor unchanged.",
+      "manifest_review": {
+        "archive_head": "64bb5fa3c9759905cbe6457d3a08e515ed313df1",
+        "following_draft_head": "b3bc05aa89c2379183148aeb0601f7127677d584",
+        "result": "pass",
+        "actual_pin_merge": "0fca3ddb459d7217b4807beab69a7486cea7e674",
+        "planned_version": "0.72.96",
+        "preserved_frozen_inflight": "0.72.95",
+        "frozen_manifest_sha256": "a7cfca5db957dc912871c32c2442d6b7aadb995e12ec24d603ec58869439fae3"
+      }
+    },
+    "telekit": {
+      "reviewed_head": "87b219c",
+      "result": "pass",
+      "scope": "Version-only helper line; positive fixtures0.6.82 and wrong-version negative0.6.83; docs and public provenance. Final receipt/test head pending.",
+      "head": "6076e5e56cfcf2e3d8180f7efbcdb06e76098c0a",
+      "source_gates": "4399passed/0failed; installer22; source/docs/vendor/scanner/shell/schema gates pass; fixed Mac store verified.",
+      "manifest_review": {
+        "head": "d760bc7973ec6e8b871fee7fcf636166b73f0d52",
+        "result": "pass",
+        "actual_pin_merge": "60bf11e6e5a8527dce2ed387ec593a4e80c0d2ac",
+        "planned_version": "0.64.25",
+        "preserved_prior_items": [
+          "telekit-pr-62",
+          "telekit-pr-65"
+        ]
+      }
+    },
+    "runtime": {
+      "reviewed_base": "4f7b7b52",
+      "result": "pass",
+      "scope": "Exact published SDK archive and matching package/lock records only; no transitive dependency changes. Docs and provenance match0.16.2/0.6.82; final gate receipt pending.",
+      "head": "363d868dfee265e2f1a4796bbe5ffc005c482f41",
+      "source_gates": "149passed/0failed; cleaninstall/types/build/Node20.19floor/lock identity/kernel lint pass. Existing audit findings retained; no unrelated lock resolution changes.",
+      "manifest_review": {
+        "head": "511fb4fe072660ac50e681109527548c21d080e8",
+        "result": "pass",
+        "actual_pin_merge": "8360b85b73d023727943ceb6dcfd16cd1e1bd8c4",
+        "planned_version": "0.50.77"
+      }
+    }
+  },
+  "result": "complete"
+}
