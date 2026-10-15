@@ -21,13 +21,13 @@ release when the selected work also changes the wrapper. A library-only cut may
 retain the published CLI version. Protocol/debug-console versions remain unchanged
 unless explicitly selected work requires their own release preparation.
 
-The verified cut released SDK **0.16.1** and CLI **0.6.81**. The active empty
-draft plans SDK **0.16.2** and CLI **0.6.82** from that published baseline.
-PR95 provides the single Kernel skill compatibility feature; PR96 provides reviewed
-version/notes preparation. Both exact main merges are mapped once into the assembled build.
-Immutable `releases/history/sdk-0.16.1/` retains the frozen manifest, both schemas,
-source mappings, independent reviews, QA and all-eight-file publication proof.
-Kernel producer integration remains unverified. No new frozen SDK exports changed.
+The verified cut released SDK **0.16.2** and CLI **0.6.82**. The active empty
+draft plans SDK **0.16.3** and CLI **0.6.83** from that published baseline.
+PR97 provides the layered settings repair; PR100 provides reviewed version/notes
+preparation. Each merge maps once into the exact assembled build. Immutable
+releases/history/sdk-0.16.2/ retains frozen manifest/schema/source/review/QA and
+all-eight-file publication proof. Kernel producer integration remains unverified.
+No new frozen SDK root exports changed. Consumer pins and local binary state are separate records.
 
 ## Adding work
 

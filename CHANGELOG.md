@@ -1,8 +1,8 @@
 # Changelog
 
-## SDK 0.16.2 / SOV 0.6.82 — 2026-10-15 (release candidate)
+## SDK 0.16.2 / SOV 0.6.82 — 2026-10-15 (verified public release)
 
-- Include the single reviewed layered Kernel skill settings repair from [PR97](https://github.com/yevgetman/sovereign-ai-sdk/pull/97), plus reviewed release preparation. Publication is pending exact-build validation and public-byte proof.
+- Include the single reviewed layered Kernel skill settings repair from [PR97](https://github.com/yevgetman/sovereign-ai-sdk/pull/97), plus reviewed release preparation. All eight public downloads match the frozen cut; exact source and publication proof are archived under releases/history/sdk-0.16.2/.
 - Resolve discovery settings from one strict, bounded snapshot across native run, dispatch, runtime reload and local doctor. Explicit host settings take precedence over node-local and profile layers; the first defined approval list replaces inherited lists and `[]` clears them.
 - Keep host approval files authoritative and project boundaries fixed. Version-controlled project settings cannot grant external-link approvals or change the project root. Reject redirected local trust files, incomplete snapshots and stale refresh state; retain containment and tool permission checks.
 - Validate native configuration before credential access or session creation. Invalid configuration returns the typed `configuration_invalid` / `check_configuration` outcome; persistence failures retain their storage classification. Offline routes expose the shared discovery contract without asserting live-provider readiness.

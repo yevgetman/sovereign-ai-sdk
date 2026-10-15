@@ -1,0 +1,61 @@
+{
+  "result": "pass",
+  "checked_at": "2026-10-15T21:05:02.494945+00:00",
+  "build_commit": "d1af49f5f4640ac0525f5cb61fb1a81c73c09684",
+  "sdk_version": "0.16.2",
+  "cli_version": "0.6.82",
+  "artifacts": [
+    {
+      "arch": "darwin-arm64",
+      "filename": "sov-darwin-arm64.tar.gz",
+      "sha256": "211fdf2ff90b5fb475f5c511c13719fb731175a429d7d28f6725808f6f0c2753",
+      "size": 34276217,
+      "source_commit": "d1af49f5f4640ac0525f5cb61fb1a81c73c09684"
+    },
+    {
+      "arch": "darwin-x64",
+      "filename": "sov-darwin-x64.tar.gz",
+      "sha256": "5391152c5c5008615db2c495ea7c9259420947f647736deed38930873cf6b490",
+      "size": 37345098,
+      "source_commit": "d1af49f5f4640ac0525f5cb61fb1a81c73c09684"
+    },
+    {
+      "arch": "linux-arm64",
+      "filename": "sov-linux-arm64.tar.gz",
+      "sha256": "22b4c1e24655eecf4738d4ee28cd57d12cecd490ef3a84a048d772df3e993af1",
+      "size": 44851648,
+      "source_commit": "d1af49f5f4640ac0525f5cb61fb1a81c73c09684"
+    },
+    {
+      "arch": "linux-x64",
+      "filename": "sov-linux-x64.tar.gz",
+      "sha256": "3ff71f134c00d2e2eab2b010ac82e878d7954820973e901941b8a7bb523df7b9",
+      "size": 45296142,
+      "source_commit": "d1af49f5f4640ac0525f5cb61fb1a81c73c09684"
+    },
+    {
+      "arch": "windows-x64",
+      "filename": "sov-windows-x64.zip",
+      "sha256": "936cbb01d4bce60aa6214ccb8b0d755da9aa5b18aacaf450194a807170f21f1b",
+      "size": 48413417,
+      "source_commit": "d1af49f5f4640ac0525f5cb61fb1a81c73c09684"
+    },
+    {
+      "arch": "package",
+      "filename": "yevgetman-sov-sdk-0.16.2.tgz",
+      "sha256": "a8c4f8fab29a2bd793b97fbe0540cf80d09118eae1cc9b4c1810ace9985f3850",
+      "size": 1114545
+    },
+    {
+      "filename": "SHA256SUMS",
+      "sha256": "9d2a3ad9292f56e07b2eb6612ec8afac521604de3380670168c0040978c715ed",
+      "size": 440
+    },
+    {
+      "filename": "SDK-SHA256SUMS",
+      "sha256": "743f7566af7809a1d34ce6e9442b99267f030e1aa8cd6e1966ba45c31617b62a",
+      "size": 95
+    }
+  ],
+  "native_mac_versions_and_strict_adhoc_signatures": "pass"
+}
