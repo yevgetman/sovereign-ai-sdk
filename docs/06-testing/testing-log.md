@@ -1,3 +1,11 @@
+## 2026-10-15 — Portable trust-file link rejection follow-up
+
+Added explicit pre-open and post-open `lstat` rejection of redirected trust files, alongside the existing parent checks, descriptor identity check and `O_NOFOLLOW` guard. This retains the trust rule where that OS flag is unavailable.
+
+`bun run lint`, `bun run typecheck`, and `bun run build` pass. `bun test tests/config/skillSettingsSnapshot.test.ts tests/config/settings.test.ts tests/config/settingsInjection.test.ts tests/server/runtime.test.ts tests/cli/sdkRunSettings.test.ts`: **76 pass / 0 fail**, 217 assertions across five files. The prior complete source gate remains 6516 pass / 19 existing skips / 0 fail. A redundant full rerun was stopped after Kernel-dev confirmed focused checks were sufficient for this narrow guard; that stopped run is not counted as a completed gate.
+
+Rebuilt `/tmp/sdk-skill-settings-sov` and reran `python3 scripts/canary/skill-settings-binary.py /tmp/sdk-skill-settings-sov`: all **18 completed turns** and the same sandbox, approval, resource, resume and error checks pass. Final binary SHA256: `2c200d4b7031f7d32b9514516c49dcae6fefbe5fe04c4214ffcb37e33e991c17`. No live installation or configuration changed.
+
 ## 2026-10-15 — Node-local skill settings and host approval snapshots
 
 Scope: `fix/skill-settings-20261015`, clean worktree from `origin/master` `aaabd0dc`. Strict shared discovery schema; bounded complete disk snapshots; local/profile replacement precedence; host-fixed approval files and seat project boundaries; runtime/dispatch/doctor/reload parity; pre-credential native configuration errors and preserved persistence errors. SDK/CLI versions and release records remain unchanged.

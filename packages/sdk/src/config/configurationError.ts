@@ -6,7 +6,6 @@ import {
   openSync,
   readSync,
   realpathSync,
-  statSync,
 } from 'node:fs';
 import { dirname } from 'node:path';
 import type { z } from 'zod';
@@ -39,13 +38,15 @@ export function readConfiguration<T>(
         if (lstatSync(dirname(path)).isSymbolicLink())
           throw new ConfigurationError(source, 'document', 'redirected parent');
         parentRealpath = realpathSync(dirname(path));
+        if (lstatSync(path).isSymbolicLink())
+          throw new ConfigurationError(source, 'document', 'redirected file');
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
     }
     fd = openSync(
       path,
-      constants.O_RDONLY | constants.O_NONBLOCK | (trustedFile ? constants.O_NOFOLLOW : 0),
+      constants.O_RDONLY | constants.O_NONBLOCK | (trustedFile ? (constants.O_NOFOLLOW ?? 0) : 0),
     );
     if (
       trustedFile &&
@@ -54,8 +55,8 @@ export function readConfiguration<T>(
       throw new ConfigurationError(source, 'document', 'redirected parent');
     const info = fstatSync(fd);
     if (trustedFile) {
-      const current = statSync(path);
-      if (current.ino !== info.ino || current.dev !== info.dev)
+      const current = lstatSync(path);
+      if (current.isSymbolicLink() || current.ino !== info.ino || current.dev !== info.dev)
         throw new ConfigurationError(source, 'document', 'file changed during read');
     }
     const cap = DEFAULT_SKILL_DISCOVERY_LIMITS.maxFileBytes;
