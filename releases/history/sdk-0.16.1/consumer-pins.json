@@ -1,0 +1,66 @@
+{
+  "result": "pass",
+  "at": "2026-10-15T13:07:03.203333+00:00",
+  "sdk_version": "0.16.1",
+  "cli_version": "0.6.81",
+  "source_build_commit": "0b7a69e31b26ae91201558a1a500bab25402a1bb",
+  "manifest_archive_commit": "c95b739a7c506a95e5ca2151efe4180d78965e6b",
+  "consumers": [
+    {
+      "product": "kernel-runtime",
+      "planned_version": "0.50.75",
+      "pin_pr": 362,
+      "pin_url": "https://github.com/yevgetman/kernel-runtime/pull/362",
+      "pin_head": "86af69f9e70ec667a31be2a3e4c213bb186ab0e4",
+      "pin_merge": "5c7b63712d0dd7d3b9a1c7f08dded5d6efd0a807",
+      "mainline": 1,
+      "manifest_pr": 363,
+      "manifest_url": "https://github.com/yevgetman/kernel-runtime/pull/363",
+      "manifest_merge": "08d08826d7c287b4320596147e35846c02eeb194",
+      "current_manifest_items": [
+        "runtime-pr-319",
+        "runtime-pr-336",
+        "runtime-sdk-0.16.1-pin"
+      ],
+      "schemas_and_exact_once": true,
+      "receipt": "runtime-pin-completion.json",
+      "notes": "Source pin and release scheduling only. No consumer publication, installation or service restart."
+    },
+    {
+      "product": "kernel-installer",
+      "planned_version": "0.72.95",
+      "pin_pr": 282,
+      "pin_url": "https://github.com/yevgetman/kernel-installer/pull/282",
+      "pin_head": "a05276ecac0aef8711964d2785f5af8e56507fb7",
+      "pin_merge": "af66b2584e13ef3553b10b4e7d0527960c7c43c5",
+      "mainline": 1,
+      "manifest_pr": 283,
+      "manifest_url": "https://github.com/yevgetman/kernel-installer/pull/283",
+      "manifest_merge": "faebbac4820f9a848d510d67e52d65c2ffc56fcb",
+      "current_manifest_items": [
+        "installer-sov-0.6.81"
+      ],
+      "schemas_and_exact_once": true,
+      "receipt": "mac-pin-completion.json",
+      "notes": "Source pin and release scheduling only. No consumer publication, installation or service restart."
+    },
+    {
+      "product": "telekit",
+      "planned_version": "0.64.25",
+      "pin_pr": 62,
+      "pin_url": "https://github.com/yevgetman/telekit/pull/62",
+      "pin_head": "3ef30da8069d3e44706fb410529ce3692549cb9c",
+      "pin_merge": "5011399f7c310e3a7f7e3193eb2e0acb3b0b5dc8",
+      "mainline": 1,
+      "manifest_pr": 63,
+      "manifest_url": "https://github.com/yevgetman/telekit/pull/63",
+      "manifest_merge": "33c5f963af04ad45db5c0a8a7d8fbeafe3bd16db",
+      "current_manifest_items": [
+        "telekit-pr-62"
+      ],
+      "schemas_and_exact_once": true,
+      "receipt": "telekit-pin-completion.json",
+      "notes": "Source pin and release scheduling only. No consumer publication, installation or service restart."
+    }
+  ]
+}

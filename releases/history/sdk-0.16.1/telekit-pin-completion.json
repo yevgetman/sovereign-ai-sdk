@@ -1,0 +1,51 @@
+{
+  "result": "pass",
+  "checked_at": "2026-10-15T13:06:06.904Z",
+  "product": "telekit",
+  "component": "SOV 0.6.81 / SDK 0.16.1",
+  "component_source_commit": "0b7a69e31b26ae91201558a1a500bab25402a1bb",
+  "component_manifest_archive_commit": "c95b739a7c506a95e5ca2151efe4180d78965e6b",
+  "source_pin_pr": "https://github.com/yevgetman/telekit/pull/62",
+  "source_pin_head": "3ef30da8069d3e44706fb410529ce3692549cb9c",
+  "source_pin_merge": "5011399f7c310e3a7f7e3193eb2e0acb3b0b5dc8",
+  "bookkeeping_pr": "https://github.com/yevgetman/telekit/pull/63",
+  "bookkeeping_head": "48fa6200f68c1079735f50bd6b6bcb85d9e16a88",
+  "bookkeeping_merge": "33c5f963af04ad45db5c0a8a7d8fbeafe3bd16db",
+  "verified_remote_main": "33c5f963af04ad45db5c0a8a7d8fbeafe3bd16db",
+  "planned_consumer_version": "0.64.25",
+  "verified_baseline_version": "0.64.24",
+  "fresh_schema_validation": "Both remote-main Draft2020-12 schemas with format checking pass",
+  "mainline_proof": {
+    "source_merge_parents": [
+      "e6b44a756e9c38187f4202d4f3c3b7b72a228015",
+      "3ef30da8069d3e44706fb410529ce3692549cb9c"
+    ],
+    "manifest_occurrences": 1,
+    "mainline": 1,
+    "bookkeeping_listed": false
+  },
+  "preserved_items": {
+    "previous_ids": [],
+    "preserved": true,
+    "current_ids": [
+      "telekit-pr-62"
+    ]
+  },
+  "draft_derived_fields_and_baseline_unchanged": true,
+  "validation": {
+    "python": "3.13.12",
+    "inherited_TELEKIT_environment": "removed",
+    "full_pytest_passed": 4362,
+    "full_pytest_failed": 0,
+    "installer_pytest_passed": 22,
+    "shell_syntax": "pass",
+    "source_residue": "clean",
+    "user_docs_gate": "pass under Python3.13"
+  },
+  "independent_source_review": "releases/sov-0.6.81-pin-review-2026-10-15.json",
+  "independent_bookkeeping_review": "Root approved exact PR63 head48fa6200f68c1079735f50bd6b6bcb85d9e16a88 before merge",
+  "live_telekit_publication": false,
+  "telekit_install": false,
+  "daemon_restart": false,
+  "primary_dirty_checkout": "preserved untouched"
+}

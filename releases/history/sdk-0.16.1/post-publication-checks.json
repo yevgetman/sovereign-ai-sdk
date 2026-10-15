@@ -1,0 +1,24 @@
+{
+  "result": "pass",
+  "at": "2026-10-15T12:58:59.059270+00:00",
+  "build_commit": "0b7a69e31b26ae91201558a1a500bab25402a1bb",
+  "downloaded_sdk_install": {
+    "version": "0.16.1",
+    "npm_install": "--ignore-scripts --no-audit --no-fund in isolated prefix",
+    "esm_createAgent_import": "pass"
+  },
+  "source_tags": [
+    "sdk-v0.16.1",
+    "v0.6.81"
+  ],
+  "tag_ci": {
+    "run": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/38737774333",
+    "result": "success",
+    "publication": "skipped existing public release; all8 GitHub asset digests independently match frozenbytes afterward"
+  },
+  "temporary_ci_branch_removed": true,
+  "frozen_bytes_hash_schemas_and_default_branch_build_ancestry": "pass",
+  "local_install": "local-install.json",
+  "npm_publication": false,
+  "consumer_publication_or_services_restarted": false
+}

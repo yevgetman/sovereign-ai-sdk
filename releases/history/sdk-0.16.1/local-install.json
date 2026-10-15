@@ -1,0 +1,21 @@
+{
+  "result": "pass",
+  "at": "2026-10-15T12:54:05.865325+00:00",
+  "path": "~/.sov/bin/sov",
+  "version": "0.6.81",
+  "method": "existing public sov upgrade; latest verified v0.6.81",
+  "files": {
+    "sov": {
+      "sha256": "5e53349b6f4b7c8cae1d64fc99fee76a1fa3cda7e0a5c17a201a18e89872b74f",
+      "matches_public_download": true,
+      "strict_adhoc_codesign": "pass"
+    },
+    "sov-tui": {
+      "sha256": "a42f6cf7ab292b8a344eefeb3a8cbd8d0d42e51579f6c59925e629ef6a77a0de",
+      "matches_public_download": true,
+      "strict_adhoc_codesign": "pass"
+    }
+  },
+  "services_restarted": false,
+  "source_mode_bun_install_changed": false
+}

@@ -1,0 +1,30 @@
+{
+  "result": "pass",
+  "checked_at": "2026-10-15T12:58:49.479454+00:00",
+  "consumer": "kernel-runtime",
+  "sdk_version": "0.16.1",
+  "cli_version": "0.6.81",
+  "source_pin_pr": "https://github.com/yevgetman/kernel-runtime/pull/362",
+  "source_pin_head": "86af69f9e70ec667a31be2a3e4c213bb186ab0e4",
+  "source_pin_merge": "5c7b63712d0dd7d3b9a1c7f08dded5d6efd0a807",
+  "source_pin_mainline": 1,
+  "bookkeeping_pr": "https://github.com/yevgetman/kernel-runtime/pull/363",
+  "bookkeeping_head": "a3befdff16f79682f5e249b2c21e260fe945119e",
+  "bookkeeping_merge": "08d08826d7c287b4320596147e35846c02eeb194",
+  "planned_consumer_version": "0.50.75",
+  "preserved_items": [
+    "runtime-pr-319",
+    "runtime-pr-336"
+  ],
+  "schema_and_relationship_checks": "pass against fetched origin/main; exact source pin selected once",
+  "release_publication_installation_or_restart": false,
+  "package_tests": {
+    "passed": 149,
+    "failed": 0,
+    "skipped": 0
+  },
+  "limitations": [
+    "Existing 23 transitive audit advisories retained; no SDK advisory.",
+    "No claim of combined runtime-release qualification."
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "three_schema_contexts": "pass (timestamps retained as JSON strings, not PyYAML datetime objects)",
+  "frozen_bytes_and_released_plan": "pass",
+  "exact_two_application_units_no_unlisted_commit": "pass",
+  "remote_default_ancestry_and_both_tags": "pass",
+  "observed_remote_master": "c95b739a7c506a95e5ca2151efe4180d78965e6b",
+  "empty_successor_reset": "pass",
+  "all_eight_local_downloads_current_GitHub_digests_frozen_and_checksum_files": "pass",
+  "installed_public_binary_exact_bytes_and_signatures": "pass",
+  "installed_version_output": "0.6.81",
+  "tag_CI": "success at exact build; release step log says existing release and skipping upload",
+  "at": "2026-10-15T13:00:37.273586+00:00",
+  "all_five_public_archives_source_version_target_metadata": "pass",
+  "existing_public_SDK_install_import": "SDK0.16.1 createAgent is a function"
+}
