@@ -15,15 +15,15 @@ entitlement or transport image support. See [SDK routes](https://github.com/yevg
 
 ## Install
 
-SDK **0.16.0** is distributed as a tarball in [SOV v0.6.80](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.80), with `SDK-SHA256SUMS`. Download both assets, verify the checksum, then install the local tarball:
+SDK **0.16.1** uses the version-specific tarball and `SDK-SHA256SUMS` in [SOV v0.6.81](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.81). Download both assets, verify the checksum, then install the local tarball:
 
 ```sh
-curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/yevgetman-sov-sdk-0.16.0.tgz
-curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.80/SDK-SHA256SUMS
+curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.81/yevgetman-sov-sdk-0.16.1.tgz
+curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.81/SDK-SHA256SUMS
 shasum -a 256 -c SDK-SHA256SUMS
-npm install ./yevgetman-sov-sdk-0.16.0.tgz   # Node
+npm install ./yevgetman-sov-sdk-0.16.1.tgz   # Node
 # Or:
-bun add ./yevgetman-sov-sdk-0.16.0.tgz       # Bun
+bun add ./yevgetman-sov-sdk-0.16.1.tgz       # Bun
 ```
 
 For repeatable builds, vendor the verified file and commit the dependency lockfile.
@@ -606,6 +606,16 @@ reasoning adapter that requires a larger minimum reservation still refuses an
 insufficient cap before contacting the provider.
 
 ## Skills runtime APIs
+
+SDK 0.16.1 accepts the exact `context: kernel` skill label as metadata on the
+existing inline path. Linked skills still need explicit host approval through
+`skills.discovery.allowedLinkRoots`. Local doctor diagnostics identify the exact
+canonical target and group equivalent aliases; remote diagnostics omit that
+local detail. Invocation controls, resource guards, host permissions and session
+continuity retain their existing rules. No migration or new `.` export is required.
+Kernel composition and Skill Set metadata stay inert; the matching installed
+Kernel producer integration remains unverified. See
+[compatibility and migration](https://github.com/yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-compatibility.md#migrating-to-sdk-0161).
 
 SDK 0.16.0 keeps the 0.15.x skill ports and completes Grok subscription
 `encrypted_reasoning` content. Callers must keep that entire block on rehydration and must

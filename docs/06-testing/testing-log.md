@@ -1,3 +1,11 @@
+## 2026-10-15 — SDK 0.16.1 / SOV 0.6.81 source preparation
+
+Scope: `release/prepare-sdk-0161-20261015`, based on exact PR95 merge `07fcc250950839c56140258db6a2c1d7973197f3`. Prepare the SDK patch and companion CLI version, workspace lockfile, packed install URLs, changelog and compatibility/migration notes for the single Kernel skill compatibility feature. Protocol remains 0.1.0; debug console remains 0.3.0. No functional source, manifest, immutable history or consumer pin changes.
+
+macOS arm64, Bun 1.3.13. `bun install --frozen-lockfile --linker hoisted --ignore-scripts`, `bun run build` (strict protocol/SDK), `bun run lint` (Biome + open/proprietary boundary), `bun run typecheck` (root + browser), and `bun run tui:build` pass. `env -u FORCE_COLOR bun run test`: **6497 pass / 19 existing skips / 0 fail**, 28734 assertions across 620 files, 180.22s. `bun run release:validate` passes the unchanged inherited empty SDK 0.16.1 / CLI 0.6.81 draft; selecting the feature and preparation is the release operator's separate step. `git diff --check` passes.
+
+Logs: `/private/tmp/sov-prep0161-{install,build,lint,types,tui,full,validate}.log`. These are source preparation checks, not final assembled artifact or public-download proof. A subsequent documentation-only refinement describes the packed README install contract without a temporary pending-publication claim; the source gate remains valid and diff whitespace checks pass. Prior source compatibility fixtures retain their limits: the matching installed Kernel producer contract remains unverified. No live provider or learning recall ran. No tag, public package, real profile approval, consumer pin, installed upgrade or daemon restart ran. npm publication remains Owner-operated.
+
 ## 2026-10-15 — Approved native Kernel skill compatibility
 
 Scope: Owner-approved design on `feat/kernel-skill-compatibility-20261015`, based on master `b34f3cdd8800027c40f403b3730b9e70e7f74d14`. Exact `context: kernel` metadata compatibility, approved linked fixtures, local diagnostic hints/deduplication and native session continuity. No new permissions, persistence adapter or dependency. macOS arm64, Bun1.3.13 / Node25.9.0; minimum engines checked with Node20.19.0 / Bun1.2.0. Only temporary synthetic skill nodes, mock tools and mock providers were used.
