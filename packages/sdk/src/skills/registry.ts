@@ -20,6 +20,7 @@ export type SkillRegistryDiagnostic = {
   path?: string;
   root?: string;
   realpath?: string;
+  approval?: SkillDiscoveryDecision['approval'];
 };
 export type SkillRegistryLoadResult = {
   registry: SkillRegistry;

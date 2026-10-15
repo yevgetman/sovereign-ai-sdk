@@ -16,8 +16,77 @@ refuses it. Both controls require real YAML booleans. The shared
 Fork contexts, per-skill model overrides, agent routing, hooks and skill-supplied
 permission or sandbox controls are unsupported. The loader records actionable
 diagnostics. Such skills remain inspectable but cannot activate. `context: inline`
-and `model: inherit` are supported. No tool executes merely from loading or
+and `model: inherit` are supported. Kernel's exact `context: kernel` label is
+also accepted as domain metadata; SOV still uses its normal inline path. The
+original label remains in `descriptor.frontmatter.context`. Every other defined
+context value remains unsupported, including unknown strings and malformed types.
+No context value changes the model, tools, permissions, hooks or agent routing.
+No tool executes merely from loading or
 importing these controls.
+
+## Kernel metadata and composition
+
+Kernel version fields, `tier`, `harnesses`, composition declarations and unknown
+vendor fields are retained as data. A compound skill and its separately projected
+members can be discovered and activated independently. Composition metadata does
+not dispatch members. Skill Sets are Kernel grouping metadata; availability or
+assignment does not activate members or execute their procedures in SOV.
+
+Native invocation controls still apply to every compatible Kernel skill. The
+`kernel` label never promotes a projected project skill's trust tier or bypasses
+the normal body/resource guard. Explicit native tool restrictions keep their
+existing meaning below.
+
+## Approving managed external links
+
+Project projections under `.harness/skills` or `.agents/skills` can point to
+externally stored skills only when the host explicitly approves the target.
+Merge a narrow canonical skill directory into `skills.discovery.allowedLinkRoots`
+in the selected profile's `config.json`, for example this configuration fragment:
+
+```json
+{
+  "skills": {
+    "discovery": {
+      "allowedLinkRoots": ["/srv/kernel/skills/release-check"]
+    }
+  }
+}
+```
+
+Approve only reviewed storage. Do not approve a filesystem root, a home directory
+or all Kernel state. An individual file projection can use its exact canonical
+file as the approval target; it does not require approving the containing tree.
+Embedded hosts use the existing discovery `allowedLinkRoots` option. No Kernel
+path is implicitly trusted and no setting is written by discovery or doctor.
+
+From the target project, `sov skills doctor --json` reports blocked links with
+their projected `path`, canonical `realpath`, and a local-only `approval` hint:
+`settingsField` is `skills.discovery.allowedLinkRoots` and `canonicalRoot` is the
+exact observed target. Inspect that target before approving it. Excluded internal
+storage and vendor trees do not get an approval hint. Such a hint cannot bypass
+an exclusion. The scan-only CLI option `--allowed-link-roots <exact-target>` lets
+an operator check a reviewed target without persisting configuration.
+
+The local doctor groups equivalent blocked projections, keeps the first path and
+up to 16 additional `aliases`, omits routine duplicate-realpath rows, and avoids
+repeating a structured discovery failure as a loader warning. Distinct targets,
+trust classifications, guard failures and duplicate-name conflicts remain
+separate. Remote diagnostics omit paths, aliases, approval hints and raw messages.
+
+Link approval preserves the existing identity checks. A discovered link that
+changes target is rejected by loading/reload, even when both targets are approved.
+Refresh the catalog to inspect a replacement through the normal checks.
+
+## Guidance when resuming SOV
+
+An explicitly activated linked skill uses native SOV continuity. Session guidance
+can survive later turns and `sov --resume <session-id>` through the private session
+store. A resumed turn starts with fresh activation and host permission state.
+Guidance does not restore tool grants, approvals or resource-root access, replay
+activation commands, or pass to an unrelated session. Turn-only guidance expires.
+Pinned revision and owner/profile isolation rules remain in force. See
+[skill continuity](skill-continuity.md) for lifetime and revision details.
 
 ## Tool policy
 

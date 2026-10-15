@@ -49,6 +49,12 @@ export type SkillDiscoveryDecision = {
   realpath?: string;
   source?: SkillSource;
   trustTier?: SkillTrustTier;
+  /** Local-only hint. Approving a link never changes its trust classification. */
+  approval?: {
+    settingsField: 'skills.discovery.allowedLinkRoots';
+    /** Exact observed target, including a file target; never an inferred parent. */
+    canonicalRoot: string;
+  };
   message: string;
 };
 
@@ -314,6 +320,7 @@ export async function discoverSkills(opts: SkillDiscoveryOptions): Promise<Skill
       path: string,
       message: string,
       rp?: string,
+      approval?: SkillDiscoveryDecision['approval'],
     ): void => {
       emit({
         code,
@@ -323,6 +330,7 @@ export async function discoverSkills(opts: SkillDiscoveryOptions): Promise<Skill
         trustTier: root.trustTier,
         message,
         ...(rp === undefined ? {} : { realpath: rp }),
+        ...(approval === undefined ? {} : { approval }),
       });
     };
     if (explicitlyContributed) {
@@ -364,7 +372,24 @@ export async function discoverSkills(opts: SkillDiscoveryOptions): Promise<Skill
               .some((part) => EXCLUDED_DIRECTORIES.has(part.toLowerCase())),
         )
       ) {
-        event('scope-denied', path, 'real path is outside the approved discovery scope', rp);
+        // Only a genuinely external target gets an approval hint. Exclusions
+        // within an approved scope are not fixed by widening link approval.
+        // Use the exact observed target even for file links, never its parent.
+        const external = !targets.some((target) => isPathWithin(target, rp));
+        const excluded = rp.split(sep).some((part) => EXCLUDED_DIRECTORIES.has(part.toLowerCase()));
+        const approval: SkillDiscoveryDecision['approval'] =
+          external && !excluded
+            ? { settingsField: 'skills.discovery.allowedLinkRoots', canonicalRoot: rp }
+            : undefined;
+        event(
+          'scope-denied',
+          path,
+          approval
+            ? 'external skill link needs host approval through skills.discovery.allowedLinkRoots'
+            : 'real path is outside the approved discovery scope',
+          rp,
+          approval,
+        );
         return;
       }
       try {
