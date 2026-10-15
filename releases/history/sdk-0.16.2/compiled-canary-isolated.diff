@@ -1,0 +1,19 @@
+--- scripts/canary/skill-settings-binary.py
++++ evidence/compiled-canary-isolated.py
+@@ -97,6 +97,7 @@
+         home, node, packages = root / 'home', root / 'node', root / 'packages'
+         home.mkdir()
+         (node / '.harness' / 'skills').mkdir(parents=True)
++        (node / 'index.yaml').write_text('repo: isolated-canary\nreading_order: []\ndocuments: []\n')
+         for name in ['approved', 'sibling']:
+             package = packages / name
+             (package / 'references').mkdir(parents=True)
+@@ -123,6 +124,8 @@
+                'TERM': 'dumb'}
+ 
+         def run(args, stdin=None, expected_status=0):
++            if args[0] == 'run' or args[:2] == ['skills', 'doctor']:
++                args = [*args, '--bundle', str(node)]
+             result = subprocess.run(['/usr/bin/sandbox-exec', '-p', profile, binary, *args],
+                                     input=stdin, text=True, capture_output=True,
+                                     cwd=node, env=env, timeout=30)

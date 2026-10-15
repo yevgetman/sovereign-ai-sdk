@@ -1,3 +1,7 @@
+## 2026-10-15 — Freeze exact SDK0.16.2/SOV0.6.82 cut
+
+PR97 and reviewed preparationPR100 map exactly once from published0.16.1 baseline into d1af49f5f4640ac0525f5cb61fb1a81c73c09684. Source6504tests/19skips/0fail and planning6516/19/0 pass; full builds/lint/types/Go/current+floor packed canaries/audit0advisories/3npm dry-runs pass. All6 exact CI checks and all-platform dry-run pass. Five final CLI scans are clean; metadata and both Mac versions/strict ad-hoc signatures pass. SDK705file exact parity/license/README review and exhaustive four-public-identity privacy adjudication pass. Compiled18turn canary retains all30assertions under reviewed empty-bundle fixture; original fixture and retry failures remain in immutable QA records. No public upload, install, consumer release or restart before freeze. npm remains Owner-only. See releases/history/sdk-0.16.2/ for exact source mappings, authority, hashes, checks and limits.
+
 ## 2026-10-15 — SDK 0.16.2 / SOV 0.6.82 source preparation
 
 Scope: reviewed version, lockfile, packed install URLs, release notes and settings migration preparation for selected PR97. Protocol0.1.0 and debug-console0.3.0 remain unchanged. No functional source or release roster changes.

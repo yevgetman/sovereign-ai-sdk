@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/Users/julie/code/sovereign-ai-sdk-cut-0162/scripts/canary/skill-settings-binary.py", line 199, in <module>
+    check(not empty['skills'], 'empty generated seat inherited node approvals')
+  File "/Users/julie/code/sovereign-ai-sdk-cut-0162/scripts/canary/skill-settings-binary.py", line 24, in check
+    raise AssertionError(message)
+AssertionError: empty generated seat inherited node approvals

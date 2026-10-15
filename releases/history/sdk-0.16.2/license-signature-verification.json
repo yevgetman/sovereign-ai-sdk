@@ -1,0 +1,26 @@
+{
+  "result": "pass",
+  "build_commit": "d1af49f5f4640ac0525f5cb61fb1a81c73c09684",
+  "at": "2026-10-15T20:54:47.981677+00:00",
+  "checks": {
+    "darwin-arm64": {
+      "license": "exact reviewed revision/hash",
+      "sov": "strict verified; Signature=adhoc",
+      "sov-tui": "strict verified; Signature=adhoc"
+    },
+    "darwin-x64": {
+      "license": "exact reviewed revision/hash",
+      "sov": "strict verified; Signature=adhoc",
+      "sov-tui": "strict verified; Signature=adhoc"
+    },
+    "linux-arm64": {
+      "license": "exact reviewed revision/hash"
+    },
+    "linux-x64": {
+      "license": "exact reviewed revision/hash"
+    },
+    "windows-x64": {
+      "license": "exact reviewed revision/hash"
+    }
+  }
+}

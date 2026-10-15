@@ -1,0 +1,1 @@
+{"ok": true, "binary": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bin/sov", "externalNetwork": "denied", "credentialHelper": "denied", "completedTurns": 18, "routingMatrixCases": 16, "approvedBody": true, "boundedResource": true, "siblingDenied": true, "resourceEscapeDenied": true, "doctorSource": "host-approval-file"}

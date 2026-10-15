@@ -1,0 +1,18 @@
+{
+  "result": "pass",
+  "build_commit": "d1af49f5f4640ac0525f5cb61fb1a81c73c09684",
+  "frozen_manifest_sha256": "11b56e18e83c5e3c210606d93379a28cc118080759400fe708ef31c3ed2b567d",
+  "units": 2,
+  "artifacts": 8,
+  "cli_scans": 5,
+  "source_tests": {
+    "pass": 6504,
+    "skip": 19,
+    "fail": 0,
+    "assertions": 28808,
+    "files": 621
+  },
+  "source_clean": true,
+  "archive_and_schemas_byte_identical": true,
+  "precommit_frozen_snapshot_sha_pending": true
+}

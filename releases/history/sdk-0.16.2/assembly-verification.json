@@ -1,0 +1,58 @@
+{
+  "baseline": "0b7a69e31b26ae91201558a1a500bab25402a1bb",
+  "build": "d1af49f5f4640ac0525f5cb61fb1a81c73c09684",
+  "units": [
+    {
+      "source": "fef13c782cdc28d3a896bd81d921aa0dc3e379b5",
+      "result": "9097d847b01d18212fad63347f81fef833d1e43a",
+      "paths": [
+        "docs/03-cli-reference/usage.md",
+        "docs/06-testing/testing-log.md",
+        "packages/sdk/src/config/configurationError.ts",
+        "packages/sdk/src/config/discoverySchema.ts",
+        "packages/sdk/src/config/schema.ts",
+        "packages/sdk/src/config/settings.ts",
+        "scripts/canary/skill-settings-binary.py",
+        "src/cli/dispatchCommand.ts",
+        "src/cli/routesCommands.ts",
+        "src/cli/runCommand.ts",
+        "src/cli/sdkRunCommand.ts",
+        "src/cli/skillsDoctorCommand.ts",
+        "src/main.ts",
+        "src/server/runtime.ts",
+        "tests/cli/sdkRunSettings.test.ts",
+        "tests/config/settings.test.ts",
+        "tests/config/skillSettingsSnapshot.test.ts"
+      ],
+      "nonidentical_paths": [
+        "docs/06-testing/testing-log.md"
+      ]
+    },
+    {
+      "source": "5cbce30cd781d53dd2bdd72ce5d9e933a85c3fda",
+      "result": "d1af49f5f4640ac0525f5cb61fb1a81c73c09684",
+      "paths": [
+        "CHANGELOG.md",
+        "PUBLISHING.md",
+        "README.md",
+        "bun.lock",
+        "docs/04-extending/skill-compatibility.md",
+        "docs/06-testing/testing-log.md",
+        "package.json",
+        "packages/sdk/README.md",
+        "packages/sdk/package.json"
+      ],
+      "nonidentical_paths": [
+        "PUBLISHING.md",
+        "README.md",
+        "bun.lock",
+        "docs/06-testing/testing-log.md",
+        "package.json"
+      ]
+    }
+  ],
+  "baseline_log_exact_suffix": true,
+  "commit_count": 2,
+  "root_package_only_baseline_version_changed": true,
+  "lock_only_baseline_sdk_version_changed": true
+}

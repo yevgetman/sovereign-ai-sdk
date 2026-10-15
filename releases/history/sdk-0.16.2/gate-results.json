@@ -1,0 +1,112 @@
+[
+  {
+    "check": "build",
+    "args": [
+      "bun",
+      "run",
+      "build"
+    ],
+    "result": 0,
+    "log_sha256": "3c8ab8a30defa8d78a82a344959d1a197d50cf3d1570cd4221815a041f13ec7b"
+  },
+  {
+    "check": "tui",
+    "args": [
+      "bun",
+      "run",
+      "tui:build"
+    ],
+    "result": 0,
+    "log_sha256": "481e8791d0084c56698e49e50c7d165b510f1ebcf8219f4db48438c9f9b7d4b9"
+  },
+  {
+    "check": "lint",
+    "args": [
+      "bun",
+      "run",
+      "lint"
+    ],
+    "result": 0,
+    "log_sha256": "5f29a0a848d55ea7b5fa663d135e72fe09d91bda63383e5de4b0c558fe396fdc"
+  },
+  {
+    "check": "types",
+    "args": [
+      "bun",
+      "run",
+      "typecheck"
+    ],
+    "result": 0,
+    "log_sha256": "406092c9a31f5632c17a28209711b7e5e2246c6e63f1e44f1faa2f7f0bbe191a"
+  },
+  {
+    "check": "test",
+    "args": [
+      "bun",
+      "run",
+      "test"
+    ],
+    "result": 0,
+    "log_sha256": "de9b106dd0c4aeabb75f198fcd1cad68a8494cca525462fda05109edf3955ded"
+  },
+  {
+    "check": "go",
+    "args": [
+      "go",
+      "test",
+      "./..."
+    ],
+    "result": 0,
+    "log_sha256": "a9f0110090b5a714581f6ebb00b77fddab2ff8d17584177dcae65e608694bf27"
+  },
+  {
+    "check": "canary",
+    "args": [
+      "bun",
+      "run",
+      "canary"
+    ],
+    "result": 0,
+    "log_sha256": "37954c278f2023ac439463a5d851dcb8859939337b2fb2a0353114818a5064eb"
+  },
+  {
+    "check": "audit",
+    "args": [
+      "bun",
+      "run",
+      "audit:dependencies"
+    ],
+    "result": 0,
+    "log_sha256": "1da731dde6b34a7c4111414b4ed7d86826ff3e41a0a4c323030147f5582e3f40"
+  },
+  {
+    "check": "sdk-dryrun",
+    "args": [
+      "npm",
+      "publish",
+      "--dry-run"
+    ],
+    "result": 0,
+    "log_sha256": "bc3db4dfde70edb0511dc910c1b25b1fa94a478cdbb5d932aebc5c400a82f8c2"
+  },
+  {
+    "check": "protocol-dryrun",
+    "args": [
+      "npm",
+      "publish",
+      "--dry-run"
+    ],
+    "result": 0,
+    "log_sha256": "a12a5a21869ebe9865d0bfd79c57eb234243ae3282966e91b100483e75f2225d"
+  },
+  {
+    "check": "debug-console-dryrun",
+    "args": [
+      "npm",
+      "publish",
+      "--dry-run"
+    ],
+    "result": 0,
+    "log_sha256": "74bcf57bfa51f7190a5303e11b87dc46e105c7b8937901ca1f54b86d252a51db"
+  }
+]
