@@ -1,7 +1,11 @@
+import { dirname } from 'node:path';
 // Local diagnostics only. The server uses remoteSkillDiagnostics() instead.
 import { getDefaultBundlePath } from '@yevgetman/sov-sdk/bundle/defaultBundle';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
-import { readConfig } from '@yevgetman/sov-sdk/config/store';
+import {
+  ConfigurationError,
+  loadRuntimeSettingsSnapshot,
+} from '@yevgetman/sov-sdk/config/settings';
 import { createSkillRegistryManager, loadSkillRegistry } from '@yevgetman/sov-sdk/skills/registry';
 import type { SkillRegistryDiagnostic } from '@yevgetman/sov-sdk/skills/registry';
 import { loadPluginRuntime } from '../plugins/runtime.js';
@@ -58,17 +62,40 @@ export async function runSkillsDoctor(
     bundleRoot?: string;
     allowedLinkRoots?: string[];
     json?: boolean;
+    skillApprovalFile?: string;
   },
   write: (text: string) => void = (text) => process.stdout.write(`${text}\n`),
 ): Promise<number> {
   const harnessHome = opts.harnessHome ?? resolveHarnessHome();
-  const settings = readConfig({ harnessHome });
+  let configSnapshot: ReturnType<typeof loadRuntimeSettingsSnapshot>;
+  try {
+    configSnapshot = loadRuntimeSettingsSnapshot({
+      cwd: opts.cwd ?? process.cwd(),
+      harnessHome,
+      ...(opts.skillApprovalFile !== undefined
+        ? { skillApprovalFile: opts.skillApprovalFile }
+        : {}),
+      ...(opts.allowedLinkRoots !== undefined
+        ? { skillDiscovery: { allowedLinkRoots: opts.allowedLinkRoots } }
+        : {}),
+    });
+  } catch (error) {
+    if (!(error instanceof ConfigurationError)) throw error;
+    const report = {
+      skillSettings: { schemaVersion: 1, valid: false, source: error.source },
+      skills: [],
+      error: { code: error.code, message: error.message },
+    };
+    write(opts.json ? JSON.stringify(report) : error.message);
+    return 1;
+  }
+  const settings = configSnapshot.config;
   const { contributions } = await loadPluginRuntime({
     harnessHome,
     config: settings.plugins ?? {},
   });
-  const approvedRoots = opts.allowedLinkRoots ?? settings.skills?.discovery?.allowedLinkRoots;
-  const projectRoot = settings.skills?.discovery?.projectRoot;
+  const approvedRoots = configSnapshot.discovery.allowedLinkRoots;
+  const projectRoot = configSnapshot.discovery.projectRoot;
   const bundleRoot = opts.bundleRoot ?? getDefaultBundlePath({ harnessHome });
   const manager = createSkillRegistryManager({
     load: () =>
@@ -83,9 +110,21 @@ export async function runSkillsDoctor(
   });
   const snapshot = await manager.refresh();
   const report = {
+    skillSettings: configSnapshot.skillSettings,
+    skills: snapshot.registry.skills.map((skill) => ({
+      name: skill.name,
+      root: dirname(skill.realpath),
+    })),
     generation: snapshot.generation,
     skillCount: snapshot.registry.skills.length,
-    diagnostics: localDiagnostics(snapshot.diagnostics),
+    diagnostics: localDiagnostics([
+      ...snapshot.diagnostics,
+      ...configSnapshot.unavailableApprovalRoots.map((path) => ({
+        code: 'unreadable' as const,
+        path,
+        message: 'approved link root is unavailable',
+      })),
+    ]),
   };
   if (opts.json) write(JSON.stringify(report, null, 2));
   else {

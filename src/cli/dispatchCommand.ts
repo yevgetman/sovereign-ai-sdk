@@ -21,8 +21,10 @@ import { loadAgents } from '@yevgetman/sov-sdk/agents/loader';
 import { loadBundleIfPresent } from '@yevgetman/sov-sdk/bundle/loader';
 import type { CommandContext } from '@yevgetman/sov-sdk/commands/types';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
-import { loadPermissionSettings } from '@yevgetman/sov-sdk/config/settings';
-import { readConfig } from '@yevgetman/sov-sdk/config/store';
+import {
+  loadPermissionSettings,
+  loadRuntimeSettingsSnapshot,
+} from '@yevgetman/sov-sdk/config/settings';
 import { auditContextBudget } from '@yevgetman/sov-sdk/context/budget';
 import { buildSystemSegments } from '@yevgetman/sov-sdk/core/systemPrompt';
 import type { SystemSegment } from '@yevgetman/sov-sdk/core/types';
@@ -32,7 +34,7 @@ import type { ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { resolveProvider } from '@yevgetman/sov-sdk/providers/resolver';
 import type { ApiMode } from '@yevgetman/sov-sdk/providers/types';
 import { buildSkillCommands } from '@yevgetman/sov-sdk/skills/commands';
-import { getSkillRegistry } from '@yevgetman/sov-sdk/skills/registry';
+import { getSkillRegistry, loadSkillRegistry } from '@yevgetman/sov-sdk/skills/registry';
 import { createSkillRuntime } from '@yevgetman/sov-sdk/skills/runtime';
 import { filterSkillRegistry, inferActiveToolsets } from '@yevgetman/sov-sdk/skills/visibility';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
@@ -47,13 +49,20 @@ export const TURN_SEPARATOR = '--- end-of-turn ---';
 
 export type DispatchOpts = {
   readonly bundlePath?: string;
+  readonly skillApprovalFile?: string;
 };
 
 export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
   const harnessHome = resolveHarnessHome();
+  const snapshotOptions = {
+    cwd: process.cwd(),
+    harnessHome,
+    ...(opts.skillApprovalFile !== undefined ? { skillApprovalFile: opts.skillApprovalFile } : {}),
+  };
+  const snapshot = loadRuntimeSettingsSnapshot(snapshotOptions);
   const bundle = await loadBundleIfPresent(opts.bundlePath ?? null);
-  const userSettings = readConfig();
-  const permissionSettings = loadPermissionSettings({ cwd: process.cwd(), harnessHome });
+  const userSettings = snapshot.config;
+  const permissionSettings = loadPermissionSettings({ cwd: process.cwd(), harnessHome, snapshot });
   const projectScope = resolveProjectScope({
     cwd: process.cwd(),
     bundle: bundle ?? null,
@@ -77,18 +86,18 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
     warn: (msg) => process.stderr.write(`[plugins] ${msg}\n`),
   });
 
+  let initialSkillLoad = true;
   const skillRuntime = createSkillRuntime({
-    discovery: {
-      ...(userSettings.skills?.discovery?.projectRoot !== undefined
-        ? { projectRoot: userSettings.skills.discovery.projectRoot }
-        : {}),
-      ...(userSettings.skills?.discovery?.allowedLinkRoots !== undefined
-        ? { allowedLinkRoots: userSettings.skills.discovery.allowedLinkRoots }
-        : {}),
-      harnessHome,
-      cwd: process.cwd(),
-      ...(bundle ? { bundleRoot: bundle.root } : {}),
-      extraRoots: pluginContributions.skillRoots,
+    load: () => {
+      const current = initialSkillLoad ? snapshot : loadRuntimeSettingsSnapshot(snapshotOptions);
+      initialSkillLoad = false;
+      return loadSkillRegistry({
+        ...current.discovery,
+        harnessHome,
+        cwd: process.cwd(),
+        ...(bundle ? { bundleRoot: bundle.root } : {}),
+        extraRoots: pluginContributions.skillRoots,
+      });
     },
     store: createSovSkillStore(`${harnessHome}/skills/agent-created`),
   });
@@ -96,7 +105,10 @@ export async function runDispatch(opts: DispatchOpts = {}): Promise<number> {
   await skillRuntime.discover();
   const loadedSkills = skillRegistryManager.snapshot().registry;
 
-  const resolved = resolveProvider(userSettings.defaultProvider, userSettings.defaultModel);
+  const resolved = resolveProvider(userSettings.defaultProvider, userSettings.defaultModel, {
+    harnessHome,
+    settings: userSettings,
+  });
   const sessionId = `dispatch-${process.pid}-${Date.now()}`;
 
   const toolContext: ToolContext = skillRuntime.bindContext({
