@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "/Users/julie/code/release-evidence-sdk-0162/compiled-canary-isolated.py", line 139, in <module>
+    capability = json.loads(run(['capabilities', '--json']))
+                            ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/julie/code/release-evidence-sdk-0162/compiled-canary-isolated.py", line 130, in run
+    check(result.returncode == expected_status,
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+          f'command failed {args}: {result.returncode}: {result.stdout[-3000:]} {result.stderr[-1000:]}')
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/julie/code/release-evidence-sdk-0162/compiled-canary-isolated.py", line 24, in check
+    raise AssertionError(message)
+AssertionError: command failed ['capabilities', '--json']: 1:  error: unknown option '--json'
+
