@@ -125,6 +125,20 @@ hooks and future vendor data. Preserving a field does not claim support for it.
 Read `descriptor.execution.diagnostics` to distinguish compatible metadata from
 execution controls that prevent activation.
 
+## Migrating to SDK 0.16.1
+
+No source, session-schema or configuration migration is required. Older injected
+`Skill` objects remain valid. Exact `context: kernel` now loads as domain metadata
+without requesting a new execution mode. Do not remove host link approvals or
+replace them with broad storage roots. Inspect local doctor hints before adding
+a narrow canonical target. Optional `approval` diagnostic data is local-only;
+remote integrations must keep their existing content-free allowlist.
+
+Previously rejected unknown contexts, malformed controls, unsupported execution
+modes and changed link targets remain rejected. Existing session guidance uses
+native continuity and fresh permissions on resume. Kernel producer integration
+has not been verified by this source compatibility release.
+
 ## Cross-references
 
 - [Extending the harness](extending.md)

@@ -23,15 +23,35 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
 
 ---
 
-## Prepared cut — SDK 0.16.0 / SOV 0.6.80
+## Prepared candidate — SDK 0.16.1 / SOV 0.6.81
 
-The Owner approved SDK 0.16.0 with SOV 0.6.80 on 2026-10-14. The cut contains
-all 13 selected PR81–93 source fixes plus reviewed version, lockfile and release
-text preparation. The SDK download is `yevgetman-sov-sdk-0.16.0.tgz` in public
-SOV `v0.6.80`, with `SDK-SHA256SUMS`. Binary archives use `SHA256SUMS`.
-Source tags belong to the single assembled build. Freeze, public downloads and
-immutable publication evidence establish completion; preparation alone does not.
-Protocol stays 0.1.0 and debug console stays 0.3.0. npm publication stays Owner-only.
+This candidate includes the single reviewed Kernel skill compatibility feature
+from [PR95](https://github.com/yevgetman/sovereign-ai-sdk/pull/95) and source release
+preparation. It accepts `context: kernel` as metadata, improves local doctor
+approval hints and alias grouping, and retains native permission and continuity
+rules. The matching installed Kernel producer integration remains unverified.
+There are no new frozen `.` exports or breaking type-shape changes; SDK 0.16.1 is
+a patch under [STABILITY.md](STABILITY.md). Protocol remains 0.1.0 and debug console 0.3.0.
+
+The intended packed asset is `yevgetman-sov-sdk-0.16.1.tgz` under SOV `v0.6.81`,
+with `SDK-SHA256SUMS` separate from binary `SHA256SUMS`. These are prepared source
+versions, not publication evidence. Exact assembled source, selected preparation,
+artifact checks, immutable freeze and live public downloads remain release gates.
+The verified public baseline below remains in effect until that proof exists.
+No npm registry publication is authorized by this preparation.
+
+## Current public cut — verified 2026-10-14
+
+SDK **0.16.0** and SOV **0.6.80** are published in the combined public
+[SOV v0.6.80](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.80) release.
+All eight public files match frozen bytes, including the SDK tarball,
+all five binary platforms and both checksum files. Source tags `sdk-v0.16.0`
+and `v0.6.80` name the single assembled source
+`48a287d01d74cfd2e15ba7a164b93c9a56aeb164`.
+[Immutable publication proof](https://github.com/yevgetman/sovereign-ai-sdk/blob/b34f3cdd8800027c40f403b3730b9e70e7f74d14/releases/history/sdk-0.16.0/publication.json)
+records downloads, hashes, native Mac versions and strict ad-hoc signatures.
+Linux arm64 is cross-compiled. Protocol stays 0.1.0 and debug console stays 0.3.0.
+npm publication stays Owner-only. The successor candidate is SDK 0.16.1 / SOV 0.6.81; its selected work and cut state live in the active release records.
 
 ## Current public channel — verified 2026-10-13
 

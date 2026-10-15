@@ -1,5 +1,14 @@
 # Changelog
 
+## SDK 0.16.1 / SOV 0.6.81 — 2026-10-15 (release candidate)
+
+- Include the single reviewed Kernel skill compatibility feature from [PR95](https://github.com/yevgetman/sovereign-ai-sdk/pull/95), plus release preparation. Publication is pending exact-build validation and public-byte proof.
+- Accept exact `context: kernel` as preserved domain metadata through the normal inline skill path. Other unsupported execution controls still prevent activation. Composition and Skill Set metadata do not execute members.
+- Preserve narrow explicit link approval, containment and retarget checks. Local `sov skills doctor` provides exact canonical approval hints and bounded alias groups; remote diagnostics retain their content-free allowlist.
+- Existing native activation and continuity retain workflow guidance across later turns and private-store resume without restoring permissions, grants or reference roots. Fixtures cover invocation controls, independent compound members and fresh resume policy.
+- SDK patch 0.16.1 adds no frozen `.` export names. Optional local diagnostic fields are additive; existing injected skills and host configuration remain compatible. No automatic approval or migration runs. The matching installed Kernel producer contract remains unverified.
+- Protocol stays 0.1.0; debug console stays 0.3.0. Node >=20.19.0 and Bun >=1.2.0 remain supported. Candidate SDK and CLI files use separate SDK-SHA256SUMS and SHA256SUMS. npm publication stays Owner-operated.
+
 ## SDK 0.16.0 / SOV 0.6.80 — 2026-10-14
 
 - Include all 13 reviewed fixes in PR81–93 once, plus reviewed release preparation.
