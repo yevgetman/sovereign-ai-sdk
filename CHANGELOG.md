@@ -1,5 +1,14 @@
 # Changelog
 
+## SDK 0.16.2 / SOV 0.6.82 — 2026-10-15 (release candidate)
+
+- Include the single reviewed layered Kernel skill settings repair from [PR97](https://github.com/yevgetman/sovereign-ai-sdk/pull/97), plus reviewed release preparation. Publication is pending exact-build validation and public-byte proof.
+- Resolve discovery settings from one strict, bounded snapshot across native run, dispatch, runtime reload and local doctor. Explicit host settings take precedence over node-local and profile layers; the first defined approval list replaces inherited lists and `[]` clears them.
+- Keep host approval files authoritative and project boundaries fixed. Version-controlled project settings cannot grant external-link approvals or change the project root. Reject redirected local trust files, incomplete snapshots and stale refresh state; retain containment and tool permission checks.
+- Validate native configuration before credential access or session creation. Invalid configuration returns the typed `configuration_invalid` / `check_configuration` outcome; persistence failures retain their storage classification. Offline routes expose the shared discovery contract without asserting live-provider readiness.
+- No frozen `.` export names changed. Existing SDK config-object injection bypasses disk layers; no automatic settings or session migration runs. Hosts with conflicting inherited approvals must review the winning replacement list. Installed Kernel producer integration remains unverified.
+- Protocol stays 0.1.0; debug console stays 0.3.0. Node >=20.19.0 and Bun >=1.2.0 remain supported. Candidate SDK and CLI files use separate SDK-SHA256SUMS and SHA256SUMS. npm publication stays Owner-operated.
+
 ## SDK 0.16.1 / SOV 0.6.81 — 2026-10-15 (release candidate)
 
 - Include the single reviewed Kernel skill compatibility feature from [PR95](https://github.com/yevgetman/sovereign-ai-sdk/pull/95), plus release preparation. Publication is pending exact-build validation and public-byte proof.

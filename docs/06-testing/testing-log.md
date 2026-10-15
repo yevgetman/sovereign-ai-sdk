@@ -1,3 +1,15 @@
+## 2026-10-15 — SDK 0.16.2 / SOV 0.6.82 source preparation
+
+Scope: reviewed version, lockfile, packed install URLs, release notes and settings migration preparation for selected PR97. Protocol0.1.0 and debug-console0.3.0 remain unchanged. No functional source or release roster changes.
+
+Frozen dependency install, strict SDK/protocol builds, TUI prerequisite, lint/boundary, root/browser types, packed README parity and inherited draft validation pass. First full attempt:6515pass/19skip/1timeout in activationLiteralOutput. Unchanged focused retry:4pass/0fail. Unchanged complete retry:6516pass/19existing skips/0fail,28827assertions,622files,199.62s. No defect is inferred from the timeout. Independent feature and preparation reviews find no blockers. Logs retained in release-evidence-sdk-0162 and /private/tmp/sov-prep0162-*.log; final assembled-cut checks remain separate. No live provider, credentials, learning recall, publication, consumer pin, installed upgrade or restart in this preparation. npm remains Owner-operated.
+
+## 2026-10-15 — Schedule reviewed PR97 in the SDK 0.16.2 / SOV 0.6.82 draft
+
+Owner requested merging the three reviewed repair PRs and adding each to its product manifest. SDK PR97 merged as `fef13c782cdc28d3a896bd81d921aa0dc3e379b5`. The manifest records that merge once with mainline 1. Existing draft versions and the verified SDK 0.16.1 / SOV 0.6.81 baseline remain unchanged. Source reconciliation now reaches the actual merge. No release, consumer pin, installed binary update or daemon restart is part of this records step.
+
+Clean macOS worktree, Bun 1.3.13 and Node 25.9.0: `bun install --frozen-lockfile`, strict protocol/SDK build, TUI prerequisite build, `bun run release:validate`, `bun run lint` and `bun run typecheck` pass. Complete prepared-source `bun run test`: **6516 pass / 19 existing skips / 0 fail**, 28827 assertions across 622 files, 174.57 seconds. Both Draft 2020-12 schemas with format checks and the explicit version, dependency order, unit uniqueness, source reachability and merge-parent checks pass. The initial run started before the clean worktree's SDK dist existed: 6511 pass / 19 skips / 5 Node import failures. Building the required files and rerunning the entire suite cleared all five. No source change or weakened assertion was used. This testing record changes no executable source or test input after that complete passing gate.
+
 ## 2026-10-15 — Portable trust-file link rejection follow-up
 
 Added explicit pre-open and post-open `lstat` rejection of redirected trust files, alongside the existing parent checks, descriptor identity check and `O_NOFOLLOW` guard. This retains the trust rule where that OS flag is unavailable.
