@@ -2,7 +2,11 @@
 import { randomUUID } from 'node:crypto';
 import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
 import { ContextManagementError } from '@yevgetman/sov-sdk/compact/contextManagement';
-import { loadSettings } from '@yevgetman/sov-sdk/config/loader';
+import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
+import {
+  ConfigurationError,
+  loadRuntimeSettingsSnapshot,
+} from '@yevgetman/sov-sdk/config/settings';
 import type { Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import { toToolSchemas } from '@yevgetman/sov-sdk/mcp/schemaSerialization';
 import type { SessionStore } from '@yevgetman/sov-sdk/persistence/sessionStore';
@@ -79,6 +83,9 @@ const ERRORS: Record<string, string> = {
   unsupported_input: 'Selected route does not support this input.',
   interrupted: 'Turn interrupted.',
   storage_failed: 'Session storage failed. No automatic retry was performed.',
+  configuration_invalid:
+    'Runtime configuration is invalid. Check the settings and skill approval list.',
+  runtime_start_failed: 'Runtime could not start. Check local runtime diagnostics.',
   provider_request_rejected:
     'Selected provider rejected this request. No route fallback was performed.',
   provider_failed: 'Selected provider failed. No route fallback was performed.',
@@ -94,6 +101,7 @@ function string(value: unknown): string | undefined {
  *  Explicit `off` is a route refusal (reasoning cannot be disabled), not a model with no effort.
  */
 function turnErrorText(code: string, err: unknown): string {
+  if (code === 'configuration_invalid' && err instanceof ConfigurationError) return err.message;
   if (err instanceof RouteError) {
     if (code === 'model_unsupported' && /routes\.[A-Za-z0-9-]+\.defaultModel/.test(err.message)) {
       return err.message;
@@ -162,7 +170,7 @@ export async function runSdkRunCommand(
   let selectedMetadata: ModelRecord | undefined;
   let sessionId: string | null = null;
   let activeStream: AsyncGenerator<StreamEvent | Message, RunResult> | undefined;
-  let stage: 'input' | 'route' | 'storage' | 'provider' = 'input';
+  let stage: 'input' | 'route' | 'boot' | 'storage' | 'provider' = 'input';
   let terminalSent = false;
   const receipts: NativeReceipt[] = [];
   const skillActivationTurnId = randomUUID();
@@ -200,6 +208,7 @@ export async function runSdkRunCommand(
       (opts.permissionMode !== undefined &&
         !['default', 'ask', 'bypass'].includes(String(opts.permissionMode))) ||
       (opts.model !== undefined && !string(opts.model)) ||
+      (opts.skillApprovalFile !== undefined && !string(opts.skillApprovalFile)) ||
       (opts.effort !== undefined &&
         !['auto', 'off', 'low', 'medium', 'high', 'max'].includes(String(opts.effort)))
     )
@@ -223,7 +232,17 @@ export async function runSdkRunCommand(
       }, opts.deadlineMs);
     }
     const raw = await Promise.race([(io.readStdin ?? readSdkStdin)(), canceled]);
-    const settings = loadSettings();
+    // Validate every settings layer before credentials, hooks, skills or storage.
+    // Runtime boot consumes these same bytes, so approvals cannot change between reads.
+    const harnessHome = resolveHarnessHome();
+    const settingsSnapshot = loadRuntimeSettingsSnapshot({
+      cwd: process.cwd(),
+      harnessHome,
+      ...(string(opts.skillApprovalFile)
+        ? { skillApprovalFile: String(opts.skillApprovalFile) }
+        : {}),
+    });
+    const settings = settingsSnapshot.config;
     const requestedRoute = getRoute(routeId, settings);
     const requestedModel =
       string(opts.model) && opts.model !== 'auto'
@@ -262,9 +281,14 @@ export async function runSdkRunCommand(
         readModelCatalogSnapshot(selected.route.id, settings),
         selected.model,
       );
-    stage = 'storage';
+    stage = 'boot';
     const runtimeBoot = (deps.runtime ?? buildRuntime)({
       cwd: process.cwd(),
+      harnessHome,
+      settingsSnapshot,
+      ...(string(opts.skillApprovalFile)
+        ? { skillApprovalFile: String(opts.skillApprovalFile) }
+        : {}),
       sdkRoute: { resolved: selected.resolved },
       preflight: false,
       cronEnabled: false,
@@ -287,6 +311,7 @@ export async function runSdkRunCommand(
       return built;
     });
     runtime = await Promise.race([runtimeBoot, canceled]);
+    stage = 'storage';
     const permissionMetadata = {
       requestedPermissionMode: opts.permissionMode ?? null,
       permissionMode: runtime.permissionMode,
@@ -725,17 +750,21 @@ export async function runSdkRunCommand(
         ? 'interrupted'
         : err instanceof SdkInputError
           ? err.code
-          : err instanceof UnknownToolsetError
-            ? 'invalid_input'
-            : err instanceof SessionNotFoundError
+          : err instanceof ConfigurationError
+            ? 'configuration_invalid'
+            : err instanceof UnknownToolsetError
               ? 'invalid_input'
-              : err instanceof PersistBeforeRunError
-                ? 'storage_failed'
-                : err instanceof ContextManagementError
-                  ? 'context_overflow'
-                  : stage === 'storage'
-                    ? 'storage_failed'
-                    : routeErrorCodeFor(err);
+              : err instanceof SessionNotFoundError
+                ? 'invalid_input'
+                : err instanceof PersistBeforeRunError
+                  ? 'storage_failed'
+                  : err instanceof ContextManagementError
+                    ? 'context_overflow'
+                    : stage === 'boot'
+                      ? 'runtime_start_failed'
+                      : stage === 'storage'
+                        ? 'storage_failed'
+                        : routeErrorCodeFor(err);
     if (!ERRORS[code]) code = 'provider_failed';
     const durable =
       cleanupCoherent && !storageFault && hasNativeRecoveryTarget(runtime?.sessionDb, sessionId);
@@ -752,17 +781,20 @@ export async function runSdkRunCommand(
       type: 'turn.error',
       outcome: code === 'interrupted' ? 'interrupted' : 'failed',
       reason: code === 'interrupted' ? interruptionCause : code,
-      nextAction: recoverable
-        ? 'resume'
-        : storageFault || code === 'storage_failed'
-          ? 'inspect_storage'
-          : sessionId !== null && (!durable || incomplete)
-            ? 'inspect_session'
-            : code === 'provider_response_invalid'
-              ? 'check_provider'
-              : retryable
-                ? 'retry'
-                : 'repair_request',
+      nextAction:
+        code === 'configuration_invalid'
+          ? 'check_configuration'
+          : recoverable
+            ? 'resume'
+            : storageFault || code === 'storage_failed'
+              ? 'inspect_storage'
+              : sessionId !== null && (!durable || incomplete)
+                ? 'inspect_session'
+                : code === 'provider_response_invalid'
+                  ? 'check_provider'
+                  : retryable
+                    ? 'retry'
+                    : 'repair_request',
       sessionId: durable ? sessionId : null,
       ...(durable ? { activeSessionId: sessionId } : {}),
       ...nativeTurnMetrics(receipts),

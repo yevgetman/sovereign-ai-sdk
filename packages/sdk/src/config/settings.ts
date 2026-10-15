@@ -2,14 +2,18 @@
 // (~/.harness/config.json): Phase 7 settings are layered across user,
 // project, and project-local files with strict precedence.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import type { HookConfig, HookEventName } from '../hooks/types.js';
 import { normalizeAliasForEnv } from '../mcp/auth.js';
 import { type McpServerConfig, isRemoteMcpConfig } from '../mcp/types.js';
+import { ConfigurationError, readConfiguration } from './configurationError.js';
+import { ApprovalRootsSchema, LayeredSkillSettingsSchema } from './discoverySchema.js';
 import { type PermissionRule, type PermissionRuleLayer, parsePermissionRules } from './rules.js';
-import type { Settings } from './schema.js';
+import { type Settings, SettingsSchema } from './schema.js';
+import { resolveConfigPath } from './store.js';
+export { ConfigurationError } from './configurationError.js';
 
 export const PermissionModeSchema = z.enum(['default', 'ask', 'bypass']);
 export type RuntimePermissionMode = z.infer<typeof PermissionModeSchema>;
@@ -112,6 +116,7 @@ export const McpServerConfigSchema = z.preprocess((raw) => {
 
 export const RuntimeSettingsSchema = z
   .object({
+    skills: LayeredSkillSettingsSchema.optional(),
     permissionMode: PermissionModeSchema.optional(),
     permissions: PermissionRuleSetSchema.optional(),
     hooks: HooksSettingsSchema.optional(),
@@ -143,6 +148,7 @@ type LoadPermissionSettingsOpts = {
    *  permission cascade `userSettings` fallback.) When OMITTED — the disk-config
    *  path — these loaders read `settings.json` exactly as before. */
   settings?: Settings;
+  snapshot?: RuntimeSettingsSnapshot;
 };
 
 type SettingsPath = {
@@ -159,18 +165,162 @@ export function getPermissionSettingsPaths(opts: LoadPermissionSettingsOpts): Se
   ];
 }
 
+export type RuntimeSettingsSnapshot = {
+  config: Settings;
+  unavailableApprovalRoots: string[];
+  layers: Array<{ name: PermissionSettingsLayerName; path: string; settings: RuntimeSettings }>;
+  discovery: { allowedLinkRoots?: string[]; projectRoot?: string };
+  skillSettings: {
+    schemaVersion: 1;
+    valid: true;
+    source: string;
+    explicitEmpty: boolean;
+    acceptedEntries: number;
+  };
+};
+
+export function loadRuntimeSettingsSnapshot(opts: {
+  cwd: string;
+  harnessHome: string;
+  settings?: Settings;
+  skillApprovalFile?: string;
+  skillDiscovery?: { allowedLinkRoots?: string[]; projectRoot?: string };
+}): RuntimeSettingsSnapshot {
+  const injected = opts.settings !== undefined;
+  const config =
+    opts.settings ??
+    readConfiguration(
+      resolveConfigPath(undefined, opts.harnessHome),
+      'profile-config',
+      SettingsSchema,
+    ) ??
+    {};
+  const layers: RuntimeSettingsSnapshot['layers'] = [];
+  if (!injected) {
+    let cwd = resolve(opts.cwd);
+    try {
+      cwd = realpathSync(cwd);
+    } catch {
+      /* Missing cwd remains a discovery diagnostic. */
+    }
+    for (const item of getPermissionSettingsPaths({ ...opts, cwd })) {
+      const source =
+        item.name === 'local'
+          ? 'node-local'
+          : item.name === 'user'
+            ? 'profile-settings'
+            : 'project-settings';
+      const settings = readConfiguration(
+        item.path,
+        source,
+        RuntimeSettingsSchema,
+        item.name === 'local',
+      );
+      if (!settings) continue;
+      if (item.name === 'project' && settings.skills?.discovery?.allowedLinkRoots !== undefined)
+        throw new ConfigurationError(
+          source,
+          'skills.discovery.allowedLinkRoots',
+          'project approvals are unsupported',
+        );
+      layers.push({ ...item, settings });
+    }
+  }
+  let mcpState = emptyMcpMergeState();
+  for (const layer of layers) {
+    if (!layer.settings.mcpServers) continue;
+    try {
+      mcpState = mergeMcpServers(mcpState, layer.settings.mcpServers, layer.path);
+    } catch {
+      throw new ConfigurationError(
+        layer.name === 'local'
+          ? 'node-local'
+          : layer.name === 'user'
+            ? 'profile-settings'
+            : 'project-settings',
+        'mcpServers',
+        'colliding server configuration',
+      );
+    }
+  }
+  let roots = config.skills?.discovery?.allowedLinkRoots;
+  let source = roots === undefined ? 'default' : 'profile-config';
+  for (const name of ['user', 'local'] as const) {
+    const list = layers.find((layer) => layer.name === name)?.settings.skills?.discovery
+      ?.allowedLinkRoots;
+    if (list !== undefined) {
+      roots = list;
+      source = name === 'local' ? 'node-local' : 'profile-settings';
+    }
+  }
+  if (opts.skillDiscovery?.allowedLinkRoots !== undefined) {
+    roots = opts.skillDiscovery.allowedLinkRoots;
+    source = 'host';
+  }
+  if (!injected && opts.skillApprovalFile !== undefined) {
+    const host = readConfiguration(
+      resolve(opts.skillApprovalFile),
+      'host-approval-file',
+      RuntimeSettingsSchema,
+      true,
+    );
+    const list = host?.skills?.discovery?.allowedLinkRoots;
+    if (list === undefined)
+      throw new ConfigurationError(
+        'host-approval-file',
+        'skills.discovery.allowedLinkRoots',
+        'explicit list required',
+      );
+    roots = list;
+    source = 'host-approval-file';
+  }
+  if (roots !== undefined && !ApprovalRootsSchema.safeParse(roots).success)
+    throw new ConfigurationError(source, 'skills.discovery.allowedLinkRoots');
+  const projectRoot =
+    opts.skillDiscovery?.projectRoot ??
+    (source === 'host-approval-file' ? opts.cwd : config.skills?.discovery?.projectRoot);
+  const unavailableApprovalRoots: string[] = [];
+  const canonicalRoots = roots?.flatMap((root) => {
+    if (injected) return [root];
+    try {
+      return [realpathSync(root)];
+    } catch {
+      unavailableApprovalRoots.push(root);
+      return [];
+    }
+  });
+  return {
+    config,
+    unavailableApprovalRoots,
+    layers,
+    discovery: {
+      ...(canonicalRoots === undefined ? {} : { allowedLinkRoots: canonicalRoots }),
+      ...(projectRoot === undefined ? {} : { projectRoot }),
+    },
+    skillSettings: {
+      schemaVersion: 1,
+      valid: true,
+      source,
+      explicitEmpty: roots?.length === 0,
+      acceptedEntries: canonicalRoots?.length ?? 0,
+    },
+  };
+}
+
+function settingsLayers(opts: LoadPermissionSettingsOpts): RuntimeSettingsSnapshot['layers'] {
+  return opts.snapshot?.layers ?? loadRuntimeSettingsSnapshot(opts).layers;
+}
+
 export function loadPermissionSettings(opts: LoadPermissionSettingsOpts): LoadedPermissionSettings {
   // SDK injection (Task 2.3) — an injected `Settings` makes the runtime
   // config-file-free, so the layered settings.json files are not read. The
   // injected config.json shape has no permission RULES (only `permissionMode`,
   // handled by buildRuntime's cascade), so this resolves to "no settings.json".
   if (opts.settings !== undefined) return { mode: 'default', layers: [], sources: [] };
-  const discovered: Array<{ source: string; settings: RuntimeSettings }> = [];
-  for (const item of getPermissionSettingsPaths(opts)) {
-    if (!existsSync(item.path)) continue;
-    const raw = JSON.parse(readFileSync(item.path, 'utf8')) as unknown;
-    discovered.push({ source: item.path, settings: RuntimeSettingsSchema.parse(raw) });
-  }
+  const discovered = settingsLayers(opts).map((item) => ({
+    source: item.path,
+    settings: item.settings,
+  }));
 
   let mode: RuntimePermissionMode = 'default';
   const modeSource = discovered.find((entry) => entry.settings.permissionMode !== undefined);
@@ -242,10 +392,8 @@ export function loadHookSettings(opts: LoadPermissionSettingsOpts): LoadedHookSe
   if (opts.settings !== undefined) return { hooksByEvent: emptyHookMergeState(), sources: [] };
   let hooksByEvent = emptyHookMergeState();
   const sources: string[] = [];
-  for (const item of getPermissionSettingsPaths(opts)) {
-    if (!existsSync(item.path)) continue;
-    const raw = JSON.parse(readFileSync(item.path, 'utf8')) as unknown;
-    const settings = RuntimeSettingsSchema.parse(raw);
+  for (const item of settingsLayers(opts)) {
+    const settings = item.settings;
     if (!settings.hooks) continue;
     sources.push(item.path);
     hooksByEvent = mergeHookEvents(hooksByEvent, settings.hooks);
@@ -331,10 +479,8 @@ export function loadMcpServerSettings(opts: LoadPermissionSettingsOpts): LoadedM
   if (opts.settings !== undefined) return { servers: {}, sources: [] };
   let state = emptyMcpMergeState();
   const sources: string[] = [];
-  for (const item of getPermissionSettingsPaths(opts)) {
-    if (!existsSync(item.path)) continue;
-    const raw = JSON.parse(readFileSync(item.path, 'utf8')) as unknown;
-    const settings = RuntimeSettingsSchema.parse(raw);
+  for (const item of settingsLayers(opts)) {
+    const settings = item.settings;
     if (!settings.mcpServers) continue;
     sources.push(item.path);
     state = mergeMcpServers(state, settings.mcpServers, item.path);
