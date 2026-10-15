@@ -104,7 +104,7 @@ Audits, postmortems, and the chronological state-snapshot series. These are reco
 - **Postmortems** (`07-history/postmortems/`)
   - [Phase 16 revert](07-history/postmortems/2026-05-12-phase-16-revert.md) — the written-down lesson from the revert.
   - [Loop-detector orphaned tool_use](07-history/postmortems/loop-detector-orphaned-tool-use.md) — bug write-up + resolution.
-- **State snapshots** (`07-history/state/`) — one close-out snapshot per shipped unit, newest-first. The latest is the canonical "current state." Find it with `ls docs/07-history/state/*.md | sort -r | head -1`. Most recent: [SDK 0.16.0 / SOV 0.6.80](07-history/state/2026-10-14-sdk-release-0160.md) — verified public artifacts, immutable cut provenance and the next empty draft. Pre-Phase-16 history is in [`07-history/state/archive/`](07-history/state/archive/). Smoke/soak output (transcripts) sits in the dated `*-smoke/` and `*-soak/` subdirs.
+- **State snapshots** (`07-history/state/`) — one close-out snapshot per shipped unit, newest-first. The latest is the canonical "current state." Find it with `ls docs/07-history/state/*.md | sort -r | head -1`. Most recent: [Native Kernel skill compatibility](07-history/state/2026-10-15-kernel-skill-compatibility.md) — source compatibility, unchanged host authority and the unresolved Runtime producer match. Latest public release: [SDK 0.16.0 / SOV 0.6.80](07-history/state/2026-10-14-sdk-release-0160.md). Pre-Phase-16 history is in [`07-history/state/archive/`](07-history/state/archive/). Smoke/soak output (transcripts) sits in the dated `*-smoke/` and `*-soak/` subdirs.
 
 ## 08 — Roadmap
 

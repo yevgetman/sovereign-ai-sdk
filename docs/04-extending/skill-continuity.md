@@ -5,8 +5,10 @@ expanded instructions of an explicitly activated skill separate from the
 model's reducible conversation history. SOV binds the same port to its private
 session database. A bare SDK agent still opens no store or filesystem.
 
-These APIs belong to the skills-hardening review branches. They are not in the
-public SDK 0.14.0 / SOV 0.6.77 artifacts.
+The continuity APIs shipped with the skills-hardening release, SDK 0.15.0 /
+SOV 0.6.78. The Kernel domain-label compatibility change described in the
+[compatibility guide](skill-compatibility.md) is a later source change; it does
+not claim a new public release.
 
 ## A programmatic SDK host
 
@@ -89,6 +91,13 @@ SDK child receives guidance only through the optional trusted
 `forkSkillContinuity(childSessionId, parentSessionId)` factory. That factory must
 validate child ownership and lineage. The scheduler supplies the actual parent
 session ID for nested children. The child still inherits the parent's tool floor.
+
+Native SOV `--resume <session-id>` reopens the same private session guidance.
+Approved linked Kernel skills use this same path. The later turn does not replay
+activation shell commands or inherit the previous turn's tool restrictions,
+approvals or resource-root grants. Current host policy and its fresh tool pool
+govern each call. A new unrelated session starts without that guidance. Explicit
+child lineage and compaction retain only the guidance their existing rules allow.
 
 ## Revisions and resources
 

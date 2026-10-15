@@ -53,7 +53,9 @@ export function normalizeSkillDescriptor(raw: Record<string, unknown>): SkillDes
   const unsupported = (field: string, message: string) => {
     diagnostics.push({ code: 'unsupported-execution-control', severity: 'error', field, message });
   };
-  if (raw.context !== undefined && raw.context !== 'inline') {
+  // Kernel uses context as a domain label, not an execution-mode request.
+  // Keep the exact label in frontmatter; every other defined value fails closed.
+  if (raw.context !== undefined && raw.context !== 'inline' && raw.context !== 'kernel') {
     unsupported(
       'context',
       'SOV supports inline skills only; remove context or use context: inline. Fork isolation is not implemented.',
