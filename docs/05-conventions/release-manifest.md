@@ -21,19 +21,13 @@ release when the selected work also changes the wrapper. A library-only cut may
 retain the published CLI version. Protocol/debug-console versions remain unchanged
 unless explicitly selected work requires their own release preparation.
 
-The verified cut released SDK **0.16.0** and CLI **0.6.80**. The active empty
-draft plans SDK **0.16.1** and CLI **0.6.81** from that published baseline.
-All 13 source fixes in PR81–93 and reviewed preparation PR94 ship once through
-14 mapped application units. Build source is `48a287d01d74cfd2e15ba7a164b93c9a56aeb164`.
-Owner-approved SDK minor 0.16.0 covers the additive public APIs. Immutable
-`releases/history/sdk-0.16.0/` retains the exact frozen manifest, both schemas,
-14 source/result mappings, QA, independent reviews and public-byte proof.
-All eight public assets and both downloaded Mac versions/signatures pass.
-Source stamps remain the published versions; the empty next draft does not build.
-
-Issue #74 retains its open exact ChatGPT live replay checks; fixture gates do
-not certify paid-provider eligibility or physical power-loss recovery. Exact
-Grok image proof expires 2026-11-13. Unknown tokenizers remain advisory.
+The verified cut released SDK **0.16.1** and CLI **0.6.81**. The active empty
+draft plans SDK **0.16.2** and CLI **0.6.82** from that published baseline.
+PR95 provides the single Kernel skill compatibility feature; PR96 provides reviewed
+version/notes preparation. Both exact main merges are mapped once into the assembled build.
+Immutable `releases/history/sdk-0.16.1/` retains the frozen manifest, both schemas,
+source mappings, independent reviews, QA and all-eight-file publication proof.
+Kernel producer integration remains unverified. No new frozen SDK exports changed.
 
 ## Adding work
 

@@ -23,35 +23,28 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
 
 ---
 
-## Prepared candidate — SDK 0.16.1 / SOV 0.6.81
+## Current public cut — verified 2026-10-15
 
-This candidate includes the single reviewed Kernel skill compatibility feature
-from [PR95](https://github.com/yevgetman/sovereign-ai-sdk/pull/95) and source release
-preparation. It accepts `context: kernel` as metadata, improves local doctor
-approval hints and alias grouping, and retains native permission and continuity
-rules. The matching installed Kernel producer integration remains unverified.
-There are no new frozen `.` exports or breaking type-shape changes; SDK 0.16.1 is
-a patch under [STABILITY.md](STABILITY.md). Protocol remains 0.1.0 and debug console 0.3.0.
+SDK **0.16.1** and SOV **0.6.81** are published in the combined public
+[SOV v0.6.81](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.81) release.
+The single Kernel skill compatibility feature from [PR95](https://github.com/yevgetman/sovereign-ai-sdk/pull/95)
+and reviewed version/notes preparation PR96 are the two mapped units.
+Exact `context: kernel` stays metadata. Approval hints, bounded local aliases and native
+continuity retain host tool and permission authority. Installed Kernel producer integration remains unverified.
+No frozen `.` export names changed; this is a patch under [STABILITY.md](STABILITY.md).
 
-The intended packed asset is `yevgetman-sov-sdk-0.16.1.tgz` under SOV `v0.6.81`,
-with `SDK-SHA256SUMS` separate from binary `SHA256SUMS`. These are prepared source
-versions, not publication evidence. Exact assembled source, selected preparation,
-artifact checks, immutable freeze and live public downloads remain release gates.
-The verified public baseline below remains in effect until that proof exists.
-No npm registry publication is authorized by this preparation.
+All eight public files match frozen bytes: `yevgetman-sov-sdk-0.16.1.tgz`,
+all five CLI platforms, separate `SDK-SHA256SUMS` and `SHA256SUMS`.
+Source tags `sdk-v0.16.1` and `v0.6.81` name the one assembled source
+`0b7a69e31b26ae91201558a1a500bab25402a1bb`.
+[Immutable publication proof](releases/history/sdk-0.16.1/publication.json)
+records all downloads, hashes, native Mac versions and strict ad-hoc signatures.
+Linux arm64 is cross-compiled; no Developer ID signing or notarization is claimed.
+Protocol remains 0.1.0 and debug console remains 0.3.0. npm publication stays Owner-only.
+The next empty draft is SDK 0.16.2 / SOV 0.6.82.
 
-## Current public cut — verified 2026-10-14
-
-SDK **0.16.0** and SOV **0.6.80** are published in the combined public
-[SOV v0.6.80](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.80) release.
-All eight public files match frozen bytes, including the SDK tarball,
-all five binary platforms and both checksum files. Source tags `sdk-v0.16.0`
-and `v0.6.80` name the single assembled source
-`48a287d01d74cfd2e15ba7a164b93c9a56aeb164`.
-[Immutable publication proof](releases/history/sdk-0.16.0/publication.json)
-records downloads, hashes, native Mac versions and strict ad-hoc signatures.
-Linux arm64 is cross-compiled. Protocol stays 0.1.0 and debug console stays 0.3.0.
-npm publication stays Owner-only. The successor candidate is SDK 0.16.1 / SOV 0.6.81; its selected work and cut state live in the active release records.
+The previous verified release is [SDK0.16.0/SOV0.6.80](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.80),
+source `48a287d01d74cfd2e15ba7a164b93c9a56aeb164` with [immutable proof](releases/history/sdk-0.16.0/publication.json).
 
 ## Previous public channel — verified 2026-10-13
 

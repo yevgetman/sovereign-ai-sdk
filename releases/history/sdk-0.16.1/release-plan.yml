@@ -1,7 +1,7 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: 2026-10-15T12:44:19.434Z
+updated_at: 2026-10-15T12:52:34.869Z
 checkout: .
 last_release: &a1
   version: 0.16.0
@@ -22,7 +22,7 @@ release:
   product: sovereign-ai-sdk
   version: 0.16.1
   cli_version: 0.6.81
-  status: frozen
+  status: released
   base: *a1
   applied_commits:
     - item_id: sdk-pr-95
@@ -38,7 +38,7 @@ release:
         mapped as a normal item.
       review: releases/history/sdk-0.16.1/preparation-review.md
   build_commit: 0b7a69e31b26ae91201558a1a500bab25402a1bb
-  frozen_manifest_commit: null
+  frozen_manifest_commit: 3a6d46b9cb06499a6d44df1591354ba2f511cea4
   authorization:
     kind: owner-approval
     reference: "Authenticated Owner Telegram request2026-10-15: merge PR95, add its
@@ -100,6 +100,6 @@ release:
       filename: yevgetman-sov-sdk-0.16.1.tgz
       sha256: 0c423696e35e6e924e81eaa7338361dcc543a9176aa28326abd0284877462f51
       location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.81/yevgetman-sov-sdk-0.16.1.tgz
-  published_at: null
-  publication_evidence: null
+  published_at: 2026-10-15T12:50:23Z
+  publication_evidence: releases/history/sdk-0.16.1/publication.json
   manifest_sha256: c7df78305d4e614e17cb822cec393744a1af8152e580f558729a9f3543b461fa
