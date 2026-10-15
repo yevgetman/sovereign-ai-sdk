@@ -1,0 +1,113 @@
+schema_version: 4
+node: sovereign-ai
+product: sovereign-ai-sdk
+updated_at: 2026-10-15T20:53:19.155Z
+checkout: .
+last_release: &a1
+  version: 0.16.1
+  cli_version: 0.6.81
+  source_commit: 0b7a69e31b26ae91201558a1a500bab25402a1bb
+  evidence: releases/history/sdk-0.16.1/publication.json
+reconciliation:
+  history_start_commit: 0b7a69e31b26ae91201558a1a500bab25402a1bb
+  through_main_commit: 5cbce30cd781d53dd2bdd72ce5d9e933a85c3fda
+  checked_at: 2026-10-15T20:39:06.188Z
+  evidence: Owner requested complete SDK/SOV manifest cut and resumed after usage
+    limit. All8 published baseline files matched archived hashes/sizes; baseline
+    frozen/archive bytes match; both downloaded Mac versions/strict signatures
+    pass. Selected PR97 feature and reviewed PR100 preparation only. Conflict
+    resolutions restricted to release documentation and append-only testing log;
+    unlisted ledger tooling remains outside cut. Exact build contains exactly
+    two mapped commits.
+release:
+  id: sdk-0.16.2
+  product: sovereign-ai-sdk
+  version: 0.16.2
+  cli_version: 0.6.82
+  status: frozen
+  base: *a1
+  applied_commits:
+    - item_id: sdk-pr-97
+      source_commit: fef13c782cdc28d3a896bd81d921aa0dc3e379b5
+      release_commit: 9097d847b01d18212fad63347f81fef833d1e43a
+    - item_id: sdk-pr-100-preparation
+      source_commit: 5cbce30cd781d53dd2bdd72ce5d9e933a85c3fda
+      release_commit: d1af49f5f4640ac0525f5cb61fb1a81c73c09684
+  preparation_commits:
+    - item_id: sdk-pr-100-preparation
+      commit: d1af49f5f4640ac0525f5cb61fb1a81c73c09684
+      reason: Reviewed mapped versions, lockfile, release/install/migration notes;
+        documentation-only assembly resolutions.
+      review: releases/history/sdk-0.16.2/preparation-review.md;
+        releases/history/sdk-0.16.2/final-source-review.md
+  build_commit: d1af49f5f4640ac0525f5cb61fb1a81c73c09684
+  frozen_manifest_commit: null
+  authorization:
+    kind: owner-approval
+    reference: "Authenticated Owner Telegram request: cut and publish SOV/SDK with
+      all items on the release manifest; continued explicitly after usage limit.
+      Covers reviewed SDK0.16.2/SOV0.6.82 assembled source
+      d1af49f5f4640ac0525f5cb61fb1a81c73c09684, public GitHub files, consumer
+      source pins/records and local public SOV update. npm remains
+      Owner-operated; no consumer publication or daemon restart."
+    at: 2026-10-15T20:39:06.188Z
+    build_commit: d1af49f5f4640ac0525f5cb61fb1a81c73c09684
+  validation:
+    - check: exact-source full gates, current/floor packed consumers, audit and
+        dry-runs
+      result: pass
+      build_commit: d1af49f5f4640ac0525f5cb61fb1a81c73c09684
+      evidence: releases/history/sdk-0.16.2/qa.json;
+        releases/history/sdk-0.16.2/final-source-review.md;
+        releases/history/sdk-0.16.2/sdk-privacy-adjudication.md;
+        releases/history/sdk-0.16.2/compiled-canary-adjudication.md
+    - check: all5 platform archives clean with exact source metadata and supported
+        native checks
+      result: pass
+      build_commit: d1af49f5f4640ac0525f5cb61fb1a81c73c09684
+      evidence: releases/history/sdk-0.16.2/qa.json;
+        releases/history/sdk-0.16.2/final-source-review.md;
+        releases/history/sdk-0.16.2/sdk-privacy-adjudication.md;
+        releases/history/sdk-0.16.2/compiled-canary-adjudication.md
+    - check: independent source/preparation/assembly and SDK contents/privacy review
+      result: pass
+      build_commit: d1af49f5f4640ac0525f5cb61fb1a81c73c09684
+      evidence: releases/history/sdk-0.16.2/qa.json;
+        releases/history/sdk-0.16.2/final-source-review.md;
+        releases/history/sdk-0.16.2/sdk-privacy-adjudication.md;
+        releases/history/sdk-0.16.2/compiled-canary-adjudication.md
+    - check: compiled packaged canary with30unchanged assertions and18turns
+      result: pass
+      build_commit: d1af49f5f4640ac0525f5cb61fb1a81c73c09684
+      evidence: releases/history/sdk-0.16.2/qa.json;
+        releases/history/sdk-0.16.2/final-source-review.md;
+        releases/history/sdk-0.16.2/sdk-privacy-adjudication.md;
+        releases/history/sdk-0.16.2/compiled-canary-adjudication.md
+  artifacts:
+    - arch: darwin-arm64
+      filename: sov-darwin-arm64.tar.gz
+      sha256: 211fdf2ff90b5fb475f5c511c13719fb731175a429d7d28f6725808f6f0c2753
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.82/sov-darwin-arm64.tar.gz
+    - arch: darwin-x64
+      filename: sov-darwin-x64.tar.gz
+      sha256: 5391152c5c5008615db2c495ea7c9259420947f647736deed38930873cf6b490
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.82/sov-darwin-x64.tar.gz
+    - arch: linux-arm64
+      filename: sov-linux-arm64.tar.gz
+      sha256: 22b4c1e24655eecf4738d4ee28cd57d12cecd490ef3a84a048d772df3e993af1
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.82/sov-linux-arm64.tar.gz
+    - arch: linux-x64
+      filename: sov-linux-x64.tar.gz
+      sha256: 3ff71f134c00d2e2eab2b010ac82e878d7954820973e901941b8a7bb523df7b9
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.82/sov-linux-x64.tar.gz
+    - arch: windows-x64
+      filename: sov-windows-x64.zip
+      sha256: 936cbb01d4bce60aa6214ccb8b0d755da9aa5b18aacaf450194a807170f21f1b
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.82/sov-windows-x64.zip
+    - arch: package
+      filename: yevgetman-sov-sdk-0.16.2.tgz
+      sha256: a8c4f8fab29a2bd793b97fbe0540cf80d09118eae1cc9b4c1810ace9985f3850
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.82/yevgetman-sov-sdk-0.16.2.tgz
+  published_at: null
+  publication_evidence: null
+  manifest_sha256: 11b56e18e83c5e3c210606d93379a28cc118080759400fe708ef31c3ed2b567d

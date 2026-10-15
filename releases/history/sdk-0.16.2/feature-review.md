@@ -1,0 +1,14 @@
+# SDK 0.16.2 / SOV 0.6.82 independent feature review
+
+Reviewed by a separate release reviewer on 2026-10-15. Scope: verified baseline `0b7a69e31b26ae91201558a1a500bab25402a1bb` to feature application `9097d847`, originating in PR #97 merge `fef13c782cdc28d3a896bd81d921aa0dc3e379b5`.
+
+Result: **no findings above Low; no new actionable findings** in the reviewed feature application. This review does not replace final assembled-source QA, preparation review, freeze review, or public artifact verification.
+
+- Reviewed every changed functional file, the new bounded configuration reader and strict schemas, disk snapshot replacement precedence, injected configuration isolation, canonical approval roots, forbidden project approvals, redirected trust-file rejection, host project boundary, refresh behavior, and CLI/native error handling.
+- Native run validates complete settings before credential selection, provider boot, or session storage. Rejected values and dynamic map keys do not enter ConfigurationError messages. Storage startup faults preserve their typed identity; unknown boot faults use the safe runtime_start_failed classification.
+- Runtime, dispatch, and doctor use the shared resolver. Initial runtime permissions, hooks, MCP servers and skills use the same captured snapshot. Failed settings refresh keeps the previous registry generation. MCP reload computes the next state before publishing it.
+- Independently reproduced: `bun test tests/config/skillSettingsSnapshot.test.ts tests/config/settings.test.ts tests/config/settingsInjection.test.ts tests/server/runtime.test.ts tests/cli/sdkRunSettings.test.ts` — **76 pass, 0 fail, 217 assertions, 5 files**. Raw output: `feature-review-tests.log` beside this report.
+- Source/result audit: all 16 non-log paths changed by PR #97 are byte-identical between source merge and application. The only resolution is append-only `docs/06-testing/testing-log.md`: the result preserves the baseline file as an exact suffix and adds the feature entries plus the already documented prior publication entry. No prior log text was overwritten; no functional conflict resolution occurred.
+- Offline synthetic tests establish settings and error behavior. They do not certify a paid provider or the Kernel producer/writer integration. Existing low-level help-text wording remains nonblocking as recorded in the feature acceptance.
+
+Telekit preparation: dirty original checkout left untouched. Created clean worktree `/Users/julie/code/telekit-pin-sov-0682` on branch `pin/sov-0682-20261015` from fetched `origin/main` `4ab60ee`. Read its AGENTS.md, current pin guide, active manifest/plan, and SOV 0.6.81 receipts. Active draft is Telekit 0.64.25 with PR #62 and PR #65. Pending parent publication proof before changing the helper or pin records. No Telekit publication, installation or daemon restart is authorized by this SOV cut.

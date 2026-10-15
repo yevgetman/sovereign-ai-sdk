@@ -1,0 +1,44 @@
+{
+  "result": "pass with independently justified isolated-fixture adaptation",
+  "at": "2026-10-15T20:51:37.391959+00:00",
+  "build_commit": "d1af49f5f4640ac0525f5cb61fb1a81c73c09684",
+  "all_original_check_calls_preserved": 30,
+  "original_failure": "Final doctor asserted no skills, but package default legitimately contributes three builtin skills; both project link candidates denied with explicitEmpty true",
+  "fixture_changes": [
+    "Explicit empty node/index.yaml",
+    "Pass command-local --bundle node to run and skills doctor; capabilities unchanged"
+  ],
+  "unmodified_artifacts": true,
+  "source_unchanged": true,
+  "native_result": {
+    "ok": true,
+    "binary": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bin/sov",
+    "externalNetwork": "denied",
+    "credentialHelper": "denied",
+    "completedTurns": 18,
+    "routingMatrixCases": 16,
+    "approvedBody": true,
+    "boundedResource": true,
+    "siblingDenied": true,
+    "resourceEscapeDenied": true,
+    "doctorSource": "host-approval-file"
+  },
+  "receipt_sha256": {
+    "compiled-canary.log": "ff6fb950a788620026cc16d8846bf354d10599e3b3bb056ae7f1c9e5e0c123cc",
+    "compiled-canary-diagnostic.py": "cf42a6e1aefb5481ac4b2a95a408ed123edade6fe0b88f4d76bd721a307c81ee",
+    "compiled-canary-diagnostic.log": "bdce88209384ec817fc9af97a6e1852132e8980ea2f3fdfc2285c8782da22c82",
+    "compiled-canary-empty-doctor.json": "a7399f53f6dd01e7a3c51fd579013495c0754f10e51f16fb2a1dc14e85c3a920",
+    "compiled-canary-index-only.log": "530fd1abbcf1e8a2247d62980a995c600dd0ef8d0dfca4de9933e1d1e45f0e4f",
+    "compiled-canary-global-bundle-option.log": "413844ca90c011ce4e40e4d7a45781b7ff0baad2f22a3f5940e590a6cbe43871",
+    "compiled-canary-isolated.py": "2f82bb777f6e6e6ba5e120ea365971e9a497c1395b1cc695f5760bb90aa5a4aa",
+    "compiled-canary-isolated.diff": "24a4325b68f9d3bcb98b9ab70b2f67f5f011d022a26c6951a7dea5028395768c",
+    "compiled-canary-isolated.log": "c003d85974bad9f14ef0209ee41c9724db5a3773d594546285ea1e188a7bc65f"
+  },
+  "limits": [
+    "Fake loopback provider, sandbox denies external network and credential helper.",
+    "Does not certify paid provider quality or installed Kernel producer integration."
+  ],
+  "binary_sha256": "dffbfa690d1a0e7516941009b86cf91bea3000fe010b6d9c77309773d9bbe133",
+  "binary_identical_to_frozen_archive": true,
+  "generated_python_cache_removed": true
+}

@@ -1,0 +1,3210 @@
+{
+  "source_commit": "d1af49f5f4640ac0525f5cb61fb1a81c73c09684",
+  "artifact": "yevgetman-sov-sdk-0.16.2.tgz",
+  "artifact_sha256": "a8c4f8fab29a2bd793b97fbe0540cf80d09118eae1cc9b4c1810ace9985f3850",
+  "raw_scan_sha256": "8f871c33c38ea6dba87f38c88acbcffe16f046e1e44772c1ff1509be261d006b",
+  "scanner_version": "1.0.1",
+  "policy_version": "2026-10-01.2",
+  "policy_sha256": "8e04fd1980cd9a1a534eaa51e993f632a79f62b603efabaf99cbf6c65a95e1c2",
+  "member_count": 705,
+  "literal_rule_occurrence_counts": {
+    "operator-alert-routing": 0,
+    "private-integration": 0,
+    "incident-secret-fixture": 0,
+    "private-contact": 0,
+    "private-machine": 0,
+    "operator-namespace": 40,
+    "builder-home": 0,
+    "private-bot-handle": 0,
+    "owner-bound-prompt": 0,
+    "private-checkout": 0
+  },
+  "private_literal_occurrences": [],
+  "operator_namespace_occurrences": [
+    {
+      "file": "package/dist/debug.js",
+      "encoding": "utf-8",
+      "byte_offset": 249,
+      "line": 5,
+      "column": 17,
+      "identity": "@yevgetman/sov-debug-console",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/dist/sdk.js",
+      "encoding": "utf-8",
+      "byte_offset": 132,
+      "line": 3,
+      "column": 55,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/dist/debug/types.js",
+      "encoding": "utf-8",
+      "byte_offset": 71,
+      "line": 2,
+      "column": 6,
+      "identity": "@yevgetman/sov-debug-console",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/dist/version.js",
+      "encoding": "utf-8",
+      "byte_offset": 57,
+      "line": 1,
+      "column": 58,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/package.json",
+      "encoding": "utf-8",
+      "byte_offset": 14,
+      "line": 2,
+      "column": 13,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/package.json",
+      "encoding": "utf-8",
+      "byte_offset": 460,
+      "line": 14,
+      "column": 38,
+      "identity": "yevgetman/sovereign-ai-sdk.git",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/package.json",
+      "encoding": "utf-8",
+      "byte_offset": 564,
+      "line": 17,
+      "column": 35,
+      "identity": "yevgetman/sovereign-ai-sdk/tree/master/packages/sdk#readme",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/package.json",
+      "encoding": "utf-8",
+      "byte_offset": 668,
+      "line": 19,
+      "column": 32,
+      "identity": "yevgetman/sovereign-ai-sdk/issues",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 3,
+      "line": 1,
+      "column": 4,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 734,
+      "line": 14,
+      "column": 77,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/03-cli-reference/sdk-routes.md#owner-managed-subscription-registries",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 968,
+      "line": 18,
+      "column": 107,
+      "identity": "yevgetman/sov-releases/releases/tag/v0.6.82",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 1125,
+      "line": 21,
+      "column": 30,
+      "identity": "yevgetman/sov-releases/releases/download/v0.6.82/yevgetman-sov-sdk-0.16.2.tgz",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 1174,
+      "line": 21,
+      "column": 79,
+      "identity": "yevgetman-sov-sdk-0.16.2.tgz",
+      "matcher_approved": false
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 1232,
+      "line": 22,
+      "column": 30,
+      "identity": "yevgetman/sov-releases/releases/download/v0.6.82/SDK-SHA256SUMS",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 1342,
+      "line": 24,
+      "column": 15,
+      "identity": "yevgetman-sov-sdk-0.16.2.tgz",
+      "matcher_approved": false
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 1396,
+      "line": 26,
+      "column": 11,
+      "identity": "yevgetman-sov-sdk-0.16.2.tgz",
+      "matcher_approved": false
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 1668,
+      "line": 31,
+      "column": 59,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/PUBLISHING.md",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 2439,
+      "line": 47,
+      "column": 70,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 2525,
+      "line": 48,
+      "column": 67,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 5249,
+      "line": 137,
+      "column": 56,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 6014,
+      "line": 148,
+      "column": 64,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/routing-an-agent.md",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 7386,
+      "line": 166,
+      "column": 44,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-activation.md",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 8127,
+      "line": 175,
+      "column": 39,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-catalog.md",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 8438,
+      "line": 179,
+      "column": 38,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-storage.md",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 9347,
+      "line": 190,
+      "column": 69,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-runtime.md",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 9854,
+      "line": 199,
+      "column": 26,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 10267,
+      "line": 207,
+      "column": 50,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/STABILITY.md",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 18620,
+      "line": 342,
+      "column": 29,
+      "identity": "@yevgetman/sov-sdk/core/transcriptRepair",
+      "matcher_approved": false
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 21378,
+      "line": 384,
+      "column": 37,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 28092,
+      "line": 488,
+      "column": 51,
+      "identity": "yevgetman/sovereign-ai-sdk/issues/15",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 28170,
+      "line": 489,
+      "column": 40,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/05-conventions/consumer-contract.md",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 37357,
+      "line": 625,
+      "column": 50,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-compatibility.md#migrating-to-sdk-0162",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 38872,
+      "line": 647,
+      "column": 39,
+      "identity": "yevgetman/sovereign-ai-sdk/blob/master/docs/04-extending/skill-continuity.md",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/src/providers/models/README.md",
+      "encoding": "utf-8",
+      "byte_offset": 79,
+      "line": 3,
+      "column": 40,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/SECURITY.md",
+      "encoding": "utf-8",
+      "byte_offset": 25,
+      "line": 1,
+      "column": 24,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/SECURITY.md",
+      "encoding": "utf-8",
+      "byte_offset": 315,
+      "line": 6,
+      "column": 20,
+      "identity": "@yevgetman/sov",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/src/debug.ts",
+      "encoding": "utf-8",
+      "byte_offset": 249,
+      "line": 5,
+      "column": 17,
+      "identity": "@yevgetman/sov-debug-console",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/src/sdk.ts",
+      "encoding": "utf-8",
+      "byte_offset": 132,
+      "line": 3,
+      "column": 55,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/src/debug/types.ts",
+      "encoding": "utf-8",
+      "byte_offset": 71,
+      "line": 2,
+      "column": 6,
+      "identity": "@yevgetman/sov-debug-console",
+      "matcher_approved": true
+    },
+    {
+      "file": "package/src/version.ts",
+      "encoding": "utf-8",
+      "byte_offset": 57,
+      "line": 1,
+      "column": 58,
+      "identity": "@yevgetman/sov-sdk",
+      "matcher_approved": true
+    }
+  ],
+  "rejected_count": 4,
+  "result": "approved exact public identities; raw generic scan unchanged",
+  "source_dist_parity": [
+    {
+      "file": "package/LICENSE",
+      "sha256": "a2283b321d9457ecf82aa4a7c8c623768f58eb2ab34ec40bfa41a87bd6bdb54f"
+    },
+    {
+      "file": "package/dist/skills/activation.js",
+      "sha256": "26c17a6c3395b94a29b409c87f1fc9c8fc8dad9cb54da75be94009e108dfcb37"
+    },
+    {
+      "file": "package/dist/tools/AgentTool.js",
+      "sha256": "8ccd8143207d3b04a112c7ba8721b1c5645959a24ba5ade441588b542cf5defb"
+    },
+    {
+      "file": "package/dist/providers/anthropic.js",
+      "sha256": "1a9583ab3c1e4d0237badb7779e4361db417399b6f08c1f565c9dbf6ced6b23e"
+    },
+    {
+      "file": "package/dist/config/applyScope.js",
+      "sha256": "666be6242fd67560c326bc8962f81443f6786544705ec0372abaf4794fcadfb7"
+    },
+    {
+      "file": "package/dist/hooks/argvSplit.js",
+      "sha256": "d5bcf5375b1d4a79f31451c29617ff9eb3b1c41927c86a3348cfd94bdca71647"
+    },
+    {
+      "file": "package/dist/telemetry/assayUsageRecorder.js",
+      "sha256": "eec66044c3ed7d1bdb8aba75650aec9a9aca63f52bfa20fe1e70da5f7073efd5"
+    },
+    {
+      "file": "package/dist/providers/subscription/attempt.js",
+      "sha256": "7e941210dc42f0e5cb49560c43377fddf012d6e780c91cb3d348a0215f4fe1a7"
+    },
+    {
+      "file": "package/dist/mcp/auth.js",
+      "sha256": "e2180b09b9047b6f6701e7f70907095ab84d589a6e7f36997d762ed8d4c68cf6"
+    },
+    {
+      "file": "package/dist/providers/auxiliary.js",
+      "sha256": "1a15a56a66a8bd8fcca51ef0e1c40c68ef3908c0aebf9f53ed8e626ea4343cdc"
+    },
+    {
+      "file": "package/dist/tools/BashTool.js",
+      "sha256": "128a3db16644bc086978bd401377b5b48995ab4a713bc4cdcd39e08d2c0c9075"
+    },
+    {
+      "file": "package/dist/memory/bounded.js",
+      "sha256": "a77097e150c0a5bdef9c3348076bc6397c583e44ff888761b7a4a17db4b0e90a"
+    },
+    {
+      "file": "package/dist/context/boundedRead.js",
+      "sha256": "fa6d13a54550446a33618c75a0ba95402ed8878ff4441dc143c6782cc9eeb3e7"
+    },
+    {
+      "file": "package/dist/context/budget.js",
+      "sha256": "3e2b1f2c52a1d8a55e3d2463995f84b06112ad7a0b4d437e46718cee1949da7f"
+    },
+    {
+      "file": "package/dist/skills/budget.js",
+      "sha256": "0ca2c528e6e543809c74f59762d4e9cf5389a33bda0b54ce9a6d052d1ccdee2d"
+    },
+    {
+      "file": "package/dist/tool/buildTool.js",
+      "sha256": "b307cfc595361f5c50ea50491e8b2794ebfd8b461bf7054b07a82efd0090abc8"
+    },
+    {
+      "file": "package/dist/tool/buildToolContext.js",
+      "sha256": "18a4243d043dbd4485c05b2604389696c62af543bb5615c24d0897bf9527cabc"
+    },
+    {
+      "file": "package/dist/permissions/canUseTool.js",
+      "sha256": "1c8d6d90c6c1e679dd73d530071fa8b04b39e2c73697393c1a1913a421c7b3a2"
+    },
+    {
+      "file": "package/dist/core/capabilities.js",
+      "sha256": "bde4e915d0d5a9edebe738245266cd35094371b0dc3ff8c8246f9b12e745c5da"
+    },
+    {
+      "file": "package/dist/router/capabilities.js",
+      "sha256": "12d4bacd700deb88ff9d58f2221d9c241996499e3a0a9e670a643696b0b2f01d"
+    },
+    {
+      "file": "package/dist/tool/capabilityProfiles.js",
+      "sha256": "798dcd1faaa82d972e4bc84c840318dc070555039fadd40593f87c2c92981202"
+    },
+    {
+      "file": "package/dist/providers/models/catalog.js",
+      "sha256": "7fed1c8a94eaadc0c3c6caba1b9dabe25ed944a093b67e6fc2331e9a01b09fd7"
+    },
+    {
+      "file": "package/dist/providers/routes/catalog.js",
+      "sha256": "8ce52335044abb2615c814ba5109911b0f25e1fa27c696a504e879951c58d11b"
+    },
+    {
+      "file": "package/dist/skills/catalog.js",
+      "sha256": "a421c858297946bdd6f2f810e02241c480a94b4bde261541fe4e13213e07852f"
+    },
+    {
+      "file": "package/dist/providers/chatgpt.js",
+      "sha256": "d21149fc61418825565adea285b0962d1ce14e5b45f83798e47cf92f3bfa7bcf"
+    },
+    {
+      "file": "package/dist/runtime/childPolicy.js",
+      "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+    },
+    {
+      "file": "package/dist/providers/claudeMax.js",
+      "sha256": "10dc421077d4b5caf982f83789039521ec3db6baf94335234204c706fc30a179"
+    },
+    {
+      "file": "package/dist/providers/subscription/claudeMaxTerms.js",
+      "sha256": "658e045f99e0fde3b9561189c5e4c156d11592fbf388bbe62f91c5dc2532713f"
+    },
+    {
+      "file": "package/dist/mcp/client.js",
+      "sha256": "21cfe10aa222ef036fe55ccdc72a2444a5670e5d7a73536470bb35644358a03c"
+    },
+    {
+      "file": "package/dist/debug/collector.js",
+      "sha256": "2d2b5cca6697e51d4502c80771ed9ee844eac7ef49e4fc68d1ced0f30b6dbc64"
+    },
+    {
+      "file": "package/dist/skills/commands.js",
+      "sha256": "2fa7b34a3a64e5486184600ee335445660789895f87fb9903d26ba31c0327d04"
+    },
+    {
+      "file": "package/dist/core/compactPort.js",
+      "sha256": "b924a14e45b73b6d15d23eaf69735f9696ecbde8600093c034c539c3a47f9b7d"
+    },
+    {
+      "file": "package/dist/core/conductOutput.js",
+      "sha256": "c8fae3a24e32a2f87e906ae883df048fdd0eea1a185907bc336c009d52f63a89"
+    },
+    {
+      "file": "package/dist/core/conductPort.js",
+      "sha256": "b66b8c00d40479b55fdda56dbc52e66db0b99eff0ae693473e32839917dfc4ae"
+    },
+    {
+      "file": "package/dist/core/conductSegments.js",
+      "sha256": "8fc35c694d8428fc66e43d56c2e0ecb9b3d6db2138a1685d42c22317fe9780ce"
+    },
+    {
+      "file": "package/dist/core/conductToolPolicy.js",
+      "sha256": "7eb8bc5ae4c54ea1aec4e4aefeb73906b937ac65d017076ed87d7db9352a3e90"
+    },
+    {
+      "file": "package/dist/config/configurationError.js",
+      "sha256": "123f7808d659a6144da5e277c6b8ee244abdb00708858f5acee81ed12c60175d"
+    },
+    {
+      "file": "package/dist/hooks/consent.js",
+      "sha256": "22c0f1cbd6d9703f8d426780b9d9b6b82b66583be9801d9ec76469125429a3fb"
+    },
+    {
+      "file": "package/dist/compact/contextManagement.js",
+      "sha256": "eb869f2050174ad5fba4470e36cd0a954b450b8a8ad978c93d8e746b7a86c020"
+    },
+    {
+      "file": "package/dist/skills/continuity.js",
+      "sha256": "323d16a71d04a65153a6b8aa87f5800d7a5cba9c4c0658e72c28ce283b10cbf7"
+    },
+    {
+      "file": "package/dist/agent/createAgent.js",
+      "sha256": "5e508aeb949d1d55a61bd4aacc2bc30fb7e0431bcf7e84648dec3ad0b3b07972"
+    },
+    {
+      "file": "package/dist/providers/routes/credentials.js",
+      "sha256": "491739fc75f2ad288849dc9984c2cc4d426b6512984e7d50cfa6df51f7a1e99d"
+    },
+    {
+      "file": "package/dist/debug.js",
+      "sha256": "0b6a985279b8ac5e67340b3dbddef98d5aa58abc2028b8c9c4053fe1173ebafd"
+    },
+    {
+      "file": "package/dist/bundle/defaultBundle.js",
+      "sha256": "01456881b9cf55d495c0892f2d9c83dabdf6b15ef7c338298e573f97d2e51227"
+    },
+    {
+      "file": "package/dist/skills/descriptor.js",
+      "sha256": "d3821e222b133b281c658043e10e2d60f4088ebdc939750775d9929e26c5fbbe"
+    },
+    {
+      "file": "package/dist/tool/descriptors.js",
+      "sha256": "6a8cd3a185600db538d2b1ca19540a829500263079ef3a9c6393d92e45385a34"
+    },
+    {
+      "file": "package/dist/loop/detector.js",
+      "sha256": "f86a31029d71e03f14acf76482cc3129680c8ef86c69ebf3812ed0c6d4ac3f9d"
+    },
+    {
+      "file": "package/dist/providers/subscription/diagnostics.js",
+      "sha256": "ed0dde5ca1a75ac801cf1f43841902f9c3ee5ebbdacf56cc96a08056407decfd"
+    },
+    {
+      "file": "package/dist/providers/models/direct.js",
+      "sha256": "001ab13f7f7987a6ad7cf236c0e7821d9489d65daee4f95f9584a641adb8afc3"
+    },
+    {
+      "file": "package/dist/skills/discovery.js",
+      "sha256": "d54484be42a44a24a34812977e6492acc93adc0392569143d67264e170a2dd1b"
+    },
+    {
+      "file": "package/dist/config/discoverySchema.js",
+      "sha256": "c0e4264fd6de4f283b69958b46476a68711e57e383a1bbecb6dde8fa2d209ba0"
+    },
+    {
+      "file": "package/dist/config/draftManager.js",
+      "sha256": "b1edced97c4d0fa805e8ac7a5a1ef066e18081f526d2b8e0fedb6dd1f33d5d1a"
+    },
+    {
+      "file": "package/dist/tool/effectiveInventory.js",
+      "sha256": "c923b2dd686b322525b3d9ee7700327e636aaf69e13bd133617df3588d57919b"
+    },
+    {
+      "file": "package/dist/providers/effort.js",
+      "sha256": "171b7dc84d7083866fe2b7502823673750ac5480ea30a041f87b2ff90049f0dc"
+    },
+    {
+      "file": "package/dist/providers/errors.js",
+      "sha256": "10d000994beb5c3a0e50384a6aea22ab93fb463ad57ce305a0d4b03b60554085"
+    },
+    {
+      "file": "package/dist/providers/routes/errors.js",
+      "sha256": "5a13f0cd820f182fbc8538048eed44787af06eb1254166470a2622d45918d985"
+    },
+    {
+      "file": "package/dist/agents/exclusions.js",
+      "sha256": "67252c8bb3293e72939177a910cec5bf6aa9ee1ce96fa175db6508cfef8bfd9d"
+    },
+    {
+      "file": "package/dist/runtime/executorPort.js",
+      "sha256": "0f783d7f06f8c6f5749ac3a239911e0cf1514d0d38f28599d07a4967282ffda1"
+    },
+    {
+      "file": "package/dist/context/fenceGuard.js",
+      "sha256": "c980a838bf026804dcf36a9bcdba998c343b52b5277c1e0ce80b1cb1e7302a0c"
+    },
+    {
+      "file": "package/dist/tools/FileEditTool.js",
+      "sha256": "070a3de1a54c829026a2d5fcd4ba85d59fd440d9cd27ca1bce7c77673cf8e585"
+    },
+    {
+      "file": "package/dist/skills/fileIdentity.js",
+      "sha256": "6e7f117ac7c85d6903ab8932d272c6c426ccf68491c1952baea07f734d787f1d"
+    },
+    {
+      "file": "package/dist/skills/fileRead.js",
+      "sha256": "27271c3e4350ab60a077d0461c98eb155192296230280f1fb67d2679556a9b29"
+    },
+    {
+      "file": "package/dist/tools/FileReadTool.js",
+      "sha256": "08322b76b28f418a002355069a1452920b5188e3bcb2044be4423eec89f08488"
+    },
+    {
+      "file": "package/dist/tools/FileWriteTool.js",
+      "sha256": "a2ea8c1fd4496b355688b99c5e5047e2a108a5ddd8187b29946250952acf5014"
+    },
+    {
+      "file": "package/dist/skills/frontmatter.js",
+      "sha256": "35208f7a3c068718ccf68928935ba28f95e6867db744e830d6db4d708baf15de"
+    },
+    {
+      "file": "package/dist/tools/GlobTool.js",
+      "sha256": "fbc5cc6705fbd53fb8fd9b048111247aa22bc49697ddfa0e071014ebdb0c6a07"
+    },
+    {
+      "file": "package/dist/tools/GrepTool.js",
+      "sha256": "63855fad347c1c108fbb2fafe83390c18e61177fbb781ea749d5fae5f8c2c354"
+    },
+    {
+      "file": "package/dist/providers/grok.js",
+      "sha256": "45e728aa5801f57bde7f1b49be951eae3082162850b352b788f28db39e07a0a1"
+    },
+    {
+      "file": "package/dist/providers/models/grokPin.js",
+      "sha256": "1b13d70a23e39b7de0cd2d58d72682170d279143ba2300cf47d2e5c1b13c1101"
+    },
+    {
+      "file": "package/dist/skills/guard.js",
+      "sha256": "e803e789d810b956090798582dcacfb6e47b5e1ff49ff6a940161df7529fc064"
+    },
+    {
+      "file": "package/dist/tools/HarnessInfoTool.js",
+      "sha256": "a00a6c52b033c27138fbcf52f9c6e189780649685228c2b482112474e9b871f5"
+    },
+    {
+      "file": "package/dist/providers/models/http.js",
+      "sha256": "2e837db707f30ec49b88c07fe636730c5d2840a92f4e7413bf1553142590da5d"
+    },
+    {
+      "file": "package/dist/providers/models/imageInput.js",
+      "sha256": "c35e8ce499e9da18b1bdf237540029094af354e0a108dcc9006e0538aeb66ecf"
+    },
+    {
+      "file": "package/dist/providers/models/index.js",
+      "sha256": "f4eab5687dbf58146f154c1ff133750b7468112adf0dcc53eb77118e091a961f"
+    },
+    {
+      "file": "package/dist/providers/routes/index.js",
+      "sha256": "5c2bc15c83013a7b796860f54bd1692b985f713676379c39b0f9bfe894caa2e4"
+    },
+    {
+      "file": "package/dist/memory/injection.js",
+      "sha256": "b715a502b17721298ebb9e2da0d1b77deaeea7782dcde2381200c7c2cf304110"
+    },
+    {
+      "file": "package/dist/context/injectionDefense.js",
+      "sha256": "ae6fed7285db9cc3728c8a3e80d5be6d965b7e53d0ec4ac940ff935456789b7d"
+    },
+    {
+      "file": "package/dist/persistence/inMemoryStore.js",
+      "sha256": "78dc3a31819f40ea17eee688aa6b6fcc181748b45f21cdf9b0c39c0bb8614782"
+    },
+    {
+      "file": "package/dist/permissions/inputTransformer.js",
+      "sha256": "296faf9ac04ae976fc61b07c15796676fa8c1f6c65678c9bead0773d938af1a1"
+    },
+    {
+      "file": "package/dist/skills/install.js",
+      "sha256": "2b2b2278480a2496634613735c5e0009eb691aed245a3b08af17e9bb1d089efb"
+    },
+    {
+      "file": "package/dist/providers/subscription/keychain.js",
+      "sha256": "f425bd96bfedafdb13a5ba3fc4929f30e0b0a4fdb032a9482d7bd29cdc72fb9c"
+    },
+    {
+      "file": "package/dist/runtime/laneSemaphores.js",
+      "sha256": "96911d582b1c31f2b4aab7ee7857ee20c33b099b7a0771d9830f871a26ec967f"
+    },
+    {
+      "file": "package/dist/providers/subscription/load.js",
+      "sha256": "0ff211824f25faefcced44170557ac7de55ce6b682d5c46908e9e55945814027"
+    },
+    {
+      "file": "package/dist/agents/loader.js",
+      "sha256": "7c148281205b573d21514f84317717fd17a4779c66953b36f79e331635000d4d"
+    },
+    {
+      "file": "package/dist/bundle/loader.js",
+      "sha256": "f03f768abf0a15a82d7c6273f3397cd794e9ddef7e655127e322aa7133ef0aea"
+    },
+    {
+      "file": "package/dist/config/loader.js",
+      "sha256": "e7290c651eb96a38c6cac46b7552ac90cda8b02064b7f8ca68383d6ec0f99dba"
+    },
+    {
+      "file": "package/dist/skills/loader.js",
+      "sha256": "ffde1fd84da8886f7bd2522b99e71d1d94bd81e79a91fe69046914ce76c230a7"
+    },
+    {
+      "file": "package/dist/providers/subscription/lock.js",
+      "sha256": "055f7fb600ad5d2a92e8dd2ec8e41cc98eb9f7978528df59f0924287071f376c"
+    },
+    {
+      "file": "package/dist/providers/subscription/login.js",
+      "sha256": "8db30fe703db91d949ced30b0633a1bb0043601e2cc4a2b6f638c0bf16d672b2"
+    },
+    {
+      "file": "package/dist/providers/subscription/loginEpoch.js",
+      "sha256": "df89f884382e6776ade3153adfa66295551c156e031dc92af5d535dd42e40bce"
+    },
+    {
+      "file": "package/dist/hooks/matcher.js",
+      "sha256": "ec636cdd4b3f6bb7346d4737cf197458fac3c405f97e532545ca7bbecac2261b"
+    },
+    {
+      "file": "package/dist/tools/MemoryTool.js",
+      "sha256": "68abcad9a49b09796ae5f57f71fde6628efc251d842b24a443b1a45db3b5aeb4"
+    },
+    {
+      "file": "package/dist/compact/microcompact.js",
+      "sha256": "e09ffafaa676ed3ddca3519a36857bffc7cc2c0254a0ccbd0a5c1289e3a9d2d4"
+    },
+    {
+      "file": "package/dist/providers/mock.js",
+      "sha256": "b093b972b4266335031d58a5dd15da9862144cd86e75b20192c7a2065b8d5dfb"
+    },
+    {
+      "file": "package/dist/providers/modelLimits.js",
+      "sha256": "4d2e16df545022e6fbde8d6d5c2ee6e8cf2275a7c07b72acc4cbf3b31d077e6d"
+    },
+    {
+      "file": "package/dist/providers/modelReasoning.js",
+      "sha256": "0dfb4fb866e7ff0f16f8a972ade594ce2f5512abcdca3257cef599a4e1076012"
+    },
+    {
+      "file": "package/dist/providers/models.js",
+      "sha256": "ea70ad266851645aab68b436aaa9995ab5c75643971b6118dcc8f0e3343a6e7c"
+    },
+    {
+      "file": "package/dist/providers/subscription/names.js",
+      "sha256": "f62793cf24f9a7ebb23370b8e0e880668a82018d96076ccb98dd7c9195ecf2c7"
+    },
+    {
+      "file": "package/dist/persistence/noopTranscriptStore.js",
+      "sha256": "b5f6743edb1a28d32f6fd27d265c05ef48fd2684e561c89660b039bd94320f03"
+    },
+    {
+      "file": "package/dist/providers/subscription/oauth.js",
+      "sha256": "088fbb1a1c5fcb3c35c84404f99f0dae9e28a2861e9b5f0b226fbee413114618"
+    },
+    {
+      "file": "package/dist/core/observePort.js",
+      "sha256": "546f663c3cd63fa661ded326c22583483d2c8165d2fb1c8a45cd6d883f9c8fac"
+    },
+    {
+      "file": "package/dist/providers/ollama.js",
+      "sha256": "4370b02d18d0eda5b94186485b461f97ab60b91dc6347fd8f2750ad70333ccd3"
+    },
+    {
+      "file": "package/dist/providers/openai.js",
+      "sha256": "fb3b6f80d402e76a4f5d069092ee573d8554388adc9182642c949de9a5ed00a4"
+    },
+    {
+      "file": "package/dist/providers/models/openrouter.js",
+      "sha256": "0a9457819cf4dc2adaa3cb9f49d846c5b5bce13b6b81a7c5a051331cbf899746"
+    },
+    {
+      "file": "package/dist/providers/openrouterPolicy.js",
+      "sha256": "d7274a88363b2b3e25c87a62b20f070ce954698cd6f2179c3ac4bb0efcaeb10e"
+    },
+    {
+      "file": "package/dist/loop/options.js",
+      "sha256": "b3b62964ce55c4fc0bf8c7a619c08884d6e5cca2085d036bec6aaff461d70d4f"
+    },
+    {
+      "file": "package/dist/core/orchestrator.js",
+      "sha256": "13e4560a04264d1f88cae86f8856fa85b48c61a99d278e0ed86d1e4b54dbade9"
+    },
+    {
+      "file": "package/dist/providers/models/ownerModelPolicy.js",
+      "sha256": "0a61889483a074ceb78168193745d8dac0953175268fd5a8d0654494cbb14b3c"
+    },
+    {
+      "file": "package/dist/providers/models/ownerRegistry.js",
+      "sha256": "8fa1c3321ae03c4bdc978fe1e61c9a46bb39ec911c4d5ded0a7125ef32ad37c8"
+    },
+    {
+      "file": "package/dist/runtime/pathLock.js",
+      "sha256": "d5f6c1a04d11444d877623448a064b469bc9a7609a5ba834e57d3d6d5e429a59"
+    },
+    {
+      "file": "package/dist/config/paths.js",
+      "sha256": "7f1325d90c7c543441a088171be776d1345aaf44b025dbe237c203855868d397"
+    },
+    {
+      "file": "package/dist/transcript/paths.js",
+      "sha256": "2c1c54f14b99d00ffff7a3b81627edb4331c53a94e6c3493129f1679d40a463e"
+    },
+    {
+      "file": "package/dist/tools/pathUtils.js",
+      "sha256": "35639ddeba53e831c7e2f27179ded6921c0e48fbb5f6d0d088defe247054ece1"
+    },
+    {
+      "file": "package/dist/tools/permissionMatchers.js",
+      "sha256": "39d859c9b1ae9ee6a8e8f7da8cfc9dc6afac9d0dc156b13b4fdb51e992c27dd3"
+    },
+    {
+      "file": "package/dist/util/platform.js",
+      "sha256": "a47ded2ce0d33ee08f69081e42d387758c31b689776af62fa4f055f8ff270d83"
+    },
+    {
+      "file": "package/dist/providers/credentials/pool.js",
+      "sha256": "1723580f1cf7f7a66eb9c138aa04aa0885107a9acb7f1d69986bc1f1e5f35e9a"
+    },
+    {
+      "file": "package/dist/providers/subscription/port.js",
+      "sha256": "10aa6f983b302078a78c0fe11a4ef1eee0d859ebefb9008f47fc1b0029c3a7d6"
+    },
+    {
+      "file": "package/dist/tool/ports.js",
+      "sha256": "e36dd51fbad0c0f6f15550c671bce6d475aa0a28cba97311df3476e9bf3aab1e"
+    },
+    {
+      "file": "package/dist/providers/preflight.js",
+      "sha256": "39c604ad33c2dfc6c258e8ca576214b8507dbaf8268bffb6c67ccc29a74cd732"
+    },
+    {
+      "file": "package/dist/config/presets.js",
+      "sha256": "ae133ff0968a03415e3f9d34385e2c87c44baa52ef9aabedd0bff1a5183b9229"
+    },
+    {
+      "file": "package/dist/providers/pricing.js",
+      "sha256": "2a162bebd92f406e42df2e82a842b0425b6eee13d42ca78a8bcfad370442f5ed"
+    },
+    {
+      "file": "package/dist/util/principals.js",
+      "sha256": "52682aced140692234790ee11f54678cebe61d53ee9d190afcb68bdadd49d17c"
+    },
+    {
+      "file": "package/dist/config/profileLock.js",
+      "sha256": "5229a0bf8af414abe96c1b4c19df3189fa05acf7f99c4b7852c8db0e0125a6fd"
+    },
+    {
+      "file": "package/dist/util/project.js",
+      "sha256": "d3aea9b51c47eee7ce737f248bc84964b1415f7b6d51553ba49493d0cc9a4256"
+    },
+    {
+      "file": "package/dist/permissions/prompt.js",
+      "sha256": "cbb481b01ebea5865ab01827d4aa4d5cee4c19c038ac8b7236197363734eabbb"
+    },
+    {
+      "file": "package/dist/providers/promptCache.js",
+      "sha256": "0ead2cd01f91adeed45d2540267c4351a72f0ee0b260d96388cce1803c8bd16f"
+    },
+    {
+      "file": "package/dist/memory/provider.js",
+      "sha256": "fa36b23e1e51ea5eb98744d1aace32a911607893728167afcf1824ae51f658e8"
+    },
+    {
+      "file": "package/dist/core/query.js",
+      "sha256": "90984c2998e84794a1b61ef61c3735504a85f8191922b7fd5f3261b42c31a797"
+    },
+    {
+      "file": "package/dist/providers/credentials/rateGuard.js",
+      "sha256": "874d4d7ce1642b84782d136ab7a7b962661f3d1e1f9452683dd77d4afadade63"
+    },
+    {
+      "file": "package/dist/core/recallInjection.js",
+      "sha256": "a9f7aa99fd36dfc549dff1c1dcf84113ba216c805b188a91332bda9c5c2cde80"
+    },
+    {
+      "file": "package/dist/core/recallPort.js",
+      "sha256": "10981a26d92cff9795dbaad0651ce6d25cb0dcaad9e3f69978a1a9bb75fcf941"
+    },
+    {
+      "file": "package/dist/turnlog/recorder.js",
+      "sha256": "8eca423f09a10ce35feeeaa121175e381a1eaed32d3d8c0a1f162ceb310c2d00"
+    },
+    {
+      "file": "package/dist/trajectory/redact.js",
+      "sha256": "fb4ffa6d25d2e6e978952c61feb262a97b6946e09a801167d16e9ea70e3f12e9"
+    },
+    {
+      "file": "package/dist/permissions/redactSecretsTransformer.js",
+      "sha256": "d96c25b7b1f9628a4c950f06943d34a8239cf6efefca35687b09db1b83764dda"
+    },
+    {
+      "file": "package/dist/context/references.js",
+      "sha256": "27190d51aa829edb7bd6ff05a645d1ebab445c23eac91f17230710f793af7711"
+    },
+    {
+      "file": "package/dist/providers/subscription/refresh.js",
+      "sha256": "83f301f6f2555d7ab02635fe572446d01df3ad84142488d5febddf3491dbdea5"
+    },
+    {
+      "file": "package/dist/skills/registry.js",
+      "sha256": "e1c1eff41b649702463568513a32499a9f618b27f429ae6d0c557a8242d9ec1b"
+    },
+    {
+      "file": "package/dist/providers/routes/resolve.js",
+      "sha256": "bfbad2d840b5973adecbad6d3a4419ae28748e063a86e868b606a2ccc4bf2a0d"
+    },
+    {
+      "file": "package/dist/providers/resolver.js",
+      "sha256": "605310d11af92cfa8fc32234636abdc0651058918d47c2ad63709c8b44d80d83"
+    },
+    {
+      "file": "package/dist/providers/responses.js",
+      "sha256": "640f5b353fc86b24adc3f743ee82f36f90aa0d0421c0efdb5a90a381695c7d0b"
+    },
+    {
+      "file": "package/dist/providers/subscription/retry.js",
+      "sha256": "590d53d17a4448fa18d43523e398f8ad84943d5c1fa1d2154bde678a046f6d69"
+    },
+    {
+      "file": "package/dist/providers/router.js",
+      "sha256": "8b9b98d86c255109c5508243ff9e78aa80b654df6c544fb771882a3de4be0f3f"
+    },
+    {
+      "file": "package/dist/debug/routes.js",
+      "sha256": "a7a7eb180ea57be9956515a48533dca2b11e22403620e669c1e5f6396d0b2bef"
+    },
+    {
+      "file": "package/dist/core/routingPort.js",
+      "sha256": "56bd0a030869b0bf4343702c31ad6a2d37e0f8281ab505c51f3a7c8def26a1fd"
+    },
+    {
+      "file": "package/dist/config/rules.js",
+      "sha256": "c6e78cd0334ea33c396cdf768605915449603d042dce92c64ebfeb6982f4781d"
+    },
+    {
+      "file": "package/dist/hooks/runner.js",
+      "sha256": "12319fcac8ffdb9815daec432dcdbaadb2b3e1f9efcd5475e162d351385984ec"
+    },
+    {
+      "file": "package/dist/skills/runtime.js",
+      "sha256": "bc3baabbfe2b48b2a43c8f00f12dfbf923b63e8e3bf4c6dfce4ef338e85634ba"
+    },
+    {
+      "file": "package/dist/mcp/safeFetch.js",
+      "sha256": "170322ab918f82e2b2ddf9776253e15acf495c2cdc8f9da631a76d307c440028"
+    },
+    {
+      "file": "package/dist/runtime/scheduler.js",
+      "sha256": "1e5787568b5ef7b890ef55bf35cceab5d6f4b190fb7ce2f30783804c1ae5c0e6"
+    },
+    {
+      "file": "package/dist/config/schema.js",
+      "sha256": "229b7a3e5d55e3fdba6eb82d48442e5342baffdffcbc9f355fabf39b0842f1ce"
+    },
+    {
+      "file": "package/dist/mcp/schemaSerialization.js",
+      "sha256": "7639c8b917ce5d9d0e44afd71ab6805688d90f237038efcf729b21f66fa24422"
+    },
+    {
+      "file": "package/dist/memory/scope.js",
+      "sha256": "7b02089c1da57b84f5ee170a23290ad8f6dc66b7ef9951cfe55761d208001a7c"
+    },
+    {
+      "file": "package/dist/sdk.js",
+      "sha256": "dc1fdec3492d46548b148fc333c6597cfa105a2b12bc2efa98493e4defe648d3"
+    },
+    {
+      "file": "package/dist/redaction/secretPatterns.js",
+      "sha256": "661f228b4780431d07b7d231512c4e86dd987891fe2a6c4066c22c27ceffe231"
+    },
+    {
+      "file": "package/dist/permissions/secretRedactor.js",
+      "sha256": "4ecbd69f50cf2b52ef45bf22a18337b0ab61fdee3b1dbccfbfcc08733c64759d"
+    },
+    {
+      "file": "package/dist/util/secureFs.js",
+      "sha256": "2b88a3b6da63c37cec447a39ac0ca3101a741b18f0d915f99d16100d34f92bd0"
+    },
+    {
+      "file": "package/dist/runtime/semaphore.js",
+      "sha256": "5424012b4c357cc85e5c1375d166fe9e6895b43079352325fa4532b8fe20b0c8"
+    },
+    {
+      "file": "package/dist/util/sessionId.js",
+      "sha256": "9a46c178a36e7e41487036b6195ea213e33f97176a8b5c8274760311ae00be9b"
+    },
+    {
+      "file": "package/dist/core/sessionPort.js",
+      "sha256": "fff338ecd5c514e30ead9e360853a1150b7624cd06ed0dfecab5dafbfdc905aa"
+    },
+    {
+      "file": "package/dist/persistence/sessionStore.js",
+      "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+    },
+    {
+      "file": "package/dist/host/sessionWorkQueue.js",
+      "sha256": "e0680548e67c63afe79c98690fd53aa5ebb9f596d131941d8151b7a5ac04b2c8"
+    },
+    {
+      "file": "package/dist/config/settings.js",
+      "sha256": "c79be61b09a3a17e15966367a5e2d852dd2c938a2960b176cf28f0567a0b066f"
+    },
+    {
+      "file": "package/dist/trajectory/shareGpt.js",
+      "sha256": "b5cdff59943b32a3bea52ba41b170fb4e3e24680502823fa3994712615e9ffb7"
+    },
+    {
+      "file": "package/dist/permissions/shellSemantics.js",
+      "sha256": "e0e5bdb16d380e875ad8c11e4d1b79231a2a5159b62df41497d7060f97de46ae"
+    },
+    {
+      "file": "package/dist/tools/SkillManageTool.js",
+      "sha256": "8ce1b0c107c8e4e0de12db2b489ab139c8a84efb5219597d8027ff15ff550125"
+    },
+    {
+      "file": "package/dist/tools/SkillsListTool.js",
+      "sha256": "368b1d4460b37fd32551bbf88389dc11ab4bed60f4c2efdf4ce6070b17cb7e37"
+    },
+    {
+      "file": "package/dist/tools/SkillsViewTool.js",
+      "sha256": "d34f7b0328ca4010b5ee1706027488344e8b38b152c920062530a3e0b022721b"
+    },
+    {
+      "file": "package/dist/tools/SkillTool.js",
+      "sha256": "40b1380f1aac67d2a6d9ce80ee2100e67a8f766da7d0b15daa4b406f4fd66355"
+    },
+    {
+      "file": "package/dist/providers/sov.js",
+      "sha256": "c7b0c2a79111f6ff5b278fc5d9f03cabb5a3bf7b2ede0d439804a2c10b966b99"
+    },
+    {
+      "file": "package/dist/util/spawn.js",
+      "sha256": "52aa1741f869e30299e3fcb0a8850bbe160a8d74ae6ee091e37dc9eb606de877"
+    },
+    {
+      "file": "package/dist/tools/ssrfGuard.js",
+      "sha256": "0be45b629dd8c7de53b5860bb013d66e925599f238625f1a3913730668d584e1"
+    },
+    {
+      "file": "package/dist/util/stall.js",
+      "sha256": "58df9ebb4100439d2cd3a92ea631cb072b7eaa0f9e5944e239258f6b14b33495"
+    },
+    {
+      "file": "package/dist/tool/staticDescription.js",
+      "sha256": "37a83a951e1e1e705c7b68e9f90c91c54d7a34d65483525baa7e0e7c01d88218"
+    },
+    {
+      "file": "package/dist/tools/StaticSiteValidateTool.js",
+      "sha256": "85edb2c0ff731084254b8606453d4e7bad6d174f9bde9cb615de41755534b431"
+    },
+    {
+      "file": "package/dist/config/store.js",
+      "sha256": "a45369c59fbe178d7127487be6f169ae1420e909f713fafde3703afed8de9990"
+    },
+    {
+      "file": "package/dist/skills/store.js",
+      "sha256": "22b99193f569a5a275bef4f3c220037685a711d7743806f54e614e4e3ebcdc1f"
+    },
+    {
+      "file": "package/dist/transcript/store.js",
+      "sha256": "1e0d5fdf550e0af77029e72f6e973955a35bc9b6c4a315ce4df476bf7df72991"
+    },
+    {
+      "file": "package/dist/skills/storeTypes.js",
+      "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+    },
+    {
+      "file": "package/dist/skills/storeValidation.js",
+      "sha256": "f8adc120e401b165329810dbca387aeab85cb2b44fb6f9ec1a7e9ee23fdd75c7"
+    },
+    {
+      "file": "package/dist/skills/storeWorker.js",
+      "sha256": "0fb56701d2c36ac3f7c084268a4206c791223672e497e1bc1c3b27dfad839fd9"
+    },
+    {
+      "file": "package/dist/skills/storeWorkerEntry.js",
+      "sha256": "5befbf0336a8bd80e2a4b6f4de3b04152de0d88299b19a15222107cfc23172c9"
+    },
+    {
+      "file": "package/dist/context/subdirectoryHints.js",
+      "sha256": "a82399ecf2905381c1ada134eb9d0fdc7291dbb9949017d1027c0e59820ce4e3"
+    },
+    {
+      "file": "package/dist/providers/models/subscriptionCatalog.js",
+      "sha256": "2712562275f9d6c73f15724e6e86fcd75c78d6b27ad53b323877588c528502d3"
+    },
+    {
+      "file": "package/dist/skills/symlinkGuard.js",
+      "sha256": "50ec086c6f619229b5b825db096047ebc3fca7887a0fb6c21c48577ccf4e04d4"
+    },
+    {
+      "file": "package/dist/context/system.js",
+      "sha256": "ca3465fb9b7ba7dbfb4e40a5404cb20bdc9890fe3fd1087321bde0e5b8ce2870"
+    },
+    {
+      "file": "package/dist/context/systemPrompt.js",
+      "sha256": "551dd7b3eaa0a4a5c1afbf138cb23496b3c917da1a59f5aa2003599b09e99571"
+    },
+    {
+      "file": "package/dist/core/systemPrompt.js",
+      "sha256": "e88ffc9f46f6621ba1996d1cba2fada055899a0b2bb4230ac6f659ea1a3cf1e8"
+    },
+    {
+      "file": "package/dist/tools/TaskCreateTool.js",
+      "sha256": "4b6a86d48e96438d327d56a7e4b0a2e52c5bc635d68d0102af41b9016ee481a6"
+    },
+    {
+      "file": "package/dist/tools/TaskGetTool.js",
+      "sha256": "dd62c84b27319fe43ce575daf96a8639d52395db80025eb7dad12f9c1e63c194"
+    },
+    {
+      "file": "package/dist/tools/TaskListTool.js",
+      "sha256": "89439a160ab93490d611ea3072b22804c2da071a1157a86591f9287491521417"
+    },
+    {
+      "file": "package/dist/tools/TaskOutputTool.js",
+      "sha256": "b287e418c793d496819300ba5ed62ac7c1e80ade37c8bc2dac155c83664a59e7"
+    },
+    {
+      "file": "package/dist/core/taskPort.js",
+      "sha256": "6dc110313571e8a37f90d5785321e772759ac6dcdba4f94f1dbadfa36f6740e2"
+    },
+    {
+      "file": "package/dist/tools/TaskStopTool.js",
+      "sha256": "19a7c8bcbbc53aeb143a56c87423b850393dc774463613b20f9aded8e7d99631"
+    },
+    {
+      "file": "package/dist/providers/tokenAccounting.js",
+      "sha256": "388422d20a72f10ff08cd052cc92747b48ffefa3febfbf9578f473382d8259ef"
+    },
+    {
+      "file": "package/dist/core/tokenEstimate.js",
+      "sha256": "25f1b296dc161f85044650cb4010fe8f514e981c6135bf26e3e4a19288adf5c4"
+    },
+    {
+      "file": "package/dist/providers/subscription/tokens.js",
+      "sha256": "8faeceb73b17394a275d94635ecc48a41e11ee1844248caf78e0f45a3422b9d1"
+    },
+    {
+      "file": "package/dist/tool/toolScope.js",
+      "sha256": "e8b33cbec1b5d18ce87e6ae302fad1c3d34ee4c07818c0f2aa5dbfd889147ea7"
+    },
+    {
+      "file": "package/dist/tools/ToolSearchTool.js",
+      "sha256": "4378385b982994e901d0d2148b2843516e4894b8fdd1cc113d0ce5f7dbcaf5d4"
+    },
+    {
+      "file": "package/dist/tool/toolset.js",
+      "sha256": "1cbe99d14e6f0e11c486422664812ed95afdda120afde03f8aca1c77cc1e4dfd"
+    },
+    {
+      "file": "package/dist/mcp/toolWrapper.js",
+      "sha256": "d84f01791347fa04f0d1177b360d2697c3e4ec77357b94abd827eedf2c5e3efb"
+    },
+    {
+      "file": "package/dist/core/transcriptRepair.js",
+      "sha256": "368fcf1a3b2247b8812825326d2c640dc3ea40a3a8a15809254a0ccf45b565e1"
+    },
+    {
+      "file": "package/dist/persistence/transcriptStore.js",
+      "sha256": "acdff559c73299fa161dba1071c6a7f24164fa7230097c785213efc95b21cdf0"
+    },
+    {
+      "file": "package/dist/runtime/treeBudget.js",
+      "sha256": "632016b07636b6a24da9b3f48ae3c6ec3e8e2c9346366db2a8508b0f2cfd3827"
+    },
+    {
+      "file": "package/dist/debug/turn-observer.js",
+      "sha256": "6098f57243e82096676ab03a28b82c7f4c4a3390a1375c48534e157a1011d771"
+    },
+    {
+      "file": "package/dist/agents/types.js",
+      "sha256": "55552584ce80223e10cad87b687eed454736becb0ead5fdf5d72f9e08c24ca3e"
+    },
+    {
+      "file": "package/dist/bundle/types.js",
+      "sha256": "ef16ebeb6a7a16d0a55b17200f61a247bd58394702379bf8f6df8ad35849d84d"
+    },
+    {
+      "file": "package/dist/commands/types.js",
+      "sha256": "b37553618dcd7abbdfff629c0e7b14c32ec6c584b864a18a6a1702245c12f8c7"
+    },
+    {
+      "file": "package/dist/core/types.js",
+      "sha256": "55d00f5722176bc6d9129be9a84e02972f74f3e7513ea5bbc87016313a416227"
+    },
+    {
+      "file": "package/dist/debug/types.js",
+      "sha256": "8f26c1ec2c4f3e68ce906a2dc61a11109cba0d83396f974618a531e484d09d2b"
+    },
+    {
+      "file": "package/dist/hooks/types.js",
+      "sha256": "139e9083ff86ff0c0c6acbd42d3ff392cb7239c5d814e632f70583abb6e8204a"
+    },
+    {
+      "file": "package/dist/mcp/types.js",
+      "sha256": "89f1f4a35bc3f2bf2f174025c14d8ea7ed769b435428a8e9921123877d9c9382"
+    },
+    {
+      "file": "package/dist/permissions/types.js",
+      "sha256": "806eb133dfe7c626a672c13b032b612cac56216da7bc25c5aadf276786df44f5"
+    },
+    {
+      "file": "package/dist/providers/models/types.js",
+      "sha256": "63a15f844097c5a6b76e30f6c5ba1028b514c9bfe132be93fe8b6fdbfbb1dd26"
+    },
+    {
+      "file": "package/dist/providers/routes/types.js",
+      "sha256": "36857594fa3eefe0e82589552504d351bb757b9c066a640db55154b42a6b4cee"
+    },
+    {
+      "file": "package/dist/providers/types.js",
+      "sha256": "038ec0b4a1b8b64fbe1c4b410a43aeb210bcc4f6fd3fa5f27b37ea5f77dae788"
+    },
+    {
+      "file": "package/dist/skills/types.js",
+      "sha256": "d9d4a1b414b1cd44a0a7fe54f2771e0613dca3ef41101b44a6143a0f55eb3c87"
+    },
+    {
+      "file": "package/dist/tool/types.js",
+      "sha256": "68262437eec4e093196e4db4f7c30fb972b0985eb50cbd5cc4082c1b85664504"
+    },
+    {
+      "file": "package/dist/trace/types.js",
+      "sha256": "076a9da7b1e932a4645e636463dbbef90ea86062efaa0378082683eb1563ebb4"
+    },
+    {
+      "file": "package/dist/turnlog/types.js",
+      "sha256": "e8263b417193cd19b3c87b1aa01ba86c9cc4e823785cf3f5c59c1f931b2f2650"
+    },
+    {
+      "file": "package/dist/core/usageAccumulator.js",
+      "sha256": "d6a871b3f220761bb3a5da243d7c3fd292d131f1cabe658f432d8eb99843e293"
+    },
+    {
+      "file": "package/dist/context/user.js",
+      "sha256": "90956e7ec80c69218ae2fd85a0a74668d7029c45a443eca6e2111afa75052d89"
+    },
+    {
+      "file": "package/dist/providers/models/validate.js",
+      "sha256": "85de699cea60fa926587569a6f1a8b13a440200d2b163b80de07e06488772b0b"
+    },
+    {
+      "file": "package/dist/providers/routes/validate.js",
+      "sha256": "913befcd600c42b0d5806947edfa42f0f64708f55d671611f2a46d3fe0d92dc9"
+    },
+    {
+      "file": "package/dist/providers/models/validateRequest.js",
+      "sha256": "f2278f978c04064a19e24c0e237e483da2ae4b29b4d0851f2e912e1b60692548"
+    },
+    {
+      "file": "package/dist/version.js",
+      "sha256": "a2b93e7e38267c53515941d64c05cdd135379a809f57ba4b72f7991457b79041"
+    },
+    {
+      "file": "package/dist/skills/visibility.js",
+      "sha256": "749f8fcf50cc7d394c960111ba5fcc86a889c3855738297445d05d75e8ad30a7"
+    },
+    {
+      "file": "package/dist/tools/WebFetchTool.js",
+      "sha256": "4a95a1a0cb4bf8afcfd512c5d147477bcd87accb27599ba8f5be77ac33da4041"
+    },
+    {
+      "file": "package/dist/tools/WebSearchTool.js",
+      "sha256": "3e50ad3e87e1efc32d40f67e1677481dfb2d539b2f0ffcb61a68b2c9173fe902"
+    },
+    {
+      "file": "package/dist/skills/whenToUse.js",
+      "sha256": "e47ecaef9e42712704ca6f7ef81441e22780c03a53474cf37ad438e46cdf508f"
+    },
+    {
+      "file": "package/dist/core/workflowPort.js",
+      "sha256": "78da7251636fefa29d771044b7156fa57be6bbad67b8b148c378ff2e81a40f92"
+    },
+    {
+      "file": "package/dist/trace/writer.js",
+      "sha256": "680b5e23f3088b2729164244a8dd89aa4271c0a005a4898d035a096aa2a12aba"
+    },
+    {
+      "file": "package/dist/trajectory/writer.js",
+      "sha256": "2956a30a93b32062be725837d30984272ae059caffafcf801a42fb721c4825b8"
+    },
+    {
+      "file": "package/dist/transcript/writer.js",
+      "sha256": "152386db613ad5c79cc70fe3e45e25fb2ca5a900502f9a071c9c5d9877cb2cdc"
+    },
+    {
+      "file": "package/dist/permissions/writeScope.js",
+      "sha256": "37ff4fdb81f0b293b77948a659081eff8e225a95c6ce15a6915f5ff81dc0071b"
+    },
+    {
+      "file": "package/package.json",
+      "sha256": "0e4cf87fdb15b44dd63b76c2786c4ee84127f3557afc46cc64423be5c051b48d"
+    },
+    {
+      "file": "package/README.md",
+      "sha256": "5fd7f2fbe912a4fbd0890cd03815728b6b3da2911f8c1f56ae467594e469ffac"
+    },
+    {
+      "file": "package/src/bundle/README.md",
+      "sha256": "c68c3fcd3b4578814d8fd2db61fa9f96259b88011be0c51b09a75a7be187cf48"
+    },
+    {
+      "file": "package/src/providers/models/README.md",
+      "sha256": "3961dd9e8a18db753a7092438fa257c185d2c0faac2b5e5a213939895089ca3c"
+    },
+    {
+      "file": "package/SECURITY.md",
+      "sha256": "b5003f57613b7c9a7fa2f2a5dfc320943221a3cdf837c998c55b4e5bb0bd6dda"
+    },
+    {
+      "file": "package/dist/skills/activation.d.ts",
+      "sha256": "eaef2f0d7d2ac41ee79133c0e5b653064d9b3e01a7f2190b99ea9224b9803846"
+    },
+    {
+      "file": "package/src/skills/activation.ts",
+      "sha256": "c9595e6f050176d66a3c3d14b3f64e18914889ee421cb10ce3189529b3c248e2"
+    },
+    {
+      "file": "package/dist/tools/AgentTool.d.ts",
+      "sha256": "ad5e27ba7465b448a83feb9db00837d895746f3e1af40cde3c9d96ffc98a359d"
+    },
+    {
+      "file": "package/src/tools/AgentTool.ts",
+      "sha256": "48e158e0add2eec7536d8758247061208a095dc083952af9dc58c02da5ec8d64"
+    },
+    {
+      "file": "package/dist/providers/anthropic.d.ts",
+      "sha256": "6745d1a7716f7b70838628b9ce7dc1b37f49dd86da3cae4fe09d7cd15604682e"
+    },
+    {
+      "file": "package/src/providers/anthropic.ts",
+      "sha256": "44acf87b0bd8a8819a30eabb0480ad601dfac7f6802386e87e09f7738a184813"
+    },
+    {
+      "file": "package/dist/config/applyScope.d.ts",
+      "sha256": "be655eb853acc9a4406c3e698f469dff822864c3cdcc82f53b5df79757dac614"
+    },
+    {
+      "file": "package/src/config/applyScope.ts",
+      "sha256": "c939dc5e01c618f0a562f092cf51d9b56e38645b3215573f20e3f9a6f2e73701"
+    },
+    {
+      "file": "package/dist/hooks/argvSplit.d.ts",
+      "sha256": "aa8b435f63ab2d0b83e09f8fdddf5f1a6e57760e744f1326727072609b36c647"
+    },
+    {
+      "file": "package/src/hooks/argvSplit.ts",
+      "sha256": "979be6fda1929caf463fb2a03c298aa1f5478fb6ae68d0b439e13d7fbfc8d17f"
+    },
+    {
+      "file": "package/dist/telemetry/assayUsageRecorder.d.ts",
+      "sha256": "a966812c879831323394510bcae0d6cf887ecdd80b70dc9b3580d883a56189f5"
+    },
+    {
+      "file": "package/src/telemetry/assayUsageRecorder.ts",
+      "sha256": "255358b496ffe05aab151cd0bf6dcc7ab69c88281365d68fda82a9a520e3f929"
+    },
+    {
+      "file": "package/dist/providers/subscription/attempt.d.ts",
+      "sha256": "b103db8aaa8572edcd4b01348e69c78e8927fe3e2e5665c9d55b5dce1cbeac84"
+    },
+    {
+      "file": "package/src/providers/subscription/attempt.ts",
+      "sha256": "c26c9789de1869e5d5b88ed7aeb6cda5faed947aba33bc13b55a0fcc964e8a8f"
+    },
+    {
+      "file": "package/dist/mcp/auth.d.ts",
+      "sha256": "f537a66ff9a71ebab62ca6381324d53779a5f6d9ed2ad7c933b23d2c6fc339dd"
+    },
+    {
+      "file": "package/src/mcp/auth.ts",
+      "sha256": "152aa233d975ef692e7027ecae2b0ae97427b99aea3407bbc2adfd1884415dce"
+    },
+    {
+      "file": "package/dist/providers/auxiliary.d.ts",
+      "sha256": "7f82309cd083660f60cdd13f66f67f393c57f566fd272c6d9dfa1c93ba076786"
+    },
+    {
+      "file": "package/src/providers/auxiliary.ts",
+      "sha256": "1b5133af9011c0dd5c62ba461484443c24a84bda35e7a02243958332ba5a48e3"
+    },
+    {
+      "file": "package/dist/tools/BashTool.d.ts",
+      "sha256": "75205ee79e75f5b60deb2db32d27edf9a63bda3e349f121ea1beb91eab206102"
+    },
+    {
+      "file": "package/src/tools/BashTool.ts",
+      "sha256": "95d5df660218739e6ecd4a5dc11bcd6fdbe030d74350df675352632c73be2c4f"
+    },
+    {
+      "file": "package/dist/memory/bounded.d.ts",
+      "sha256": "eea14d92867c8a79ff0144b952e375b2685ce630ff51d8dbd77f712b7ced2688"
+    },
+    {
+      "file": "package/src/memory/bounded.ts",
+      "sha256": "cd14184d373c571a3f5beb49d4d0b963cac0ae46a5a86a933d9b2ae0634ae44a"
+    },
+    {
+      "file": "package/dist/context/boundedRead.d.ts",
+      "sha256": "1800fe70cf63d0a36667090c91a949e91ec54d2a888a236ce30781bfc30b026c"
+    },
+    {
+      "file": "package/src/context/boundedRead.ts",
+      "sha256": "0906967462f5b95e50ad12d1650888797d03efd204d834f90f80b2d49daafefb"
+    },
+    {
+      "file": "package/dist/context/budget.d.ts",
+      "sha256": "bc2e2a63f2c2d91bdc35747349501e1291dd83284cb65d06511fe8f4c601e513"
+    },
+    {
+      "file": "package/dist/skills/budget.d.ts",
+      "sha256": "56b5a63b131576b8b57496d770c539410b5585e5d76382765543ce4dd91a084b"
+    },
+    {
+      "file": "package/src/context/budget.ts",
+      "sha256": "30bcd8481d659b562bf84d415d96c2e28e4115050da0286314c28024c5b15581"
+    },
+    {
+      "file": "package/src/skills/budget.ts",
+      "sha256": "6d2ad81c3c6f48f2c213b35fad597fbae4018b80868a219acfafccd5ac0755a2"
+    },
+    {
+      "file": "package/dist/tool/buildTool.d.ts",
+      "sha256": "f712fe7cdb8e544821346b19adc8dc9ff8c87adb62ac50089769e88cdb8b6eea"
+    },
+    {
+      "file": "package/src/tool/buildTool.ts",
+      "sha256": "a69989eb5a97aaa6434d88828a56c29223c21a6ded61faa261bf1da4feb1c71e"
+    },
+    {
+      "file": "package/dist/tool/buildToolContext.d.ts",
+      "sha256": "9dcdf4cd2e03236bf834e221aba7544ee14276d70c2271b322ef0ec3b79511f7"
+    },
+    {
+      "file": "package/src/tool/buildToolContext.ts",
+      "sha256": "926cb65f17273d62562b7d50753de1c07103c3a4bed26ee2a69d993df55c22f6"
+    },
+    {
+      "file": "package/dist/permissions/canUseTool.d.ts",
+      "sha256": "63fdb3c3cbc1c3f447a9e05a26fc4a50e8e5ea416f4829c857d248e07f0aff0d"
+    },
+    {
+      "file": "package/src/permissions/canUseTool.ts",
+      "sha256": "5c83edd419e66aa8dcd89a1e1cd0b2eb32672ad6e82b684e0eded0bc7f9a96b7"
+    },
+    {
+      "file": "package/dist/core/capabilities.d.ts",
+      "sha256": "9927e654648a099aba4b1ad2f08a093861436141c7b061692ffc55ac24a34882"
+    },
+    {
+      "file": "package/dist/router/capabilities.d.ts",
+      "sha256": "a4f55c19f155bd4f4a00464d307b661ff162160589804b7ad037fde4a288200a"
+    },
+    {
+      "file": "package/src/core/capabilities.ts",
+      "sha256": "6cf00c4221e2a4e1c81785783c677ea11fb8bdfddbcd13f3f45bafe239444055"
+    },
+    {
+      "file": "package/src/router/capabilities.ts",
+      "sha256": "429710a41118c4a9bc4e3ad0be2cb80c4ee106f225116f7c3cad060cd0fb36bd"
+    },
+    {
+      "file": "package/dist/tool/capabilityProfiles.d.ts",
+      "sha256": "1f74e083915feea7599361ffda0c9513abfeb56f2a9227654278b95b2aa98204"
+    },
+    {
+      "file": "package/src/tool/capabilityProfiles.ts",
+      "sha256": "c2c5e3529ecedaa6548c8501590887c644a4f483dc6939306a708c7a3f6aef83"
+    },
+    {
+      "file": "package/dist/providers/models/catalog.d.ts",
+      "sha256": "d3158d535a4ff226a6066bb53d25ffac3c645126a4bd7ea130b65e7a4bfb990e"
+    },
+    {
+      "file": "package/dist/providers/routes/catalog.d.ts",
+      "sha256": "2f1ffcf951705114b8961693e2bd0ccf721dbb54d49d69276f29da4ed7585594"
+    },
+    {
+      "file": "package/dist/skills/catalog.d.ts",
+      "sha256": "7230eb4e96019df37137c1066855d2879480e62a1fbfc0af5af6b10722948140"
+    },
+    {
+      "file": "package/src/providers/models/catalog.ts",
+      "sha256": "3d9308bb32cb467d341cbfad2fcce0416586b0401ad37ea6ccb5cc3844505389"
+    },
+    {
+      "file": "package/src/providers/routes/catalog.ts",
+      "sha256": "b396b44d99573bc78111b6f27ab067bdc42a11e854ea020858662e1a5ad1a0cf"
+    },
+    {
+      "file": "package/src/skills/catalog.ts",
+      "sha256": "9ced37f4dc0f0fa1da612c79a80df59d9649724fa57464ef42314355a462cb5b"
+    },
+    {
+      "file": "package/dist/providers/chatgpt.d.ts",
+      "sha256": "da77d3f11e25ec6578c49a370116a2c8aff70e9ed179318211a810cf85c15766"
+    },
+    {
+      "file": "package/src/providers/chatgpt.ts",
+      "sha256": "636c3bdf17add6a9bacf6dabdb71f11014d0c24401cdd18ac5a7ea219cd0dd0f"
+    },
+    {
+      "file": "package/dist/runtime/childPolicy.d.ts",
+      "sha256": "9986887745a11781070badd91fd227f265d9baf87c5025c8c616d11964000db1"
+    },
+    {
+      "file": "package/src/runtime/childPolicy.ts",
+      "sha256": "63df2e856e33f471f664f581a97e8bdbf6a108e355bc45bc2826e0f9cd4c4089"
+    },
+    {
+      "file": "package/dist/providers/claudeMax.d.ts",
+      "sha256": "f18f71a2d1b860881bf7a676f5c5f663c8543d0955ec17849c5124ee89fc871f"
+    },
+    {
+      "file": "package/src/providers/claudeMax.ts",
+      "sha256": "ea6069462950ee30cf0091c7814b3e4955cb7550cb16cad53e30991fb76142e6"
+    },
+    {
+      "file": "package/dist/providers/subscription/claudeMaxTerms.d.ts",
+      "sha256": "0fbd31014738a55b1942a4f007e3c4ec8d88f59f598369c84b11490edf033a00"
+    },
+    {
+      "file": "package/src/providers/subscription/claudeMaxTerms.ts",
+      "sha256": "ac0c4466eb8c824e0a9edca37c74c215494646bac23fb8734eebb84b0502e0bd"
+    },
+    {
+      "file": "package/dist/mcp/client.d.ts",
+      "sha256": "4c2783ec3811912a672fb33a63a192f482424a92ae4e8634b0c8d903f1074d66"
+    },
+    {
+      "file": "package/src/mcp/client.ts",
+      "sha256": "ce7269b1a823cf5ba2754cd37f40d43c6a3d972cddc0ef33f998b5203284309f"
+    },
+    {
+      "file": "package/dist/debug/collector.d.ts",
+      "sha256": "4b0271a785e04522a5928f46b5427f91fd39709383fb1f6c085b3e617045214e"
+    },
+    {
+      "file": "package/src/debug/collector.ts",
+      "sha256": "ca66c2fe3c7b709877010fa6ac85b42ebcf26cb76882d8df96ac7a011f30baa2"
+    },
+    {
+      "file": "package/dist/skills/commands.d.ts",
+      "sha256": "7c6e30e0e05f3f28fc40016430ddb16f693fd91916a5cabdaec8d6a2f179b962"
+    },
+    {
+      "file": "package/src/skills/commands.ts",
+      "sha256": "fc7d206ce79b2f7f9544ee4220f5b4f2b6018150d9a84343c6750b186dd520d1"
+    },
+    {
+      "file": "package/dist/core/compactPort.d.ts",
+      "sha256": "7da407af6b75f189d3d47d2f698143f6bc17429a4d48e2e116b6eb860e7d120e"
+    },
+    {
+      "file": "package/src/core/compactPort.ts",
+      "sha256": "fd10dfc72d672c288e2312f64785dd154f1d3e18f1186bfd61698f0a2155021b"
+    },
+    {
+      "file": "package/dist/core/conductOutput.d.ts",
+      "sha256": "40bb0b85910e5919ea164a7039554195384216309203a87403bc5da923e38868"
+    },
+    {
+      "file": "package/src/core/conductOutput.ts",
+      "sha256": "a1262d6b4470cfe6e28ff9f44140dc1030291810cfbf4435f1653e0ab16382fd"
+    },
+    {
+      "file": "package/dist/core/conductPort.d.ts",
+      "sha256": "2b5102c2152808328fd4df54ac1accc65defbd868c6d32ae7b46909e33e05e4d"
+    },
+    {
+      "file": "package/src/core/conductPort.ts",
+      "sha256": "fddf2fe7f133a2eb84b49f3bf156d47d43231389278ede330f7a3e2a21bb676f"
+    },
+    {
+      "file": "package/dist/core/conductSegments.d.ts",
+      "sha256": "03a987ba9398cfe659bfcd89660edab7f840e3280d346116bc6c559c0dedfb79"
+    },
+    {
+      "file": "package/src/core/conductSegments.ts",
+      "sha256": "740c44c6a46f077787c370cd2303d1b8d0f6ef9a8c0325e06c50e7e25074f8f1"
+    },
+    {
+      "file": "package/dist/core/conductToolPolicy.d.ts",
+      "sha256": "b8eeb41a4c26cd424a7208262d1c0d78da85ad146631e45e9d8886d0fc9f53a4"
+    },
+    {
+      "file": "package/src/core/conductToolPolicy.ts",
+      "sha256": "aa22e4c57e2addbb26764e94516e28a9e50700a400658ee8d619eeb50fb4ff09"
+    },
+    {
+      "file": "package/dist/config/configurationError.d.ts",
+      "sha256": "c3054f700fe0c783bfe092ef663fc5f1e1a23fdbf2bd2020943cdd9142774f9d"
+    },
+    {
+      "file": "package/src/config/configurationError.ts",
+      "sha256": "d70937ec35284f67b441d74c44d4e40411b8db82b6d01bec925611f565feeaf4"
+    },
+    {
+      "file": "package/dist/hooks/consent.d.ts",
+      "sha256": "2ed709dea04545e23db2db3f4c9f34400953aa377a6ac9be55c6a5d6283492ee"
+    },
+    {
+      "file": "package/src/hooks/consent.ts",
+      "sha256": "66141a246d4bba705f8f5def6972e90478513bccd9f6121c251096102e4a525c"
+    },
+    {
+      "file": "package/dist/compact/contextManagement.d.ts",
+      "sha256": "42a5de3225dcfb2e6d6b0981c779cf8f325daecfb3ffdd42ebfd2fca88786b64"
+    },
+    {
+      "file": "package/src/compact/contextManagement.ts",
+      "sha256": "a9256dfb3dec60d15f976e2839e5622561c43ab8a5450e9ab3600318cd39d7e1"
+    },
+    {
+      "file": "package/dist/skills/continuity.d.ts",
+      "sha256": "d492cb3fe3f81c4228884a8d7a056a57dfce93703ecfc6e4907fdaa93bc3e23b"
+    },
+    {
+      "file": "package/src/skills/continuity.ts",
+      "sha256": "f7ff20cc0e3c4b1f4449a469a1bb1bcdae4460677528b021f8b725a4dae340af"
+    },
+    {
+      "file": "package/dist/agent/createAgent.d.ts",
+      "sha256": "371329fa5a3bd1d972081de9b5f5c941ebe8d30b5b7a3760fdef4ecdd2f3de44"
+    },
+    {
+      "file": "package/src/agent/createAgent.ts",
+      "sha256": "a169a2b243805e9d8dc4a914e294730403232cf96effe0ceea60cc32ab5997f7"
+    },
+    {
+      "file": "package/dist/providers/routes/credentials.d.ts",
+      "sha256": "ec47a12558f0fc7351fb3d00b73d0999d433a1619b434b93992b5832eed2e470"
+    },
+    {
+      "file": "package/src/providers/routes/credentials.ts",
+      "sha256": "7dda497312c3cb222b1959e07da3f93967a41c6883980cb77d875ea511a36ef5"
+    },
+    {
+      "file": "package/dist/debug.d.ts",
+      "sha256": "f093825007b2363da9bd8caf9bb6d8adb1f6d3558aeb95fb1212afe4d83f7d50"
+    },
+    {
+      "file": "package/src/debug.ts",
+      "sha256": "03c660492d697df312ba0baa0f86b88c8ee13c183fbe6aef40ee465cc3fd6c84"
+    },
+    {
+      "file": "package/dist/bundle/defaultBundle.d.ts",
+      "sha256": "a80046e48beb192bf19360e067f91a58cf32e94e481f85a5367b846109dcf0ac"
+    },
+    {
+      "file": "package/src/bundle/defaultBundle.ts",
+      "sha256": "82e0fd4ba779170506ac6f885984652e115cf09d5846943a8d5022ae3cb6319f"
+    },
+    {
+      "file": "package/dist/skills/descriptor.d.ts",
+      "sha256": "b1b936f7d883ed590a020dc1ded915dd5c3e0f94841df3eaef58a0a3d8d378c5"
+    },
+    {
+      "file": "package/src/skills/descriptor.ts",
+      "sha256": "803f6583c2f37a0262c58695e78873eadc8a5d55a7b8dcf646d45d32ac32da1a"
+    },
+    {
+      "file": "package/dist/tool/descriptors.d.ts",
+      "sha256": "bc41f1476c806085c1f4fa07a063a7a523f67541d5991ec9ed6b7e655d2ca14a"
+    },
+    {
+      "file": "package/src/tool/descriptors.ts",
+      "sha256": "a837d7d324814a6059af804513b6c2cd994f8831d23ba98b2bbbe66cfa902362"
+    },
+    {
+      "file": "package/dist/loop/detector.d.ts",
+      "sha256": "2499d047dee57a3d8afad3519b6f27c1b093a5b734d125e590c8f614e7230f71"
+    },
+    {
+      "file": "package/src/loop/detector.ts",
+      "sha256": "2dc88b21c0992a8681c0061a4b90bd344271a0e703764354ae1ad396dfdb8268"
+    },
+    {
+      "file": "package/dist/providers/subscription/diagnostics.d.ts",
+      "sha256": "ca77e2f17f844008fba2055fe2e717b3156fb1ca82fe9b658d026844403981f2"
+    },
+    {
+      "file": "package/src/providers/subscription/diagnostics.ts",
+      "sha256": "e899199b9d3e010fa74b0b9b25f0596c5353fd461ea19f9e1f9b9c8eea301b5d"
+    },
+    {
+      "file": "package/dist/providers/models/direct.d.ts",
+      "sha256": "97a6c05ae48bb5242bc701730b240e41bb2b75d2f9d49d8d2790ab0b644abf6f"
+    },
+    {
+      "file": "package/src/providers/models/direct.ts",
+      "sha256": "af976e9ec203021275c8ec84a7f9e2e080fdc5e71a8fd0597f78de8c14c3cb7a"
+    },
+    {
+      "file": "package/dist/skills/discovery.d.ts",
+      "sha256": "ef80fa391b30de9f67fe0ca7a1e865c6e1dd0a201e62ad3b7abd040eba5cf517"
+    },
+    {
+      "file": "package/src/skills/discovery.ts",
+      "sha256": "903f571ce2caaeaa0b30dade02cb7d84bb8d6b5cdf3dc4a5e5a76ac52d5a34c1"
+    },
+    {
+      "file": "package/dist/config/discoverySchema.d.ts",
+      "sha256": "a8a6cd34cd21ae4688b85cc500cea67575c274b1c68682d28395315249ba3669"
+    },
+    {
+      "file": "package/src/config/discoverySchema.ts",
+      "sha256": "4b6ddd9b47339582d8f162040058211d163654d197236c66c162eea1c5dc732d"
+    },
+    {
+      "file": "package/dist/config/draftManager.d.ts",
+      "sha256": "3754c99cd67318a47c15ec7da065d5ab77deb3cd5d94e72e1c568e04943f252d"
+    },
+    {
+      "file": "package/src/config/draftManager.ts",
+      "sha256": "a89d7b5ace2da9f41133b9e869927098d4b0e823df0cc99474ecad19d3bafc9f"
+    },
+    {
+      "file": "package/dist/tool/effectiveInventory.d.ts",
+      "sha256": "f456a73bd13be7795edd80fd7bdadaa6b1b43c6189f719119543081cc307eabd"
+    },
+    {
+      "file": "package/src/tool/effectiveInventory.ts",
+      "sha256": "f1c9afa7bc9c267c1c9866163b4310b3dd7f47e0562f29540288453b0ca153ec"
+    },
+    {
+      "file": "package/dist/providers/effort.d.ts",
+      "sha256": "a3ab573ea104227fdf243c3117c432bd37a2d3f9b6139e9dbc42d11305c022ea"
+    },
+    {
+      "file": "package/src/providers/effort.ts",
+      "sha256": "bd5e1278dee3c22d16f76d5f543ffe1482f822e00e74c85b143ecb8bf29155b9"
+    },
+    {
+      "file": "package/dist/providers/errors.d.ts",
+      "sha256": "dc05d88d74057a8961210755ff1f31846a70a4d63829a32b755a007ca1657074"
+    },
+    {
+      "file": "package/dist/providers/routes/errors.d.ts",
+      "sha256": "ca9154e94958026ded56a67efb43f44339d9df7a415b6873e2112e4014c7849e"
+    },
+    {
+      "file": "package/src/providers/errors.ts",
+      "sha256": "a24b9afa6e296b4781b97f997e52562b9a9dc2ece74d0abd562b1211b96c86f9"
+    },
+    {
+      "file": "package/src/providers/routes/errors.ts",
+      "sha256": "5906a6e945c8a8ed2ccb038aca15a015aa5417f56b7cb977992bfbe872db5322"
+    },
+    {
+      "file": "package/dist/agents/exclusions.d.ts",
+      "sha256": "a02ed35dda40101847e8cd49e2db4c2a12682fdb9a66d85a9027060acbe9e496"
+    },
+    {
+      "file": "package/src/agents/exclusions.ts",
+      "sha256": "c3939a125f2c6d82836f289ab394cc9279dd6493ddd6613cbd47e572112f6433"
+    },
+    {
+      "file": "package/dist/runtime/executorPort.d.ts",
+      "sha256": "40c0ee2a6804bccc3b8d86f2bacff3bda89352d879584cef2772ce8d51f67953"
+    },
+    {
+      "file": "package/src/runtime/executorPort.ts",
+      "sha256": "df2d30acccd2cf7f565242def9fe8044475f404795683ed152034369150f81bf"
+    },
+    {
+      "file": "package/dist/context/fenceGuard.d.ts",
+      "sha256": "c282e849cff7e7de3dd9cbed58baa7ce90b455857b50dda800f75e57c213119c"
+    },
+    {
+      "file": "package/src/context/fenceGuard.ts",
+      "sha256": "c8f638b80e304983f0f1f452fdc0d5929bfa889421a0520cf90c827ca1c91060"
+    },
+    {
+      "file": "package/dist/tools/FileEditTool.d.ts",
+      "sha256": "3c17df69591372e7cd3b12e58fd30b1a921a3afe904ff727931356c3339eea1d"
+    },
+    {
+      "file": "package/src/tools/FileEditTool.ts",
+      "sha256": "c4e00fa69e14f07489d7285034d337fd7a73a95310a352fbfc4b5584cccb3f21"
+    },
+    {
+      "file": "package/dist/skills/fileIdentity.d.ts",
+      "sha256": "22cf7cdf63b7768451f569a03d15df7e5387aeb0127f6c2faf2fb30186657be4"
+    },
+    {
+      "file": "package/src/skills/fileIdentity.ts",
+      "sha256": "35beab84b7cd861dce6cdc52726e3021286cc3bba279d1664490e4c43a3014bf"
+    },
+    {
+      "file": "package/dist/skills/fileRead.d.ts",
+      "sha256": "0438ad9829c2ddce3e637abf920072ba0af9c4d3e52a6ee14e6b1bd595efea08"
+    },
+    {
+      "file": "package/src/skills/fileRead.ts",
+      "sha256": "4a8935c7ca739fdf8974253c18c1b23fce97f13464e1bcee033d2f77d04c133a"
+    },
+    {
+      "file": "package/dist/tools/FileReadTool.d.ts",
+      "sha256": "8cfec36d8e1be5d4a0ce87e74e847b3f30ad1162d90a185c0ccdce8a891f4646"
+    },
+    {
+      "file": "package/src/tools/FileReadTool.ts",
+      "sha256": "0bba52b330ca21a9f532bd567847ebff139f85992c8de6a16c7b8e4ade6069ee"
+    },
+    {
+      "file": "package/dist/tools/FileWriteTool.d.ts",
+      "sha256": "988a600e21d71be6ee416f42fcbff4803af4dc3daeeca22527afedbe492f81da"
+    },
+    {
+      "file": "package/src/tools/FileWriteTool.ts",
+      "sha256": "4de8d02b97b7bb1e32f6008668251e8b52d9a633d00f65e372ad36d37d3fd1ea"
+    },
+    {
+      "file": "package/dist/skills/frontmatter.d.ts",
+      "sha256": "870aafb986d698f155b0e4d06afb03c1e14d10414f089a94a2c013a43c0f14c2"
+    },
+    {
+      "file": "package/src/skills/frontmatter.ts",
+      "sha256": "8609bf66958eaa2bbbc5677127a04b3f0899821e8624728d09a45a43f44f1906"
+    },
+    {
+      "file": "package/dist/tools/GlobTool.d.ts",
+      "sha256": "bd132aa62a378244ed5e2b149b2c06fc13788841598462c476b678d1435d61b5"
+    },
+    {
+      "file": "package/src/tools/GlobTool.ts",
+      "sha256": "9aac489dd15fbf03d30aebbdbacef6cf0469a54022dc4feb2232a8cef9cc9918"
+    },
+    {
+      "file": "package/dist/tools/GrepTool.d.ts",
+      "sha256": "89bc2f21e938ae56ccad05e221a4d28373c0e70f3ba22c4a839711f6f303adee"
+    },
+    {
+      "file": "package/src/tools/GrepTool.ts",
+      "sha256": "059ac12f8026a68f9b5c4d53967f49cd2bb9739d0dfecd92883ae1fe8c9d64de"
+    },
+    {
+      "file": "package/dist/providers/grok.d.ts",
+      "sha256": "b787e7eb3c2af75b4529f3c42826a5f1d582659324e42ec7d07ff7f89469c9fc"
+    },
+    {
+      "file": "package/src/providers/grok.ts",
+      "sha256": "16df394ef2ff103dd43b4a47bca15dd397484a28527a021008b61753109881c4"
+    },
+    {
+      "file": "package/dist/providers/models/grokPin.d.ts",
+      "sha256": "29442e11d1a0d570a9bfefb983a83ed16bfdbce21b7716dd401da2081e714265"
+    },
+    {
+      "file": "package/src/providers/models/grokPin.ts",
+      "sha256": "d90ae9ff86affbf9fabf450634ec228b9e85ea0814f848b209caedeaeb54107a"
+    },
+    {
+      "file": "package/dist/skills/guard.d.ts",
+      "sha256": "752326077c147e2304ac65e525b9b15384c3d122e76d00f25b0ec1c1e4db8e24"
+    },
+    {
+      "file": "package/src/skills/guard.ts",
+      "sha256": "3a89acb66a60e168e85a8275fbf29e5b71ee00a6d125cd66e0775175b518cf0a"
+    },
+    {
+      "file": "package/dist/tools/HarnessInfoTool.d.ts",
+      "sha256": "984bab1b658f4e2e1368126327bc460be63bbe861f314e0f4895c12eebbbe427"
+    },
+    {
+      "file": "package/src/tools/HarnessInfoTool.ts",
+      "sha256": "cafee54e950828150f1da7115035afa9624748fc390db3cb30d1e0cf11a481a1"
+    },
+    {
+      "file": "package/dist/providers/models/http.d.ts",
+      "sha256": "3b9ab7fdf83da2c45761297d884c5544b15a18f63767d0d4869f051fbc01f597"
+    },
+    {
+      "file": "package/src/providers/models/http.ts",
+      "sha256": "a9adaf245d88d2b6b31638affea71cc1e819e81d85cf63723b84fe37055b1d82"
+    },
+    {
+      "file": "package/dist/providers/models/imageInput.d.ts",
+      "sha256": "f56dbeefa7833797ba622601d88b40e2a56b808c3592284d041a130d6c45320a"
+    },
+    {
+      "file": "package/src/providers/models/imageInput.ts",
+      "sha256": "74445dd041d32461bf54630c78833bb6f92ea80ea9d17b4f8160c93c728fe12a"
+    },
+    {
+      "file": "package/dist/providers/models/index.d.ts",
+      "sha256": "50875595471cc64e32fe7dea2c434a571561e38de05decaa15d4d2e5e4b79d02"
+    },
+    {
+      "file": "package/dist/providers/routes/index.d.ts",
+      "sha256": "e673a0b796f9fcb2ff2eb49fb3aa45b2ba8ba6ff800b10b64f41ae8260f785bd"
+    },
+    {
+      "file": "package/src/providers/models/index.ts",
+      "sha256": "b02a665e5c78345d8efccce514aa12e1dec2a49f3d871147cecf71f8f07a6983"
+    },
+    {
+      "file": "package/src/providers/routes/index.ts",
+      "sha256": "f7976835ded8553f1c7fcfe7a5033c36aa44324f4584fc8660a86d9db7717795"
+    },
+    {
+      "file": "package/dist/memory/injection.d.ts",
+      "sha256": "69718ac8e2d3aa71054cbdd40d653f2513d720e362298cb3e64ac396a6352cb6"
+    },
+    {
+      "file": "package/src/memory/injection.ts",
+      "sha256": "418b2305d576ddbf704636a888b62e3fe86b108aa342cc096cf6d0d9934248ac"
+    },
+    {
+      "file": "package/dist/context/injectionDefense.d.ts",
+      "sha256": "c81a2d8a96d3267ec5066dbcbfc91d401a8afd7c692ce8e7db32fca9ccf50267"
+    },
+    {
+      "file": "package/src/context/injectionDefense.ts",
+      "sha256": "0131437f3c5d16648a6a5f5965e4b1542a425fc2df406c56424635530feeeb72"
+    },
+    {
+      "file": "package/dist/persistence/inMemoryStore.d.ts",
+      "sha256": "9e674cb69084f0ff9eed77c901da62447e29766b8c609595e826d0246bf627be"
+    },
+    {
+      "file": "package/src/persistence/inMemoryStore.ts",
+      "sha256": "a2653a780749fce80cae217fe502bbbd40a0f1eb24f04c8d4cc9d8e1912616cf"
+    },
+    {
+      "file": "package/dist/permissions/inputTransformer.d.ts",
+      "sha256": "a3be978ec107f50ed5587aafa4f6078a7d6a7b01792bac4818b182ea51650711"
+    },
+    {
+      "file": "package/src/permissions/inputTransformer.ts",
+      "sha256": "e2f76e994628eb98be0b003feedf747e1ed79d5cc495c19cec59e22143303757"
+    },
+    {
+      "file": "package/dist/skills/install.d.ts",
+      "sha256": "bdfe41978d976f089de3b8e5226603572250d2c4dc3d8f7ec746045918dbd594"
+    },
+    {
+      "file": "package/src/skills/install.ts",
+      "sha256": "70655d01c65c26f3b97a780060ce13ca7f0f5d04a99aacec7259f250597d5665"
+    },
+    {
+      "file": "package/dist/providers/subscription/keychain.d.ts",
+      "sha256": "966b0bb4a9c148fabf42544712fb3d2d565ba02523b52d3763753250ed4c26cd"
+    },
+    {
+      "file": "package/src/providers/subscription/keychain.ts",
+      "sha256": "2b38cfb2c1d8a1d675da66051490314a2ef6a49f66ea2f3116334a188a428167"
+    },
+    {
+      "file": "package/dist/runtime/laneSemaphores.d.ts",
+      "sha256": "44196e8dac687e14df9fd500513c7fadaa710d32f06155edb23151cf5426967e"
+    },
+    {
+      "file": "package/src/runtime/laneSemaphores.ts",
+      "sha256": "ba1766f924a271c787856a23e934ecd064ecb47d36514329fbc1c8fb30277456"
+    },
+    {
+      "file": "package/dist/providers/subscription/load.d.ts",
+      "sha256": "ae1c84c2646816d810c204ff983ca2c495f18fc461360de4217fd6f442cf951e"
+    },
+    {
+      "file": "package/src/providers/subscription/load.ts",
+      "sha256": "857fa7920b6a2dbd8a3218df56e41526f1ef1effbd0ee11690dab49bbae7c398"
+    },
+    {
+      "file": "package/dist/agents/loader.d.ts",
+      "sha256": "78fa43e1457639a98bd7cbbe824dccc05d77a9b0f2895478cf2b83fd1e027bda"
+    },
+    {
+      "file": "package/dist/bundle/loader.d.ts",
+      "sha256": "b72d8f5a0c38e556255fbdb358ccecc86c0f8dd89f13615e345b096bd073adfd"
+    },
+    {
+      "file": "package/dist/config/loader.d.ts",
+      "sha256": "32b604e4e182fad1b2cb435f4c3c21623b869ac802693d7fc46eeab875f8996a"
+    },
+    {
+      "file": "package/dist/skills/loader.d.ts",
+      "sha256": "d34979143485dff8c307c69ce026e1f58cc36dfe7a27b610c6f8c63cf83bcfb1"
+    },
+    {
+      "file": "package/src/agents/loader.ts",
+      "sha256": "289cfd65342ca19fc231d44897879d8d1581bce0df57af6db1745b420ca6a195"
+    },
+    {
+      "file": "package/src/bundle/loader.ts",
+      "sha256": "0ab6f22ab8a8fb1af8e065e21e905b0d59d049a2b3c72fb5f618e4bded30e0be"
+    },
+    {
+      "file": "package/src/config/loader.ts",
+      "sha256": "ab3099e7eeb04f40c30a95960b4f6fd9fd354662286fa437b74b32f23d20ec5b"
+    },
+    {
+      "file": "package/src/skills/loader.ts",
+      "sha256": "47334bc2893f23b2e09ef4bc2b86cbe1241a792bb419f1fc68b7441b404a33ec"
+    },
+    {
+      "file": "package/dist/providers/subscription/lock.d.ts",
+      "sha256": "d75854c547bbdbb451a1d9b10e590cdfab76a071590a9f9e04314ee6889d396d"
+    },
+    {
+      "file": "package/src/providers/subscription/lock.ts",
+      "sha256": "2be0afc9dc13005db6838ec5def60f6ff03cc42d164f4d11dd1c38467028616f"
+    },
+    {
+      "file": "package/dist/providers/subscription/login.d.ts",
+      "sha256": "1cb88064ef19ca86795c64f5e002c101c92c4544b3a4bbef4e4a9deb644526df"
+    },
+    {
+      "file": "package/src/providers/subscription/login.ts",
+      "sha256": "eb1e13af2a4409d9b3b538ea46a1521a4d6a594696cd3bae1e451e42fa31bfde"
+    },
+    {
+      "file": "package/dist/providers/subscription/loginEpoch.d.ts",
+      "sha256": "d90c1a571f27b2392091d793b71aec9788212d34a734f219bf7ba3c06505b479"
+    },
+    {
+      "file": "package/src/providers/subscription/loginEpoch.ts",
+      "sha256": "4779b58dd92803dc57018fdbc92f1d1c4bc53e2ce761cd344724f8b40f8a7bff"
+    },
+    {
+      "file": "package/dist/hooks/matcher.d.ts",
+      "sha256": "236ea6e08d3efe1392112d7d3211a1e5e1151bcbba4ce41b7e9ef910b98f5ec7"
+    },
+    {
+      "file": "package/src/hooks/matcher.ts",
+      "sha256": "f9b2503ac26ff417e6f06c546fda9ebbfd2f476e05b8ce1d1f8acd16de05b262"
+    },
+    {
+      "file": "package/dist/tools/MemoryTool.d.ts",
+      "sha256": "ecb393b305cad7641e04dbdecc106af042e36e302e56130b0ea5e39b6175a528"
+    },
+    {
+      "file": "package/src/tools/MemoryTool.ts",
+      "sha256": "f712b5a19b0c9ef51ca649c3f559e7c315987d19c1f3c1069fcf79eb42b91edf"
+    },
+    {
+      "file": "package/dist/compact/microcompact.d.ts",
+      "sha256": "72fec86d521535f038f25f88444513a64e5f6d0d56ebbc2996a7379b3f6da4be"
+    },
+    {
+      "file": "package/src/compact/microcompact.ts",
+      "sha256": "16140beb37292ffe7a312fa16d3fef9618232dd8999d76ee4a8a0ea51b7790d2"
+    },
+    {
+      "file": "package/dist/providers/mock.d.ts",
+      "sha256": "78bcb3cd178b316c37f7ed8b7bea4c9730915a32188d71e6b48393f92face092"
+    },
+    {
+      "file": "package/src/providers/mock.ts",
+      "sha256": "1f2f8fd883f4c69098078b23de565b9b43ece31d0e1715aad026a795d0edd14b"
+    },
+    {
+      "file": "package/dist/providers/modelLimits.d.ts",
+      "sha256": "d73eed5d9bcc66dcfd4206054541eb27b0b014037add6b07e8ed20e836b16969"
+    },
+    {
+      "file": "package/src/providers/modelLimits.ts",
+      "sha256": "870b284bb7fc68ea359ee72f1f70d9123336c4da479f629f1f811e4ed2fb3c35"
+    },
+    {
+      "file": "package/dist/providers/modelReasoning.d.ts",
+      "sha256": "1fed8642e8a6d77bc361071d005de54d0fae6f0cbf7fa667ade305389b771c06"
+    },
+    {
+      "file": "package/src/providers/modelReasoning.ts",
+      "sha256": "ee60be0048c7c1d5ead3fad8981c07dfaaafdf00d4387c951a0e418a73c34b4a"
+    },
+    {
+      "file": "package/dist/providers/models.d.ts",
+      "sha256": "dc99b10fd67975eae4afceb1585d9026c83545978a478a500404c5073993349e"
+    },
+    {
+      "file": "package/src/providers/models.ts",
+      "sha256": "2cdbb074e76f847c7ececbde7bffc861abef158304ee999e89409d2e3dd84f99"
+    },
+    {
+      "file": "package/dist/providers/subscription/names.d.ts",
+      "sha256": "d754b5ccbf79796569e275ded5457556970dd1876d6cd20053d63910398daf2d"
+    },
+    {
+      "file": "package/src/providers/subscription/names.ts",
+      "sha256": "ea0e8ad57ea36a500acac92716f729da4632127f027632fe555b2cd879ba6b6a"
+    },
+    {
+      "file": "package/dist/persistence/noopTranscriptStore.d.ts",
+      "sha256": "4a7057c235e1428b40dd69f36836e072c71a4f6f95a8e6ae1b0847879932dc2f"
+    },
+    {
+      "file": "package/src/persistence/noopTranscriptStore.ts",
+      "sha256": "ada011bd619c56f682612cbc53c68613a6db3e5ed5779382029a17853d1ed190"
+    },
+    {
+      "file": "package/dist/providers/subscription/oauth.d.ts",
+      "sha256": "94966a920548b179a7750679dfbbfc5caf11be2b0f11772ba34199a7853d6468"
+    },
+    {
+      "file": "package/src/providers/subscription/oauth.ts",
+      "sha256": "e41371e60d5b5dc76f4cd61652042811af911bbc98d2ad5f7df549a036a17d5f"
+    },
+    {
+      "file": "package/dist/core/observePort.d.ts",
+      "sha256": "41448f741aae3d0c1399d115d6a703a831dc8529c02ac3f477ccec5a7ef46762"
+    },
+    {
+      "file": "package/src/core/observePort.ts",
+      "sha256": "66426f2df0cdf0fb369323ebcc4fb1d9a9c6344081b13087ea5497caaa719c66"
+    },
+    {
+      "file": "package/dist/providers/ollama.d.ts",
+      "sha256": "0ae92bc307670cf76543cbe18d583fcef2648c70006a2e293f6a51f497f69536"
+    },
+    {
+      "file": "package/src/providers/ollama.ts",
+      "sha256": "ee9c83633d2f205c8060573c08ffab19ba82e9a302aba2fe0d46bf3b3bb43e85"
+    },
+    {
+      "file": "package/dist/providers/openai.d.ts",
+      "sha256": "f799dc52f219444d174cbfa1a3856377e4fac83c884a9dc37b6148d3c808e1fd"
+    },
+    {
+      "file": "package/src/providers/openai.ts",
+      "sha256": "14940cc99e86d29fb956cf5b0510b6393e9b3104d42795f4ad14c7739012c773"
+    },
+    {
+      "file": "package/dist/providers/models/openrouter.d.ts",
+      "sha256": "8e34616b950459364d5830af07e212c5e41bf6fded502a4cb6bf2fd544ff0fb9"
+    },
+    {
+      "file": "package/src/providers/models/openrouter.ts",
+      "sha256": "86ee26fcded4553af93cd084237a43e643140a48442bf4d09f3b67f27b55e427"
+    },
+    {
+      "file": "package/dist/providers/openrouterPolicy.d.ts",
+      "sha256": "6bcfd0590fbfd65b04387127537cd77ab08f0b038aa448eed75a40eb4997113b"
+    },
+    {
+      "file": "package/src/providers/openrouterPolicy.ts",
+      "sha256": "833a3971b420a69385323da6f1fad90ecb18d78a9787873773cd2bd0c06dcdcf"
+    },
+    {
+      "file": "package/dist/loop/options.d.ts",
+      "sha256": "e0b7f9cd595c60688cd01cef0f119a9e17dedd523f5b124cc8921bbb32deea52"
+    },
+    {
+      "file": "package/src/loop/options.ts",
+      "sha256": "370742cdf112eb4284c07e4d70d7d62a7e5769537569f5631d2675bcb543e1a2"
+    },
+    {
+      "file": "package/dist/core/orchestrator.d.ts",
+      "sha256": "05507188d3596926632aaaf99e0d4576e54820c69ce04e2d76c4e3454751c59a"
+    },
+    {
+      "file": "package/src/core/orchestrator.ts",
+      "sha256": "e25e1cc3108762d06710ff31a29d3398c29ecfd95521912a60dafc9b81559551"
+    },
+    {
+      "file": "package/dist/providers/models/ownerModelPolicy.d.ts",
+      "sha256": "2366a20ba10628499d955a41296f3e7352c046e0624c12b8d8d4285e0708063d"
+    },
+    {
+      "file": "package/src/providers/models/ownerModelPolicy.ts",
+      "sha256": "4fb74de5dea71fead7c91548d6e12bed767194a2cdd7ce347e6dbb91ee8c5325"
+    },
+    {
+      "file": "package/dist/providers/models/ownerRegistry.d.ts",
+      "sha256": "a3d3e93a2d0441c2a3be2774b48b9461fcd060f054faaa0d1ac0c8d0615c6483"
+    },
+    {
+      "file": "package/src/providers/models/ownerRegistry.ts",
+      "sha256": "cabc09fe8c735c37c31e424e0690a7b9a20f2c1c63f80d400ea39be33fc968f0"
+    },
+    {
+      "file": "package/dist/runtime/pathLock.d.ts",
+      "sha256": "7885bd606bbfeea53d9dea1b63d18b4cb93e8ebc234bb0cbcf9100440a849309"
+    },
+    {
+      "file": "package/src/runtime/pathLock.ts",
+      "sha256": "42268455d68717907b6619dd862c7506efbc6d6d19c79e2d9df7431c77e0bcbf"
+    },
+    {
+      "file": "package/dist/config/paths.d.ts",
+      "sha256": "3045d3589bfb14c6e68f3eded6b76407aad99bb77bd6a9ffc815f7c9229c23aa"
+    },
+    {
+      "file": "package/dist/transcript/paths.d.ts",
+      "sha256": "d310adf4f804b4dd45c6c54dcae1ca1d77e76ac4322616c04b62396b2287567b"
+    },
+    {
+      "file": "package/src/config/paths.ts",
+      "sha256": "55e80890bc96c5fd0ac8188a45f4233cd437c1a6495fbca165061049140e012c"
+    },
+    {
+      "file": "package/src/transcript/paths.ts",
+      "sha256": "ee3224365a094fff7e77a23db17f562679a671b570d75061ef4497c2772c3c63"
+    },
+    {
+      "file": "package/dist/tools/pathUtils.d.ts",
+      "sha256": "8b64c52fef97ce92b870b6403c2165c244bf0575699c12a5d5a62af48fc772d4"
+    },
+    {
+      "file": "package/src/tools/pathUtils.ts",
+      "sha256": "8fb4403437499d1bde68333c74bb9f15c38c5c53e096b38d0843c05fabd2ec1d"
+    },
+    {
+      "file": "package/dist/tools/permissionMatchers.d.ts",
+      "sha256": "1f28e0c304718d9119e8ba3d2da75158ba7407204380eedebd5f2b2f40ddc74a"
+    },
+    {
+      "file": "package/src/tools/permissionMatchers.ts",
+      "sha256": "3e734b7de161a3eab29564f10e70cefe7d7781de3b4bc84e27a7e58ce7a2f0e2"
+    },
+    {
+      "file": "package/dist/util/platform.d.ts",
+      "sha256": "55e7eca86561f24f81f119bb18e3095943b82f92e740d81100a1376b5f79df88"
+    },
+    {
+      "file": "package/src/util/platform.ts",
+      "sha256": "fafee35533f6e66ec902ed352718353e5c0d7b87eb2d75c8950e9de170d29c34"
+    },
+    {
+      "file": "package/dist/providers/credentials/pool.d.ts",
+      "sha256": "f44f8423f4ec59c94f0cd667f72169823e2573af48c8ee4709f159abb40e8ae2"
+    },
+    {
+      "file": "package/src/providers/credentials/pool.ts",
+      "sha256": "e0410a8319535cecb9721379f07920e0f21bfef3dd58918a8daab5874641a87f"
+    },
+    {
+      "file": "package/dist/providers/subscription/port.d.ts",
+      "sha256": "fd667e46403cc2105f4726ede009899be65c653e3cf0adfa00bb325ac2129660"
+    },
+    {
+      "file": "package/src/providers/subscription/port.ts",
+      "sha256": "9894a962f17c82111dd4a1883e80d3b5f1366cf3cfb851ddf60829ffe359a138"
+    },
+    {
+      "file": "package/dist/tool/ports.d.ts",
+      "sha256": "0bef9b9fb25e63165e76ea9f2e9398587808088b967ff4b7736bc6780b7d5efe"
+    },
+    {
+      "file": "package/src/tool/ports.ts",
+      "sha256": "51e7534c8bcf01d487ce5866c92b3f4828eb0c6e9527940cc5400019eba2611e"
+    },
+    {
+      "file": "package/dist/providers/preflight.d.ts",
+      "sha256": "1e4a6dc84eb692e8a0ec70488efcab02e3f33e6953eccbd38135c95c7ba738bb"
+    },
+    {
+      "file": "package/src/providers/preflight.ts",
+      "sha256": "903b10fa52d10215af96d2e96ee0e7e7a423fdf9205dc721aa9e829695df4a17"
+    },
+    {
+      "file": "package/dist/config/presets.d.ts",
+      "sha256": "0d8eeaee29ac94db411ee61e8b79f69a8d7c8d3617aa31c88468af81d1c4f3c0"
+    },
+    {
+      "file": "package/src/config/presets.ts",
+      "sha256": "defbf53ecf982a09b9e907ee6af17c5f36faef41a096628b24aa2ed85f044394"
+    },
+    {
+      "file": "package/dist/providers/pricing.d.ts",
+      "sha256": "5bac67c8311e4033033af6f6e5b5b249d9d7cbdeddeb82de745470fc2c0ac404"
+    },
+    {
+      "file": "package/src/providers/pricing.ts",
+      "sha256": "97e9a555d057142f278d49dfff1ff67faef711b03d552a41f61765d039ee8ca6"
+    },
+    {
+      "file": "package/dist/util/principals.d.ts",
+      "sha256": "8af047387a500f4917ce931d4a95f90ede34ea620e1346c99e64dc57b965b837"
+    },
+    {
+      "file": "package/src/util/principals.ts",
+      "sha256": "f155435c575d1d60c2b677e438525688e639e91cc014a0edca797be945a14f2f"
+    },
+    {
+      "file": "package/dist/config/profileLock.d.ts",
+      "sha256": "4712de711c8f41b84e8ce4b59b9393c2ffbd378a53a0a431df9487111593c3d7"
+    },
+    {
+      "file": "package/src/config/profileLock.ts",
+      "sha256": "2bf9327d164dcb4795e7ddf3ab5981e337178cd4892373dc7e3282835e4d88f2"
+    },
+    {
+      "file": "package/dist/util/project.d.ts",
+      "sha256": "b09660c1a8f7a84c9ee26e470858ac58ca820884c155eb57b998e702aa5fa4e8"
+    },
+    {
+      "file": "package/src/util/project.ts",
+      "sha256": "2079110244688e4b7fe74d740c7123db2c1e1933be40c0e719788c3e6f8ab6ba"
+    },
+    {
+      "file": "package/dist/permissions/prompt.d.ts",
+      "sha256": "4f026e1e96f22d9a4e148b059162532624de44a9b346eef2ccd057a87694cc04"
+    },
+    {
+      "file": "package/src/permissions/prompt.ts",
+      "sha256": "7dbb34b6f674fbcda9254681ccc3ca0a38d3e5f095394a3fe9084aa64391ca75"
+    },
+    {
+      "file": "package/dist/providers/promptCache.d.ts",
+      "sha256": "ad255032d9d30ce7c1fc35e965787295a10c95df730ed95b3c008c6aedf9a2f7"
+    },
+    {
+      "file": "package/src/providers/promptCache.ts",
+      "sha256": "e76cd3e95dcacca64190e4ccdaf40359c1bddbc06642f41dc41563bef6000b99"
+    },
+    {
+      "file": "package/dist/memory/provider.d.ts",
+      "sha256": "8fd781fcfc97429375c45603a2f665d5da2dde8e0f17d9c4442ff5e128f95c92"
+    },
+    {
+      "file": "package/src/memory/provider.ts",
+      "sha256": "0c7118474924b8f7922f7fcd2d1aff6667b4e638b2749f758086a0b1ba445b9b"
+    },
+    {
+      "file": "package/dist/core/query.d.ts",
+      "sha256": "49ab5ff84b8158bae9e08c0fd412fc17125fa0dd1dc12094f27942e3c95377cf"
+    },
+    {
+      "file": "package/src/core/query.ts",
+      "sha256": "2c819c8dd76a51faa6d671930f61241a98a776051302a97f02f21138ccd59160"
+    },
+    {
+      "file": "package/dist/providers/credentials/rateGuard.d.ts",
+      "sha256": "a789f5b76e511b9ff13c577bb03cb6d899e49ebf4913a05d52b302966981f47e"
+    },
+    {
+      "file": "package/src/providers/credentials/rateGuard.ts",
+      "sha256": "03045b9c983070d5e0d7aa9ca2fefb453a3e5daab3937925c877832ecff9b7ab"
+    },
+    {
+      "file": "package/dist/core/recallInjection.d.ts",
+      "sha256": "3db8192fcb67ff2088f09f659cf2223e66028f776d3bab5269c99c81a38d7e77"
+    },
+    {
+      "file": "package/src/core/recallInjection.ts",
+      "sha256": "40b2f2c2f2b561e9c85be168bd6fd82ce173e23d3c8b1d9e39f341b87f9d2790"
+    },
+    {
+      "file": "package/dist/core/recallPort.d.ts",
+      "sha256": "26ced4d3255e1e5878710317ca290e8cb006ee31947b2e6799345ee4be255c17"
+    },
+    {
+      "file": "package/src/core/recallPort.ts",
+      "sha256": "8bf311f304025e95f1ce96e5e1d187c22de34f4c04b666d8abf5fe0de645fc31"
+    },
+    {
+      "file": "package/dist/turnlog/recorder.d.ts",
+      "sha256": "72a5cf9652e644770e921c1dbf300990a75c45ab47f510bb6775fdf24c3a2176"
+    },
+    {
+      "file": "package/src/turnlog/recorder.ts",
+      "sha256": "60b843b76085f1f52aa101a62b8d228c6c6242d54639d61ed4597aa525dbfa03"
+    },
+    {
+      "file": "package/dist/trajectory/redact.d.ts",
+      "sha256": "df60db0e12f50d51df1ce11a497aa0250aaba378493c282f65b0a1c77fe16902"
+    },
+    {
+      "file": "package/src/trajectory/redact.ts",
+      "sha256": "984351356f9241433e6b933eeed02e99e3ff7d38b2868c57ad4938ae95a02a1f"
+    },
+    {
+      "file": "package/dist/permissions/redactSecretsTransformer.d.ts",
+      "sha256": "b3da6795441ba19374c4e4f73f25eb09799d4230a82b90f5029fe9c5d055b448"
+    },
+    {
+      "file": "package/src/permissions/redactSecretsTransformer.ts",
+      "sha256": "f8a3f6b87410efc69a8ce4a41fbeea46a5813020ed296d4d3d01fce605d4056e"
+    },
+    {
+      "file": "package/dist/context/references.d.ts",
+      "sha256": "987c9b32c2a012f9a00350d4af8d420c2b3f422edae3a470e4e55b90ffc9665b"
+    },
+    {
+      "file": "package/src/context/references.ts",
+      "sha256": "d9ecdee18936fa77c87ac65f268fea190fabccfb60a19469d08ff89fb0d6d0d4"
+    },
+    {
+      "file": "package/dist/providers/subscription/refresh.d.ts",
+      "sha256": "ccf98af89c3ce5356300c37e1ea3b76494923b20edd601454958506463f8598c"
+    },
+    {
+      "file": "package/src/providers/subscription/refresh.ts",
+      "sha256": "7c26b85fa8a3dc67cfa287c3920b551dc4aa3c7daf98f8f23dd556e86339b217"
+    },
+    {
+      "file": "package/dist/skills/registry.d.ts",
+      "sha256": "b92b6ef85a3d9dde3dda7448e98e9656ff9ddc0f408c78dcd6b4361257f2f334"
+    },
+    {
+      "file": "package/src/skills/registry.ts",
+      "sha256": "5db2b8f7445d5ca21fc833fad4e58c4f4f2e127293114732ba06ec3cf9384d83"
+    },
+    {
+      "file": "package/dist/providers/routes/resolve.d.ts",
+      "sha256": "0c4f66739675ccb42461a858fe6e355f8bc9f8bfe04f84c8cdb783fe15b6057b"
+    },
+    {
+      "file": "package/src/providers/routes/resolve.ts",
+      "sha256": "28124995d605fc887054054f8c5c3b610166dadd340395fffd7559cd8d4c30ae"
+    },
+    {
+      "file": "package/dist/providers/resolver.d.ts",
+      "sha256": "b72fc2a29cfb540a20bb9176a41d8946f09891d3fbc2f6e583e51d07ddaf6e35"
+    },
+    {
+      "file": "package/src/providers/resolver.ts",
+      "sha256": "65a7f6d6300d20ab14231fa06ba8a0544f0204fa1c87f73a35091070e8ecb8b9"
+    },
+    {
+      "file": "package/dist/providers/responses.d.ts",
+      "sha256": "309a9ebd4a494c2f8bcfd2ef926465a016a9eaf73fb01e68f511f17d3d167e27"
+    },
+    {
+      "file": "package/src/providers/responses.ts",
+      "sha256": "03b47e428ee6878513d79ed11cff81ce2712b00530d4a1e19e8b53a3f6955cd1"
+    },
+    {
+      "file": "package/dist/providers/subscription/retry.d.ts",
+      "sha256": "6b3be577beaac3c97d0dc62f933ba3214c2a9ba7667f120174979543aafee856"
+    },
+    {
+      "file": "package/src/providers/subscription/retry.ts",
+      "sha256": "778029a4fab546e83c78edf4d9f96589b8f1027a964403c405820e499bb6bc60"
+    },
+    {
+      "file": "package/dist/providers/router.d.ts",
+      "sha256": "5f0ab8aef21b6dff078bb8bb3cae154b6b5d93b18eb3b32f179f24592e0735fe"
+    },
+    {
+      "file": "package/src/providers/router.ts",
+      "sha256": "bc3ca01d283e3cc3d6107fcbd9267caddef72b57c4f0054e70f1440c96404431"
+    },
+    {
+      "file": "package/dist/debug/routes.d.ts",
+      "sha256": "32f6a70e8c87837a8dd2bd172d228773aa03bf8bf1faf1538a7775afcc7269e7"
+    },
+    {
+      "file": "package/src/debug/routes.ts",
+      "sha256": "a7a6da8e5ef1bc3362f0bb06e59c0e43f81d43e7c81cf096329ebac1aaa63457"
+    },
+    {
+      "file": "package/dist/core/routingPort.d.ts",
+      "sha256": "1d8305f985d04ff3be72efe8ad689f6f09ff9099a162f02a1a02f492ae8b6f6d"
+    },
+    {
+      "file": "package/src/core/routingPort.ts",
+      "sha256": "40bc1bdf0be91d5f83932e503e07c4532792700176ab30cbe13102e6e7b9b2eb"
+    },
+    {
+      "file": "package/dist/config/rules.d.ts",
+      "sha256": "c4aeda12c12649b70da2f95b9ba5362374758c0496a0ed0526ae08f1062f1f1b"
+    },
+    {
+      "file": "package/src/config/rules.ts",
+      "sha256": "6451278b2ac829c54d2a6a85a6c9b54c257309030091dccc7e92031a241f5129"
+    },
+    {
+      "file": "package/dist/hooks/runner.d.ts",
+      "sha256": "0feb5ab65f03a1943201f7e4a543d5a26eeb54e966d6033bdcccc5a8a7e6798a"
+    },
+    {
+      "file": "package/src/hooks/runner.ts",
+      "sha256": "d5a24998cc20b35c46330c8393e864873c8f7a77e2dd133ab9f9295c8b2c1c7e"
+    },
+    {
+      "file": "package/dist/skills/runtime.d.ts",
+      "sha256": "9365d39c7eca3258b7a6fee1e22e2898747ac36e5084739f5b208c8756933395"
+    },
+    {
+      "file": "package/src/skills/runtime.ts",
+      "sha256": "0d56aaf5ddf722abe772e484bbb670add2c0f79620f06453fb0dcdcc584690ce"
+    },
+    {
+      "file": "package/dist/mcp/safeFetch.d.ts",
+      "sha256": "d95811166efcf1c026b2ff626cbe8281230b4926ba6aba8074e59db665bd657d"
+    },
+    {
+      "file": "package/src/mcp/safeFetch.ts",
+      "sha256": "3108f174b870de34b4e2ea196db579a0fee4b58079c5c56791352dbdb8a6f2fb"
+    },
+    {
+      "file": "package/dist/runtime/scheduler.d.ts",
+      "sha256": "37a1ed042fb5687f4970a040c5d21563a84bbd314c02e1670ac1db3570f95a4c"
+    },
+    {
+      "file": "package/src/runtime/scheduler.ts",
+      "sha256": "61d25f0b81d8517410e1e66a82aaf6ed499ca9e82a46925f5d363e4edfd4f339"
+    },
+    {
+      "file": "package/dist/config/schema.d.ts",
+      "sha256": "ab85b2aa9e4a51eb318cca6cdeb5fa9e6d480eabf3acac8f9057f5a093d525a4"
+    },
+    {
+      "file": "package/src/config/schema.ts",
+      "sha256": "18e82f23b644ac92c3b48986bff846bdcad611c8db3f7899dc1698b9b85ef9b7"
+    },
+    {
+      "file": "package/dist/mcp/schemaSerialization.d.ts",
+      "sha256": "d090a0ec6c43277f4419a3cfb349386b4df84cf1e57ecddeaf20d62040f5f1ea"
+    },
+    {
+      "file": "package/src/mcp/schemaSerialization.ts",
+      "sha256": "5e6edeabd120e4029ee02f7d590fca27f2629e22729180cc76120d7d3028a8b3"
+    },
+    {
+      "file": "package/dist/memory/scope.d.ts",
+      "sha256": "e81875381f1d725787cef95f6467e18dedf14ccdaacb470c723f776c2281ff50"
+    },
+    {
+      "file": "package/src/memory/scope.ts",
+      "sha256": "938331db475d98b2b61b78783c82981fe91bbf19cd1f7e706d98d143d9f71f89"
+    },
+    {
+      "file": "package/dist/sdk.d.ts",
+      "sha256": "6741ce1393fb4d6c6bd5f9be8ec5a613cf0511dc758fb4dc0570c14418e1e798"
+    },
+    {
+      "file": "package/src/sdk.ts",
+      "sha256": "46b26c6ca9955e9e899e6b150cd30d8fbd1c3170553efc3b47b285acd88fef8f"
+    },
+    {
+      "file": "package/dist/redaction/secretPatterns.d.ts",
+      "sha256": "8c2ddff881d77c9e542454aac83b25d79c9e0feaeedca61bf3168c3db3e98cfa"
+    },
+    {
+      "file": "package/src/redaction/secretPatterns.ts",
+      "sha256": "a8df85f5d59e43c7b98a0a5f68622b85f1c1512dfdaa9deaec8d5776c0d30d54"
+    },
+    {
+      "file": "package/dist/permissions/secretRedactor.d.ts",
+      "sha256": "24b589e28f8b958a8667d0aaa568329f48ea79ffeb91e88e808b12123ef14d9c"
+    },
+    {
+      "file": "package/src/permissions/secretRedactor.ts",
+      "sha256": "9fffd7a44e451a776e6625ea0ff80ee110f283926ac7a9b117faedf92954ac8f"
+    },
+    {
+      "file": "package/dist/util/secureFs.d.ts",
+      "sha256": "7f78e935c4f64b03a4402ddf715417ddf1b9eb88273e14c1222a2da9e9b2d3bc"
+    },
+    {
+      "file": "package/src/util/secureFs.ts",
+      "sha256": "ace6c95aa803a25b309891bb6dacc7e86b1632106bed3fafaf98981ee5ba4438"
+    },
+    {
+      "file": "package/dist/runtime/semaphore.d.ts",
+      "sha256": "25709fb61d6ab4b2f76a7c66c9316e9ef368020a1f50a6e5c0135b6231c62466"
+    },
+    {
+      "file": "package/src/runtime/semaphore.ts",
+      "sha256": "0bd547d442d51fd0fddae11295570c63f3fbcfaf26a8232c12208abf4807d656"
+    },
+    {
+      "file": "package/dist/util/sessionId.d.ts",
+      "sha256": "dab9813d9118fa1d17672056225416a40b1c1952d99a44019aa0c155127f558b"
+    },
+    {
+      "file": "package/src/util/sessionId.ts",
+      "sha256": "f35af466ca1c3e99c2ff8c51badf3c59f6410747ee0fb89bd5060149aef04af5"
+    },
+    {
+      "file": "package/dist/core/sessionPort.d.ts",
+      "sha256": "a63bfec2b1823bc9727f4de34e90ef52c3a06b95b9ccad0f14e25f5c6c4030cd"
+    },
+    {
+      "file": "package/src/core/sessionPort.ts",
+      "sha256": "a2ad1d2861bcdc6664ac9454ede6e6229ba63c44dfc567b931f0aae239f88c29"
+    },
+    {
+      "file": "package/dist/persistence/sessionStore.d.ts",
+      "sha256": "a3a18c0817836f2dbcc92d33acde963a673a9225cea78ae3ea211aa1862736af"
+    },
+    {
+      "file": "package/src/persistence/sessionStore.ts",
+      "sha256": "d27bd87fa3b39335bf7b32cc2a837c066f807d527c6994bdaec7bddd2ee8cf79"
+    },
+    {
+      "file": "package/dist/host/sessionWorkQueue.d.ts",
+      "sha256": "84161d9fa61877ebfb23848039699695bfb2243caf4ca387e8484bd14698f15f"
+    },
+    {
+      "file": "package/src/host/sessionWorkQueue.ts",
+      "sha256": "de7c97711e286a0290be5b1e08a4d0b84ccb74fdb9415b34c4868bc7ffa9c1cc"
+    },
+    {
+      "file": "package/dist/config/settings.d.ts",
+      "sha256": "9870e667584f762e53903fa013f98ecd3451bb3c7e80462a57fde2b82ffd7790"
+    },
+    {
+      "file": "package/src/config/settings.ts",
+      "sha256": "fe54becc8d005d7ebaa9c2e384675fd48b83b060feb7fb2131747bda0194d7ab"
+    },
+    {
+      "file": "package/dist/trajectory/shareGpt.d.ts",
+      "sha256": "6ee4d1294cc6f6e996885f7f486d7579dfe95a4bfab306aa4193e26f1389c7ac"
+    },
+    {
+      "file": "package/src/trajectory/shareGpt.ts",
+      "sha256": "46781c818ea02b1cabba7b31bf0df159a19a556bfdb28e7241da3071aa20dafb"
+    },
+    {
+      "file": "package/dist/permissions/shellSemantics.d.ts",
+      "sha256": "60a5ea4b87068b60c9ee6fba61647fc2f148b31a63b11e32d7d6baf2283ab390"
+    },
+    {
+      "file": "package/src/permissions/shellSemantics.ts",
+      "sha256": "c2e14dadb8368a5ece8c8dc4a9c979fc1a2656cf10eaea25f5441e46fb71aa11"
+    },
+    {
+      "file": "package/dist/tools/SkillManageTool.d.ts",
+      "sha256": "584c421d897d1dcf274fbf6683e1a047dfd143e369ea24f3e43513b657e0b05a"
+    },
+    {
+      "file": "package/src/tools/SkillManageTool.ts",
+      "sha256": "7f9304a08279f692bb5ed06d68a13e8fc354b6a0ff5ba4d770604102bf1dd5bd"
+    },
+    {
+      "file": "package/dist/tools/SkillsListTool.d.ts",
+      "sha256": "cb07053f349fcb45c5c13d975f63040e115a261f58f37aa8e78add3d2e095652"
+    },
+    {
+      "file": "package/src/tools/SkillsListTool.ts",
+      "sha256": "59cf67a2139c5a03b685a50a4c295c123f4cfd54b95486737d1bb031ce93f5c0"
+    },
+    {
+      "file": "package/dist/tools/SkillsViewTool.d.ts",
+      "sha256": "ff4f44ae3dd8b2cca58b6f64c99cb3a0c48040948a70793c0e9db2e2bc71f8e9"
+    },
+    {
+      "file": "package/src/tools/SkillsViewTool.ts",
+      "sha256": "92994f2cc8a49f3261fae96428635b19db860e91d1d0788686c91df9bb2ab3b5"
+    },
+    {
+      "file": "package/dist/tools/SkillTool.d.ts",
+      "sha256": "1a54e2a535b2883067e51165e09016e03091e1542d66bb002ac12b9bed38233b"
+    },
+    {
+      "file": "package/src/tools/SkillTool.ts",
+      "sha256": "b8b4fa9a7b712408d4022e7acdef95b18db3e906d7eb78f7fd2a8ee8cb5b422f"
+    },
+    {
+      "file": "package/dist/providers/sov.d.ts",
+      "sha256": "e7481fb5bb84e98f0f6338e10282ce33db1685e7a6a3aec72caf010cc52682f4"
+    },
+    {
+      "file": "package/src/providers/sov.ts",
+      "sha256": "be6a0772191cce4723402ac177c3d35d7d5c60f0d5ec5aaa494376b23dffd6dc"
+    },
+    {
+      "file": "package/dist/util/spawn.d.ts",
+      "sha256": "cb04848af7b39e09943511895b7eb1895fd0b5430b0a2519dfcd22a4fd2937e8"
+    },
+    {
+      "file": "package/src/util/spawn.ts",
+      "sha256": "47f8cc2c4cccdc4d92e057d1e1f846bb3f78f6e9f917d33c4c7fadff4c85deb9"
+    },
+    {
+      "file": "package/dist/tools/ssrfGuard.d.ts",
+      "sha256": "74e6fea6aea923c676ed037ab6cf9dd6c6e347642d37b083661e8e5d2b331a51"
+    },
+    {
+      "file": "package/src/tools/ssrfGuard.ts",
+      "sha256": "050840941f1eaf5164e88ff57a18db89d9e9907b702bdeb0f2e1227c3bfdfd62"
+    },
+    {
+      "file": "package/dist/util/stall.d.ts",
+      "sha256": "c479b2558ff4673c5f04e65eefc90bab503c5e60b29c76539576dab20c242a28"
+    },
+    {
+      "file": "package/src/util/stall.ts",
+      "sha256": "4ef51feccb35450fcf4b04688c6f147e7358e0820268caf7a774dafc3894c73f"
+    },
+    {
+      "file": "package/dist/tool/staticDescription.d.ts",
+      "sha256": "c29cc581fcf013bfd0aeea86161bf8c8e0511001ba8bf012b1c6295bae7d1ef3"
+    },
+    {
+      "file": "package/src/tool/staticDescription.ts",
+      "sha256": "b0af807254fc8230512c6dfc21d9fd938c1a8e3c8e1d46d497254b384e6780bd"
+    },
+    {
+      "file": "package/dist/tools/StaticSiteValidateTool.d.ts",
+      "sha256": "4020ed0b2ea535e21dba7f4376bd2ff33d51f1648b14c5c392bc21c65746f505"
+    },
+    {
+      "file": "package/src/tools/StaticSiteValidateTool.ts",
+      "sha256": "a3771fae763a767f6e5c5a26cc87eb67d11785bf5c69f1b29b91ac23d2e82f58"
+    },
+    {
+      "file": "package/dist/config/store.d.ts",
+      "sha256": "c939de53ed5eb9a6fbdbefa30a5dc019b97d87495b269c94ebea22888182a1b0"
+    },
+    {
+      "file": "package/dist/skills/store.d.ts",
+      "sha256": "e1f8eb706f086d6ad14b5e95ca98db6a3ec2ee5776dd5c86fe428b0e8c06b64f"
+    },
+    {
+      "file": "package/dist/transcript/store.d.ts",
+      "sha256": "f30fa79392ad2d780d36ade531c344bc02c35b5678abcc7411cf8d358354cdf1"
+    },
+    {
+      "file": "package/src/config/store.ts",
+      "sha256": "b44d918b0e33fa8e5da5f48d9636f360407420eba3bf8a3b05a19f96d97fcd81"
+    },
+    {
+      "file": "package/src/skills/store.ts",
+      "sha256": "8b66ef78047cd367f2802a00b4a727249b1b649307e43b13eb0248460b7fa39f"
+    },
+    {
+      "file": "package/src/transcript/store.ts",
+      "sha256": "ca053b5105ebcbcbcb085dcd69de31dce6fc3502d64939ebdd577df5c33972c1"
+    },
+    {
+      "file": "package/dist/skills/storeTypes.d.ts",
+      "sha256": "93ae061d2a8713df506f3a45046d7f8b0c08c0b751c15c872f41fd00c0c3b877"
+    },
+    {
+      "file": "package/src/skills/storeTypes.ts",
+      "sha256": "bef2c36f158d806b3db7558c134bfe78edfd264a27f619f51130b9085f8d6b38"
+    },
+    {
+      "file": "package/dist/skills/storeValidation.d.ts",
+      "sha256": "90dd27303a37b9047c8a25e4f5a15fe88eb06f5c7520e0d7df69058b2e808cc0"
+    },
+    {
+      "file": "package/src/skills/storeValidation.ts",
+      "sha256": "03b86c6663f9ced0c8356aff0b9d51f6516a7b6753c053de9ac42e08804dc0cb"
+    },
+    {
+      "file": "package/dist/skills/storeWorker.d.ts",
+      "sha256": "8651d2bd63ba2362c93f25da3e5e6ab77ea452cfbef80fff5df66ea40d3806b6"
+    },
+    {
+      "file": "package/src/skills/storeWorker.ts",
+      "sha256": "0c895ffd98863646e0b8327f7c094698432c8ff0b6817e8b3d38032b90086fde"
+    },
+    {
+      "file": "package/dist/skills/storeWorkerEntry.d.ts",
+      "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+    },
+    {
+      "file": "package/src/skills/storeWorkerEntry.ts",
+      "sha256": "5befbf0336a8bd80e2a4b6f4de3b04152de0d88299b19a15222107cfc23172c9"
+    },
+    {
+      "file": "package/dist/context/subdirectoryHints.d.ts",
+      "sha256": "bf8c8934ebb1b1782fede9bcca8401ac4b55c7c8c9dc5c7a9466686835645d64"
+    },
+    {
+      "file": "package/src/context/subdirectoryHints.ts",
+      "sha256": "ed0d07bc0b6db651ea0fd83969e03c7d8222595c2783dd01b4cc7bf63f54479f"
+    },
+    {
+      "file": "package/dist/providers/models/subscriptionCatalog.d.ts",
+      "sha256": "185c7fdf5854082e3e44bfc02531510b377b35e2cb7cae3723af088e19be5d66"
+    },
+    {
+      "file": "package/src/providers/models/subscriptionCatalog.ts",
+      "sha256": "812bb06c3ad11c8e1b006cd5143f8abc32a542c90f19dbe75c3a3f90786aca5d"
+    },
+    {
+      "file": "package/dist/skills/symlinkGuard.d.ts",
+      "sha256": "1406716458a62fe3e5333ee7eeaf288d88d4d6bdf571587144db9ce4c7fe2879"
+    },
+    {
+      "file": "package/src/skills/symlinkGuard.ts",
+      "sha256": "6a625c6942b8e41ea1437c767f2739d1daf160251f068e923ecf524f9ee422c4"
+    },
+    {
+      "file": "package/dist/context/system.d.ts",
+      "sha256": "f692d072e04f4f8d636026367ced25f9789168363cf7ae3b973430a586f46897"
+    },
+    {
+      "file": "package/src/context/system.ts",
+      "sha256": "4ea58107bb6b1c958539e0b609263872fef671dfc12e3f467301ff6498f7cf7c"
+    },
+    {
+      "file": "package/dist/context/systemPrompt.d.ts",
+      "sha256": "ac926a7bbc4eb461e14869eceab9e1dcaa4c39ffa76afab0b18c9f748637eced"
+    },
+    {
+      "file": "package/dist/core/systemPrompt.d.ts",
+      "sha256": "7a88ee49734806ea57d13346415249b59e771b689725c56e6afe46099897976b"
+    },
+    {
+      "file": "package/src/context/systemPrompt.ts",
+      "sha256": "7f376c757192490e25f6a18190d6c2daac0fe755fbb164a4e8f6bd4ba5055757"
+    },
+    {
+      "file": "package/src/core/systemPrompt.ts",
+      "sha256": "566f0ad61739f629982d596c9536c16368a8145e2e97556865d09a21855c725b"
+    },
+    {
+      "file": "package/dist/tools/TaskCreateTool.d.ts",
+      "sha256": "fc6ce18db9e2211cd60b01b7d6cd4131b73e4527ab70c8ed7ada496761bf4020"
+    },
+    {
+      "file": "package/src/tools/TaskCreateTool.ts",
+      "sha256": "059be7f55bec47397b17d67e74cbab279705460301f06722d535b885d3d032ef"
+    },
+    {
+      "file": "package/dist/tools/TaskGetTool.d.ts",
+      "sha256": "e1371068a48093502501c87fe7a801a44e2085fc8c655af6ee5f11b2bcd1b667"
+    },
+    {
+      "file": "package/src/tools/TaskGetTool.ts",
+      "sha256": "8105399f8dfc4f1e87d06ec371bec35cced8bbd2df285d335d30d6abd927e8bc"
+    },
+    {
+      "file": "package/dist/tools/TaskListTool.d.ts",
+      "sha256": "e6f3ba4ee32ce95192d74160335de0874ced76783b6d68b129899dec05b7c4e9"
+    },
+    {
+      "file": "package/src/tools/TaskListTool.ts",
+      "sha256": "3ecbda5d6356ae6377ca2f966e2832ad74484c7f25884aa2d6944b6966cbcbf2"
+    },
+    {
+      "file": "package/dist/tools/TaskOutputTool.d.ts",
+      "sha256": "21c32a344ae4dde43d0c56bb6e5d45ced793c587180fe537c89ad6b2f19771dc"
+    },
+    {
+      "file": "package/src/tools/TaskOutputTool.ts",
+      "sha256": "c8826225085018005d5b8340194e69b7abe0b30102d15593fc96b9b0b9c3ee9e"
+    },
+    {
+      "file": "package/dist/core/taskPort.d.ts",
+      "sha256": "61bb9f152e71c8ea59d682d96bd03b01f73c43e8513717ff3b748a7d363c74d9"
+    },
+    {
+      "file": "package/src/core/taskPort.ts",
+      "sha256": "d7c93920e78ad74feccf748d4534657a426a54bb3aa87c6b715b7f74b6c0c3cd"
+    },
+    {
+      "file": "package/dist/tools/TaskStopTool.d.ts",
+      "sha256": "81ee68de1d1915f40987ff81dbee441686977554966d84120e056df73d108d95"
+    },
+    {
+      "file": "package/src/tools/TaskStopTool.ts",
+      "sha256": "dfa7dfabba643e47207275a937e10250b81f7e0763d49b755d7c3692f374fefe"
+    },
+    {
+      "file": "package/dist/providers/tokenAccounting.d.ts",
+      "sha256": "b0e6c0fae689ae9d0f19321876c35aa66161a0e2d90fe070f8983b9e49f2abd3"
+    },
+    {
+      "file": "package/src/providers/tokenAccounting.ts",
+      "sha256": "3d02df7823a285a7780f664c7dadfa32bd8b3e6f4a6cb21705fea997e08e218c"
+    },
+    {
+      "file": "package/dist/core/tokenEstimate.d.ts",
+      "sha256": "8e4fa9af1cdb8744a3b6902a58336356e55ef1b05e9b035a7642a7871cb6be19"
+    },
+    {
+      "file": "package/src/core/tokenEstimate.ts",
+      "sha256": "fd1ba2db771af64db508a0c565f3e78ffec8eea001abbd03ccc55dd85b0da654"
+    },
+    {
+      "file": "package/dist/providers/subscription/tokens.d.ts",
+      "sha256": "ff9bc154d3b38f7a881de782e8a130a54ff71a6a5745c4c6eae75fab04d6e64e"
+    },
+    {
+      "file": "package/src/providers/subscription/tokens.ts",
+      "sha256": "015d34d39d9ed430f44d6535a706f65a3e38860a4e0040f33c3f9d8fea9c64dd"
+    },
+    {
+      "file": "package/dist/tool/toolScope.d.ts",
+      "sha256": "d0ea84c730c05c587170b35edade22935ef4800fcf9e1d9edc1be9422b404d67"
+    },
+    {
+      "file": "package/src/tool/toolScope.ts",
+      "sha256": "a0d6e81da1df4c50b1842ded96e010d2042f03d1dcf8398d467d46a4a81981a9"
+    },
+    {
+      "file": "package/dist/tools/ToolSearchTool.d.ts",
+      "sha256": "bb8e8aa7fe74517688e1db64abfb31424e2c8223c21c6ef1bb72880f24d58d20"
+    },
+    {
+      "file": "package/src/tools/ToolSearchTool.ts",
+      "sha256": "91bfb0f91a8ab5008552f242088206962a3d0c3463130d514af7122bb5c5ca7c"
+    },
+    {
+      "file": "package/dist/tool/toolset.d.ts",
+      "sha256": "c51e281c629687f145d8f9fe283b30bd6c140a961ca885d5c6c6c832879afa24"
+    },
+    {
+      "file": "package/src/tool/toolset.ts",
+      "sha256": "35f0033658936ac22e789cd49c376c82d4fa64ece7284cbc79abd130f6c5bc7d"
+    },
+    {
+      "file": "package/dist/mcp/toolWrapper.d.ts",
+      "sha256": "de3737e1a7981fe9175dcd94dc86d30db8ddb76a51c8ab6b09e94ab7f213daa6"
+    },
+    {
+      "file": "package/src/mcp/toolWrapper.ts",
+      "sha256": "cd2f1702444113f97053c4d945b4c7f89a0af2a932d6a76a64e6bff11264c4b4"
+    },
+    {
+      "file": "package/dist/core/transcriptRepair.d.ts",
+      "sha256": "f323dce916a04ae802ca3ab82c4b92051720c51100632da18863e5b157c773f8"
+    },
+    {
+      "file": "package/src/core/transcriptRepair.ts",
+      "sha256": "410507c6e76102f359f78f7141c8c8e80e22637f18c552d93face48585db7e6d"
+    },
+    {
+      "file": "package/dist/persistence/transcriptStore.d.ts",
+      "sha256": "0ed37b1f09e39a8ca65946edb44e5b7daa141cbfa09fbb7191ccfead89dbcc1d"
+    },
+    {
+      "file": "package/src/persistence/transcriptStore.ts",
+      "sha256": "6e79209ddcce110026d2a5aeee2aff75f50395394367432b2902a21bb55e470b"
+    },
+    {
+      "file": "package/dist/runtime/treeBudget.d.ts",
+      "sha256": "a66d28d6dc498a8287a006c53d45537d611d8a1394d46575440aac91c7272d23"
+    },
+    {
+      "file": "package/src/runtime/treeBudget.ts",
+      "sha256": "b2713488aaa81bc23a9ed42e1efd18e5fc444bb77ea14b2318906f806cd1ad6a"
+    },
+    {
+      "file": "package/dist/debug/turn-observer.d.ts",
+      "sha256": "ba7d7fac128ad862ca786b8ed80f8d6e0fa86f2894b9d23a38497bb0fb876b2d"
+    },
+    {
+      "file": "package/src/debug/turn-observer.ts",
+      "sha256": "75ba13f85eabb1926822b36a00ab69e724283a1ef422326b1b9c3e3627a8c162"
+    },
+    {
+      "file": "package/dist/agents/types.d.ts",
+      "sha256": "8e3528b793f940eef4f8e5d513b25a06e52a681def7f0b3d512e4a3be5dc5a93"
+    },
+    {
+      "file": "package/dist/bundle/types.d.ts",
+      "sha256": "eaadda5d555e29f4b1c69cc12a9c449d330694075e357f7599df47b0b34493ff"
+    },
+    {
+      "file": "package/dist/commands/types.d.ts",
+      "sha256": "620ba8008ea923077df65fa73ba85f10d4c46078284f9ca5a1dc3e9348029d59"
+    },
+    {
+      "file": "package/dist/core/types.d.ts",
+      "sha256": "19ae3cac33a79eb09fcd887ce6f8042276a36ece7e0524f28e3e7a9ee2ce2a49"
+    },
+    {
+      "file": "package/dist/debug/types.d.ts",
+      "sha256": "6719680d5cd995d2465055ac62e41f880863ab0c5d6af8d4e7a4a28ace0006cd"
+    },
+    {
+      "file": "package/dist/hooks/types.d.ts",
+      "sha256": "84a291d03ef8a5ae4a7d2eba85f3482de9a8a179e38d8fd5d9322deaec9c7187"
+    },
+    {
+      "file": "package/dist/mcp/types.d.ts",
+      "sha256": "dfc7102f42540846a200b53249116fe13cc933adb89f3b119c5604a1daaee4b7"
+    },
+    {
+      "file": "package/dist/permissions/types.d.ts",
+      "sha256": "dfa0c86035200a1acb89e62ca74162ecb5e5f74ed0b46f717cb84f1b1afdc9d8"
+    },
+    {
+      "file": "package/dist/providers/models/types.d.ts",
+      "sha256": "9708ef75784a100f6a8866c963707b41e8e0d6b0788918145a44fb44f0480653"
+    },
+    {
+      "file": "package/dist/providers/routes/types.d.ts",
+      "sha256": "46935a3f138f5f3b66d794225c15a0f8c8c78ef5b345da94df3d6375467f270a"
+    },
+    {
+      "file": "package/dist/providers/types.d.ts",
+      "sha256": "ccc1bfbd65c577784ac1c59e419fb193dbe3afa742cf0717d64f3b1cf75402cf"
+    },
+    {
+      "file": "package/dist/skills/types.d.ts",
+      "sha256": "9d337e363e70fa80f4d1a83398cc25179de1704ae68ac51dd150dbe202e490ab"
+    },
+    {
+      "file": "package/dist/tool/types.d.ts",
+      "sha256": "3c16dfb4e696b3446425c8f8fa79ec4fb8d5c92a961405ccdcd81767150eee8d"
+    },
+    {
+      "file": "package/dist/trace/types.d.ts",
+      "sha256": "53c107cc6e2dfb98fa5d5268ecbbf7355dd29dae612b3f1991084aafb8942a27"
+    },
+    {
+      "file": "package/dist/turnlog/types.d.ts",
+      "sha256": "4297a9eda4800494694b16f96d1aad90048aa4e1a7592a20e729200bc377ae47"
+    },
+    {
+      "file": "package/src/agents/types.ts",
+      "sha256": "eef37f162d1b4a1bdc7fd6ea28fd3b458de49f7406b76f2d402e4737dfb5929e"
+    },
+    {
+      "file": "package/src/bundle/types.ts",
+      "sha256": "cc3e876b8c52088f3ebef93f3d0fd5add0ca2c8324e63e1a54f69ec4ae4337c3"
+    },
+    {
+      "file": "package/src/commands/types.ts",
+      "sha256": "d0494e8a96b183107e565e3e21a6c5548f85898073c211a7de5f85fe8f8186d3"
+    },
+    {
+      "file": "package/src/core/types.ts",
+      "sha256": "54a9cab4bd25c4121fed6aed055741555332284c2dcd73d0c978b5da10b73b4e"
+    },
+    {
+      "file": "package/src/debug/types.ts",
+      "sha256": "c5898d10e16bd991c6c94bf878082b106bdf79f94febbf4661eaa62b851bd89d"
+    },
+    {
+      "file": "package/src/hooks/types.ts",
+      "sha256": "8254a236c1e1c368d53846830f9ee5594aee618b0bcdff4defd6cd7abe8f1183"
+    },
+    {
+      "file": "package/src/mcp/types.ts",
+      "sha256": "a16a8560a23b02461a2e633ea78ed65f3cfa261f6402dbbd283d3604bfdafa11"
+    },
+    {
+      "file": "package/src/permissions/types.ts",
+      "sha256": "0dcc4fa87f1aa3e0865d945662a6c6840e56ab720989c9c183b1fe167c541383"
+    },
+    {
+      "file": "package/src/providers/models/types.ts",
+      "sha256": "be1f9df54dbcdc325a317a96383594b9d65c2819a0d6710b22031878e3591644"
+    },
+    {
+      "file": "package/src/providers/routes/types.ts",
+      "sha256": "32b3740de288fd1bbba9a11fde138954a49f2a8eee8afb0168d385a1e22e3a39"
+    },
+    {
+      "file": "package/src/providers/types.ts",
+      "sha256": "e947a6495003c117d522139e06095bba526b9245b00eac9331d5d8523518b51f"
+    },
+    {
+      "file": "package/src/skills/types.ts",
+      "sha256": "7a1d9c867fcaa7e03bda210ecb1c9b58ee6ce1a66b27fa441c5893ff86874d93"
+    },
+    {
+      "file": "package/src/tool/types.ts",
+      "sha256": "b07270b0e9f9c373ddd1546469fe39c88bc65d1f55900ac944e1094a0102bc75"
+    },
+    {
+      "file": "package/src/trace/types.ts",
+      "sha256": "4107b35b73b8b99d6b808771afecc5b65774adb5547b4a6dc2971626152921f7"
+    },
+    {
+      "file": "package/src/turnlog/types.ts",
+      "sha256": "ca4a0fb6b1989304e0a637e094868762e2c6855d100155405562e386f294b369"
+    },
+    {
+      "file": "package/dist/core/usageAccumulator.d.ts",
+      "sha256": "e63793048283f97ba4a89c8c5bbc4a317c120b3ce9cbb852f7fc8f8e36832a2e"
+    },
+    {
+      "file": "package/src/core/usageAccumulator.ts",
+      "sha256": "c0db4d828eab4c3d9fbd173e50604c1e3d6bf7d1b89b3c151cb81668c2f172ab"
+    },
+    {
+      "file": "package/dist/context/user.d.ts",
+      "sha256": "287cc166662bc35a20823eb644edcbf0a9c419b27ed0953f0d780022d2e0f4b6"
+    },
+    {
+      "file": "package/src/context/user.ts",
+      "sha256": "5c5632a2dfdf2f9e6d027b26d992ce7f7716511f01ac0c2218868a4263733a26"
+    },
+    {
+      "file": "package/dist/providers/models/validate.d.ts",
+      "sha256": "d3b39b83afc9c2e64ea03c7c830019b5ed988e6a2ebf007e8b2d49ad539963ba"
+    },
+    {
+      "file": "package/dist/providers/routes/validate.d.ts",
+      "sha256": "623400a8ec88474b9ae90e65019d243aeb280c2b143470f3cd2e8abbc918b53d"
+    },
+    {
+      "file": "package/src/providers/models/validate.ts",
+      "sha256": "8fee7471474c44e5c8b58c0b2f2c82483ffef20818bced6d976082de9142e828"
+    },
+    {
+      "file": "package/src/providers/routes/validate.ts",
+      "sha256": "10e7dc0a447601f3210cd13ff2b6128ab1a13545f48389dda4bda98440ed0b8e"
+    },
+    {
+      "file": "package/dist/providers/models/validateRequest.d.ts",
+      "sha256": "b450bfa928e87e658e878252aef23723cadacb2f7c08fee12583061291acd34e"
+    },
+    {
+      "file": "package/src/providers/models/validateRequest.ts",
+      "sha256": "42d0ea0914f3c79739806df9b27fef6d3d541d528fec75dd518a084cb58c53b0"
+    },
+    {
+      "file": "package/dist/version.d.ts",
+      "sha256": "0e20716be19b70ad35f2aa609a714b6622e8d1a97d51dd8c7061daebd8f7db8e"
+    },
+    {
+      "file": "package/src/version.ts",
+      "sha256": "e1230e2f3384b8e4c0dc796fcdc46087049da1dbdab6928962331bf4d58e43b2"
+    },
+    {
+      "file": "package/dist/skills/visibility.d.ts",
+      "sha256": "2b2f910696b29a24670e7df39a9df3601d4fb0b94123d770510a3de38d266253"
+    },
+    {
+      "file": "package/src/skills/visibility.ts",
+      "sha256": "ecf67d3f3333f40a9e4e5613281b2487de4b5b8285f6846888cbe8f64717b124"
+    },
+    {
+      "file": "package/dist/tools/WebFetchTool.d.ts",
+      "sha256": "cb3b21dd716c446f8e82ad08039a677eba783c3c7875d52439f5509bbedebe01"
+    },
+    {
+      "file": "package/src/tools/WebFetchTool.ts",
+      "sha256": "32410bd8bef1f3ae8f63e8e08b6f71a0dcc8d577d095a8d5ae64c815e5510779"
+    },
+    {
+      "file": "package/dist/tools/WebSearchTool.d.ts",
+      "sha256": "8ce2d9fd0fee780e01dcca3e7c2105e28f7e27b67c4c5cf10f4555de9c3b6b0f"
+    },
+    {
+      "file": "package/src/tools/WebSearchTool.ts",
+      "sha256": "ae50590cbb17264dde119c35c5a88ddb9d5f55104030a26f48a5695d62f8c7b1"
+    },
+    {
+      "file": "package/dist/skills/whenToUse.d.ts",
+      "sha256": "400e6af12af77d7d395da4f34f5c57250d9300ccec0bbeb8c4b0ec815753b7f2"
+    },
+    {
+      "file": "package/src/skills/whenToUse.ts",
+      "sha256": "33bfdca65a829f81b5cc761d75594acf4f9204088c9ef39f7080f25f7944b433"
+    },
+    {
+      "file": "package/dist/core/workflowPort.d.ts",
+      "sha256": "dea2102677bfe2690ff81efe9f823b74566eb573fec71c56c084d2acc6f3f85c"
+    },
+    {
+      "file": "package/src/core/workflowPort.ts",
+      "sha256": "554d788aeb32e122972b7fa49830905dc08a3a084b26dd5a6f8b93270290080f"
+    },
+    {
+      "file": "package/dist/trace/writer.d.ts",
+      "sha256": "13cd6321fd806527b82df3aeea6440090cacf48029feb4bc0020603528330cf9"
+    },
+    {
+      "file": "package/dist/trajectory/writer.d.ts",
+      "sha256": "19416704c6434b34e03a0eea0aea839636479860799fc875b374eb4b0638c21d"
+    },
+    {
+      "file": "package/dist/transcript/writer.d.ts",
+      "sha256": "4e1fa76b38c30ad8c7a7e5aabe5ac9402c273dc2691c69f8eafd691719056fd8"
+    },
+    {
+      "file": "package/src/trace/writer.ts",
+      "sha256": "b8a86258906c9e86b555b3c8e41a6140949ffba10f850b697bf91fa418f22199"
+    },
+    {
+      "file": "package/src/trajectory/writer.ts",
+      "sha256": "2f36250930a4e6e2e664f59df3921028ae95d970c1ad3ba95595fa3e4327da50"
+    },
+    {
+      "file": "package/src/transcript/writer.ts",
+      "sha256": "bd1f15496c040396606318f49af3ff56bb7daf938eb41c180bb58a1d8f9c99fa"
+    },
+    {
+      "file": "package/dist/permissions/writeScope.d.ts",
+      "sha256": "bd3b2fee25b3b43f8ddc9c214a0bc1909be6c053b5cb905f844d20a5fc948282"
+    },
+    {
+      "file": "package/src/permissions/writeScope.ts",
+      "sha256": "0dfe00dd0b4cc16ea07af1917f89847210d5661f417ec0cde89ad4a5469235bf"
+    }
+  ],
+  "limits": "finite known-residue policy; no arbitrary-secret absence claim"
+}

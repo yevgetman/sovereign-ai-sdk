@@ -1,0 +1,199 @@
+{
+  "diagnostics": [
+    {
+      "code": "root-ready",
+      "message": "scanning approved skill root",
+      "path": "/private/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/node/.harness/skills",
+      "precedence": 0,
+      "root": "/private/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/node/.harness/skills",
+      "source": "project",
+      "trustTier": "trusted"
+    },
+    {
+      "approval": {
+        "canonicalRoot": "/private/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/packages/approved",
+        "settingsField": "skills.discovery.allowedLinkRoots"
+      },
+      "code": "scope-denied",
+      "message": "external skill link needs host approval through skills.discovery.allowedLinkRoots",
+      "path": "/private/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/node/.harness/skills/approved",
+      "precedence": 0,
+      "realpath": "/private/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/packages/approved",
+      "root": "/private/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/node/.harness/skills",
+      "source": "project",
+      "trustTier": "trusted"
+    },
+    {
+      "approval": {
+        "canonicalRoot": "/private/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/packages/sibling",
+        "settingsField": "skills.discovery.allowedLinkRoots"
+      },
+      "code": "scope-denied",
+      "message": "external skill link needs host approval through skills.discovery.allowedLinkRoots",
+      "path": "/private/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/node/.harness/skills/sibling",
+      "precedence": 0,
+      "realpath": "/private/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/packages/sibling",
+      "root": "/private/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/node/.harness/skills",
+      "source": "project",
+      "trustTier": "trusted"
+    },
+    {
+      "code": "root-ready",
+      "message": "scanning approved skill root",
+      "path": "/private/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/node/.agents/skills",
+      "precedence": 1,
+      "root": "/private/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/node/.agents/skills",
+      "source": "project",
+      "trustTier": "trusted"
+    },
+    {
+      "code": "root-missing",
+      "message": "path or link target is unavailable",
+      "path": "/private/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/node/.agents/skills",
+      "precedence": 1,
+      "root": "/private/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/node/.agents/skills",
+      "source": "project",
+      "trustTier": "trusted"
+    },
+    {
+      "code": "root-ready",
+      "message": "scanning approved skill root",
+      "path": "/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/home/skills",
+      "precedence": 2,
+      "root": "/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/home/skills",
+      "source": "user",
+      "trustTier": "trusted"
+    },
+    {
+      "code": "root-missing",
+      "message": "path or link target is unavailable",
+      "path": "/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/home/skills",
+      "precedence": 2,
+      "root": "/var/folders/05/_jr5rcrs3m15xrgdsk5x0z740000gn/T/sov-compiled-settings-vef7a8uw/home/skills",
+      "source": "user",
+      "trustTier": "trusted"
+    },
+    {
+      "code": "root-ready",
+      "message": "scanning approved skill root",
+      "path": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills",
+      "precedence": 3,
+      "root": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills",
+      "source": "bundle",
+      "trustTier": "builtin"
+    },
+    {
+      "code": "candidate",
+      "message": "eligible skill file",
+      "path": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills/review.md",
+      "precedence": 3,
+      "realpath": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills/review.md",
+      "root": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills",
+      "source": "bundle",
+      "trustTier": "builtin"
+    },
+    {
+      "code": "candidate",
+      "message": "eligible skill file",
+      "path": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills/security-audit.md",
+      "precedence": 3,
+      "realpath": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills/security-audit.md",
+      "root": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills",
+      "source": "bundle",
+      "trustTier": "builtin"
+    },
+    {
+      "code": "candidate",
+      "message": "eligible skill file",
+      "path": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills/summarize.md",
+      "precedence": 3,
+      "realpath": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills/summarize.md",
+      "root": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills",
+      "source": "bundle",
+      "trustTier": "builtin"
+    },
+    {
+      "code": "root-ready",
+      "message": "scanning approved skill root",
+      "path": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/harness/skills-trusted",
+      "precedence": 4,
+      "root": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/harness/skills-trusted",
+      "source": "bundle",
+      "trustTier": "trusted"
+    },
+    {
+      "code": "root-missing",
+      "message": "path or link target is unavailable",
+      "path": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/harness/skills-trusted",
+      "precedence": 4,
+      "root": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/harness/skills-trusted",
+      "source": "bundle",
+      "trustTier": "trusted"
+    },
+    {
+      "code": "root-ready",
+      "message": "scanning approved skill root",
+      "path": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills-community",
+      "precedence": 5,
+      "root": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills-community",
+      "source": "community",
+      "trustTier": "community"
+    },
+    {
+      "code": "root-missing",
+      "message": "path or link target is unavailable",
+      "path": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills-community",
+      "precedence": 5,
+      "root": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills-community",
+      "source": "community",
+      "trustTier": "community"
+    },
+    {
+      "code": "guard-allow",
+      "message": "skill guard decision: allow",
+      "name": "review",
+      "severity": "info",
+      "source": "bundle",
+      "trustTier": "builtin"
+    },
+    {
+      "code": "guard-allow",
+      "message": "skill guard decision: allow",
+      "name": "security-audit",
+      "severity": "info",
+      "source": "bundle",
+      "trustTier": "builtin"
+    },
+    {
+      "code": "guard-allow",
+      "message": "skill guard decision: allow",
+      "name": "summarize",
+      "severity": "info",
+      "source": "bundle",
+      "trustTier": "builtin"
+    }
+  ],
+  "generation": 1,
+  "skillCount": 3,
+  "skillSettings": {
+    "acceptedEntries": 0,
+    "explicitEmpty": true,
+    "schemaVersion": 1,
+    "source": "host-approval-file",
+    "valid": true
+  },
+  "skills": [
+    {
+      "name": "review",
+      "root": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills"
+    },
+    {
+      "name": "security-audit",
+      "root": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills"
+    },
+    {
+      "name": "summarize",
+      "root": "/Users/julie/code/release-evidence-sdk-0162/artifacts-native/darwin-arm64/bundle-default/skills"
+    }
+  ]
+}
