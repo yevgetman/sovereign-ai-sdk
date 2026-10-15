@@ -23,6 +23,19 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
 
 ---
 
+## Candidate SDK 0.16.2 / SOV 0.6.82
+
+The planned patch selects the single reviewed layered Kernel skill settings repair
+from [PR97](https://github.com/yevgetman/sovereign-ai-sdk/pull/97), plus reviewed
+version and notes preparation. The SDK tarball is
+`yevgetman-sov-sdk-0.16.2.tgz`, with companion SOV tag `v0.6.82` and separate
+`SDK-SHA256SUMS`. The packed SDK README names those same assets. Publication
+requires exact assembled-source gates, a frozen cut and public-download proof;
+this preparation does not establish publication. Approval replacement precedence,
+host-file isolation and typed startup errors are described in
+[compatibility and migration](docs/04-extending/skill-compatibility.md#migrating-to-sdk-0162).
+Protocol stays 0.1.0 and debug console stays 0.3.0. npm publication stays Owner-only.
+
 ## Current public cut — verified 2026-10-15
 
 SDK **0.16.1** and SOV **0.6.81** are published in the combined public
@@ -41,7 +54,7 @@ Source tags `sdk-v0.16.1` and `v0.6.81` name the one assembled source
 records all downloads, hashes, native Mac versions and strict ad-hoc signatures.
 Linux arm64 is cross-compiled; no Developer ID signing or notarization is claimed.
 Protocol remains 0.1.0 and debug console remains 0.3.0. npm publication stays Owner-only.
-The next empty draft is SDK 0.16.2 / SOV 0.6.82.
+The planned successor is SDK 0.16.2 / SOV 0.6.82, described above.
 
 The previous verified release is [SDK0.16.0/SOV0.6.80](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.80),
 source `48a287d01d74cfd2e15ba7a164b93c9a56aeb164` with [immutable proof](releases/history/sdk-0.16.0/publication.json).
@@ -184,9 +197,9 @@ scratch `npm install` of each from the registry resolves.
 
 ```sh
 git tag protocol-v0.1.0
-git tag sdk-v0.1.0
-git tag debug-console-v0.1.0
-git push origin protocol-v0.1.0 sdk-v0.1.0 debug-console-v0.1.0
+git tag sdk-v0.16.2
+git tag debug-console-v0.3.0
+git push origin protocol-v0.1.0 sdk-v0.16.2 debug-console-v0.3.0
 ```
 
 (Adjust versions per release; the tags move independently, matching the

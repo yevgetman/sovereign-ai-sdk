@@ -125,6 +125,30 @@ hooks and future vendor data. Preserving a field does not claim support for it.
 Read `descriptor.execution.diagnostics` to distinguish compatible metadata from
 execution controls that prevent activation.
 
+## Migrating to SDK 0.16.2
+
+No source or session-schema migration is required. Discovery settings now use one
+strict, bounded snapshot. Approval lists replace inherited lists in this order:
+explicit host options, node-local `.harness/settings.local.json`, profile
+`HARNESS_HOME/settings.json`, then profile `config.json`. An explicit `[]` clears
+inherited approvals. Version-controlled `.harness/settings.json` cannot grant
+approvals or redefine `projectRoot`. Review conflicting settings for the winning
+list; do not merge lists by hand to restore broad inherited trust.
+
+Trusted launchers may supply `--skill-approval-file <path>` to native run,
+dispatch and local doctor. The file must contain an explicit approval list and
+stays authoritative over discovery approval lists. Its project boundary is fixed
+by the host. Missing, redirected or malformed trust files fail safely. Hosts that
+inject an SDK configuration object bypass every disk settings layer.
+
+Native startup validates configuration before credential access or session
+creation. Invalid configuration emits `configuration_invalid` with
+`check_configuration`; it does not authorize retrying a tool or changing stored
+sessions. Persistence failures keep their storage classification. Offline route
+and discovery fixtures do not certify installed Kernel producer integration or
+live-provider readiness. See [usage](../03-cli-reference/usage.md) for the current
+settings and approval-file contract.
+
 ## Migrating to SDK 0.16.1
 
 No source, session-schema or configuration migration is required. Older injected
