@@ -3,7 +3,53 @@ import { getDefaultBundlePath } from '@yevgetman/sov-sdk/bundle/defaultBundle';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import { readConfig } from '@yevgetman/sov-sdk/config/store';
 import { createSkillRegistryManager, loadSkillRegistry } from '@yevgetman/sov-sdk/skills/registry';
+import type { SkillRegistryDiagnostic } from '@yevgetman/sov-sdk/skills/registry';
 import { loadPluginRuntime } from '../plugins/runtime.js';
+
+type LocalDiagnostic = SkillRegistryDiagnostic & { aliases?: string[] };
+
+/** Presentation only: keep discovery order and all distinct failure decisions. */
+function localDiagnostics(diagnostics: readonly SkillRegistryDiagnostic[]): LocalDiagnostic[] {
+  const structuredWarnings = new Set(
+    diagnostics
+      .filter((item) => item.path !== undefined && item.code !== 'loader-warning')
+      .map((item) => `skill skipped (${item.path}): ${item.message}`),
+  );
+  const externalLinks = new Map<string, LocalDiagnostic>();
+  const result: LocalDiagnostic[] = [];
+  for (const item of diagnostics) {
+    // Canonical deduplication already kept the winner; this is routine scan
+    // bookkeeping, not a separate warning or a second loaded skill.
+    if (item.code === 'duplicate-realpath') continue;
+    if (item.code === 'loader-warning' && structuredWarnings.has(item.message)) continue;
+    const diagnostic: LocalDiagnostic = { ...item };
+    if (item.code === 'scope-denied' && item.approval && item.realpath && item.path) {
+      const key = JSON.stringify([
+        item.realpath,
+        item.source,
+        item.trustTier,
+        item.message,
+        item.approval,
+      ]);
+      const previous = externalLinks.get(key);
+      if (previous) {
+        // Keep alias reporting bounded; traversal limits still apply upstream.
+        if (
+          item.path !== previous.path &&
+          !previous.aliases?.includes(item.path) &&
+          (previous.aliases?.length ?? 0) < 16
+        ) {
+          previous.aliases ??= [];
+          previous.aliases.push(item.path);
+        }
+        continue;
+      }
+      externalLinks.set(key, diagnostic);
+    }
+    result.push(diagnostic);
+  }
+  return result;
+}
 
 export async function runSkillsDoctor(
   opts: {
@@ -39,7 +85,7 @@ export async function runSkillsDoctor(
   const report = {
     generation: snapshot.generation,
     skillCount: snapshot.registry.skills.length,
-    diagnostics: snapshot.diagnostics,
+    diagnostics: localDiagnostics(snapshot.diagnostics),
   };
   if (opts.json) write(JSON.stringify(report, null, 2));
   else {
