@@ -1,28 +1,29 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: 2026-10-15T12:52:34.869Z
+updated_at: '2026-10-15T19:17:22Z'
 checkout: .
-last_release: &a1
+last_release: &id001
   version: 0.16.1
   cli_version: 0.6.81
   source_commit: 0b7a69e31b26ae91201558a1a500bab25402a1bb
   evidence: releases/history/sdk-0.16.1/publication.json
 reconciliation:
   history_start_commit: 0b7a69e31b26ae91201558a1a500bab25402a1bb
-  through_main_commit: 0b7a69e31b26ae91201558a1a500bab25402a1bb
-  checked_at: 2026-10-15T12:52:34.869Z
-  evidence: Verified complete SDK0.16.1/SOV0.6.81 public downloads against frozen
-    eight files, versions/source metadata, both native Mac strict signatures.
-    One feature PR95 plus mapped preparation PR96. Open empty successor;
-    consumer source pins tracked separately.
+  through_main_commit: fef13c782cdc28d3a896bd81d921aa0dc3e379b5
+  checked_at: '2026-10-15T19:17:22Z'
+  evidence: 'Verified complete SDK0.16.1/SOV0.6.81 public downloads against frozen eight files, versions/source
+    metadata, both native Mac strict signatures. One feature PR95 plus mapped preparation PR96. Open empty
+    successor; consumer source pins tracked separately.; Owner-requested PR merge and manifest inclusion:
+    https://github.com/yevgetman/sovereign-ai-sdk/pull/97. Source is reachable from master; reviewed merge
+    unit recorded once. No publication or baseline change.'
 release:
   id: sdk-0.16.2
   product: sovereign-ai-sdk
   version: 0.16.2
   cli_version: 0.6.82
   status: draft
-  base: *a1
+  base: *id001
   applied_commits: []
   preparation_commits: []
   build_commit: null
