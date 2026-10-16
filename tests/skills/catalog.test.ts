@@ -41,6 +41,26 @@ const largeBudget = resolveSkillContextBudget({
 });
 
 describe('complete bounded skill catalogs', () => {
+  test('names projection returns 33 long-description skills in one compact page', () => {
+    const input = Array.from({ length: 33 }, (_, index) =>
+      skill(`skill-${String(index).padStart(2, '0')}`, 'description '.repeat(2_000)),
+    );
+    const page = listSkillCatalog(input, {
+      detail: 'names',
+      limit: 100,
+      budget: { ...largeBudget, pageTokens: 2_000 },
+    });
+    expect(page).toMatchObject({
+      detail: 'names',
+      total: 33,
+      returned: 33,
+      remaining: 0,
+      truncated: false,
+    });
+    expect(page.skills).toEqual(input.map(({ name }) => ({ name })));
+    expect(page.nextCursor).toBeUndefined();
+  });
+
   test('raw queries cannot bypass length or serialized page limits', () => {
     expect(() => listSkillCatalog([], { query: ' '.repeat(10_000), budget: largeBudget })).toThrow(
       '256',

@@ -27,6 +27,12 @@ const inputSchema = z.object({
     .max(100)
     .optional()
     .describe('Maximum entries per page (default 25; byte budget may return fewer).'),
+  detail: z
+    .enum(['names', 'summary', 'activation'])
+    .optional()
+    .describe(
+      'Projection: names for enumeration, summary for discovery, activation before selection.',
+    ),
 });
 
 type Input = z.infer<typeof inputSchema>;
@@ -36,7 +42,7 @@ type Output = import('../skills/catalog.js').SkillCatalogPage;
 export const SkillsListTool = buildTool<Input, Output>({
   name: 'skills_list',
   description: () =>
-    'Search or page every enabled skill. Follow nextCursor with the same query to enumerate the catalog. metadataTruncated means inspect with skill_view; nameFragment segments reconstruct an oversized name. budgetExhausted requires more context headroom.',
+    'Search or page every enabled skill. Use detail: names to list all skill names compactly. Use summary for discovery and activation before selecting a skill. Follow nextCursor with the same query and detail. metadataTruncated means inspect with skill_view; nameFragment segments reconstruct an oversized name. budgetExhausted requires more context headroom.',
   inputSchema,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
@@ -51,6 +57,7 @@ export const SkillsListTool = buildTool<Input, Output>({
         ...(input.query !== undefined ? { query: input.query } : {}),
         ...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
         ...(input.limit !== undefined ? { limit: input.limit } : {}),
+        ...(input.detail !== undefined ? { detail: input.detail } : {}),
         ...(ctx.skillContextBudget !== undefined ? { budget: ctx.skillContextBudget } : {}),
       },
     );
