@@ -1,3 +1,18 @@
+## 2026-10-16 — Resilient logical turns and compact skill discovery
+
+Scope: SOV SDK logical-turn supervision, native headless recovery, durable
+SQLite/in-memory turn state and leases, receipt safety, cumulative limits,
+continuation wire events, skill catalog projections, migrations and current
+native recovery/compaction compatibility.
+
+Clean isolated macOS worktree with Bun 1.3.13. `bun run lint` and
+`bun run typecheck` pass. Complete `bun run test`: **6525 pass / 19 existing
+skips / 0 fail**, 28909 assertions across 623 files, 171.19 seconds. After the
+final task-progress fingerprint addition, lint and typecheck pass again. The
+focused final command covering 12 logical-turn, native CLI, persistence,
+migration, skill catalog and SDK surface files reports **155 pass / 0 fail**,
+1323 assertions. No live provider, install, upgrade, release or deployment ran.
+
 ## 2026-10-15 — Verify public SDK0.16.2/SOV0.6.82 and open successor
 
 All8 public files match frozen sizes/SHA256 and checksum sets. Exact source d1af49f5, SDK contents, all5 platform metadata and both downloaded Mac versions/strict signatures pass. Archived publication proof retains release timestamp, source, frozen snapshot/hash and live locations. Next empty draft SDK0.16.3/SOV0.6.83 resets every derived cut field. Record merge preserves published source ancestry. No npm publication or consumer deployment/restart. Consumer pins and safe public-binary update follow verified archive commit. Completion gate remains executable-source identical; source6516tests/19existing skips/0fail,28827assertions622files331.42s and lint/types pass.
