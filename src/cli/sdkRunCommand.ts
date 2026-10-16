@@ -1,5 +1,5 @@
 /** Native headless host. No server, no preflight inference, and one SDK store writer. */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
 import {
   LOGICAL_TURN_RECOVERY_CAPABILITY,
@@ -8,6 +8,7 @@ import {
 import type { LogicalTurnRecord } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { ContextManagementError } from '@yevgetman/sov-sdk/compact/contextManagement';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
+import { loadPermissionSettings } from '@yevgetman/sov-sdk/config/settings';
 import {
   ConfigurationError,
   loadRuntimeSettingsSnapshot,
@@ -449,6 +450,16 @@ export async function runSdkRunCommand(
       maxTokens: runtime.maxTokens,
     });
     if (!modelSnapshot) throw new Error('native model evidence unavailable');
+    const policyDigest = createHash('sha256')
+      .update(
+        JSON.stringify(
+          loadPermissionSettings({
+            cwd: hostRuntime.cwd,
+            harnessHome: hostRuntime.harnessHome,
+          }).layers,
+        ),
+      )
+      .digest('hex');
     const hydrate = () =>
       hydrateSessionHistory(
         loadStoredMessages(persistence, sessionId as string),
@@ -569,6 +580,35 @@ export async function runSdkRunCommand(
       ...permissionMetadata,
       capabilities: { logicalTurnRecovery: LOGICAL_TURN_RECOVERY_CAPABILITY },
     });
+    if (
+      continuationRecord &&
+      (continuationRecord.binding.route !== resolvedRouteId ||
+        continuationRecord.binding.provider !== routeSelection.route.provider ||
+        continuationRecord.binding.authKind !== routeSelection.route.auth ||
+        continuationRecord.binding.model !== routeSelection.model ||
+        continuationRecord.binding.effort !== routeSelection.effort ||
+        continuationRecord.binding.toolset !== toolset ||
+        continuationRecord.binding.permissionMode !== hostRuntime.permissionMode ||
+        continuationRecord.binding.policyDigest !== policyDigest ||
+        continuationRecord.binding.cwd !== process.cwd() ||
+        continuationRecord.binding.bundleIdentity !== string(opts.bundle))
+    ) {
+      finish({
+        type: 'turn.error',
+        outcome: 'failed',
+        reason: 'recovery_state_invalid',
+        code: 'recovery_state_invalid',
+        error: ERRORS.recovery_state_invalid,
+        recoverable: false,
+        nextAction: 'repair_request',
+        sessionId: null,
+        logicalTurnId: continuationRecord.logicalTurnId,
+        ...metadata(),
+        counters: continuationRecord.counters,
+        ...nativeTurnMetrics(receipts),
+      });
+      return 3;
+    }
     if (
       continuationRecord &&
       (continuationRecord.status === 'completed' || continuationRecord.status === 'waiting_user')
@@ -802,6 +842,7 @@ export async function runSdkRunCommand(
         effort: routeSelection.effort,
         toolset,
         permissionMode: hostRuntime.permissionMode,
+        policyDigest,
         cwd: process.cwd(),
         ...(string(opts.bundle) ? { bundleIdentity: String(opts.bundle) } : {}),
       },
