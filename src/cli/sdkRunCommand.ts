@@ -5,6 +5,7 @@ import {
   LOGICAL_TURN_RECOVERY_CAPABILITY,
   superviseLogicalTurn,
 } from '@yevgetman/sov-sdk/agent/logicalTurn';
+import type { LogicalTurnRecord } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { ContextManagementError } from '@yevgetman/sov-sdk/compact/contextManagement';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import {
@@ -196,6 +197,7 @@ export async function runSdkRunCommand(
     write(`${JSON.stringify(obj)}\n`);
   };
   const continuationId = string(opts.continueLogicalTurn);
+  let continuationRecord: LogicalTurnRecord | undefined;
   let routeId = string(opts.route);
   const metadata = () => ({
     route: routeId ?? null,
@@ -234,6 +236,7 @@ export async function runSdkRunCommand(
       try {
         const record = probe.loadLogicalTurn(continuationId);
         if (!record) throw new SdkInputError('invalid_input', 'logical turn does not exist');
+        continuationRecord = record;
         routeId = record.binding.route;
         if (!routeId) throw new SdkInputError('invalid_input', 'logical turn route is missing');
         opts.model = record.binding.model;
@@ -566,6 +569,29 @@ export async function runSdkRunCommand(
       ...permissionMetadata,
       capabilities: { logicalTurnRecovery: LOGICAL_TURN_RECOVERY_CAPABILITY },
     });
+    if (
+      continuationRecord &&
+      (continuationRecord.status === 'completed' || continuationRecord.status === 'waiting_user')
+    ) {
+      if (!hasNativeRecoveryTarget(hostRuntime.sessionDb, sessionId))
+        throw new SessionPersistenceError(new Error('logical turn receipt is not reusable'));
+      continuityOutcome = 'succeeded';
+      finish({
+        type: 'turn.completed',
+        outcome: continuationRecord.status,
+        reason: continuationRecord.finishReason ?? continuationRecord.status,
+        nextAction: continuationRecord.status === 'waiting_user' ? 'user_input' : 'none',
+        sessionId,
+        activeSessionId: sessionId,
+        logicalTurnId: continuationRecord.logicalTurnId,
+        ...metadata(),
+        reply: continuationRecord.finalReply ?? '',
+        finishReason: continuationRecord.finishReason ?? continuationRecord.status,
+        counters: continuationRecord.counters,
+        ...nativeTurnMetrics(receipts),
+      });
+      return 0;
+    }
     stage = 'provider';
     const compact = async (): Promise<boolean> => {
       const id = sessionId as string;
