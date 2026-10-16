@@ -332,6 +332,7 @@ export async function superviseLogicalTurn(
         !record.compactedSessionIds.includes(previousSessionId)
       ) {
         record.compactedSessionIds.push(previousSessionId);
+        record.counters.contextRecoveries++;
       }
       record.counters.segments++;
       record.counters.modelCalls += result.iterationsUsed;

@@ -240,6 +240,7 @@ export async function runSdkRunCommand(
         opts.effort = record.binding.effort;
         opts.toolset = record.binding.toolset;
         opts.permissionMode = record.binding.permissionMode;
+        opts.bundle = record.binding.bundleIdentity;
         opts.resume = record.activeSessionId;
       } finally {
         probe.close();
@@ -781,6 +782,10 @@ export async function runSdkRunCommand(
             .filter((row) => row.role === 'assistant')
             .at(-1)?.content,
           receipts: [...receipts].sort(([left], [right]) => left.localeCompare(right)),
+          tasks: hostRuntime.taskManager.list(id).map((task) => ({
+            id: task.id,
+            state: task.state,
+          })),
         };
       },
       persistRuntimeContinuation: ({ activeSessionId, text }) => {
