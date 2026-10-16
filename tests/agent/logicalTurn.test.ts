@@ -5,6 +5,7 @@ import {
   superviseLogicalTurn,
 } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { createInMemorySessionStore } from '@yevgetman/sov-sdk/persistence/inMemoryStore';
+import { ProviderHttpError } from '@yevgetman/sov-sdk/providers/errors';
 
 const binding = {
   route: 'fixture',
@@ -160,5 +161,32 @@ describe('logical-turn supervisor', () => {
     });
     expect(calls).toBe(1);
     expect(resumed.code).toBe('recovery_unsafe');
+  });
+
+  test('bounds typed transient retries and applies increasing backoff', async () => {
+    let calls = 0;
+    const delays: number[] = [];
+    const fixture = setup(
+      async () => {
+        calls++;
+        if (calls < 3) {
+          const failed = result('error');
+          failed.terminal.error = new ProviderHttpError('fixture', 503, 'unavailable');
+          return failed;
+        }
+        return result('completed');
+      },
+      {
+        sleep: async (ms) => {
+          delays.push(ms);
+        },
+      },
+    );
+    const outcome = await superviseLogicalTurn(fixture.options);
+    expect(outcome.status).toBe('completed');
+    expect(outcome.counters.providerRetries).toBe(2);
+    expect(calls).toBe(3);
+    expect(delays[0]).toBeGreaterThanOrEqual(100);
+    expect(delays[1]).toBeGreaterThanOrEqual(200);
   });
 });

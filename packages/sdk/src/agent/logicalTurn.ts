@@ -353,7 +353,7 @@ export async function superviseLogicalTurn(
         return finish('cancelled', 'cancelled', result);
 
       if (result.terminal.reason === 'error') {
-        const transient = transientDelay(result.terminal.error);
+        const transient = transientDelay(result.terminal.error, transientAttempts);
         if (transient === undefined || transientAttempts >= 2)
           return finish('failed', 'failed', result);
         if (!options.recoverySafe(record.activeSessionId))
@@ -462,23 +462,30 @@ function assistantTextLength(result: RunResult): number {
   );
 }
 
-function transientDelay(error: Error | undefined): number | undefined {
+function transientDelay(error: Error | undefined, attempt: number): number | undefined {
   if (!error) return undefined;
   if (error instanceof ProviderHttpError || error instanceof SubscriptionHttpError) {
     if (![429, 502, 503, 504].includes(error.status)) return undefined;
     const retryAfter =
       error instanceof ProviderHttpError ? headerValue(error.headers, 'retry-after') : undefined;
     const seconds = retryAfter ? Number(retryAfter) : Number.NaN;
-    return Number.isFinite(seconds) && seconds >= 0
-      ? Math.min(10_000, Math.floor(seconds * 1000))
-      : 100;
+    const base =
+      Number.isFinite(seconds) && seconds >= 0
+        ? Math.min(10_000, Math.floor(seconds * 1000))
+        : Math.min(10_000, 100 * 2 ** attempt);
+    return withJitter(base);
   }
   if (error instanceof SubscriptionRefreshError && error.retryable)
-    return Math.min(10_000, error.retryAfterMs ?? 100);
+    return withJitter(Math.min(10_000, error.retryAfterMs ?? 100 * 2 ** attempt));
   // Subscription transports already apply their bounded before-delivery retry
   // policy. Retrying the terminal stream error here would multiply requests.
   if (error instanceof SubscriptionStreamError) return undefined;
   return undefined;
+}
+
+function withJitter(baseMs: number): number {
+  const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(baseMs * 0.2)));
+  return Math.min(10_000, baseMs + jitter);
 }
 
 function headerValue(
