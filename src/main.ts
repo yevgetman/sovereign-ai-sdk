@@ -373,6 +373,7 @@ async function main(argv: string[]): Promise<void> {
     .option('--input-format <format>', 'stdin format: text or strict JSON envelope', 'text')
     .option('--toolset <name>', 'native SDK toolset: chat, web, ops, coding', 'coding')
     .option('--deadline-ms <n>', 'native turn deadline in milliseconds', parsePositiveInt)
+    .option('--continue-logical-turn <id>', 'continue one stored logical turn without a prompt')
     .option('--json', 'emit newline-delimited JSON machine events')
     .option('--stdin', 'read the prompt from all of stdin')
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')

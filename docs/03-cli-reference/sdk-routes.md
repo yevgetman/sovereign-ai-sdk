@@ -282,21 +282,32 @@ layered settings and user configuration cascade. Headless permission requests
 are denied because this surface has no interactive approver.
 
 Each recognized request ends with exactly one `turn.completed` or `turn.error`.
-Completion contains `reply`, `sessionId`, `activeSessionId`, `finishReason` and route metadata.
-Only the SDK's `completed` reason emits `turn.completed` and exits zero. A
-`max_tokens`, `max_turns`, or `checkin` stop emits `turn.error` with
-`outcome: "needs_continuation"`, `code: "needs_continuation"`, `continuationCause`,
-a safe `nextAction`, and exit3. A partial `reply` can be present. It is not a
-finished answer. Cancellation emits `outcome: "interrupted"` and reason
-`cancelled` or `deadline`; other errors emit `outcome: "failed"`.
+Completion contains `reply`, `sessionId`, `activeSessionId`, `logicalTurnId`,
+`finishReason`, cumulative counters and route metadata. `session.started`
+advertises `capabilities.logicalTurnRecovery`. A bounded segment that ends at
+`max_tokens` or `max_turns` emits `turn.continuing`, reloads durable state and
+continues without replaying the original prompt. The toolset segment defaults
+are chat 1, web 6, ops 8 and coding 100 model calls. The logical-turn default is
+100 model calls. `--deadline-ms` covers the complete logical turn.
+
+A deliberate `checkin` emits `turn.completed` with `outcome: "waiting_user"`.
+Exhaustion, two unchanged progress fingerprints, unsafe receipts and invalid
+recovery state emit `turn.error` with `continuation_exhausted`,
+`continuation_stalled`, `recovery_unsafe` or `recovery_state_invalid`. Use
+`--continue-logical-turn <id>` with `--sdk --json` to continue stored work
+without a replacement prompt. Route, model, effort, toolset, permissions,
+working directory and bundle identity stay bound to the stored record.
+Cancellation emits `outcome: "interrupted"`; other errors emit
+`outcome: "failed"`.
 
 Native runs opt in to committing approved completed assistant messages before
 exposing them. A cooperative cancelled drive gets at most one second to settle
 its messages, tool receipts and usage before its terminal result. Stream teardown
 then keeps its existing bounded wait. Automatic recovery requires an existing
-session with a durable user message and coherent tool receipts. Unknown or
-in-flight tool effects, an unsettled drive, missing session, or storage failure
-set `recoverable: false`. Failed final storage verification also refuses completed
+session with a durable user message and coherent tool receipts. Completed
+receipts are reused. `started` or `unknown` effects stop recovery before paid
+work. An unsettled drive, missing session, or storage failure sets
+`recoverable: false`. Failed final storage verification also refuses completed
 success and keeps the completed canonical rows and observed usage for inspection.
 Safe pre-session interruptions, rate limits and transient token-service failures
 report `nextAction: "retry"`. A malformed token-service response reports

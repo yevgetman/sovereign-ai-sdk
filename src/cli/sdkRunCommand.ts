@@ -1,6 +1,10 @@
 /** Native headless host. No server, no preflight inference, and one SDK store writer. */
 import { randomUUID } from 'node:crypto';
 import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
+import {
+  LOGICAL_TURN_RECOVERY_CAPABILITY,
+  superviseLogicalTurn,
+} from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { ContextManagementError } from '@yevgetman/sov-sdk/compact/contextManagement';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import {
@@ -36,6 +40,8 @@ import {
 import { modelInputTokenAccounting } from '@yevgetman/sov-sdk/providers/tokenAccounting';
 import type { SkillContinuityPort } from '@yevgetman/sov-sdk/skills/continuity';
 import { isToolsetName } from '@yevgetman/sov-sdk/tool/toolset';
+import { defaultMaxTurns } from '@yevgetman/sov-sdk/tool/toolset';
+import { SessionDb } from '../agent/sessionDb.js';
 import { SessionNotFoundError } from '../server/errors.js';
 import {
   modelSystemPrompt,
@@ -57,7 +63,7 @@ import {
 } from '../server/turnComposition.js';
 import { mapTerminalReason } from '../server/turnRelay.js';
 import { readModelCatalogSnapshot } from './modelDiscovery.js';
-import { hasNativeRecoveryTarget, nativeRunOutcome } from './nativeRunOutcome.js';
+import { hasNativeRecoveryTarget } from './nativeRunOutcome.js';
 import { type NativeReceipt, nativeTurnMetrics, nativeUsageMeter } from './nativeTurnMetrics.js';
 import type { RunCommandIO, RunOptions } from './runCommand.js';
 import { SdkInputError, parseSdkInput, readSdkStdin } from './sdkInput.js';
@@ -93,6 +99,10 @@ const ERRORS: Record<string, string> = {
   provider_timeout: 'Subscription token refresh timed out. Retry when the service is available.',
   provider_response_invalid:
     'Subscription token service returned an invalid response. Check provider status before retrying.',
+  continuation_exhausted: 'Logical turn exhausted its cumulative recovery budget.',
+  continuation_stalled: 'Logical turn stopped after two attempts made no progress.',
+  recovery_unsafe: 'Logical turn cannot continue because a tool effect is not safely replayable.',
+  recovery_state_invalid: 'Logical turn recovery state is invalid.',
 };
 function string(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
@@ -165,6 +175,7 @@ export async function runSdkRunCommand(
   deps.signal?.addEventListener('abort', externalAbort, { once: true });
   if (deps.signal?.aborted) controller.abort();
   let deadline: ReturnType<typeof setTimeout> | undefined;
+  let deadlineAt: number | undefined;
   let runtime: Runtime | undefined;
   let selected: SelectedRoute | undefined;
   let selectedMetadata: ModelRecord | undefined;
@@ -184,7 +195,8 @@ export async function runSdkRunCommand(
     terminalSent = true;
     write(`${JSON.stringify(obj)}\n`);
   };
-  const routeId = string(opts.route);
+  const continuationId = string(opts.continueLogicalTurn);
+  let routeId = string(opts.route);
   const metadata = () => ({
     route: routeId ?? null,
     ...(selected
@@ -202,8 +214,9 @@ export async function runSdkRunCommand(
   try {
     if (
       opts.json !== true ||
-      opts.stdin !== true ||
-      !routeId ||
+      (!continuationId && opts.stdin !== true) ||
+      (continuationId && opts.stdin === true) ||
+      (!continuationId && !routeId) ||
       opts.provider !== undefined ||
       (opts.permissionMode !== undefined &&
         !['default', 'ask', 'bypass'].includes(String(opts.permissionMode))) ||
@@ -216,6 +229,24 @@ export async function runSdkRunCommand(
         'invalid_input',
         'SDK mode requires json, stdin, route and no legacy provider',
       );
+    if (continuationId) {
+      const probe = SessionDb.open(string(opts.db) ? { path: String(opts.db) } : {});
+      try {
+        const record = probe.loadLogicalTurn(continuationId);
+        if (!record) throw new SdkInputError('invalid_input', 'logical turn does not exist');
+        routeId = record.binding.route;
+        if (!routeId) throw new SdkInputError('invalid_input', 'logical turn route is missing');
+        opts.model = record.binding.model;
+        opts.effort = record.binding.effort;
+        opts.toolset = record.binding.toolset;
+        opts.permissionMode = record.binding.permissionMode;
+        opts.resume = record.activeSessionId;
+      } finally {
+        probe.close();
+      }
+    }
+    if (!routeId) throw new SdkInputError('invalid_input', 'native SDK route is missing');
+    const resolvedRouteId = routeId;
     const toolset = opts.toolset ?? 'coding';
     if (typeof toolset !== 'string' || !isToolsetName(toolset))
       throw new UnknownToolsetError(String(toolset));
@@ -230,8 +261,11 @@ export async function runSdkRunCommand(
         interruptionCause = 'deadline';
         sigint();
       }, opts.deadlineMs);
+      deadlineAt = Date.now() + opts.deadlineMs;
     }
-    const raw = await Promise.race([(io.readStdin ?? readSdkStdin)(), canceled]);
+    const raw = continuationId
+      ? ''
+      : await Promise.race([(io.readStdin ?? readSdkStdin)(), canceled]);
     // Validate every settings layer before credentials, hooks, skills or storage.
     // Runtime boot consumes these same bytes, so approvals cannot change between reads.
     const harnessHome = resolveHarnessHome();
@@ -243,21 +277,26 @@ export async function runSdkRunCommand(
         : {}),
     });
     const settings = settingsSnapshot.config;
-    const requestedRoute = getRoute(routeId, settings);
+    const requestedRoute = getRoute(resolvedRouteId, settings);
     const requestedModel =
       string(opts.model) && opts.model !== 'auto'
         ? String(opts.model)
         : requestedRoute.defaultModel;
-    selectedMetadata = findModel(readModelCatalogSnapshot(routeId, settings), requestedModel);
+    selectedMetadata = findModel(
+      readModelCatalogSnapshot(resolvedRouteId, settings),
+      requestedModel,
+    );
     const imageProof = verifiedSubscriptionImageInput(selectedMetadata);
     const supportsImages =
-      routeSupportsImages(routeId) &&
+      routeSupportsImages(resolvedRouteId) &&
       (requestedRoute.auth !== 'subscription' || imageProof !== undefined);
     // Validate input and bounded attachments BEFORE credential access or runtime boot.
-    const input = await Promise.race([
-      parseSdkInput(raw, opts.inputFormat, supportsImages, imageProof?.mimeTypes),
-      canceled,
-    ]);
+    const input = continuationId
+      ? { message: { role: 'user' as const, content: [] }, instructions: undefined }
+      : await Promise.race([
+          parseSdkInput(raw, opts.inputFormat, supportsImages, imageProof?.mimeTypes),
+          canceled,
+        ]);
     if (input.message.content.some((block) => block.type === 'image'))
       validateModelRequest(
         { model: requestedModel, system: [], messages: [input.message], maxTokens: 1 },
@@ -266,7 +305,7 @@ export async function runSdkRunCommand(
       );
     stage = 'route';
     selected = await Promise.race([
-      (deps.resolve ?? resolveRouteProvider)(routeId, {
+      (deps.resolve ?? resolveRouteProvider)(resolvedRouteId, {
         settings,
         modelMetadata: selectedMetadata,
         ...(string(opts.model) ? { model: String(opts.model) } : {}),
@@ -331,7 +370,7 @@ export async function runSdkRunCommand(
         provider: selected.route.provider,
         model: selected.model,
         platform: 'cli',
-        metadata: { route: routeId, auth: selected.route.auth },
+        metadata: { route: resolvedRouteId, auth: selected.route.auth },
         systemPrompt: runtime.systemSegments,
       });
     // Concrete host metadata; SDK SessionStore remains the only message writer.
@@ -347,7 +386,7 @@ export async function runSdkRunCommand(
     };
     const stored = hydrateSessionHistory(loadStoredMessages(persistence, sessionId), sessionId);
     if (
-      !routeSupportsImages(routeId) &&
+      !routeSupportsImages(resolvedRouteId) &&
       stored.some((m) => m.content.some((b) => b.type === 'image'))
     )
       throw new SdkInputError('unsupported_input', 'stored session images unsupported');
@@ -383,10 +422,11 @@ export async function runSdkRunCommand(
         message.content.some(
           (block) =>
             block.type === 'encrypted_reasoning' &&
-            ((routeId !== 'grok-subscription' && routeId !== 'chatgpt-subscription') ||
-              block.routeId !== routeId ||
+            ((resolvedRouteId !== 'grok-subscription' &&
+              resolvedRouteId !== 'chatgpt-subscription') ||
+              block.routeId !== resolvedRouteId ||
               block.provenance?.version !== 1 ||
-              block.provenance.routeId !== routeId ||
+              block.provenance.routeId !== resolvedRouteId ||
               block.provenance.modelId !== selected?.model),
         ),
       )
@@ -505,7 +545,10 @@ export async function runSdkRunCommand(
     };
     // Persist the original prompt once. Each retry reloads the latest durable
     // transcript, including completed tools, rather than replaying the input.
-    persistTurnMessage(persistence, sessionId, input.message);
+    if (!continuationId) persistTurnMessage(persistence, sessionId, input.message);
+    const originalUserMessageId = continuationId
+      ? runtime.sessionDb.loadLogicalTurn(continuationId)?.originalUserMessageId
+      : runtime.sessionDb.loadMessages(sessionId).at(-1)?.id;
     let messages = hydrate();
     // Refuse unsafe prior effects before a paid summary or inference call.
     // Complete journal receipts can repair their missing canonical batch.
@@ -516,9 +559,11 @@ export async function runSdkRunCommand(
       sessionId,
       activeSessionId: sessionId,
       resumed: !!string(opts.resume),
+      ...(continuationId ? { logicalTurnId: continuationId } : {}),
       ...metadata(),
       toolset,
       ...permissionMetadata,
+      capabilities: { logicalTurnRecovery: LOGICAL_TURN_RECOVERY_CAPABILITY },
     });
     stage = 'provider';
     const compact = async (): Promise<boolean> => {
@@ -632,7 +677,10 @@ export async function runSdkRunCommand(
     ) {
       if (canReduce(hop, messages) && (await compact())) hop = makeHop();
     }
-    const runOnce = async (): Promise<RunResult> => {
+    const runOnce = async (segment: {
+      continuation: boolean;
+      remainingModelCalls: number;
+    }): Promise<RunResult> => {
       const id = sessionId as string;
       const meter = nativeUsageMeter(
         routeSelection.provider.name,
@@ -654,6 +702,9 @@ export async function runSdkRunCommand(
             sessionCtx: hop.sessionCtx,
             storedPrefixLength: messages.length,
             ...(turnId !== undefined ? { turnId } : {}),
+            maxTurns: Math.min(defaultMaxTurns(toolset), segment.remainingModelCalls),
+            continuation: segment.continuation,
+            logicalTurn: true,
           }),
           persistCompletedMessages: true,
         });
@@ -692,56 +743,115 @@ export async function runSdkRunCommand(
           hop.hopStore.recordUsageEstimate?.(id, receipt.usage ?? {}, receipt.costEstimate);
       }
     };
-    let result = await runOnce();
     const overflow = (r: RunResult) =>
       r.terminal.reason === 'error' &&
       (r.terminal.error instanceof ContextOverflowError ||
         r.terminal.error instanceof ContextManagementError ||
         isContextOverflowError(r.terminal.error));
-    if (overflow(result)) {
-      // Independent of proactive compaction: ONE actual recovery retry only.
-      messages = hydrate();
-      const recoveryHop = makeHop();
-      if (canReduce(recoveryHop, messages) && (await compact())) {
+    const logical = await superviseLogicalTurn({
+      store: hostRuntime.sessionDb,
+      binding: {
+        route: resolvedRouteId,
+        provider: routeSelection.route.provider,
+        authKind: routeSelection.route.auth,
+        model: routeSelection.model,
+        effort: routeSelection.effort,
+        toolset,
+        permissionMode: hostRuntime.permissionMode,
+        cwd: process.cwd(),
+        ...(string(opts.bundle) ? { bundleIdentity: String(opts.bundle) } : {}),
+      },
+      sessionId,
+      ...(originalUserMessageId !== undefined ? { originalUserMessageId } : {}),
+      initialMessages: messages,
+      segmentLimit: defaultMaxTurns(toolset),
+      logicalModelCallLimit: 100,
+      ...(deadlineAt !== undefined ? { deadlineAt } : {}),
+      ...(continuationId ? { logicalTurnId: continuationId } : {}),
+      signal: controller.signal,
+      rehydrate: () => hydrate(),
+      recoverySafe: (id) => hasNativeRecoveryTarget(hostRuntime.sessionDb, id),
+      progressSnapshot: (id) => {
+        const receipts = new Map<string, string>();
+        for (const receipt of hostRuntime.sessionDb.loadToolExecutions(id))
+          receipts.set(receipt.toolUseId, receipt.state);
+        return {
+          assistant: hostRuntime.sessionDb
+            .loadMessages(id)
+            .filter((row) => row.role === 'assistant')
+            .at(-1)?.content,
+          receipts: [...receipts].sort(([left], [right]) => left.localeCompare(right)),
+        };
+      },
+      persistRuntimeContinuation: ({ activeSessionId, text }) => {
+        hostRuntime.sessionDb.saveMessage(activeSessionId, {
+          role: 'user',
+          content: [{ type: 'text', text }],
+        });
+      },
+      onContinuing: (event) => emit({ type: 'turn.continuing', ...event }),
+      onTrace: (event) => {
+        const context = hostRuntime.getSessionContext(event.activeSessionId);
+        context.traceWriter.record({
+          type: 'external',
+          source: 'logical-turn',
+          payload: event,
+          iso: new Date().toISOString(),
+        });
+      },
+      runSegment: async (segment) => {
+        messages = segment.messages;
+        sessionId = segment.activeSessionId;
         hop = makeHop();
-        result = await runOnce();
-      }
-    }
-    if (result.terminal.reason === 'interrupted' || controller.signal.aborted)
-      throw new Error('interrupted');
-    if (result.terminal.reason === 'error')
-      throw result.terminal.error ?? new Error('provider failed');
-    const outcome = nativeRunOutcome(result.terminal);
-    const continuation = outcome === 'needs_continuation';
-    const durable = hasNativeRecoveryTarget(runtime.sessionDb, sessionId);
-    if (!continuation && !durable)
-      throw new SessionPersistenceError(new Error('completed session could not be verified'));
-    continuityOutcome = continuation ? 'failed' : 'succeeded';
-    finish({
-      type: continuation ? 'turn.error' : 'turn.completed',
-      outcome,
-      reason: result.terminal.reason,
-      ...(continuation
-        ? {
-            code: 'needs_continuation',
-            error: 'Run stopped before completion and needs continuation.',
-            continuationCause: result.terminal.reason,
-            recoverable: durable,
-            nextAction: durable ? 'resume' : 'inspect_session',
+        let result = await runOnce(segment);
+        if (overflow(result)) {
+          messages = hydrate();
+          const recoveryHop = makeHop();
+          if (canReduce(recoveryHop, messages) && (await compact())) {
+            hop = makeHop();
+            result = await runOnce({ ...segment, continuation: true });
           }
-        : { nextAction: 'none' }),
-      sessionId: continuation && !durable ? null : sessionId,
-      ...(!(continuation && !durable) ? { activeSessionId: sessionId } : {}),
+        }
+        return result;
+      },
+    });
+    sessionId = logical.activeSessionId;
+    const result = logical.finalSegment;
+    if (logical.status === 'cancelled' || controller.signal.aborted) throw new Error('interrupted');
+    if (logical.status === 'failed' && !logical.code && result?.terminal.reason === 'error')
+      throw result.terminal.error ?? new Error('provider failed');
+    const outcome = logical.status === 'waiting_user' ? 'waiting_user' : logical.status;
+    const failed = !['completed', 'waiting_user'].includes(logical.status);
+    const durable = hasNativeRecoveryTarget(runtime.sessionDb, sessionId);
+    if (!failed && !durable)
+      throw new SessionPersistenceError(new Error('completed session could not be verified'));
+    continuityOutcome = failed ? 'failed' : 'succeeded';
+    finish({
+      type: failed ? 'turn.error' : 'turn.completed',
+      outcome,
+      reason: logical.finishReason,
+      ...(failed
+        ? {
+            code: logical.code,
+            error: ERRORS[logical.code ?? 'provider_failed'],
+            recoverable: durable,
+            nextAction: durable ? 'continue_logical_turn' : 'inspect_session',
+          }
+        : { nextAction: logical.status === 'waiting_user' ? 'user_input' : 'none' }),
+      sessionId: failed && !durable ? null : sessionId,
+      ...(!(failed && !durable) ? { activeSessionId: sessionId } : {}),
+      logicalTurnId: logical.logicalTurnId,
       ...metadata(),
       reply:
-        result.finalAssistant?.content
+        result?.finalAssistant?.content
           .filter((b) => b.type === 'text')
           .map((b) => (b.type === 'text' ? b.text : ''))
-          .join('') ?? '',
-      finishReason: mapTerminalReason(result.terminal),
+          .join('') ?? logical.reply,
+      finishReason: result ? mapTerminalReason(result.terminal) : logical.finishReason,
+      counters: logical.counters,
       ...nativeTurnMetrics(receipts),
     });
-    return continuation ? 3 : 0;
+    return failed ? 3 : 0;
   } catch (err) {
     storageFault ||= isStorageFault(err);
     let code: string = storageFault

@@ -320,6 +320,10 @@ export type TurnHop = {
   /** 'sdk-store' mode: how many leading input messages are already stored
    *  (the hydrated view's length). Ignored in 'gateway-callbacks' mode. */
   storedPrefixLength?: number;
+  /** Logical-turn segment controls. These do not change the standing agent. */
+  maxTurns?: number;
+  continuation?: boolean;
+  logicalTurn?: boolean;
 };
 
 export type ComposedTurn = {
@@ -458,6 +462,9 @@ export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
     ...(opts.traceRecorder !== undefined ? { traceRecorder: opts.traceRecorder } : {}),
     ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
     rethrow: opts.rethrow ?? true,
+    ...(hop.maxTurns !== undefined ? { maxTurns: hop.maxTurns } : {}),
+    ...(hop.continuation !== undefined ? { continuation: hop.continuation } : {}),
+    ...(hop.logicalTurn !== undefined ? { logicalTurn: hop.logicalTurn } : {}),
     ...(persistence.mode === 'sdk-store' && hop.storedPrefixLength !== undefined
       ? { storedPrefixLength: hop.storedPrefixLength }
       : {}),

@@ -105,7 +105,7 @@ for (const cause of ['cancelled', 'deadline'] as const) {
   });
 }
 for (const exhausted of ['max_tokens', 'max_turns'] as const) {
-  test(`${exhausted} is continuation with nonzero exit and durable target`, async () => {
+  test(`${exhausted} continues internally then stops repeated no-progress work`, async () => {
     const provider: LLMProvider = {
       name: 'openai',
       async *stream() {
@@ -152,12 +152,13 @@ for (const exhausted of ['max_tokens', 'max_turns'] as const) {
     const terminal = c.events.at(-1);
     expect(terminal).toMatchObject({
       type: 'turn.error',
-      outcome: 'needs_continuation',
-      reason: exhausted,
-      continuationCause: exhausted,
+      outcome: 'stalled',
+      reason: 'no_progress',
+      code: 'continuation_stalled',
       recoverable: true,
-      nextAction: 'resume',
+      nextAction: 'continue_logical_turn',
     });
+    expect(c.events.filter((event) => event.type === 'turn.continuing')).toHaveLength(1);
     expect(c.events.some((event) => event.type === 'turn.completed')).toBe(false);
     const db = SessionDb.open({ path: f.db });
     try {
@@ -599,7 +600,7 @@ test('a final storage verification fault cannot report completed success or lose
   expect(JSON.stringify(c.events)).not.toContain('private final store verification failure');
 });
 
-test('actual native checkin wire uses continuation rather than completion', async () => {
+test('actual native checkin wire completes as waiting_user', async () => {
   const child = Bun.spawn([process.execPath, 'tests/fixtures/sdk-run-checkin.ts'], {
     stdout: 'pipe',
     stderr: 'pipe',
@@ -613,13 +614,12 @@ test('actual native checkin wire uses continuation rather than completion', asyn
   expect(errors).not.toContain('error:');
   const result = JSON.parse(output.trim().split('\n').at(-1) ?? '{}');
   captures.push(result.events);
-  expect(result.exit).toBe(3);
+  expect(result.exit).toBe(0);
   expect(result.events.at(-1)).toMatchObject({
-    type: 'turn.error',
-    outcome: 'needs_continuation',
-    continuationCause: 'checkin',
-    recoverable: true,
-    nextAction: 'resume',
+    type: 'turn.completed',
+    outcome: 'waiting_user',
+    reason: 'checkin',
+    nextAction: 'user_input',
   });
   expect(result.effects).toBe(1);
   expect(result.rows).toEqual(['user', 'assistant', 'user']);
