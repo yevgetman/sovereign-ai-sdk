@@ -59,7 +59,7 @@ const MIGRATIONS: Migration[] = [
   {
     from: 8,
     to: 9,
-    sql: `CREATE TABLE logical_turns (
+    sql: `CREATE TABLE IF NOT EXISTS logical_turns (
       logical_turn_id TEXT PRIMARY KEY,
       record TEXT NOT NULL,
       lease_owner TEXT,

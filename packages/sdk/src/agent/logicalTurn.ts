@@ -474,12 +474,9 @@ function transientDelay(error: Error | undefined): number | undefined {
   }
   if (error instanceof SubscriptionRefreshError && error.retryable)
     return Math.min(10_000, error.retryAfterMs ?? 100);
-  if (
-    error instanceof SubscriptionStreamError &&
-    error.retryable &&
-    error.phase === 'before_delivery'
-  )
-    return 100;
+  // Subscription transports already apply their bounded before-delivery retry
+  // policy. Retrying the terminal stream error here would multiply requests.
+  if (error instanceof SubscriptionStreamError) return undefined;
   return undefined;
 }
 

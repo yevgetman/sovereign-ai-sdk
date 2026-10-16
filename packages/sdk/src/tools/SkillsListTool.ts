@@ -57,7 +57,7 @@ export const SkillsListTool = buildTool<Input, Output>({
         ...(input.query !== undefined ? { query: input.query } : {}),
         ...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
         ...(input.limit !== undefined ? { limit: input.limit } : {}),
-        ...(input.detail !== undefined ? { detail: input.detail } : {}),
+        detail: input.detail ?? 'names',
         ...(ctx.skillContextBudget !== undefined ? { budget: ctx.skillContextBudget } : {}),
       },
     );
