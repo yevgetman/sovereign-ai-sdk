@@ -331,14 +331,15 @@ async function* queryInternal(
   // Phase 13.3 — sliding window of TurnSummary records for stall detection.
   const recentTurnSummaries: TurnSummary[] = [];
   const originalUserText = latestUserText(messages);
-  let history: Message[] = params.memoryManager
-    ? await injectMemoryIntoLatestUserMessage(messages, params.memoryManager)
-    : [...messages];
+  let history: Message[] =
+    !params.continuation && params.memoryManager
+      ? await injectMemoryIntoLatestUserMessage(messages, params.memoryManager)
+      : [...messages];
 
   // Learning loop (Recall): after memory injection, prepend recalled lessons to
   // the latest user message. Optional thunk bound by the host; query() stays
   // project-agnostic. Empty injectionText leaves history unchanged (same ref).
-  if (params.recall) {
+  if (!params.continuation && params.recall) {
     const recalled = await params.recall(originalUserText);
     history = injectRecallIntoLatestUserMessage(history, recalled.injectionText);
   }
@@ -354,7 +355,7 @@ async function* queryInternal(
 
   // UserPromptSubmit: runs once before turn 0. A hook can deny (terminating
   // immediately) or rewrite the prompt text in the latest user message.
-  if (hookRunner && sessionId && cwd && originalUserText !== undefined) {
+  if (!params.continuation && hookRunner && sessionId && cwd && originalUserText !== undefined) {
     const result = await hookRunner(
       'UserPromptSubmit',
       {
@@ -409,7 +410,7 @@ async function* queryInternal(
   const conduct = params.conduct;
   const conductCtx = params.conductCtx;
   const emitConductAudit = wrapConductAuditSink(conduct?.auditSink?.bind(conduct));
-  if (conduct?.preGate && conductCtx && conductCtx.surface === 'user') {
+  if (!params.continuation && conduct?.preGate && conductCtx && conductCtx.surface === 'user') {
     const gateText = latestUserText(history);
     if (gateText !== undefined) {
       // Gate-input capture (attestation evidence §3.4): hand the EXACT text the
@@ -471,7 +472,7 @@ async function* queryInternal(
   // posture-shaping, FAIL-OPEN by design; 'refuse' short-circuits pre-model
   // into a refusal reply. Non-refuse postures are advisory in 1b (audited;
   // the engine consumes them when it arrives).
-  if (conduct?.triage && conductCtx && conductCtx.surface === 'user') {
+  if (!params.continuation && conduct?.triage && conductCtx && conductCtx.surface === 'user') {
     const triageText = latestUserText(history);
     if (triageText !== undefined) {
       const startedAt = Date.now();
@@ -508,6 +509,7 @@ async function* queryInternal(
   }
 
   async function maybeFireStop(reason: Terminal['reason']): Promise<void> {
+    if (params.logicalTurn && (reason === 'max_turns' || reason === 'max_tokens')) return;
     if (hookRunner && sessionId && cwd) {
       await fireStopHook(hookRunner, sessionId, cwd, reason, signal);
     }

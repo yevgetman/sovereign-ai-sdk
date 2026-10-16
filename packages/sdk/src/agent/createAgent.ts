@@ -264,6 +264,15 @@ export type PerTurn = Partial<{
   toolContext: ToolContext;
   /** Per-turn override of the standing `rethrow` mode (see AgentConfig). */
   rethrow: boolean;
+  /** Override the bounded segment call limit. Logical-turn supervisors use
+   * this to enforce the remaining cumulative budget without changing the
+   * standing toolset limit. */
+  maxTurns: number;
+  /** Marks an internal continuation segment. User-turn hooks and recall do
+   * not run again. */
+  continuation: boolean;
+  /** Marks this run as a segment of a supervised logical turn. */
+  logicalTurn: boolean;
   /** Per-turn override of the standing conduct provider (see AgentConfig). */
   conduct: ConductProvider;
   /** Host-minted per-turn id (attestation evidence §3.3), threaded VERBATIM
@@ -550,13 +559,15 @@ export function createAgent(config: AgentConfig): Agent {
       canUseTool = wrapToolsetCanUseTool(canUseTool, tools ?? []);
     }
     const maxTurns =
-      config.maxTurns !== undefined
-        ? config.maxTurns
-        : requestedToolset !== undefined && config.capabilityProfiles?.has(requestedToolset)
-          ? config.capabilityProfiles.maxTurns(requestedToolset)
-          : requestedToolset !== undefined && isToolsetName(requestedToolset)
-            ? defaultMaxTurns(requestedToolset)
-            : undefined;
+      perTurn.maxTurns !== undefined
+        ? perTurn.maxTurns
+        : config.maxTurns !== undefined
+          ? config.maxTurns
+          : requestedToolset !== undefined && config.capabilityProfiles?.has(requestedToolset)
+            ? config.capabilityProfiles.maxTurns(requestedToolset)
+            : requestedToolset !== undefined && isToolsetName(requestedToolset)
+              ? defaultMaxTurns(requestedToolset)
+              : undefined;
     let messages: Message[] = [...seedMessages];
     // Store length before this attempt's early tool-call write. A regenerate
     // truncates back to it so the discarded call does not stay in history.
@@ -700,6 +711,8 @@ export function createAgent(config: AgentConfig): Agent {
         ...(contextManager !== undefined ? { contextManager } : {}),
         ...(contextLimits !== undefined ? { contextLimits } : {}),
         ...(maxTurns !== undefined ? { maxTurns } : {}),
+        ...(perTurn.continuation === true ? { continuation: true } : {}),
+        ...(perTurn.logicalTurn === true ? { logicalTurn: true } : {}),
         ...(config.sessionStore !== undefined || config.toolExecutionStore !== undefined
           ? {
               persistBeforeTools: (assistant: AssistantMessage) => {

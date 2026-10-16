@@ -25,6 +25,7 @@ import { Database, SQLiteError } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { LogicalTurnRecord, LogicalTurnStore } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import type {
   CreateSessionInput,
@@ -50,11 +51,21 @@ export function getDefaultDbPath(): string {
  *  back-compat shim for tests that reference it directly. */
 export const DEFAULT_DB_PATH = join(resolveHarnessHome(), 'sessions.db');
 
-const CURRENT_SCHEMA_VERSION = 8;
+const CURRENT_SCHEMA_VERSION = 9;
 
 type Migration = { from: number; to: number; sql: string };
 
 const MIGRATIONS: Migration[] = [
+  {
+    from: 8,
+    to: 9,
+    sql: `CREATE TABLE logical_turns (
+      logical_turn_id TEXT PRIMARY KEY,
+      record TEXT NOT NULL,
+      lease_owner TEXT,
+      lease_expires_at REAL
+    );`,
+  },
   {
     from: 7,
     to: 8,
@@ -265,7 +276,7 @@ export type SearchOpts = {
 // The admin/search/routing/cleanup surface and the raw `handle` getter stay on
 // the concrete class, off the port. The `implements` clause makes a future drift
 // (a port method's signature changing on SessionDb) a typecheck failure.
-export class SessionDb implements SessionStore {
+export class SessionDb implements SessionStore, LogicalTurnStore {
   private writeCount = 0;
 
   constructor(private readonly db: Database) {}
@@ -297,6 +308,59 @@ export class SessionDb implements SessionStore {
 
   close(): void {
     this.db.close();
+  }
+
+  createLogicalTurn(record: LogicalTurnRecord): void {
+    this.writeWithRetry(() =>
+      this.db.run('INSERT INTO logical_turns (logical_turn_id, record) VALUES (?, ?)', [
+        record.logicalTurnId,
+        JSON.stringify(record),
+      ]),
+    );
+  }
+
+  loadLogicalTurn(logicalTurnId: string): LogicalTurnRecord | null {
+    const row = this.db
+      .query<{ record: string }, [string]>(
+        'SELECT record FROM logical_turns WHERE logical_turn_id = ?',
+      )
+      .get(logicalTurnId);
+    return row ? (JSON.parse(row.record) as LogicalTurnRecord) : null;
+  }
+
+  saveLogicalTurn(record: LogicalTurnRecord): void {
+    const changes = this.writeWithRetry(
+      () =>
+        this.db.run('UPDATE logical_turns SET record = ? WHERE logical_turn_id = ?', [
+          JSON.stringify(record),
+          record.logicalTurnId,
+        ]).changes ?? 0,
+    );
+    if (changes !== 1) throw new Error('logical turn does not exist');
+  }
+
+  acquireLogicalTurnLease(id: string, owner: string, expiresAt: number): boolean {
+    const now = Date.now();
+    const changes = this.writeWithRetry(
+      () =>
+        this.db.run(
+          `UPDATE logical_turns SET lease_owner = ?, lease_expires_at = ?
+           WHERE logical_turn_id = ? AND
+             (lease_owner IS NULL OR lease_owner = ? OR lease_expires_at <= ?)`,
+          [owner, expiresAt, id, owner, now],
+        ).changes ?? 0,
+    );
+    return changes === 1;
+  }
+
+  releaseLogicalTurnLease(id: string, owner: string): void {
+    this.writeWithRetry(() =>
+      this.db.run(
+        `UPDATE logical_turns SET lease_owner = NULL, lease_expires_at = NULL
+         WHERE logical_turn_id = ? AND lease_owner = ?`,
+        [id, owner],
+      ),
+    );
   }
 
   /** Phase 13.3 follow-up — delete phantom review-fork session rows.
