@@ -592,6 +592,23 @@ export async function runSdkRunCommand(
       });
       return 0;
     }
+    if (continuationRecord && !hasNativeRecoveryTarget(hostRuntime.sessionDb, sessionId)) {
+      finish({
+        type: 'turn.error',
+        outcome: 'failed',
+        reason: 'unsafe_effect',
+        code: 'recovery_unsafe',
+        error: ERRORS.recovery_unsafe,
+        recoverable: false,
+        nextAction: 'inspect_session',
+        sessionId: null,
+        logicalTurnId: continuationRecord.logicalTurnId,
+        ...metadata(),
+        counters: continuationRecord.counters,
+        ...nativeTurnMetrics(receipts),
+      });
+      return 3;
+    }
     stage = 'provider';
     const compact = async (): Promise<boolean> => {
       const id = sessionId as string;
