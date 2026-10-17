@@ -95,6 +95,7 @@ export type SdkRunDependencies = {
   runtime?: (opts: RuntimeOptions) => Promise<Runtime>;
   signal?: AbortSignal;
 };
+const POLICY_DENIED_ERROR = 'Prompt was rejected by policy.';
 const ERRORS: Record<string, string> = {
   invalid_input: 'Invalid native SDK input or options.',
   route_unavailable: 'Selected authentication route is unavailable.',
@@ -120,6 +121,7 @@ const ERRORS: Record<string, string> = {
   provider_timeout: 'Subscription token refresh timed out. Retry when the service is available.',
   provider_response_invalid:
     'Subscription token service returned an invalid response. Check provider status before retrying.',
+  policy_denied: POLICY_DENIED_ERROR,
   continuation_exhausted: 'Logical turn exhausted its cumulative recovery budget.',
   continuation_stalled: 'Logical turn stopped after two attempts made no progress.',
   continuation_failed: 'Logical turn failed and cannot continue.',
@@ -243,6 +245,11 @@ const CONTINUATION_INPUT_ERRORS = new Set([
 function string(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
+
+/** UserPromptSubmit and conduct preGate denials. Not a provider error. */
+function isUserTurnPolicyError(err: unknown): err is Error {
+  return err instanceof Error && err.name === 'UserTurnPolicyError';
+}
 /** A rejected `routes.<id>.defaultModel` names the setting; other model errors stay generic.
  *  Explicit `off` is a route refusal (reasoning cannot be disabled), not a model with no effort.
  *  Continuation input failures keep their safe sentence. Other invalid input stays generic.
@@ -277,6 +284,10 @@ function turnErrorText(code: string, err: unknown): string {
   if (code === 'provider_request_rejected' && err instanceof SubscriptionHttpError) {
     const safe = err.upstream;
     return `${ERRORS[code]} HTTP ${err.status}.${safe ? ` ${safe.code ? `${safe.code}: ` : ''}${safe.message}` : ''}`;
+  }
+  if (code === 'policy_denied') {
+    const message = isUserTurnPolicyError(err) ? err.message.trim() : '';
+    return message.length > 0 ? message : POLICY_DENIED_ERROR;
   }
   return ERRORS[code] ?? 'Selected provider failed. No route fallback was performed.';
 }
@@ -1506,27 +1517,30 @@ export async function runSdkRunCommand(
       });
       return 3;
     }
-    let code: string = storageFault
-      ? 'storage_failed'
-      : controller.signal.aborted
-        ? 'interrupted'
-        : err instanceof SdkInputError
-          ? err.code
-          : err instanceof ConfigurationError
-            ? 'configuration_invalid'
-            : err instanceof UnknownToolsetError
-              ? 'invalid_input'
-              : err instanceof SessionNotFoundError
+    // A prompt-gate denial is a policy verdict. Do not classify it as the provider.
+    let code: string = isUserTurnPolicyError(err)
+      ? 'policy_denied'
+      : storageFault
+        ? 'storage_failed'
+        : controller.signal.aborted
+          ? 'interrupted'
+          : err instanceof SdkInputError
+            ? err.code
+            : err instanceof ConfigurationError
+              ? 'configuration_invalid'
+              : err instanceof UnknownToolsetError
                 ? 'invalid_input'
-                : err instanceof PersistBeforeRunError
-                  ? 'storage_failed'
-                  : err instanceof ContextManagementError
-                    ? 'context_overflow'
-                    : stage === 'boot'
-                      ? 'runtime_start_failed'
-                      : stage === 'storage'
-                        ? 'storage_failed'
-                        : routeErrorCodeFor(err);
+                : err instanceof SessionNotFoundError
+                  ? 'invalid_input'
+                  : err instanceof PersistBeforeRunError
+                    ? 'storage_failed'
+                    : err instanceof ContextManagementError
+                      ? 'context_overflow'
+                      : stage === 'boot'
+                        ? 'runtime_start_failed'
+                        : stage === 'storage'
+                          ? 'storage_failed'
+                          : routeErrorCodeFor(err);
     if (!ERRORS[code]) code = 'provider_failed';
     const durable =
       cleanupCoherent && !storageFault && hasNativeRecoveryTarget(runtime?.sessionDb, sessionId);
@@ -1544,19 +1558,21 @@ export async function runSdkRunCommand(
       outcome: code === 'interrupted' ? 'interrupted' : 'failed',
       reason: code === 'interrupted' ? interruptionCause : code,
       nextAction:
-        code === 'configuration_invalid'
-          ? 'check_configuration'
-          : recoverable
-            ? 'resume'
-            : storageFault || code === 'storage_failed'
-              ? 'inspect_storage'
-              : sessionId !== null && (!durable || incomplete)
-                ? 'inspect_session'
-                : code === 'provider_response_invalid'
-                  ? 'check_provider'
-                  : retryable
-                    ? 'retry'
-                    : 'repair_request',
+        code === 'policy_denied'
+          ? 'none'
+          : code === 'configuration_invalid'
+            ? 'check_configuration'
+            : recoverable
+              ? 'resume'
+              : storageFault || code === 'storage_failed'
+                ? 'inspect_storage'
+                : sessionId !== null && (!durable || incomplete)
+                  ? 'inspect_session'
+                  : code === 'provider_response_invalid'
+                    ? 'check_provider'
+                    : retryable
+                      ? 'retry'
+                      : 'repair_request',
       sessionId: durable ? sessionId : null,
       ...(durable ? { activeSessionId: sessionId } : {}),
       ...logicalTurnIdentity(),
