@@ -14,6 +14,29 @@ Commands:
 
 Result: the regression passes. No live provider, installed upgrade, release, or deployment.
 
+## 2026-10-16 — Names pages hold the current 33-skill catalog
+
+Scope: `skills_list` names projection only. Summary and activation keep the
+1024-byte rich-page cap. Cursor generation checks stay. No logical-turn,
+changelog, or `docs/04-extending/skill-catalog.md` edits.
+
+Before the fix, `listSkillCatalog` with
+`resolveSkillContextBudget({ contextWindowTokens: 200000, outputTokens: 8192 })`,
+`detail: names`, `limit: 100`, and 33 names of 40 characters returned 14 and a
+cursor. After the fix that call returns all 33 names and no cursor. One hundred
+64-character names fit on the first page; the 101st continues. Rich pages stay
+inside `pageTokens`. The tool description tells the model to use detail names
+and limit 100.
+
+Clean macOS checkout, Bun 1.3.13. `bun run build`, `bun run lint`, and
+`bun run typecheck` pass. `env -u FORCE_COLOR bun test --timeout 20000`:
+**6516 pass / 31 skip / 0 fail**, 26419 assertions, 623 files, 170.33 seconds.
+Twelve GrepTool skips are a missing `rg` in this environment. The other skips
+are existing live or provider gates. An earlier full run with both
+`FORCE_COLOR` and `NO_COLOR` set failed 10 Node-host stderr checks on Node's
+color warning only. Those tests pass with `FORCE_COLOR` unset. No live
+provider, install, upgrade, or release.
+
 ## 2026-10-16 — Resilient logical turns and compact skill discovery
 
 Scope: SOV SDK logical-turn supervision, native headless recovery, durable

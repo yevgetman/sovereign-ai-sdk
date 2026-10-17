@@ -6,6 +6,7 @@ import {
 } from '@yevgetman/sov-sdk/skills/budget';
 import { buildSkillCatalogIndex, listSkillCatalog } from '@yevgetman/sov-sdk/skills/catalog';
 import type { Skill } from '@yevgetman/sov-sdk/skills/types';
+import { SkillsListTool } from '@yevgetman/sov-sdk/tools/SkillsListTool';
 
 function skill(
   name: string,
@@ -59,6 +60,61 @@ describe('complete bounded skill catalogs', () => {
     });
     expect(page.skills).toEqual(input.map(({ name }) => ({ name })));
     expect(page.nextCursor).toBeUndefined();
+  });
+
+  test('production names budget fits 33 long names at limit 100', () => {
+    const budget = resolveSkillContextBudget({
+      contextWindowTokens: 200_000,
+      outputTokens: 8_192,
+    });
+    expect(budget.pageTokens).toBe(1_024);
+    const nameOf = (index: number, length: number) => {
+      const suffix = String(index).padStart(4, '0');
+      return `${'n'.repeat(length - suffix.length)}${suffix}`;
+    };
+    const input = Array.from({ length: 33 }, (_, index) =>
+      skill(nameOf(index, 40), 'description '.repeat(2_000), 'when '.repeat(2_000)),
+    );
+    expect(input.every((entry) => entry.name.length >= 40)).toBe(true);
+    const page = listSkillCatalog(input, { detail: 'names', limit: 100, budget });
+    expect(page).toMatchObject({
+      detail: 'names',
+      total: 33,
+      returned: 33,
+      remaining: 0,
+      truncated: false,
+    });
+    expect(page.skills).toEqual(input.map(({ name }) => ({ name })));
+    expect(page.nextCursor).toBeUndefined();
+    const ordinary = Array.from({ length: 101 }, (_, index) => skill(nameOf(index, 64)));
+    const first = listSkillCatalog(ordinary, { detail: 'names', limit: 100, budget });
+    expect(first.returned).toBe(100);
+    expect(first.skills.every((entry) => Object.keys(entry).length === 1)).toBe(true);
+    const continuation = first.nextCursor;
+    if (!continuation) throw new Error('names cursor missing');
+    expect(() =>
+      listSkillCatalog(ordinary, { detail: 'names', generation: 2, cursor: continuation, budget }),
+    ).toThrow('changed');
+    const second = listSkillCatalog(ordinary, {
+      detail: 'names',
+      limit: 100,
+      cursor: continuation,
+      budget,
+    });
+    expect(second).toMatchObject({ returned: 1, remaining: 0, truncated: false });
+    expect(second.nextCursor).toBeUndefined();
+    expect([...first.skills, ...second.skills].map((entry) => entry.name)).toEqual(
+      ordinary.map((entry) => entry.name),
+    );
+    for (const detail of ['summary', 'activation'] as const) {
+      const rich = listSkillCatalog(input, { detail, limit: 100, budget });
+      expect(rich.returned).toBeLessThan(33);
+      expect(rich.nextCursor).toBeDefined();
+      expect(skillTextTokenBound(JSON.stringify(rich))).toBeLessThanOrEqual(budget.pageTokens);
+    }
+    const described = SkillsListTool.description({});
+    expect(described).toContain('detail names');
+    expect(described).toContain('limit 100');
   });
 
   test('raw queries cannot bypass length or serialized page limits', () => {
