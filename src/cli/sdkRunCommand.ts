@@ -178,32 +178,49 @@ const RECALL_FENCE_OPEN = '<recall-context>';
 const RECALL_FENCE_CLOSE = '</recall-context>';
 const MEMORY_FENCE_CLOSE = '</memory-context>';
 
-/** Memory and recall fences are reapplied on the next segment. Anything else
- *  that changes the stored prompt is a user-turn gate and has to be kept. */
-function ephemeralInjectionRemainder(prefix: string): string | undefined {
-  let rest = prefix.trim();
+/** Gate text after a leading recall fence or memory preamble.
+ *  An unclosed opener is left intact. Nothing is removed when neither is present. */
+function stripLeadingEphemeralInjections(text: string): string {
+  let rest = text;
+  let removed = false;
   while (rest.length > 0) {
-    if (rest.startsWith(RECALL_FENCE_OPEN)) {
-      const end = rest.indexOf(RECALL_FENCE_CLOSE);
-      if (end < 0) return undefined;
-      rest = rest.slice(end + RECALL_FENCE_CLOSE.length).trim();
+    const trimmed = rest.trimStart();
+    if (trimmed.startsWith(RECALL_FENCE_OPEN)) {
+      const end = trimmed.indexOf(RECALL_FENCE_CLOSE);
+      if (end < 0) return text;
+      rest = trimmed.slice(end + RECALL_FENCE_CLOSE.length);
+      removed = true;
       continue;
     }
-    if (rest.startsWith(FENCE_PREAMBLE)) {
-      const end = rest.indexOf(MEMORY_FENCE_CLOSE);
-      if (end < 0) return undefined;
-      rest = rest.slice(end + MEMORY_FENCE_CLOSE.length).trim();
+    if (trimmed.startsWith(FENCE_PREAMBLE)) {
+      const end = trimmed.indexOf(MEMORY_FENCE_CLOSE);
+      if (end < 0) return text;
+      rest = trimmed.slice(end + MEMORY_FENCE_CLOSE.length);
+      removed = true;
       continue;
     }
-    return undefined;
+    break;
   }
-  return rest;
+  return removed ? rest.trimStart() : text;
+}
+
+/** Empty when the prefix is only memory and recall fences, which the next
+ *  segment reapplies. Undefined when any other gate text has to be kept. */
+function ephemeralInjectionRemainder(prefix: string): string | undefined {
+  const trimmed = prefix.trim();
+  if (trimmed.length === 0) return '';
+  const stripped = stripLeadingEphemeralInjections(trimmed);
+  if (stripped === trimmed) return undefined;
+  return stripped.length === 0 ? '' : undefined;
 }
 
 /** The text to store, or undefined when the provider text is only the stored
- *  prompt plus ephemeral memory and recall fences. */
+ *  prompt plus ephemeral memory and recall fences. A rewritten suffix no longer
+ *  matches the stored prompt; still drop a leading recall fence and memory preamble. */
 function gatedUserText(providerText: string, stored: string): string | undefined {
   if (providerText === stored) return undefined;
+  const stripped = stripLeadingEphemeralInjections(providerText);
+  if (stripped !== providerText) return stripped === stored ? undefined : stripped;
   if (!providerText.endsWith(stored)) return providerText;
   const prefix = providerText.slice(0, providerText.length - stored.length);
   return ephemeralInjectionRemainder(prefix) === '' ? undefined : providerText;
