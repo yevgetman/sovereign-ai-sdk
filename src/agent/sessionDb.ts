@@ -29,6 +29,7 @@ import {
   LogicalTurnLeaseError,
   type LogicalTurnRecord,
   type LogicalTurnStore,
+  assertLogicalTurnWriteLease,
 } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import type {
@@ -752,6 +753,7 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
   }
 
   saveMessage(sessionId: string, msg: SaveMessageInput): number {
+    assertLogicalTurnWriteLease();
     const now = Date.now() / 1000;
     const contentJson = JSON.stringify(msg.content);
     const toolCallsJson = msg.toolCalls !== undefined ? JSON.stringify(msg.toolCalls) : null;
@@ -790,6 +792,7 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
   /** Keep the first `keep` messages and drop the rest. The messages DELETE
    *  trigger keeps the search index in step. */
   saveToolExecution(sessionId: string, execution: ToolExecution): void {
+    assertLogicalTurnWriteLease();
     this.writeWithRetry(() => {
       this.db.run(
         `INSERT INTO tool_executions (session_id, assistant_message_id, tool_use_id, state, receipt)
@@ -817,6 +820,7 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
   }
 
   truncateMessages(sessionId: string, keep: number): void {
+    assertLogicalTurnWriteLease();
     const retain = keep > 0 ? Math.floor(keep) : 0;
     this.writeWithRetry(() => {
       this.db.run(

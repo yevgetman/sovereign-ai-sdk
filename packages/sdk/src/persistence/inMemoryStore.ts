@@ -26,6 +26,7 @@ import {
   LogicalTurnLeaseError,
   type LogicalTurnRecord,
   type LogicalTurnStore,
+  assertLogicalTurnWriteLease,
 } from '../agent/logicalTurn.js';
 import type {
   CreateSessionInput,
@@ -121,6 +122,7 @@ export function createInMemorySessionStore(): InMemorySessionStore {
   }
 
   function saveMessage(sessionId: string, msg: SaveMessageInput): number {
+    assertLogicalTurnWriteLease();
     const now = Date.now() / 1000;
     const id = nextMessageId++;
     const stored: StoredMessage = {
@@ -156,6 +158,7 @@ export function createInMemorySessionStore(): InMemorySessionStore {
   }
 
   function truncateMessages(sessionId: string, keep: number): void {
+    assertLogicalTurnWriteLease();
     const list = messagesBySession.get(sessionId);
     if (list === undefined) return;
     const retain = keep > 0 ? Math.floor(keep) : 0;
@@ -201,6 +204,7 @@ export function createInMemorySessionStore(): InMemorySessionStore {
   }
 
   function saveToolExecution(sessionId: string, execution: ToolExecution): void {
+    assertLogicalTurnWriteLease();
     const rows = executions.get(sessionId) ?? [];
     const index = rows.findIndex(
       (row) =>

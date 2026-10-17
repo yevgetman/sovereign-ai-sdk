@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { logicalSegmentStop } from '../core/query.js';
 import type { Message, Terminal, TokenUsage } from '../core/types.js';
@@ -139,6 +140,46 @@ export class LogicalTurnLeaseError extends Error {
   }
 }
 
+type LeaseBinding = {
+  logicalTurnId: string;
+  owner: string;
+  store: LogicalTurnStore;
+  /** Aborted when this owner loses the lease. Independent of the caller's stop signal. */
+  signal: AbortSignal;
+  lost: boolean;
+};
+
+const leaseBindings = new AsyncLocalStorage<LeaseBinding>();
+const activeSegments = new Map<string, { owner: string; lose: () => void }>();
+
+function displaceSegment(logicalTurnId: string, owner: string, lose: () => void): void {
+  const previous = activeSegments.get(logicalTurnId);
+  activeSegments.set(logicalTurnId, { owner, lose });
+  if (previous && previous.owner !== owner) previous.lose();
+}
+
+function clearSegment(logicalTurnId: string, owner: string): void {
+  if (activeSegments.get(logicalTurnId)?.owner === owner) activeSegments.delete(logicalTurnId);
+}
+
+/** Signal for the segment running on this async stack. Lease loss aborts it. */
+export function logicalTurnWorkSignal(external?: AbortSignal): AbortSignal | undefined {
+  const segment = leaseBindings.getStore()?.signal;
+  if (!segment) return external;
+  if (!external || external === segment) return segment;
+  return AbortSignal.any([external, segment]);
+}
+
+/** Transcript and tool-journal writes from a dispossessed segment must fail closed. */
+export function assertLogicalTurnWriteLease(): void {
+  const binding = leaseBindings.getStore();
+  if (!binding) return;
+  if (binding.lost) throw new LogicalTurnLeaseError();
+  if (binding.store.readLogicalTurnLease(binding.logicalTurnId)?.owner !== binding.owner) {
+    throw new LogicalTurnLeaseError();
+  }
+}
+
 export type LogicalTurnSupervisorOptions = {
   store: LogicalTurnStore;
   binding: LogicalTurnBinding;
@@ -153,6 +194,8 @@ export type LogicalTurnSupervisorOptions = {
     segment: number;
     continuation: boolean;
     remainingModelCalls: number;
+    /** Aborted when this owner's renewal fails. Also active on the async stack. */
+    signal: AbortSignal;
   }) => Promise<RunResult>;
   rehydrate: (activeSessionId: string) => Message[];
   /** Returns false for started/unknown effects or an invalid transcript. */
@@ -291,6 +334,27 @@ export async function superviseLogicalTurn(
   const held = { record };
   const leaseOwner = randomUUID();
   let leased = false;
+  const segmentAbort = new AbortController();
+  const binding: LeaseBinding = {
+    logicalTurnId: record.logicalTurnId,
+    owner: leaseOwner,
+    store: options.store,
+    signal: segmentAbort.signal,
+    lost: false,
+  };
+  let rejectInFlight: ((error: Error) => void) | undefined;
+  const loseLease = (): void => {
+    binding.lost = true;
+    if (!segmentAbort.signal.aborted) segmentAbort.abort(new LogicalTurnLeaseError());
+    rejectInFlight?.(new LogicalTurnLeaseError());
+  };
+  const onExternalAbort = (): void => {
+    if (!segmentAbort.signal.aborted) segmentAbort.abort(options.signal?.reason);
+  };
+  if (options.signal) {
+    if (options.signal.aborted) onExternalAbort();
+    else options.signal.addEventListener('abort', onExternalAbort);
+  }
   const leaseExpiresAt = (): number => now() + LOGICAL_TURN_LEASE_MS;
   const renewLease = (): boolean =>
     options.store.renewLogicalTurnLease(held.record.logicalTurnId, leaseOwner, leaseExpiresAt());
@@ -309,31 +373,45 @@ export async function superviseLogicalTurn(
     for (const timer of timers) clearTimeout(timer);
     timers.clear();
   };
-  const withHeartbeat = async <T>(work: Promise<T>): Promise<T> => {
+  const withHeartbeat = async <T>(start: () => Promise<T>): Promise<T> => {
+    if (binding.lost) throw new LogicalTurnLeaseError();
     let stopped = false;
     let settled = false;
     let rejectLost: (error: Error) => void = () => {};
     const lost = new Promise<never>((_, reject) => {
       rejectLost = reject;
     });
+    const rejectMine = (error: Error): void => {
+      if (!settled) rejectLost(error);
+    };
+    rejectInFlight = rejectMine;
     const beat = (async () => {
       while (!stopped && !settled) {
         await pause(LOGICAL_TURN_LEASE_RENEW_MS);
         if (stopped || settled) return;
         if (!renewLease()) {
-          if (!settled) rejectLost(new LogicalTurnLeaseError());
+          loseLease();
           return;
         }
       }
     })().catch((error: unknown) => {
-      if (settled) return;
+      if (settled || binding.lost) return;
       rejectLost(error instanceof Error ? error : new LogicalTurnLeaseError());
     });
+    // The segment keeps the binding after this race rejects, so a late write still sees the loss.
+    const work = leaseBindings.run(binding, start);
+    void work.catch(() => {});
     try {
-      return await Promise.race([work, lost]);
+      const outcome = await Promise.race([work, lost]);
+      if (binding.lost) throw new LogicalTurnLeaseError();
+      return outcome;
+    } catch (error) {
+      if (binding.lost) throw new LogicalTurnLeaseError();
+      throw error;
     } finally {
       settled = true;
       stopped = true;
+      if (rejectInFlight === rejectMine) rejectInFlight = undefined;
       clearPauses();
       void beat;
     }
@@ -432,6 +510,8 @@ export async function superviseLogicalTurn(
       throw new LogicalTurnLeaseError();
     }
     leased = true;
+    binding.logicalTurnId = record.logicalTurnId;
+    displaceSegment(record.logicalTurnId, leaseOwner, loseLease);
     const reloaded = options.store.loadLogicalTurn(record.logicalTurnId);
     if (!reloaded)
       return invalidResult(record.logicalTurnId, record.activeSessionId, 'recovery_state_invalid');
@@ -457,7 +537,8 @@ export async function superviseLogicalTurn(
       return await finish('failed', 'unsafe_effect', undefined, 'recovery_unsafe');
     record.status = 'running';
     save();
-    if (options.prepare) await withHeartbeat(Promise.resolve(options.prepare()));
+    const prepare = options.prepare;
+    if (prepare) await withHeartbeat(() => Promise.resolve(prepare()));
     trace({
       type: 'logical_turn_start',
       segment: record.counters.segments,
@@ -487,13 +568,15 @@ export async function superviseLogicalTurn(
       });
       let result: RunResult;
       try {
-        result = await withHeartbeat(
+        const activeSessionId = record.activeSessionId;
+        result = await withHeartbeat(() =>
           options.runSegment({
             messages,
-            activeSessionId: record.activeSessionId,
+            activeSessionId,
             segment,
             continuation: segment > 1,
             remainingModelCalls: remaining,
+            signal: segmentAbort.signal,
           }),
         );
       } catch (error) {
@@ -562,7 +645,7 @@ export async function superviseLogicalTurn(
           activeSessionId: record.activeSessionId,
         });
         // Cancellation during the wait must not start the next attempt.
-        await withHeartbeat(sleepWithSignal(transient, options.signal, pause));
+        await withHeartbeat(() => sleepWithSignal(transient, options.signal, pause));
         if (isDeadlineTerminal(options.signal, record.deadlineAt, now()))
           return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
         if (options.signal?.aborted) return await finish('cancelled', 'cancelled', undefined);
@@ -652,6 +735,8 @@ export async function superviseLogicalTurn(
     }
   } finally {
     clearPauses();
+    options.signal?.removeEventListener('abort', onExternalAbort);
+    clearSegment(record.logicalTurnId, leaseOwner);
     if (leased) options.store.releaseLogicalTurnLease(record.logicalTurnId, leaseOwner);
   }
 }

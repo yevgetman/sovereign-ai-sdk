@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
+import { type RunResult, createAgent } from '@yevgetman/sov-sdk/agent/createAgent';
 import {
+  LOGICAL_TURN_LEASE_MS,
   LogicalTurnLeaseError,
   type LogicalTurnRecord,
   type LogicalTurnStore,
@@ -15,7 +16,10 @@ import type {
   Terminal,
 } from '@yevgetman/sov-sdk/core/types';
 import type { HookRunner } from '@yevgetman/sov-sdk/hooks/types';
-import { createInMemorySessionStore } from '@yevgetman/sov-sdk/persistence/inMemoryStore';
+import {
+  type InMemorySessionStore,
+  createInMemorySessionStore,
+} from '@yevgetman/sov-sdk/persistence/inMemoryStore';
 import { ChatGptSubscriptionProvider } from '@yevgetman/sov-sdk/providers/chatgpt';
 import {
   ProviderHttpError,
@@ -23,7 +27,7 @@ import {
   SubscriptionHttpError,
   SubscriptionStreamError,
 } from '@yevgetman/sov-sdk/providers/errors';
-import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
+import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
@@ -1511,4 +1515,174 @@ describe('logical-turn lease lifetime', () => {
     }
     await first;
   });
+
+  test('a second supervisor aborts the blocked tool before its effect or row', async () => {
+    await expectDispossessedToolStops(createInMemorySessionStore(), 'resume');
+  });
+
+  test('a stolen sqlite lease aborts the blocked tool when renew fails', async () => {
+    const db = SessionDb.open({ path: ':memory:' });
+    try {
+      await expectDispossessedToolStops(db, 'renew');
+    } finally {
+      db.close();
+    }
+  });
 });
+
+/** Block inside a tool, move the lease, then let the tool return. */
+async function expectDispossessedToolStops(
+  store: InMemorySessionStore | SessionDb,
+  handoff: 'resume' | 'renew',
+): Promise<void> {
+  let nowMs = 1_000_000;
+  const effects: string[] = [];
+  const waiters: Array<() => void> = [];
+  let releaseTool: (() => void) | undefined;
+  let markStarted: (() => void) | undefined;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  let providerSignal: AbortSignal | undefined;
+  const sessionId = 'session-hold';
+  const prompt = {
+    role: 'user' as const,
+    content: [{ type: 'text' as const, text: 'do the work' }],
+  };
+  const toolUse: AssistantMessage = {
+    role: 'assistant',
+    content: [{ type: 'tool_use', id: 'tool-hold', name: 'Hold', input: {} }],
+  };
+  const hold = buildTool({
+    name: 'Hold',
+    description: () => 'wait until the caller releases the gate',
+    inputSchema: z.object({}),
+    async call(_input: unknown, ctx: ToolContext) {
+      await new Promise<void>((resolve, reject) => {
+        const fail = () => reject(ctx.signal?.reason ?? new Error('aborted'));
+        if (ctx.signal?.aborted) {
+          fail();
+          return;
+        }
+        const onAbort = () => fail();
+        ctx.signal?.addEventListener('abort', onAbort, { once: true });
+        releaseTool = () => {
+          ctx.signal?.removeEventListener('abort', onAbort);
+          resolve();
+        };
+        markStarted?.();
+      });
+      effects.push('ran');
+      store.saveMessage(sessionId, {
+        role: 'user',
+        content: [{ type: 'text', text: 'late row' }],
+      });
+      return { data: { held: true } };
+    },
+  });
+  const provider: LLMProvider = {
+    name: 'hold',
+    async *stream(request: ProviderRequest): AsyncGenerator<StreamEvent, AssistantMessage> {
+      providerSignal = request.signal;
+      yield { type: 'message_start' };
+      yield { type: 'message_stop', stop_reason: 'tool_use' };
+      yield { type: 'assistant_message', message: toolUse };
+      return toolUse;
+    },
+  };
+  const agent = createAgent({
+    provider,
+    model: 'fixture-model',
+    tools: [hold],
+    cwd: '/tmp/project',
+    sessionStore: store,
+  });
+  store.createSession({ sessionId, provider: 'fixture', model: 'fixture-model' });
+  store.saveMessage(sessionId, prompt);
+  let logicalTurnId = '';
+  const create = store.createLogicalTurn.bind(store);
+  store.createLogicalTurn = (record) => {
+    logicalTurnId = record.logicalTurnId;
+    create(record);
+  };
+  const first = superviseLogicalTurn({
+    store,
+    binding,
+    sessionId,
+    initialMessages: [prompt],
+    rehydrate: () => [prompt],
+    recoverySafe: () => true,
+    now: () => nowMs,
+    deadlineAt: nowMs + 60 * 60_000,
+    sleep: () =>
+      new Promise<void>((resolve) => {
+        waiters.push(resolve);
+      }),
+    runSegment: async (segment) =>
+      drainRun(
+        agent.run(segment.messages, {
+          sessionId,
+          logicalTurn: true,
+          maxTurns: 1,
+        }),
+      ),
+  }).then(
+    () => new Error('dispossessed worker finished the turn'),
+    (error: unknown) => error,
+  );
+  try {
+    await started;
+    nowMs += LOGICAL_TURN_LEASE_MS + 1;
+    if (handoff === 'resume') {
+      const resumed = await superviseLogicalTurn({
+        store,
+        binding,
+        sessionId,
+        logicalTurnId,
+        initialMessages: [prompt],
+        rehydrate: () => [prompt],
+        recoverySafe: () => true,
+        now: () => nowMs,
+        deadlineAt: nowMs + 60 * 60_000,
+        sleep: () => new Promise<void>(() => {}),
+        runSegment: async () => result('completed', 'resumed'),
+      });
+      expect(resumed).toMatchObject({ status: 'completed', reply: 'resumed' });
+    } else {
+      expect(
+        store.acquireLogicalTurnLease(logicalTurnId, 'other-process', nowMs + 30_000, nowMs),
+      ).toBe(true);
+      const waiter = waiters.shift();
+      if (!waiter) throw new Error('heartbeat did not wait');
+      waiter();
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+    }
+    expect(providerSignal?.aborted).toBe(true);
+    expect(effects).toEqual([]);
+    releaseTool?.();
+    expect(await first).toBeInstanceOf(LogicalTurnLeaseError);
+    expect(effects).toEqual([]);
+    const rows = store.loadMessages(sessionId);
+    expect(rows.some((row) => row.content.some((block) => block.type === 'tool_use'))).toBe(true);
+    expect(rows.some((row) => row.content.some((block) => block.type === 'tool_result'))).toBe(
+      false,
+    );
+    expect(JSON.stringify(rows)).not.toContain('late row');
+    expect(store.loadToolExecutions(sessionId).every((row) => row.state !== 'completed')).toBe(
+      true,
+    );
+    if (handoff === 'resume') {
+      expect(store.loadLogicalTurn(logicalTurnId)?.finalReply).toBe('resumed');
+    }
+  } finally {
+    releaseTool?.();
+    for (const waiter of waiters.splice(0)) waiter();
+  }
+}
+
+async function drainRun(gen: AsyncGenerator<StreamEvent | Message, RunResult>): Promise<RunResult> {
+  while (true) {
+    const step = await gen.next();
+    if (step.done) return step.value;
+  }
+}

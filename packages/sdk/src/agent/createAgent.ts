@@ -111,6 +111,7 @@ import {
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { validateSessionId } from '../util/sessionId.js';
+import { logicalTurnWorkSignal } from './logicalTurn.js';
 
 /** Fallback per-request token budget when `AgentConfig.maxTokens` is omitted.
  *  Matches the harness wrapper default (src/main.ts / src/server/runtime.ts). */
@@ -670,6 +671,7 @@ export function createAgent(config: AgentConfig): Agent {
           ),
         };
       }
+      const workSignal = logicalTurnWorkSignal(perTurn.signal);
       return query({
         provider: observedProvider,
         model,
@@ -773,7 +775,7 @@ export function createAgent(config: AgentConfig): Agent {
               },
             }
           : {}),
-        ...(perTurn.signal !== undefined ? { signal: perTurn.signal } : {}),
+        ...(workSignal !== undefined ? { signal: workSignal } : {}),
         ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
       });
     };
