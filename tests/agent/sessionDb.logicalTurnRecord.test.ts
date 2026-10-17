@@ -31,7 +31,6 @@ function stored(id: string): LogicalTurnRecord {
       cwd: '/tmp/project',
     },
     bindingDigest: 'digest',
-    segmentLimit: 10,
     logicalModelCallLimit: 100,
     status: 'running',
     repeatedNoProgress: 0,
@@ -106,6 +105,28 @@ test('logical turn rows from before skill and MCP pins still load', () => {
       }),
     ]);
     expect(() => db.loadLogicalTurn('lt-bad-pin')).toThrow(LogicalTurnRecordError);
+  } finally {
+    db.close();
+  }
+});
+
+test('a legacy segmentLimit is dropped and a non-number is invalid', () => {
+  const db = SessionDb.open({ path: ':memory:' });
+  try {
+    const record = stored('lt-legacy');
+    db.handle.run('INSERT INTO logical_turns (logical_turn_id, record) VALUES (?, ?)', [
+      record.logicalTurnId,
+      JSON.stringify({ ...record, segmentLimit: 1 }),
+    ]);
+    const loaded = db.loadLogicalTurn('lt-legacy');
+    expect(loaded).toEqual(record);
+    expect(loaded).not.toHaveProperty('segmentLimit');
+    const bad = stored('lt-bad-segment');
+    db.handle.run('INSERT INTO logical_turns (logical_turn_id, record) VALUES (?, ?)', [
+      bad.logicalTurnId,
+      JSON.stringify({ ...bad, segmentLimit: '1' }),
+    ]);
+    expect(() => db.loadLogicalTurn('lt-bad-segment')).toThrow(LogicalTurnRecordError);
   } finally {
     db.close();
   }

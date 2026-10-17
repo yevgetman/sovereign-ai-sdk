@@ -86,7 +86,7 @@ export type LogicalTurnRecord = {
   compactedSessionIds: string[];
   binding: LogicalTurnBinding;
   bindingDigest: string;
-  segmentLimit: number;
+  /** Cumulative model calls for this logical turn. Not a count of segments. */
   logicalModelCallLimit: number;
   deadlineAt?: number;
   status: LogicalTurnStatus;
@@ -248,7 +248,7 @@ export type LogicalTurnSupervisorOptions = {
   signal?: AbortSignal;
   logicalTurnId?: string;
   activeSessionId?: string;
-  segmentLimit?: number;
+  /** Cumulative model-call budget. Default 100. There is no segment-count option. */
   logicalModelCallLimit?: number;
   deadlineAt?: number;
   now?: () => number;
@@ -287,6 +287,15 @@ export type LogicalTurnTraceEvent = {
   elapsedMs: number;
   outcome?: LogicalTurnStatus;
 };
+
+/** Older rows stored segmentLimit and never compared it to counters.segments. */
+function omitLegacySegmentLimit(record: LogicalTurnRecord): LogicalTurnRecord {
+  if (!Object.hasOwn(record, 'segmentLimit')) return record;
+  const { segmentLimit: _segmentLimit, ...rest } = record as LogicalTurnRecord & {
+    segmentLimit?: unknown;
+  };
+  return rest;
+}
 
 const EMPTY_COUNTERS: LogicalTurnCounters = {
   segments: 0,
@@ -343,7 +352,6 @@ export async function superviseLogicalTurn(
       compactedSessionIds: [],
       binding: structuredClone(options.binding),
       bindingDigest,
-      segmentLimit: options.segmentLimit ?? 10,
       logicalModelCallLimit: options.logicalModelCallLimit ?? 100,
       ...(options.deadlineAt !== undefined ? { deadlineAt: options.deadlineAt } : {}),
       status: 'admitted',
@@ -540,7 +548,7 @@ export async function superviseLogicalTurn(
     const reloaded = options.store.loadLogicalTurn(record.logicalTurnId);
     if (!reloaded)
       return invalidResult(record.logicalTurnId, record.activeSessionId, 'recovery_state_invalid');
-    record = reloaded;
+    record = omitLegacySegmentLimit(reloaded);
     held.record = record;
     if (record.bindingDigest !== bindingDigest) {
       return invalidResult(record.logicalTurnId, record.activeSessionId, 'recovery_state_invalid');

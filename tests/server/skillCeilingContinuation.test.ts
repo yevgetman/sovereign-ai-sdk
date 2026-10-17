@@ -305,7 +305,6 @@ test('a resumed logical turn row keeps the skill ceiling', async () => {
     compactedSessionIds: [],
     binding: { provider: 'fixture', model: 'fixture', cwd: env.cwd },
     bindingDigest: 'digest',
-    segmentLimit: 4,
     logicalModelCallLimit: 10,
     status: 'continuing' as const,
     repeatedNoProgress: 0,

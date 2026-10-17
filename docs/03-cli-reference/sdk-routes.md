@@ -290,8 +290,10 @@ Completion contains `reply`, `sessionId`, `activeSessionId`, `logicalTurnId`,
 advertises `capabilities.logicalTurnRecovery`. A bounded segment that ends at
 `max_tokens` or `max_turns` emits `turn.continuing`, reloads durable state and
 continues without replaying the original prompt. The toolset segment defaults
-are chat 1, web 6, ops 8 and coding 100 model calls. The logical-turn default is
-100 model calls. `--deadline-ms` covers the complete logical turn, and
+are chat 1, web 6, ops 8 and coding 100 model calls. Those numbers bound model
+calls inside one segment. They are not a count of segments, and the durable row
+does not store a segment-count limit. The logical-turn default is 100 model
+calls. `--deadline-ms` covers the complete logical turn, and
 `--continue-logical-turn` aborts at the stored deadline when this invocation
 omits `--deadline-ms`, including a tool that is still blocked.
 
