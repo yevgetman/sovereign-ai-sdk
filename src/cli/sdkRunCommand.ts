@@ -67,6 +67,7 @@ import type { Runtime, RuntimeOptions } from '../server/runtime.js';
 import {
   appendInstructions,
   buildTurnCanUseTool,
+  clearSkillCeiling,
   composeTurn,
   createSteeringPoller,
   gateTurnInstructions,
@@ -74,6 +75,8 @@ import {
   hydrateSessionHistory,
   loadStoredMessages,
   persistTurnMessage,
+  restoreLogicalTurnSkillCeiling,
+  stampLogicalTurnSkillCeiling,
 } from '../server/turnComposition.js';
 import { mapTerminalReason } from '../server/turnRelay.js';
 import { readModelCatalogSnapshot } from './modelDiscovery.js';
@@ -357,6 +360,7 @@ export async function runSdkRunCommand(
         const record = probe.loadLogicalTurn(continuationId);
         if (!record) throw new SdkInputError('invalid_input', UNKNOWN_LOGICAL_TURN);
         continuationRecord = record;
+        restoreLogicalTurnSkillCeiling(record, skillActivationTurnId);
         routeId = record.binding.route;
         if (!routeId) throw new SdkInputError('invalid_input', MISSING_LOGICAL_TURN_ROUTE);
         opts.model = record.binding.model;
@@ -1116,7 +1120,7 @@ export async function runSdkRunCommand(
       };
     };
     const logical = await superviseLogicalTurn({
-      store: hostRuntime.sessionDb,
+      store: skillCeilingLogicalTurnStore(hostRuntime.sessionDb, skillActivationTurnId),
       binding: {
         route: resolvedRouteId,
         provider: routeSelection.route.provider,
@@ -1455,6 +1459,7 @@ export async function runSdkRunCommand(
         port.finish(skillActivationTurnId, continuityOutcome).catch(() => {}),
         1000,
       );
+    clearSkillCeiling(skillActivationTurnId);
     if (deadline) clearTimeout(deadline);
     process.off('SIGINT', sigint);
     process.off('SIGTERM', sigterm);
@@ -1468,6 +1473,34 @@ export async function runSdkRunCommand(
       await boundedDispose(runtime);
     }
   }
+}
+
+function skillCeilingLogicalTurnStore(store: SessionDb, key: string): SessionDb {
+  return new Proxy(store, {
+    get(target, property, receiver) {
+      if (property === 'createLogicalTurn') {
+        return (record: LogicalTurnRecord) => {
+          stampLogicalTurnSkillCeiling(record, key);
+          target.createLogicalTurn(record);
+        };
+      }
+      if (property === 'saveLogicalTurn') {
+        return (record: LogicalTurnRecord, owner: string) => {
+          stampLogicalTurnSkillCeiling(record, key);
+          target.saveLogicalTurn(record, owner);
+        };
+      }
+      if (property === 'loadLogicalTurn') {
+        return (id: string) => {
+          const record = target.loadLogicalTurn(id);
+          if (record) restoreLogicalTurnSkillCeiling(record, key);
+          return record;
+        };
+      }
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
 }
 
 function sha256Json(value: unknown): string {

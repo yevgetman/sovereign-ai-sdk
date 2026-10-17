@@ -1,3 +1,42 @@
+## 2026-10-17 — Skill allow-list survives a logical-turn segment
+
+Scope: skill `allowedTools` on a logical turn. A continuation segment,
+including an automatic `max_tokens` boundary and a resumed row, keeps the
+intersection of allow-lists still in force. An empty `allowedTools` declaration
+does not widen that ceiling. Host permission policy is unchanged. Continuity
+guidance still grants no tool permissions.
+
+Environment: `/tmp/fix-sov-155` on `review-fix/155` from `c7922076`, macOS,
+Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade, release,
+or deployment ran.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/server/skillCeilingContinuation.test.ts` failed 2 tests. The continuation
+segment offered `['SkillTool','Read','Bash']` after a read-only skill. A later
+skill with an empty allow-list composed `['Bash','Read','SkillTool']`.
+
+After the fix, the same file is **4 pass / 0 fail**. The next segment's schemas
+stay `['Read']`, `canUseTool` denies Bash, and Bash does not run. A later empty
+allow-list does not widen. Two lists intersect. A SessionDb round-trip restores
+the ceiling under a new activation id. A different turn id stays unrestricted.
+`tests/agent/effectiveToolInventory.test.ts`, `tests/agent/logicalTurn.test.ts`,
+`tests/cli/sdkRunRecovery.test.ts`, `tests/cli/sdkRunCompaction.test.ts`, and
+`tests/skills/activation.test.ts` passed inside the full suite.
+
+`bun run lint` passed (Biome 1159 files; boundary 256 modules, 1052
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). None are in the ceiling files. The
+first `bun run test` ran before `packages/sdk/dist` existed: **6521 pass / 31
+skip / 67 fail**. Those 67 were `ERR_MODULE_NOT_FOUND` for compiled SDK
+modules. After `bun run build`, `env -u FORCE_COLOR bun test --timeout 20000`
+is **6588 pass / 31 skip / 0 fail**, 26968 assertions, 625 files, 171.50
+seconds.
+
+A crash after activation and before the supervisor save can still resume
+without the ceiling. The ceiling is an extra `skillToolCeiling` field on the
+logical-turn row. Parsers that drop unknown keys would drop it.
+
 ## 2026-10-17 — Lost logical-turn lease aborts the in-flight segment
 
 Scope: failed renewal aborts the segment signal that `createAgent` passes to
