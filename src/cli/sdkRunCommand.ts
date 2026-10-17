@@ -47,7 +47,7 @@ import type { SkillContinuityPort } from '@yevgetman/sov-sdk/skills/continuity';
 import { isToolsetName } from '@yevgetman/sov-sdk/tool/toolset';
 import { defaultMaxTurns } from '@yevgetman/sov-sdk/tool/toolset';
 import { persistMessage } from '../agent/persistMessage.js';
-import { LogicalTurnRecordError, SessionDb } from '../agent/sessionDb.js';
+import { LogicalTurnRecordError, SessionDb, type StoredMessage } from '../agent/sessionDb.js';
 import { SessionNotFoundError } from '../server/errors.js';
 import {
   modelSystemPrompt,
@@ -904,6 +904,44 @@ export async function runSdkRunCommand(
       (r.terminal.error instanceof ContextOverflowError ||
         r.terminal.error instanceof ContextManagementError ||
         isContextOverflowError(r.terminal.error));
+    let boundaryRows: { sessionId: string; rows: StoredMessage[] } | null = null;
+    // One stored read for the safety check, the id fingerprint, and rehydrate.
+    const loadBoundary = (id: string) => {
+      const rows = hostRuntime.sessionDb.loadMessages(id);
+      const executions = hostRuntime.sessionDb.loadToolExecutions(id);
+      boundaryRows = { sessionId: id, rows };
+      const view = sessionView(hostRuntime.sessionDb, id, rows, executions);
+      const receipts = new Map<string, string>();
+      for (const receipt of executions) receipts.set(receipt.toolUseId, receipt.state);
+      return {
+        safe: hasNativeRecoveryTarget(view, id) && !ambiguousTruncatedToolRequest(view, id),
+        progress: {
+          receipts: [...receipts].sort(([left], [right]) => left.localeCompare(right)),
+          tasks: hostRuntime.taskManager.list(id).map((task) => ({
+            id: task.id,
+            state: task.state,
+          })),
+          transcriptIds: rows.map((row) => row.id),
+          transcriptCount: rows.length,
+          cursor: logicalTurnCursor(rows) ?? null,
+          compactionChildId: id,
+        },
+        messages: () =>
+          hydrateSessionHistory(
+            loadStoredMessages(
+              {
+                mode: 'sdk-store' as const,
+                sessionStore: view,
+                ...(hostRuntime.transcripts !== undefined
+                  ? { transcripts: hostRuntime.transcripts }
+                  : {}),
+              },
+              id,
+            ),
+            id,
+          ),
+      };
+    };
     const logical = await superviseLogicalTurn({
       store: hostRuntime.sessionDb,
       binding: {
@@ -951,34 +989,31 @@ export async function runSdkRunCommand(
       recoverySafe: (id) =>
         hasNativeRecoveryTarget(hostRuntime.sessionDb, id) &&
         !ambiguousTruncatedToolRequest(hostRuntime.sessionDb, id),
-      progressSnapshot: (id) => {
-        const receipts = new Map<string, string>();
-        for (const receipt of hostRuntime.sessionDb.loadToolExecutions(id))
-          receipts.set(receipt.toolUseId, receipt.state);
-        const rows = hostRuntime.sessionDb.loadMessages(id);
-        return {
-          assistant: rows.filter((row) => row.role === 'assistant').at(-1)?.content,
-          receipts: [...receipts].sort(([left], [right]) => left.localeCompare(right)),
-          tasks: hostRuntime.taskManager.list(id).map((task) => ({
-            id: task.id,
-            state: task.state,
-          })),
-          transcriptIds: rows.map((row) => row.id),
-          transcriptCount: rows.length,
-          cursor: logicalTurnCursor(rows) ?? null,
-          compactionChildId: id,
-        };
-      },
+      readBoundary: (id) => loadBoundary(id),
       persistRuntimeContinuation: ({ activeSessionId, id, text }) => {
-        const rows = hostRuntime.sessionDb.loadMessages(activeSessionId);
+        const rows =
+          boundaryRows?.sessionId === activeSessionId
+            ? boundaryRows.rows
+            : hostRuntime.sessionDb.loadMessages(activeSessionId);
         if (rows.some((row) => row.toolCallId === id || runtimeMarkerId(row) === id)) return;
         // A truncated tool call already stored its synthetic tool_result user row.
         if (rows.at(-1)?.role === 'user') return;
-        persistMessage(hostRuntime, activeSessionId, {
+        const rowId = persistMessage(hostRuntime, activeSessionId, {
           role: 'user',
           content: [{ type: 'text', text }],
           toolCallId: id,
           toolCalls: { origin: 'runtime', id },
+        });
+        if (boundaryRows?.sessionId !== activeSessionId || rowId <= 0) return;
+        boundaryRows.rows.push({
+          id: rowId,
+          sessionId: activeSessionId,
+          role: 'user',
+          content: [{ type: 'text', text }],
+          toolCallId: id,
+          toolCalls: { origin: 'runtime', id },
+          tokenCount: 0,
+          createdAt: Date.now() / 1000,
         });
       },
       onContinuing: (event) => emit({ type: 'turn.continuing', ...event }),
@@ -992,6 +1027,7 @@ export async function runSdkRunCommand(
         });
       },
       runSegment: async (segment) => {
+        boundaryRows = null;
         // Keep a child already pivoted by prepare(); resetting would drop the lease-held compaction.
         if (sessionId === segment.activeSessionId) {
           messages = segment.messages;
@@ -1344,6 +1380,25 @@ function runtimeMarkerId(row: {
   if ((row.toolCalls as { origin?: unknown }).origin !== 'runtime') return undefined;
   if (typeof id === 'string' && id.length > 0) return id;
   return row.toolCallId ?? undefined;
+}
+
+/** Safety and rehydrate read this boundary's rows instead of querying again. */
+function sessionView(
+  store: SessionDb,
+  sessionId: string,
+  rows: StoredMessage[],
+  executions: ReturnType<SessionDb['loadToolExecutions']>,
+): SessionStore {
+  return new Proxy(store, {
+    get(target, property, receiver) {
+      if (property === 'loadMessages')
+        return (id: string) => (id === sessionId ? rows : target.loadMessages(id));
+      if (property === 'loadToolExecutions')
+        return (id: string) => (id === sessionId ? executions : target.loadToolExecutions(id));
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  }) as SessionStore;
 }
 
 function ambiguousTruncatedToolRequest(store: SessionStore, sessionId: string | null): boolean {

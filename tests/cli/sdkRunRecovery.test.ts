@@ -1167,6 +1167,79 @@ test('max_tokens on tool_use stops instead of guessing a second user row', async
   }
 });
 
+test('a segment boundary loads the transcript once', async () => {
+  let calls = 0;
+  const stacks: string[] = [];
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 1, outputTokens: 1 } };
+      if (calls === 1) {
+        yield { type: 'message_stop', stop_reason: 'max_tokens' };
+        const reply = message('partial');
+        yield { type: 'assistant_message', message: reply };
+        return reply;
+      }
+      yield { type: 'message_stop', stop_reason: 'end_turn' };
+      const reply = message('done');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.loop = { mode: 'off' };
+    const db = runtime.sessionDb;
+    const loadMessages = db.loadMessages.bind(db);
+    const loadToolExecutions = db.loadToolExecutions.bind(db);
+    const note = (kind: string) => {
+      stacks.push(`${kind} ${new Error().stack ?? ''}`);
+    };
+    db.loadMessages = (id: string) => {
+      note('messages');
+      return loadMessages(id);
+    };
+    db.loadToolExecutions = (id: string) => {
+      note('receipts');
+      return loadToolExecutions(id);
+    };
+  });
+  const c = capture();
+  expect(await runSdkRunCommand(opts, c.io, f.deps)).toBe(0);
+  expect(calls).toBe(2);
+  const boundary = stacks.filter(
+    (stack) =>
+      stack.includes('at recoverySafe') ||
+      stack.includes('at progressSnapshot') ||
+      stack.includes('at persistRuntimeContinuation') ||
+      (stack.includes('at hydrate') && stack.includes('superviseLogicalTurn')) ||
+      (stack.includes('at loadStoredMessages') && stack.includes('superviseLogicalTurn')) ||
+      (stack.includes('at hasNativeRecoveryTarget') && stack.includes('superviseLogicalTurn')) ||
+      (stack.includes('at ambiguousTruncatedToolRequest') &&
+        stack.includes('superviseLogicalTurn')) ||
+      stack.includes('at loadBoundary') ||
+      stack.includes('at readBoundary'),
+  );
+  expect(boundary.filter((stack) => stack.startsWith('messages'))).toHaveLength(1);
+  expect(boundary.filter((stack) => stack.startsWith('receipts'))).toHaveLength(1);
+  const terminal = c.events.at(-1);
+  const db = SessionDb.open({ path: f.db });
+  try {
+    const stored = db.loadMessages(String(terminal?.activeSessionId));
+    expect(
+      stored.some(
+        (row) =>
+          row.toolCalls !== null &&
+          typeof row.toolCalls === 'object' &&
+          (row.toolCalls as { origin?: unknown }).origin === 'runtime',
+      ),
+    ).toBe(true);
+  } finally {
+    db.close();
+  }
+});
+
 function answerProvider(): LLMProvider {
   return {
     name: 'openai',

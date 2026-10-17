@@ -158,6 +158,17 @@ export type LogicalTurnSupervisorOptions = {
    * Fields outside that shape are not progress.
    */
   progressSnapshot?: (activeSessionId: string) => unknown;
+  /**
+   * One continuation read, shared by the safety check, the id fingerprint, and
+   * the next segment. When set, that boundary does not call the other three.
+   * `messages` is read after a max_tokens marker is saved.
+   */
+  readBoundary?: (activeSessionId: string) => {
+    safe: boolean;
+    /** Id-level facts. A tool-result body is not progress. */
+    progress?: unknown;
+    messages: () => Message[];
+  };
   persistRuntimeContinuation?: (input: {
     activeSessionId: string;
     id: string;
@@ -556,15 +567,18 @@ export async function superviseLogicalTurn(
       }
 
       transientAttempts = 0;
-      if (!options.recoverySafe(record.activeSessionId))
-        return await finish('failed', 'unsafe_effect', result, 'recovery_unsafe');
-      const supplied = options.progressSnapshot?.(record.activeSessionId);
+      const boundary = options.readBoundary?.(record.activeSessionId);
+      const safe = boundary ? boundary.safe : options.recoverySafe(record.activeSessionId);
+      if (!safe) return await finish('failed', 'unsafe_effect', result, 'recovery_unsafe');
+      const supplied = boundary
+        ? boundary.progress
+        : options.progressSnapshot?.(record.activeSessionId);
       const facts = progressFacts(supplied);
-      const hydrated =
-        (facts.transcriptIds === undefined && facts.transcriptCount === undefined) ||
-        !facts.hasCursor
-          ? options.rehydrate(record.activeSessionId)
-          : undefined;
+      const hydrated = needsHydratedFacts(facts)
+        ? boundary
+          ? boundary.messages()
+          : options.rehydrate(record.activeSessionId)
+        : undefined;
       const fingerprint = progressFingerprint({
         facts,
         hydrated,
@@ -621,7 +635,7 @@ export async function superviseLogicalTurn(
         },
       };
       options.onContinuing?.(continuation);
-      messages = options.rehydrate(record.activeSessionId);
+      messages = boundary ? boundary.messages() : options.rehydrate(record.activeSessionId);
       record.status = 'running';
       save();
       trace({
@@ -676,6 +690,12 @@ type ProgressFacts = {
   compactionChildId?: string;
   tasks?: unknown;
 };
+
+function needsHydratedFacts(facts: ProgressFacts): boolean {
+  return (
+    (facts.transcriptIds === undefined && facts.transcriptCount === undefined) || !facts.hasCursor
+  );
+}
 
 function progressFacts(snapshot: unknown): ProgressFacts {
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {

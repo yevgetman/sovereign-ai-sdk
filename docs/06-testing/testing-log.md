@@ -1,3 +1,24 @@
+## 2026-10-16 — Continuation boundary loads the transcript once
+
+Scope: one stored read per logical-turn segment boundary, shared by the safety
+check, the id-level progress fingerprint, and the next segment. Stall rules,
+cwd/policy errors, exhausted/stalled refusal, and deadlines were not changed.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts tests/cli/sdkRunRecovery.test.ts -t "reads the transcript once|tool-result byte|continuation marker|loads the transcript once"`
+failed 4 tests. The supervisor read safety, the fingerprint, and rehydrate as
+three loads. A max_tokens host boundary loaded messages five times. Changing a
+tool-result byte reloaded the transcript for the fingerprint.
+
+After the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts tests/cli/sdkRunRecovery.test.ts` is **77 pass /
+0 fail**. One boundary is one message load and one receipt load. An unchanged
+tool-result byte still stalls only on the second identical continuation.
+`bun run lint` passed. `bun run typecheck` reports 3 existing errors in
+`tests/cli/sdkSubscriptionImages.test.ts` and `tests/skills/catalog.test.ts`,
+none in the boundary files. No live provider, product install, upgrade,
+release, or deployment ran.
+
 ## 2026-10-16 — Stall fingerprint includes durable progress facts
 
 Scope: logical-turn progress fingerprint in `packages/sdk/src/agent/logicalTurn.ts`.
