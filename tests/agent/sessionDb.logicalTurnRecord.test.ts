@@ -79,6 +79,38 @@ async function continueTurn(path: string, id: string) {
   return { exitCode, terminal: events.at(-1) };
 }
 
+test('logical turn rows from before skill and MCP pins still load', () => {
+  const path = fileDb();
+  const record = stored('lt-old');
+  insert(path, record.logicalTurnId, JSON.stringify(record));
+  const db = SessionDb.open({ path });
+  try {
+    expect(db.loadLogicalTurn('lt-old')).toEqual(record);
+    const pinned = stored('lt-pinned');
+    pinned.binding = {
+      ...pinned.binding,
+      skillApprovalDigest: 'skill-pin',
+      mcpIdentityDigest: 'mcp-pin',
+    };
+    db.createLogicalTurn(pinned);
+    expect(db.loadLogicalTurn('lt-pinned')?.binding).toMatchObject({
+      skillApprovalDigest: 'skill-pin',
+      mcpIdentityDigest: 'mcp-pin',
+    });
+    const bad = stored('lt-bad-pin');
+    db.handle.run('INSERT INTO logical_turns (logical_turn_id, record) VALUES (?, ?)', [
+      bad.logicalTurnId,
+      JSON.stringify({
+        ...bad,
+        binding: { ...bad.binding, skillApprovalDigest: 1 },
+      }),
+    ]);
+    expect(() => db.loadLogicalTurn('lt-bad-pin')).toThrow(LogicalTurnRecordError);
+  } finally {
+    db.close();
+  }
+});
+
 test('loadLogicalTurn round-trips a version-1 record and misses an unknown id', () => {
   const db = SessionDb.open({ path: ':memory:' });
   try {

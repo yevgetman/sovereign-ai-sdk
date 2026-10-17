@@ -56,6 +56,10 @@ export type LogicalTurnBinding = {
   toolset?: string;
   permissionMode?: string;
   policyDigest?: string;
+  /** Allow-list pin. Absent on rows written before skill approval was pinned. */
+  skillApprovalDigest?: string;
+  /** MCP server pin. Absent on rows written before MCP identity was pinned. */
+  mcpIdentityDigest?: string;
   cwd: string;
   bundleIdentity?: string;
 };
