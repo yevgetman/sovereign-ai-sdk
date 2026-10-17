@@ -631,6 +631,33 @@ export async function runSdkRunCommand(
       });
       return 3;
     }
+    // A spent model-call budget or a repeated no-progress stop cannot run again.
+    if (
+      continuationRecord &&
+      (continuationRecord.status === 'exhausted' || continuationRecord.status === 'stalled')
+    ) {
+      const code =
+        continuationRecord.status === 'stalled' ? 'continuation_stalled' : 'continuation_exhausted';
+      const storedReason = continuationRecord.finishReason ?? continuationRecord.status;
+      finish({
+        type: 'turn.error',
+        outcome: continuationRecord.status,
+        reason: storedReason,
+        code,
+        error: ERRORS[code],
+        recoverable: false,
+        nextAction: 'none',
+        sessionId,
+        activeSessionId: sessionId,
+        logicalTurnId: continuationRecord.logicalTurnId,
+        ...metadata(),
+        reply: continuationRecord.finalReply ?? '',
+        finishReason: storedReason,
+        counters: continuationRecord.counters,
+        ...nativeTurnMetrics(receipts),
+      });
+      return 3;
+    }
     if (
       continuationRecord &&
       (continuationRecord.status === 'completed' || continuationRecord.status === 'waiting_user')
@@ -972,6 +999,9 @@ export async function runSdkRunCommand(
     // A deadline shares the work signal so the model stops. It is not /stop.
     if (!deadlineTerminal && (logical.status === 'cancelled' || controller.signal.aborted))
       throw new Error('interrupted');
+    // Model-call cap and a repeated fingerprint are terminal, same as a deadline.
+    const nonResumableStop =
+      deadlineTerminal || logical.status === 'exhausted' || logical.status === 'stalled';
     if (logical.status === 'failed' && !logical.code && result?.terminal.reason === 'error')
       throw result.terminal.error ?? new Error('provider failed');
     const outcome = deadlineTerminal
@@ -1004,8 +1034,8 @@ export async function runSdkRunCommand(
         ? {
             code: deadlineTerminal ? deadlineCode : logical.code,
             error: ERRORS[deadlineTerminal ? deadlineCode : (logical.code ?? 'provider_failed')],
-            recoverable: deadlineTerminal || ambiguousTool ? false : durable,
-            nextAction: deadlineTerminal
+            recoverable: nonResumableStop || ambiguousTool ? false : durable,
+            nextAction: nonResumableStop
               ? 'none'
               : ambiguousTool
                 ? 'inspect_session'
