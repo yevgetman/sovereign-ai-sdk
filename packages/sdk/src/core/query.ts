@@ -29,7 +29,10 @@ import {
 } from '../compact/microcompact.js';
 import { LoopDetectorState } from '../loop/detector.js';
 import { toToolSchemas } from '../mcp/schemaSerialization.js';
-import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
+import {
+  injectMemoryIntoLatestUserMessage,
+  injectMemoryIntoUserText,
+} from '../memory/injection.js';
 import {
   PersistBeforeRunError,
   ToolStorageError,
@@ -331,10 +334,15 @@ async function* queryInternal(
   // Phase 13.3 — sliding window of TurnSummary records for stall detection.
   const recentTurnSummaries: TurnSummary[] = [];
   const originalUserText = latestUserText(messages);
-  let history: Message[] =
-    !params.continuation && params.memoryManager
-      ? await injectMemoryIntoLatestUserMessage(messages, params.memoryManager)
-      : [...messages];
+  // The host stores the original user message and rehydrates it on the next
+  // segment, so the fence has to be applied again in this copy. Recall and
+  // user-turn hooks stay skipped. An existing fence is not copied again.
+  let history = [...messages];
+  if (params.memoryManager) {
+    history = params.continuation
+      ? await reinjectMemoryFence(history, params.memoryManager)
+      : await injectMemoryIntoLatestUserMessage(history, params.memoryManager);
+  }
 
   // Learning loop (Recall): after memory injection, prepend recalled lessons to
   // the latest user message. Optional thunk bound by the host; query() stays
@@ -1336,6 +1344,42 @@ async function fireStopHook(
   } catch {
     // Stop hooks are observers; never propagate.
   }
+}
+
+/** Reapply the memory fence to the original user message after rehydration.
+ *  Tool-result tails have no user text, so they are skipped. The caller's
+ *  messages are not mutated, and a fence that is already present is left as-is. */
+async function reinjectMemoryFence(
+  messages: Message[],
+  memory: { prefetchSnapshot(userMsg: string): Promise<string> },
+): Promise<Message[]> {
+  const history = [...messages];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    if (!msg || msg.role !== 'user') continue;
+    if (msg.content.some((block) => block.type === 'tool_result')) continue;
+    const textIndex = msg.content.findIndex((block) => block.type === 'text');
+    const block = msg.content[textIndex];
+    if (!block || block.type !== 'text') continue;
+    const snapshot = await memory.prefetchSnapshot(block.text);
+    const trimmed = snapshot.trim();
+    // A changed snapshot must not stack a second fence onto user text that
+    // already has one. The caller's stored message stays untouched.
+    if (
+      !trimmed ||
+      block.text.includes(trimmed) ||
+      (trimmed.includes('<memory-context>') && block.text.includes('<memory-context>'))
+    ) {
+      return history;
+    }
+    const next = injectMemoryIntoUserText(block.text, snapshot);
+    if (next === block.text) return history;
+    const content = [...msg.content];
+    content[textIndex] = { type: 'text', text: next };
+    history[i] = { ...msg, content };
+    return history;
+  }
+  return history;
 }
 
 function rewriteLatestUserText(messages: Message[], next: string): Message[] {
