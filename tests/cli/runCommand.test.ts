@@ -203,6 +203,55 @@ describe('runRunCommand', () => {
     expect(stderr).toContain('--json and --stdin');
   });
 
+  test('rejects --continue-logical-turn without --sdk before a turn starts', async () => {
+    let stdinReads = 0;
+    let stdout = '';
+    let stderr = '';
+    const code = await runRunCommand(
+      {
+        json: true,
+        stdin: true,
+        continueLogicalTurn: 'lt-existing',
+        provider: 'mock',
+        model: 'mock-haiku',
+        db: dbPath,
+        permissionMode: 'bypass',
+        preflight: false,
+      },
+      {
+        readStdin: async () => {
+          stdinReads += 1;
+          return 'should not start a new turn';
+        },
+        writeStdout: (s) => {
+          stdout += s;
+        },
+        writeStderr: (s) => {
+          stderr += s;
+        },
+      },
+    );
+    const events = stdout
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as JsonEvent);
+
+    expect(code).toBe(2);
+    expect(stdinReads).toBe(0);
+    expect(stderr).toBe('');
+    expect(events).toEqual([
+      {
+        type: 'turn.error',
+        sessionId: null,
+        code: 'invalid_input',
+        error: 'Native route and input controls require --sdk; no provider was started.',
+        recoverable: false,
+      },
+    ]);
+    expect(existsSync(dbPath)).toBe(false);
+    expect(existsSync(join(home, 'projects'))).toBe(false);
+  });
+
   test('reports empty stdin as a structured machine error', async () => {
     const result = await invoke('');
 
