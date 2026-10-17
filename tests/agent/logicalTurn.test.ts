@@ -175,6 +175,53 @@ describe('logical-turn supervisor', () => {
     expect(continued).toMatchObject({ status: 'failed', code: 'recovery_state_invalid' });
   });
 
+  test('a deadline abort during a segment is continuation_exhausted', async () => {
+    const controller = new AbortController();
+    let nowMs = 0;
+    const fixture = setup(
+      async () => {
+        nowMs = 10;
+        controller.abort();
+        throw new Error('interrupted');
+      },
+      { signal: controller.signal, deadlineAt: 10, now: () => nowMs },
+    );
+    const outcome = await superviseLogicalTurn(fixture.options);
+    expect(outcome).toMatchObject({
+      status: 'exhausted',
+      code: 'continuation_exhausted',
+      finishReason: 'deadline',
+    });
+    const stored = fixture.store.loadLogicalTurn(outcome.logicalTurnId);
+    expect(stored?.status).toBe('exhausted');
+    expect(stored?.finishReason).toBe('deadline');
+    expect(stored?.status).not.toBe('running');
+    expect(stored?.status).not.toBe('cancelled');
+  });
+
+  test('a user abort before the deadline stays cancelled', async () => {
+    const controller = new AbortController();
+    const nowMs = Date.now();
+    const fixture = setup(
+      async () => {
+        controller.abort();
+        throw new Error('interrupted');
+      },
+      { signal: controller.signal, deadlineAt: nowMs + 60_000, now: () => nowMs },
+    );
+    const ids: string[] = [];
+    const create = fixture.store.createLogicalTurn.bind(fixture.store);
+    fixture.store.createLogicalTurn = (record) => {
+      ids.push(record.logicalTurnId);
+      create(record);
+    };
+    await expect(superviseLogicalTurn(fixture.options)).rejects.toThrow('interrupted');
+    const logicalTurnId = ids[0];
+    if (!logicalTurnId) throw new Error('missing logical turn');
+    expect(fixture.store.loadLogicalTurn(logicalTurnId)?.status).toBe('cancelled');
+    expect(fixture.store.loadLogicalTurn(logicalTurnId)?.finishReason).toBe('cancelled');
+  });
+
   test('reuses a completed receipt without another model call', async () => {
     let calls = 0;
     const fixture = setup(async () => {

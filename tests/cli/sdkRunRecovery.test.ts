@@ -80,30 +80,54 @@ function capture(onEvent?: (event: Record<string, unknown>) => void) {
     },
   };
 }
-for (const cause of ['cancelled', 'deadline'] as const) {
-  test(`pre-session ${cause} has no recoverable target`, async () => {
-    const controller = new AbortController();
-    if (cause === 'cancelled') controller.abort();
-    const c = capture();
-    expect(
-      await runSdkRunCommand(
-        { ...opts, ...(cause === 'deadline' ? { deadlineMs: 1 } : {}) },
-        { ...c.io, readStdin: async () => new Promise<string>(() => {}) },
-        { signal: controller.signal },
-      ),
-    ).toBe(130);
-    expect(c.events).toHaveLength(1);
-    expect(Object.hasOwn(c.events[0] ?? {}, 'activeSessionId')).toBe(false);
-    expect(c.events[0]).toMatchObject({
-      type: 'turn.error',
-      outcome: 'interrupted',
-      reason: cause,
-      recoverable: false,
-      sessionId: null,
-      nextAction: 'retry',
-    });
+test('pre-session cancellation has no recoverable target', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const c = capture();
+  expect(
+    await runSdkRunCommand(
+      opts,
+      { ...c.io, readStdin: async () => new Promise<string>(() => {}) },
+      { signal: controller.signal },
+    ),
+  ).toBe(130);
+  expect(c.events).toHaveLength(1);
+  expect(Object.hasOwn(c.events[0] ?? {}, 'activeSessionId')).toBe(false);
+  expect(c.events[0]).toMatchObject({
+    type: 'turn.error',
+    outcome: 'interrupted',
+    reason: 'cancelled',
+    recoverable: false,
+    sessionId: null,
+    nextAction: 'retry',
   });
-}
+});
+
+test('pre-session deadline is continuation_exhausted and not an interrupt', async () => {
+  const c = capture();
+  expect(
+    await runSdkRunCommand(
+      { ...opts, deadlineMs: 1 },
+      { ...c.io, readStdin: async () => new Promise<string>(() => {}) },
+    ),
+  ).toBe(3);
+  expect(c.events).toHaveLength(1);
+  expect(Object.hasOwn(c.events[0] ?? {}, 'activeSessionId')).toBe(false);
+  expect(c.events[0]).toMatchObject({
+    type: 'turn.error',
+    outcome: 'exhausted',
+    reason: 'deadline',
+    code: 'continuation_exhausted',
+    recoverable: false,
+    sessionId: null,
+    nextAction: 'none',
+  });
+  expect(c.events[0]?.outcome).not.toBe('interrupted');
+  expect(c.events[0]?.code).not.toBe('cancelled');
+  expect(c.events[0]?.code).not.toBe('interrupted');
+  expect(c.events[0]?.nextAction).not.toBe('resume');
+  expect(c.events[0]?.nextAction).not.toBe('continue_logical_turn');
+});
 for (const exhausted of ['max_tokens', 'max_turns'] as const) {
   test(`${exhausted} continues internally then stops repeated no-progress work`, async () => {
     const provider: LLMProvider = {
@@ -553,26 +577,34 @@ for (const stage of [
     const c = capture();
     expect(
       await runSdkRunCommand({ ...opts, toolset: 'coding', deadlineMs: 1000 }, c.io, f.deps),
-    ).toBe(130);
+    ).toBe(3);
     const terminal = c.events.at(-1);
     expect(terminal).toMatchObject({
       type: 'turn.error',
-      outcome: 'interrupted',
+      outcome: 'exhausted',
       reason: 'deadline',
+      code: 'continuation_exhausted',
+      recoverable: false,
+      nextAction: 'none',
     });
-    if (terminal?.recoverable) {
-      expect(terminal.activeSessionId).toEqual(expect.any(String));
-      expect(terminal.nextAction).toBe('resume');
-      const db = SessionDb.open({ path: f.db });
-      try {
-        expect(db.getSession(String(terminal.activeSessionId))).not.toBeNull();
-      } finally {
-        db.close();
-      }
-    } else {
-      expect(Object.hasOwn(terminal ?? {}, 'activeSessionId')).toBe(false);
+    expect(terminal?.outcome).not.toBe('interrupted');
+    expect(terminal?.code).not.toBe('cancelled');
+    expect(terminal?.code).not.toBe('interrupted');
+    expect(terminal?.nextAction).not.toBe('resume');
+    expect(terminal?.nextAction).not.toBe('continue_logical_turn');
+    expect(typeof terminal?.logicalTurnId).toBe('string');
+    const db = SessionDb.open({ path: f.db });
+    try {
+      const stored = db.loadLogicalTurn(String(terminal?.logicalTurnId));
+      expect(stored?.status).toBe('exhausted');
+      expect(stored?.finishReason).toBe('deadline');
+      expect(stored?.status).not.toBe('running');
+      expect(stored?.status).not.toBe('cancelled');
+    } finally {
+      db.close();
     }
     if (stage === 'post-session') expect(calls).toBe(0);
+    if (stage === 'mid-stream') expect(calls).toBe(1);
   });
 }
 

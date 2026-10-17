@@ -437,9 +437,10 @@ export async function superviseLogicalTurn(
         : [...options.initialMessages];
     let transientAttempts = 0;
     for (;;) {
-      if (options.signal?.aborted) return await finish('cancelled', 'cancelled', undefined);
-      if (record.deadlineAt !== undefined && now() >= record.deadlineAt)
+      // Deadline wins over a shared abort. A user stop before the deadline stays cancelled.
+      if (isDeadlineTerminal(options.signal, record.deadlineAt, now()))
         return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
+      if (options.signal?.aborted) return await finish('cancelled', 'cancelled', undefined);
       const remaining = record.logicalModelCallLimit - record.counters.modelCalls;
       if (remaining <= 0)
         return await finish('exhausted', 'model_call_limit', undefined, 'continuation_exhausted');
@@ -463,15 +464,14 @@ export async function superviseLogicalTurn(
           }),
         );
       } catch (error) {
-        // Deadline and storage faults already have their own terminals.
-        // Persist cancellation, then rethrow so the host keeps a pivoted session.
-        // A lost lease must not overwrite the worker that now owns the record.
-        if (
-          !(error instanceof LogicalTurnLeaseError) &&
-          options.signal?.aborted &&
-          !preservesAbortCause(error, record.deadlineAt, now())
-        )
-          await finish('cancelled', 'cancelled', undefined);
+        // Persist the deadline terminal. A real abort is stored cancelled.
+        // Storage faults stay untouched so the host reports them. A lost lease
+        // must not overwrite the worker that now owns the record.
+        if (!(error instanceof LogicalTurnLeaseError) && !storageFault(error)) {
+          if (isDeadlineTerminal(options.signal, record.deadlineAt, now()))
+            return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
+          if (options.signal?.aborted) await finish('cancelled', 'cancelled', undefined);
+        }
         throw error;
       }
       const previousCause = record.lastCause;
@@ -503,6 +503,8 @@ export async function superviseLogicalTurn(
         return await finish('completed', 'completed', result);
       if (result.terminal.reason === 'checkin')
         return await finish('waiting_user', 'checkin', result);
+      if (isDeadlineTerminal(options.signal, record.deadlineAt, now()))
+        return await finish('exhausted', 'deadline', result, 'continuation_exhausted');
       if (result.terminal.reason === 'interrupted' || options.signal?.aborted)
         return await finish('cancelled', 'cancelled', result);
 
@@ -671,17 +673,21 @@ function stable(value: unknown): unknown {
   return value;
 }
 
-function preservesAbortCause(
-  error: unknown,
-  deadlineAt: number | undefined,
-  nowMs: number,
-): boolean {
-  if (
+function storageFault(error: unknown): boolean {
+  return (
     error instanceof PersistBeforeRunError ||
     error instanceof SessionPersistenceError ||
     error instanceof ToolStorageError
-  )
-    return true;
+  );
+}
+
+/** A deadline reason or a reached deadlineAt. A user stop before that time stays cancelled. */
+function isDeadlineTerminal(
+  signal: AbortSignal | undefined,
+  deadlineAt: number | undefined,
+  nowMs: number,
+): boolean {
+  if (signal?.aborted && signal.reason === 'deadline') return true;
   return deadlineAt !== undefined && nowMs >= deadlineAt;
 }
 

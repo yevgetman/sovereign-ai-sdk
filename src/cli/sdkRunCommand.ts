@@ -265,8 +265,9 @@ export async function runSdkRunCommand(
       )
         throw new SdkInputError('invalid_input', 'invalid deadline');
       deadline = setTimeout(() => {
+        if (controller.signal.aborted) return;
         interruptionCause = 'deadline';
-        sigint();
+        controller.abort('deadline');
       }, opts.deadlineMs);
       deadlineAt = Date.now() + opts.deadlineMs;
     }
@@ -957,10 +958,17 @@ export async function runSdkRunCommand(
     });
     sessionId = logical.activeSessionId;
     const result = logical.finalSegment;
-    if (logical.status === 'cancelled' || controller.signal.aborted) throw new Error('interrupted');
+    const deadlineTerminal = logical.finishReason === 'deadline';
+    // A deadline shares the work signal so the model stops. It is not /stop.
+    if (!deadlineTerminal && (logical.status === 'cancelled' || controller.signal.aborted))
+      throw new Error('interrupted');
     if (logical.status === 'failed' && !logical.code && result?.terminal.reason === 'error')
       throw result.terminal.error ?? new Error('provider failed');
-    const outcome = logical.status === 'waiting_user' ? 'waiting_user' : logical.status;
+    const outcome = deadlineTerminal
+      ? 'exhausted'
+      : logical.status === 'waiting_user'
+        ? 'waiting_user'
+        : logical.status;
     const failed = !['completed', 'waiting_user'].includes(logical.status);
     const durable = hasNativeRecoveryTarget(runtime.sessionDb, sessionId);
     if (!failed && !durable)
@@ -973,19 +981,24 @@ export async function runSdkRunCommand(
       logical.status === 'stalled' ||
       logical.status === 'exhausted' ||
       logical.code === 'recovery_unsafe' ||
-      logical.finishReason === 'deadline'
+      deadlineTerminal
         ? logical.finishReason
         : mapTerminalReason(result.terminal);
+    const deadlineCode = 'continuation_exhausted';
     finish({
       type: failed ? 'turn.error' : 'turn.completed',
       outcome,
       reason: logical.finishReason,
       ...(failed
         ? {
-            code: logical.code,
-            error: ERRORS[logical.code ?? 'provider_failed'],
-            recoverable: durable,
-            nextAction: durable ? 'continue_logical_turn' : 'inspect_session',
+            code: deadlineTerminal ? deadlineCode : logical.code,
+            error: ERRORS[deadlineTerminal ? deadlineCode : (logical.code ?? 'provider_failed')],
+            recoverable: deadlineTerminal ? false : durable,
+            nextAction: deadlineTerminal
+              ? 'none'
+              : durable
+                ? 'continue_logical_turn'
+                : 'inspect_session',
           }
         : { nextAction: logical.status === 'waiting_user' ? 'user_input' : 'none' }),
       sessionId: failed && !durable ? null : sessionId,
@@ -1023,6 +1036,23 @@ export async function runSdkRunCommand(
       return 3;
     }
     storageFault ||= isStorageFault(err);
+    if (!storageFault && controller.signal.reason === 'deadline') {
+      const durable = cleanupCoherent && hasNativeRecoveryTarget(runtime?.sessionDb, sessionId);
+      finish({
+        type: 'turn.error',
+        outcome: 'exhausted',
+        reason: 'deadline',
+        code: 'continuation_exhausted',
+        error: ERRORS.continuation_exhausted,
+        recoverable: false,
+        nextAction: 'none',
+        sessionId: durable ? sessionId : null,
+        ...(durable ? { activeSessionId: sessionId } : {}),
+        ...nativeTurnMetrics(receipts),
+        ...metadata(),
+      });
+      return 3;
+    }
     let code: string = storageFault
       ? 'storage_failed'
       : controller.signal.aborted
