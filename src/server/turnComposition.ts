@@ -45,6 +45,7 @@ import type { ModelRecord } from '@yevgetman/sov-sdk/providers/models/index';
 import { modelInputTokenAccounting } from '@yevgetman/sov-sdk/providers/tokenAccounting';
 import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
 import { createSkillActivationState } from '@yevgetman/sov-sdk/skills/activation';
+import type { SkillContinuityPort } from '@yevgetman/sov-sdk/skills/continuity';
 import { effectiveToolInventory } from '@yevgetman/sov-sdk/tool/effectiveInventory';
 import { buildToolScope } from '@yevgetman/sov-sdk/tool/toolScope';
 import {
@@ -380,6 +381,123 @@ export type ComposedTurn = {
   perTurn(hop: TurnHop): PerTurn;
 };
 
+/** Allow-lists still in force for one logical turn, keyed by skill activation id.
+ *  A skill only adds lists. An empty declaration does not remove a narrower one.
+ *  `complete` drops that skill so the ceiling widens only to what remains. */
+type SkillCeilingLayer = { name: string; allowedTools: string[] };
+const skillCeilings = new Map<string, Map<string, string[][]>>();
+
+function rememberSkillCeiling(key: string, name: string, allowedTools: readonly string[]): void {
+  if (allowedTools.length === 0) return;
+  let bucket = skillCeilings.get(key);
+  if (!bucket) {
+    bucket = new Map();
+    skillCeilings.set(key, bucket);
+  }
+  const lists = bucket.get(name) ?? [];
+  const signature = JSON.stringify(allowedTools);
+  if (lists.some((list) => JSON.stringify(list) === signature)) return;
+  lists.push([...allowedTools]);
+  bucket.set(name, lists);
+}
+
+function forgetSkillCeiling(key: string, name: string): void {
+  skillCeilings.get(key)?.delete(name);
+}
+
+function skillCeilingLists(key: string | undefined): string[][] {
+  if (!key) return [];
+  const bucket = skillCeilings.get(key);
+  if (!bucket) return [];
+  return [...bucket.values()].flat();
+}
+
+export function clearSkillCeiling(key: string | undefined): void {
+  if (key) skillCeilings.delete(key);
+}
+
+export function skillCeilingSnapshot(key: string | undefined): SkillCeilingLayer[] {
+  if (!key) return [];
+  const bucket = skillCeilings.get(key);
+  if (!bucket) return [];
+  const layers: SkillCeilingLayer[] = [];
+  for (const [name, lists] of bucket) {
+    for (const allowedTools of lists) layers.push({ name, allowedTools: [...allowedTools] });
+  }
+  return layers;
+}
+
+export function restoreSkillCeiling(key: string, layers: readonly SkillCeilingLayer[]): void {
+  clearSkillCeiling(key);
+  for (const layer of layers) {
+    if (!layer || typeof layer.name !== 'string' || !Array.isArray(layer.allowedTools)) continue;
+    if (!layer.allowedTools.every((entry) => typeof entry === 'string')) continue;
+    rememberSkillCeiling(key, layer.name, layer.allowedTools);
+  }
+}
+
+const SKILL_TOOL_CEILING = 'skillToolCeiling';
+
+/** Copy the in-memory ceiling onto a logical-turn row. An empty ceiling removes
+ *  a stale field so a later resume cannot widen from a deleted skill. */
+export function stampLogicalTurnSkillCeiling(record: object, key: string | undefined): void {
+  const target = record as Record<string, unknown>;
+  const layers = skillCeilingSnapshot(key);
+  if (layers.length === 0) {
+    delete target[SKILL_TOOL_CEILING];
+    return;
+  }
+  target[SKILL_TOOL_CEILING] = layers;
+}
+
+/** Reinstall a ceiling saved on a logical-turn row. Absent on older rows. */
+export function restoreLogicalTurnSkillCeiling(record: object, key: string): void {
+  const value = (record as Record<string, unknown>)[SKILL_TOOL_CEILING];
+  if (!Array.isArray(value)) return;
+  restoreSkillCeiling(key, value as SkillCeilingLayer[]);
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool pool
+type CeilingTool = Tool<any, any>;
+
+function applySkillCeiling(
+  tools: CeilingTool[],
+  canUseTool: CanUseTool,
+  lists: readonly (readonly string[])[],
+): { tools: CeilingTool[]; canUseTool: CanUseTool } {
+  let currentTools = tools;
+  let currentGate = canUseTool;
+  for (const allowedTools of lists) {
+    if (allowedTools.length === 0) continue;
+    const scoped = buildToolScope({
+      allowedTools,
+      tools: currentTools,
+      canUseTool: currentGate,
+    });
+    const effective = effectiveToolInventory(scoped.tools);
+    currentGate =
+      effective.length === scoped.tools.length
+        ? scoped.canUseTool
+        : wrapToolsetCanUseTool(scoped.canUseTool, effective);
+    currentTools = effective;
+  }
+  return { tools: currentTools, canUseTool: currentGate };
+}
+
+function observeSkillCeiling(port: SkillContinuityPort, key: string): SkillContinuityPort {
+  return {
+    ...port,
+    activated: async (activation, guidance, turnId) => {
+      await port.activated(activation, guidance, turnId);
+      rememberSkillCeiling(key, activation.name, activation.allowedTools);
+    },
+    complete: async (name) => {
+      await port.complete(name);
+      forgetSkillCeiling(key, name);
+    },
+  };
+}
+
 /** Compose one user turn. Call once per turn: the agent reads the LIVE
  *  runtime refs, so a between-turn reload is picked up by the next turn. */
 export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
@@ -414,10 +532,33 @@ export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
   // Toolset narrows further (never adds). Applied here as well as inside
   // createAgent so the sub-agent parent pool and skill visibility (both built
   // from the tool context's effective pool) match the schemas the model sees.
-  const tools = effectiveToolInventory(
+  const baseTools = effectiveToolInventory(
     toolset === undefined ? scope.tools : filterToolsForToolset(scope.tools, toolset),
   );
-  scope.canUseTool = wrapToolsetCanUseTool(scope.canUseTool, tools);
+  scope.canUseTool = wrapToolsetCanUseTool(scope.canUseTool, baseTools);
+  const baseCanUseTool = scope.canUseTool;
+  const ceilingKey = opts.skillActivationTurnId;
+  if (ceilingKey) {
+    if (opts.skillActivation && opts.skillActivation.allowedTools.length > 0) {
+      rememberSkillCeiling(
+        ceilingKey,
+        opts.skillActivation.name,
+        opts.skillActivation.allowedTools,
+      );
+    } else if (opts.skillScope && opts.skillScope.length > 0) {
+      rememberSkillCeiling(ceilingKey, 'host-skill-scope', opts.skillScope);
+    }
+  }
+  // Continuation hops compose again. Reapply every skill still in force before
+  // the agent, schemas, and permission gate are built. Empty means identity.
+  const ceilingFor = (): { tools: typeof baseTools; canUseTool: CanUseTool } => {
+    const lists = skillCeilingLists(ceilingKey);
+    if (lists.length === 0) return { tools: baseTools, canUseTool: baseCanUseTool };
+    return applySkillCeiling(baseTools, baseCanUseTool, lists);
+  };
+  const initialCeiling = ceilingFor();
+  const tools = initialCeiling.tools;
+  const turnCanUseTool = initialCeiling.canUseTool;
 
   const systemPrompt = modelSystemPrompt(runtime.systemSegments, tools, modelSnapshot?.metadata);
 
@@ -458,63 +599,80 @@ export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
       : { toolExecutionStore: persistence.host.sessionDb }),
   });
 
-  const perTurn = (hop: TurnHop): PerTurn => ({
-    // Persistence key + hooks/trace target (post-pivot id on a retry hop).
-    sessionId: hop.sessionId,
-    ...(hop.turnId !== undefined ? { turnId: hop.turnId } : {}),
-    ...(opts.model !== undefined ? { model: opts.model } : {}),
-    ...(modelSnapshot
-      ? { modelMetadata: modelSnapshot.metadata, pricingSnapshot: modelSnapshot.pricing }
-      : {}),
-    // Instructions AUGMENT the base prompt (createAgent resolves
-    // `perTurn.systemPrompt ?? config.systemPrompt`, so passing only the
-    // instruction would drop the bundle prompt). Ephemeral: the provider
-    // `system:` field is never written to the messages table.
-    ...(opts.instructions !== undefined
-      ? { systemPrompt: appendInstructions(systemPrompt, opts.instructions) }
-      : {}),
-    // Always set: the session level is the meaningful default.
-    effort: opts.effort ?? hop.sessionCtx.effort,
-    memoryManager: hop.sessionCtx.memoryManager,
-    ...(hop.sessionCtx.recall !== undefined ? { recall: hop.sessionCtx.recall } : {}),
-    ...(opts.pollSteering !== undefined ? { pollSteering: opts.pollSteering } : {}),
-    // Rebuilt per hop: re-reads the (possibly pivoted) SessionContext, and
-    // sub-agents forked mid-turn inherit the narrowed pool.
-    toolContext: (() => {
-      const context = buildSessionToolContext(runtime, hop.sessionId, scope.canUseTool, {
-        ...(opts.delegationLifecycleRecorder !== undefined
-          ? { delegationLifecycleRecorder: opts.delegationLifecycleRecorder }
-          : {}),
-        effectivePool: tools,
-      });
-      const state = createSkillActivationState({ tools, canUseTool: scope.canUseTool });
-      if (opts.skillActivationTurnId) state.turnId = opts.skillActivationTurnId;
-      if (opts.manageSkillContinuity) context.skillContinuityManagedByHost = true;
-      state.restrictionCanUseTool = buildToolScope({
-        tools,
-        allowedTools: opts.skillScope,
-        canUseTool: async () => ({ behavior: 'allow' }),
-      }).canUseTool;
-      if (opts.skillActivation) state.activations.push(opts.skillActivation);
-      context.skillActivation = state;
-      return context;
-    })(),
-    canUseTool: scope.canUseTool,
-    ...(opts.traceRecorder !== undefined ? { traceRecorder: opts.traceRecorder } : {}),
-    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
-    rethrow: opts.rethrow ?? true,
-    ...(hop.maxTurns !== undefined ? { maxTurns: hop.maxTurns } : {}),
-    ...(hop.continuation !== undefined ? { continuation: hop.continuation } : {}),
-    ...(hop.logicalTurn !== undefined ? { logicalTurn: hop.logicalTurn } : {}),
-    ...(persistence.mode === 'sdk-store' && hop.storedPrefixLength !== undefined
-      ? { storedPrefixLength: hop.storedPrefixLength }
-      : {}),
-  });
+  const perTurn = (hop: TurnHop): PerTurn => {
+    const capped = ceilingFor();
+    return {
+      // Persistence key + hooks/trace target (post-pivot id on a retry hop).
+      sessionId: hop.sessionId,
+      ...(hop.turnId !== undefined ? { turnId: hop.turnId } : {}),
+      ...(opts.model !== undefined ? { model: opts.model } : {}),
+      ...(modelSnapshot
+        ? { modelMetadata: modelSnapshot.metadata, pricingSnapshot: modelSnapshot.pricing }
+        : {}),
+      // Instructions AUGMENT the base prompt (createAgent resolves
+      // `perTurn.systemPrompt ?? config.systemPrompt`, so passing only the
+      // instruction would drop the bundle prompt). Ephemeral: the provider
+      // `system:` field is never written to the messages table.
+      ...(opts.instructions !== undefined
+        ? { systemPrompt: appendInstructions(systemPrompt, opts.instructions) }
+        : {}),
+      // Always set: the session level is the meaningful default.
+      effort: opts.effort ?? hop.sessionCtx.effort,
+      memoryManager: hop.sessionCtx.memoryManager,
+      ...(hop.sessionCtx.recall !== undefined ? { recall: hop.sessionCtx.recall } : {}),
+      ...(opts.pollSteering !== undefined ? { pollSteering: opts.pollSteering } : {}),
+      // A continuation segment composes a fresh agent. Install the logical
+      // turn's skill ceiling into this hop's pool before query() builds state.
+      ...(capped.tools !== baseTools ? { tools: capped.tools } : {}),
+      // Rebuilt per hop: re-reads the (possibly pivoted) SessionContext, and
+      // sub-agents forked mid-turn inherit the narrowed pool.
+      toolContext: (() => {
+        const context = buildSessionToolContext(runtime, hop.sessionId, capped.canUseTool, {
+          ...(opts.delegationLifecycleRecorder !== undefined
+            ? { delegationLifecycleRecorder: opts.delegationLifecycleRecorder }
+            : {}),
+          effectivePool: capped.tools,
+        });
+        if (ceilingKey && context.skillContinuity) {
+          context.skillContinuity = observeSkillCeiling(context.skillContinuity, ceilingKey);
+        }
+        const state = createSkillActivationState({
+          tools: capped.tools,
+          canUseTool: capped.canUseTool,
+        });
+        if (opts.skillActivationTurnId) state.turnId = opts.skillActivationTurnId;
+        if (opts.manageSkillContinuity) context.skillContinuityManagedByHost = true;
+        const floor = buildToolScope({
+          tools: capped.tools,
+          allowedTools: opts.skillScope,
+          canUseTool: async () => ({ behavior: 'allow' }),
+        }).canUseTool;
+        state.restrictionCanUseTool = applySkillCeiling(
+          capped.tools,
+          floor,
+          skillCeilingLists(ceilingKey),
+        ).canUseTool;
+        if (opts.skillActivation) state.activations.push(opts.skillActivation);
+        context.skillActivation = state;
+        return context;
+      })(),
+      canUseTool: capped.canUseTool,
+      ...(opts.traceRecorder !== undefined ? { traceRecorder: opts.traceRecorder } : {}),
+      ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+      rethrow: opts.rethrow ?? true,
+      ...(hop.maxTurns !== undefined ? { maxTurns: hop.maxTurns } : {}),
+      ...(hop.continuation !== undefined ? { continuation: hop.continuation } : {}),
+      ...(hop.logicalTurn !== undefined ? { logicalTurn: hop.logicalTurn } : {}),
+      ...(persistence.mode === 'sdk-store' && hop.storedPrefixLength !== undefined
+        ? { storedPrefixLength: hop.storedPrefixLength }
+        : {}),
+    };
+  };
 
   return {
     agent,
     tools,
-    canUseTool: scope.canUseTool,
+    canUseTool: turnCanUseTool,
     relayPersist: persistence.mode === 'gateway-callbacks' ? persistence.host : undefined,
     perTurn,
   };

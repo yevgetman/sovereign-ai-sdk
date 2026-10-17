@@ -9,6 +9,13 @@ and a model-call cap all return 3, as do a stall, an unsafe receipt, and
 invalid recovery state. Do not start another prompt on exit 3. See
 [SDK routes](docs/03-cli-reference/sdk-routes.md).
 
+A skill allow-list still in force stays on that logical turn. The next
+segment, including an automatic `max_tokens` continuation and
+`--continue-logical-turn`, keeps the intersection in its tool schemas and
+permission gate. An empty `allowedTools` declaration does not widen it.
+Continuity guidance still grants no tool permissions. The next ordinary user
+turn starts from the host pool again.
+
 ## Unreleased — skill catalog projections (#120)
 
 **SDK:** `skills_list` accepts `detail` (`names`, `summary`, or `activation`).
