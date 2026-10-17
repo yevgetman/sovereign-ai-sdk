@@ -52,7 +52,14 @@ export type ContentBlock =
       source: { type: 'base64'; media_type: string; data: string };
     };
 
-export type UserMessage = { role: 'user'; content: ContentBlock[] };
+export type UserMessage = {
+  role: 'user';
+  content: ContentBlock[];
+  /** Set on an internal continuation marker. Absent on a human turn. */
+  origin?: 'runtime';
+  /** Stable id of a runtime continuation marker. */
+  id?: string;
+};
 export type AssistantMessage = { role: 'assistant'; content: ContentBlock[] };
 export type Message = UserMessage | AssistantMessage;
 

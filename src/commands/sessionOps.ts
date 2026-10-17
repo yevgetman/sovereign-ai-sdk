@@ -181,13 +181,14 @@ function renderMarkdown(messages: Message[], ctx: CommandContext): string {
   lines.push(`- **provider**: ${ctx.providerName}`);
   lines.push(`- **model**: ${ctx.model}`);
   lines.push(`- **bundle**: ${ctx.bundlePath ?? 'no bundle'}`);
-  lines.push(`- **messages**: ${messages.length}`);
+  const visible = messages.filter((msg) => !(msg.role === 'user' && msg.origin === 'runtime'));
+  lines.push(`- **messages**: ${visible.length}`);
   lines.push('');
   lines.push('---');
   lines.push('');
 
   let turnIndex = 0;
-  for (const msg of messages) {
+  for (const msg of visible) {
     if (msg.role === 'user') turnIndex++;
     const heading = msg.role === 'user' ? `## Turn ${turnIndex} — User` : '### Assistant';
     lines.push(heading);

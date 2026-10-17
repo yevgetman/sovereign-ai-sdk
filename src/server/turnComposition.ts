@@ -25,6 +25,7 @@ import {
   appendProjectLocalPermissionRule,
   loadPermissionSettings,
 } from '@yevgetman/sov-sdk/config/settings';
+import type { StoredMessage } from '@yevgetman/sov-sdk/core/sessionPort';
 import { repairMissingToolResults } from '@yevgetman/sov-sdk/core/transcriptRepair';
 import type { Message, SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import { buildCanUseTool } from '@yevgetman/sov-sdk/permissions/canUseTool';
@@ -233,6 +234,48 @@ export function hydrateSessionHistory(rows: readonly Message[], sessionId: strin
   return mergeConsecutiveSameRoleMessages(repaired);
 }
 
+/** A stored row written by output-limit continuation, not a human turn. */
+export function isRuntimeContinuationRow(row: {
+  role: string;
+  toolCalls?: unknown;
+}): boolean {
+  if (row.role !== 'user' || !row.toolCalls || typeof row.toolCalls !== 'object') return false;
+  return (row.toolCalls as { origin?: unknown }).origin === 'runtime';
+}
+
+function runtimeContinuationId(row: {
+  toolCallId?: string | null;
+  toolCalls?: unknown;
+}): string | undefined {
+  const meta = row.toolCalls;
+  if (!meta || typeof meta !== 'object') return undefined;
+  const id = (meta as { id?: unknown }).id;
+  if (typeof id === 'string' && id.length > 0) return id;
+  if (typeof row.toolCallId === 'string' && row.toolCallId.length > 0) return row.toolCallId;
+  return undefined;
+}
+
+/** Normal presentation omits the hidden marker. The stored row stays in the audit log. */
+export function presentStoredMessages<T extends { role: string; toolCalls?: unknown }>(
+  rows: readonly T[],
+): T[] {
+  return rows.filter((row) => !isRuntimeContinuationRow(row));
+}
+
+/** Project a stored row to a model message, keeping a runtime marker's origin and id. */
+export function storedRowToMessage(row: StoredMessage): Message {
+  if (!isRuntimeContinuationRow(row)) {
+    return { role: row.role, content: row.content };
+  }
+  const id = runtimeContinuationId(row);
+  return {
+    role: 'user',
+    content: row.content,
+    origin: 'runtime',
+    ...(id !== undefined ? { id } : {}),
+  };
+}
+
 /** Load a session's stored rows through the active writer's store. */
 export function loadStoredMessages(persistence: TurnPersistence, sessionId: string): Message[] {
   const rows =
@@ -243,9 +286,7 @@ export function loadStoredMessages(persistence: TurnPersistence, sessionId: stri
     persistence.mode === 'gateway-callbacks'
       ? persistence.host.sessionDb
       : persistence.sessionStore;
-  const messages = rows.map(
-    (m): Message => ({ role: m.role as Message['role'], content: m.content }),
-  );
+  const messages = rows.map(storedRowToMessage);
   return repairMissingToolResults(
     messages,
     store.loadToolExecutions?.(sessionId),

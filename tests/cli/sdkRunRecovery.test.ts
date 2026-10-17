@@ -2,7 +2,7 @@ import { afterAll, afterEach, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AssistantMessage } from '@yevgetman/sov-sdk/core/types';
+import type { AssistantMessage, Message } from '@yevgetman/sov-sdk/core/types';
 import { RouteError, getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
 import type { LLMProvider, Transport } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
@@ -844,4 +844,143 @@ test('pre-session malformed token response requests provider inspection rather t
     nextAction: 'check_provider',
   });
   expect(Object.hasOwn(c.events.at(-1) ?? {}, 'activeSessionId')).toBe(false);
+});
+
+const CONTINUATION_TEXT =
+  'Continue the interrupted answer without repeating text already saved. Do not start a new task.';
+
+function rolesAlternate(roles: readonly string[]): boolean {
+  return roles.every((role, index) => index === 0 || role !== roles[index - 1]);
+}
+
+test('max_tokens on text keeps one hidden runtime marker and does not replay the prompt', async () => {
+  const seen: Message[][] = [];
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(req) {
+      calls++;
+      seen.push(structuredClone(req.messages));
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 3, outputTokens: 2 } };
+      if (calls === 1) {
+        yield { type: 'message_stop', stop_reason: 'max_tokens' };
+        const reply = message('partial');
+        yield { type: 'assistant_message', message: reply };
+        return reply;
+      }
+      yield { type: 'message_stop', stop_reason: 'end_turn' };
+      const reply = message('done');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.loop = { mode: 'off' };
+  });
+  const c = capture();
+  expect(await runSdkRunCommand(opts, c.io, f.deps)).toBe(0);
+  expect(calls).toBe(2);
+  expect(c.events.filter((event) => event.type === 'turn.continuing')).toHaveLength(1);
+  const terminal = c.events.at(-1);
+  expect(terminal).toMatchObject({ type: 'turn.completed', outcome: 'completed' });
+  const logicalTurnId = String(terminal?.logicalTurnId);
+  const continued = seen[1] ?? [];
+  expect(continued.map((row) => row.role)).toEqual(['user', 'assistant', 'user']);
+  expect(rolesAlternate(continued.map((row) => row.role))).toBe(true);
+  const markers = continued.filter((row) => row.role === 'user' && row.origin === 'runtime');
+  expect(markers).toHaveLength(1);
+  expect(markers[0]).toMatchObject({
+    origin: 'runtime',
+    id: `${logicalTurnId}:output:1`,
+    content: [{ type: 'text', text: CONTINUATION_TEXT }],
+  });
+  expect(
+    continued.filter(
+      (row) =>
+        row.role === 'user' &&
+        row.origin !== 'runtime' &&
+        row.content.some((block) => block.type === 'text' && block.text.includes('question')),
+    ),
+  ).toHaveLength(1);
+  const db = SessionDb.open({ path: f.db });
+  try {
+    const stored = db.loadMessages(String(terminal?.activeSessionId));
+    const storedMarkers = stored.filter(
+      (row) =>
+        row.toolCalls !== null &&
+        typeof row.toolCalls === 'object' &&
+        (row.toolCalls as { origin?: unknown }).origin === 'runtime',
+    );
+    expect(storedMarkers).toHaveLength(1);
+    expect(storedMarkers[0]?.toolCallId).toBe(`${logicalTurnId}:output:1`);
+    expect(stored.map((row) => row.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
+    expect(rolesAlternate(stored.map((row) => row.role))).toBe(true);
+    expect(
+      stored.filter((row) =>
+        row.content.some((block) => block.type === 'text' && block.text === 'question'),
+      ),
+    ).toHaveLength(1);
+  } finally {
+    db.close();
+  }
+});
+
+test('max_tokens on tool_use stops instead of guessing a second user row', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 3, outputTokens: 2 } };
+      yield { type: 'message_stop', stop_reason: 'max_tokens' };
+      const reply: AssistantMessage = {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'truncated', name: 'WebSearch', input: {} }],
+      };
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.loop = { mode: 'off' };
+  });
+  const c = capture();
+  expect(await runSdkRunCommand({ ...opts, toolset: 'web' }, c.io, f.deps)).toBe(3);
+  expect(calls).toBe(1);
+  expect(c.events.filter((event) => event.type === 'turn.continuing')).toHaveLength(0);
+  const terminal = c.events.at(-1);
+  expect(terminal).toMatchObject({
+    type: 'turn.error',
+    code: 'recovery_unsafe',
+    recoverable: false,
+    nextAction: 'inspect_session',
+  });
+  expect(terminal?.nextAction).not.toBe('continue_logical_turn');
+  expect(terminal?.finishReason).not.toBe('max_tokens');
+  const db = SessionDb.open({ path: f.db });
+  try {
+    const stored = db.loadMessages(String(terminal?.activeSessionId));
+    expect(rolesAlternate(stored.map((row) => row.role))).toBe(true);
+    expect(stored.filter((row) => row.role === 'user')).toHaveLength(2);
+    expect(
+      stored.some((row) =>
+        row.content.some((block) => block.type === 'text' && block.text === CONTINUATION_TEXT),
+      ),
+    ).toBe(false);
+    expect(
+      stored.some(
+        (row) =>
+          row.toolCalls !== null &&
+          typeof row.toolCalls === 'object' &&
+          (row.toolCalls as { origin?: unknown }).origin === 'runtime',
+      ),
+    ).toBe(false);
+    const tail = stored.at(-1);
+    expect(tail?.role).toBe('user');
+    expect(tail?.content.some((block) => block.type === 'tool_result')).toBe(true);
+  } finally {
+    db.close();
+  }
 });

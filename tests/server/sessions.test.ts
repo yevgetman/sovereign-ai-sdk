@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildAppWithRuntime } from '../../src/server/app.js';
 import { buildRuntime } from '../../src/server/runtime.js';
+import { loadHistoryAsMessages } from '../../src/server/sessionId.js';
 
 describe('GET /sessions/:id/messages — message backlog', () => {
   test('returns empty array for a freshly created session', async () => {
@@ -71,6 +72,58 @@ describe('GET /sessions/:id/messages — message backlog', () => {
       expect(body.messages[0]?.content[0]?.text).toBe('hello');
       expect(body.messages[1]?.role).toBe('assistant');
       expect(body.messages[1]?.content[0]?.text).toBe('hi back');
+    } finally {
+      if (runtime !== null) await runtime.dispose();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('hides a runtime continuation marker from the transcript presentation', async () => {
+    const home = join(tmpdir(), `m4-task3-runtime-${Date.now()}`);
+    let runtime: Awaited<ReturnType<typeof buildRuntime>> | null = null;
+    try {
+      runtime = await buildRuntime({
+        cwd: process.cwd(),
+        provider: 'mock',
+        harnessHome: home,
+      });
+      const sessionId = runtime.sessionDb.createSession({
+        model: 'mock',
+        provider: 'mock',
+        systemPrompt: [],
+        metadata: {},
+      });
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'user',
+        content: [{ type: 'text', text: 'question' }],
+      });
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'partial' }],
+      });
+      runtime.sessionDb.saveMessage(sessionId, {
+        role: 'user',
+        content: [{ type: 'text', text: 'Continue the interrupted answer.' }],
+        toolCallId: 'logical:output:1',
+        toolCalls: { origin: 'runtime', id: 'logical:output:1' },
+      });
+      const app = buildAppWithRuntime(runtime);
+      const res = await app.request(`/sessions/${sessionId}/messages`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        messages: Array<{ role: string; content: Array<{ type: string; text?: string }> }>;
+      };
+      expect(body.messages).toHaveLength(2);
+      expect(body.messages.some((row) => row.content[0]?.text?.includes('Continue'))).toBe(false);
+      const stored = runtime.sessionDb.loadMessages(sessionId);
+      expect(stored).toHaveLength(3);
+      expect(stored[2]?.toolCallId).toBe('logical:output:1');
+      const history = loadHistoryAsMessages(runtime.sessionDb, sessionId);
+      expect(history[2]).toMatchObject({
+        role: 'user',
+        origin: 'runtime',
+        id: 'logical:output:1',
+      });
     } finally {
       if (runtime !== null) await runtime.dispose();
       rmSync(home, { recursive: true, force: true });

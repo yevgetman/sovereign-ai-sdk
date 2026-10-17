@@ -419,6 +419,63 @@ describe('query() — Phase 2 turn loop', () => {
     expect(userPromptSubmits).toBe(1);
   });
 
+  test('a runtime continuation marker is not a new user turn', async () => {
+    const fence = 'UNIQUE_RUNTIME_MARKER_FENCE';
+    const prompt = 'original question';
+    const markerText = 'Continue the interrupted answer without repeating text already saved.';
+    const markerId = 'logical:output:1';
+    let submits = 0;
+    const memoryManager = {
+      async prefetchSnapshot() {
+        return `<memory-context>${fence}</memory-context>`;
+      },
+      async syncTurn() {},
+      async onMemoryWrite() {},
+      async onDelegation() {},
+    };
+    const hookRunner: HookRunner = async (event) => {
+      if (event === 'UserPromptSubmit') submits++;
+      return { block: false };
+    };
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: prompt }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'partial' }] },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: markerText }],
+        origin: 'runtime',
+        id: markerId,
+      },
+    ];
+    const seen: ProviderRequest[] = [];
+    const gen = query({
+      provider: capturingProvider((req) => seen.push(snapshotRequest(req))),
+      model: 'claude-sonnet-4-6',
+      messages,
+      systemPrompt: [],
+      maxTokens: 256,
+      continuation: true,
+      sessionId: 'runtime-marker',
+      cwd: process.cwd(),
+      memoryManager,
+      hookRunner,
+    });
+    expect((await drainToTerminal(gen)).reason).toBe('completed');
+    const sent = seen[0]?.messages ?? [];
+    expect(sent.map((row) => row.role)).toEqual(['user', 'assistant', 'user']);
+    const human = sent[0]?.content.find((block) => block.type === 'text');
+    expect(human?.type === 'text' ? human.text : '').toContain(fence);
+    expect(human?.type === 'text' ? human.text : '').toContain(prompt);
+    expect(sent[2]).toMatchObject({
+      role: 'user',
+      origin: 'runtime',
+      id: markerId,
+      content: [{ type: 'text', text: markerText }],
+    });
+    expect(sent.filter((row) => row.role === 'user' && row.origin !== 'runtime')).toHaveLength(1);
+    expect(submits).toBe(0);
+  });
+
   test('preserves injected recall context when a UserPromptSubmit hook rewrites the prompt', async () => {
     // Regression: the UserPromptSubmit hook receives only the ORIGINAL prompt
     // text, but its rewrittenPrompt replaced the WHOLE latest-user text block —
