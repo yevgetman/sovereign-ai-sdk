@@ -1,10 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Message, Terminal, TokenUsage } from '../core/types.js';
 import {
+  PersistBeforeRunError,
   ProviderHttpError,
+  SessionPersistenceError,
   SubscriptionHttpError,
   SubscriptionRefreshError,
   SubscriptionStreamError,
+  ToolStorageError,
 } from '../providers/errors.js';
 import type { RunResult } from './createAgent.js';
 
@@ -210,6 +213,9 @@ export async function superviseLogicalTurn(
       reply: record.finalReply ?? '',
     };
   }
+  if (record?.status === 'cancelled') {
+    return invalidResult(record.logicalTurnId, record.activeSessionId, 'recovery_state_invalid');
+  }
   if (!record) {
     const createdAt = now();
     record = {
@@ -317,13 +323,22 @@ export async function superviseLogicalTurn(
         counters: { ...record.counters },
         activeSessionId: record.activeSessionId,
       });
-      const result = await options.runSegment({
-        messages,
-        activeSessionId: record.activeSessionId,
-        segment,
-        continuation: segment > 1,
-        remainingModelCalls: remaining,
-      });
+      let result: RunResult;
+      try {
+        result = await options.runSegment({
+          messages,
+          activeSessionId: record.activeSessionId,
+          segment,
+          continuation: segment > 1,
+          remainingModelCalls: remaining,
+        });
+      } catch (error) {
+        // Deadline and storage faults already have their own terminals.
+        // Persist cancellation, then rethrow so the host keeps a pivoted session.
+        if (options.signal?.aborted && !preservesAbortCause(error, record.deadlineAt, now()))
+          finish('cancelled', 'cancelled', undefined);
+        throw error;
+      }
       const previousCause = record.lastCause;
       const previousSessionId = record.activeSessionId;
       record.activeSessionId = result.sessionId;
@@ -514,6 +529,20 @@ function stable(value: unknown): unknown {
         .map(([key, entry]) => [key, stable(entry)]),
     );
   return value;
+}
+
+function preservesAbortCause(
+  error: unknown,
+  deadlineAt: number | undefined,
+  nowMs: number,
+): boolean {
+  if (
+    error instanceof PersistBeforeRunError ||
+    error instanceof SessionPersistenceError ||
+    error instanceof ToolStorageError
+  )
+    return true;
+  return deadlineAt !== undefined && nowMs >= deadlineAt;
 }
 
 function invalidResult(
