@@ -17,7 +17,12 @@ import type {
 import type { HookRunner } from '@yevgetman/sov-sdk/hooks/types';
 import { createInMemorySessionStore } from '@yevgetman/sov-sdk/persistence/inMemoryStore';
 import { ChatGptSubscriptionProvider } from '@yevgetman/sov-sdk/providers/chatgpt';
-import { ProviderHttpError, SubscriptionHttpError } from '@yevgetman/sov-sdk/providers/errors';
+import {
+  ProviderHttpError,
+  ProviderStreamError,
+  SubscriptionHttpError,
+  SubscriptionStreamError,
+} from '@yevgetman/sov-sdk/providers/errors';
 import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
@@ -283,6 +288,243 @@ describe('logical-turn supervisor', () => {
     expect(calls).toBe(3);
     expect(delays[0]).toBeGreaterThanOrEqual(100);
     expect(delays[1]).toBeGreaterThanOrEqual(200);
+  });
+});
+
+function connectionReset(): Error {
+  return Object.assign(new TypeError('fetch failed'), {
+    cause: Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }),
+  });
+}
+
+describe('pre-delivery transport retries', () => {
+  test('a pre-delivery connection reset then success uses two provider calls', async () => {
+    let calls = 0;
+    const provider: LLMProvider = {
+      name: 'fixture',
+      async *stream(): AsyncGenerator<StreamEvent, AssistantMessage> {
+        calls += 1;
+        if (calls === 1) throw connectionReset();
+        yield { type: 'message_start' };
+        yield { type: 'text_delta', text: 'ok' };
+        yield { type: 'message_stop', stop_reason: 'end_turn' };
+        yield { type: 'assistant_message', message: textAnswer };
+        return textAnswer;
+      },
+    };
+    const { options } = setup(
+      async (segment) => {
+        const terminal = await drainQuery(
+          query({
+            provider,
+            model: 'fixture-model',
+            messages: segment.messages,
+            systemPrompt: [],
+            maxTokens: 32,
+            logicalTurn: true,
+            sessionId: 'session-1',
+            cwd: '/tmp/project',
+          }),
+        );
+        return {
+          sessionId: 'session-1',
+          terminal,
+          iterationsUsed: 1,
+          toolCallCount: 0,
+          distinctToolNames: [],
+          messages: segment.messages,
+          ...(terminal.reason === 'completed' ? { finalAssistant: textAnswer } : {}),
+        };
+      },
+      { sleep: async () => {} },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(calls).toBe(2);
+    expect(outcome.status).toBe('completed');
+    expect(outcome.counters.providerRetries).toBe(1);
+  });
+
+  test('abort during backoff sends no further provider call', async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const fixture = setup(
+      async () => {
+        calls += 1;
+        const failed = result('error');
+        failed.terminal.error = connectionReset();
+        return failed;
+      },
+      {
+        signal: controller.signal,
+        sleep: (ms) => {
+          if (ms === 10_000) return new Promise((resolve) => setTimeout(resolve, 0));
+          controller.abort();
+          return new Promise(() => {});
+        },
+      },
+    );
+    const outcome = await Promise.race([
+      superviseLogicalTurn(fixture.options).finally(() => {
+        if (timer) clearTimeout(timer);
+      }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('backoff ignored abort')), 1000);
+      }),
+    ]);
+    expect(calls).toBe(1);
+    expect(outcome.status).toBe('cancelled');
+    expect(outcome.counters.providerRetries).toBe(1);
+  });
+
+  test('a pre-delivery timeout then success uses two provider calls', async () => {
+    let calls = 0;
+    const fixture = setup(
+      async () => {
+        calls += 1;
+        if (calls === 1) {
+          const failed = result('error');
+          failed.terminal.error = new DOMException('timed out', 'TimeoutError');
+          return failed;
+        }
+        return result('completed', 'done');
+      },
+      { sleep: async () => {} },
+    );
+    const outcome = await superviseLogicalTurn(fixture.options);
+    expect(calls).toBe(2);
+    expect(outcome.status).toBe('completed');
+    expect(outcome.counters.providerRetries).toBe(1);
+  });
+
+  test('a pre-delivery connection reset stops after three attempts', async () => {
+    let calls = 0;
+    const fixture = setup(
+      async () => {
+        calls += 1;
+        const failed = result('error');
+        failed.terminal.error = connectionReset();
+        return failed;
+      },
+      { sleep: async () => {} },
+    );
+    const outcome = await superviseLogicalTurn(fixture.options);
+    expect(calls).toBe(3);
+    expect(outcome.status).toBe('failed');
+    expect(outcome.code).toBeUndefined();
+    expect(outcome.counters.providerRetries).toBe(2);
+  });
+
+  test('a connection reset after committed output is not retried', async () => {
+    let calls = 0;
+    const fixture = setup(
+      async () => {
+        calls += 1;
+        const failed = result('error', 'partial answer');
+        failed.terminal.error = connectionReset();
+        return failed;
+      },
+      { sleep: async () => {} },
+    );
+    const outcome = await superviseLogicalTurn(fixture.options);
+    expect(calls).toBe(1);
+    expect(outcome.status).toBe('failed');
+    expect(outcome.counters.providerRetries).toBe(0);
+  });
+
+  test('a connection reset with an ambiguous effect is not retried', async () => {
+    let calls = 0;
+    const fixture = setup(
+      async () => {
+        calls += 1;
+        const failed = result('error');
+        failed.terminal.error = connectionReset();
+        return failed;
+      },
+      { recoverySafe: () => false, sleep: async () => {} },
+    );
+    const outcome = await superviseLogicalTurn(fixture.options);
+    expect(calls).toBe(1);
+    expect(outcome).toMatchObject({ status: 'failed', code: 'recovery_unsafe' });
+    expect(outcome.counters.providerRetries).toBe(0);
+  });
+
+  test('an incomplete stream is not retried', async () => {
+    let calls = 0;
+    const fixture = setup(
+      async () => {
+        calls += 1;
+        const failed = result('error');
+        failed.terminal.error = new ProviderStreamError('missing_completion');
+        return failed;
+      },
+      { sleep: async () => {} },
+    );
+    const outcome = await superviseLogicalTurn(fixture.options);
+    expect(calls).toBe(1);
+    expect(outcome.status).toBe('failed');
+    expect(outcome.counters.providerRetries).toBe(0);
+  });
+
+  test('a subscription pre-delivery connection reset does not open another segment', async () => {
+    let calls = 0;
+    const fixture = setup(
+      async () => {
+        calls += 1;
+        const failed = result('error');
+        failed.terminal.error = new SubscriptionStreamError(
+          'chatgpt',
+          'before_delivery',
+          'connection_reset',
+          true,
+        );
+        return failed;
+      },
+      { sleep: async () => {} },
+    );
+    const outcome = await superviseLogicalTurn(fixture.options);
+    expect(calls).toBe(1);
+    expect(outcome.status).toBe('failed');
+    expect(outcome.counters.providerRetries).toBe(0);
+    expect(outcome.finalSegment?.terminal.error).toBeInstanceOf(SubscriptionStreamError);
+  });
+
+  test('a deadline abort during backoff is continuation_exhausted', async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const fixture = setup(
+      async () => {
+        calls += 1;
+        const failed = result('error');
+        failed.terminal.error = new ProviderHttpError('fixture', 503, 'unavailable');
+        return failed;
+      },
+      {
+        signal: controller.signal,
+        deadlineAt: 10,
+        now: () => 0,
+        sleep: (ms) => {
+          if (ms === 10_000) return new Promise((resolve) => setTimeout(resolve, 0));
+          controller.abort('deadline');
+          return new Promise(() => {});
+        },
+      },
+    );
+    const outcome = await Promise.race([
+      superviseLogicalTurn(fixture.options).finally(() => {
+        if (timer) clearTimeout(timer);
+      }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('backoff ignored deadline')), 1000);
+      }),
+    ]);
+    expect(calls).toBe(1);
+    expect(outcome).toMatchObject({
+      status: 'exhausted',
+      code: 'continuation_exhausted',
+      finishReason: 'deadline',
+    });
   });
 });
 
