@@ -416,7 +416,14 @@ or permission-policy mismatch, any other bound route, provider, auth, model,
 effort, toolset, permission mode, or bundle mismatch, and a corrupt
 logical-turn record. A hook-scope mismatch is a stored hook digest that
 differs from the current hooks. An old row has no hook pin: empty hooks
-cannot widen it, and any command is a hook-scope mismatch.
+cannot widen it, and any command is a hook-scope mismatch. A skill-approval,
+MCP identity, hook-scope, working-directory, or permission-policy mismatch
+names that binding. Restore the pinned environment and continue the same id.
+`nextAction` is `continue_logical_turn`, not `repair_request`. Any other bound
+route, provider, auth, model, effort, toolset, permission mode, or bundle
+mismatch uses that same next action. Passed route, model, and toolset flags
+cannot repair it: the stored row overwrites them. A corrupt logical-turn
+record is not continued that way.
 Unsafe recovery returns 3 (`recovery_unsafe`) when the stored session has no
 usable receipt target, including a `started` or `unknown` tool receipt or an
 ambiguous truncated tool call. That stop records `failed` with finish reason

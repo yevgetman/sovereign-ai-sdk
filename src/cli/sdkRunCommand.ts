@@ -535,7 +535,8 @@ export async function runSdkRunCommand(
           code: 'recovery_state_invalid',
           error: `Logical turn ${named.join(' and ')}.`,
           recoverable: false,
-          nextAction: 'repair_request',
+          // The pin is unchanged. Restore that binding and continue this id.
+          nextAction: 'continue_logical_turn',
           sessionId: null,
           logicalTurnId: continuationRecord.logicalTurnId,
           ...metadata(),
@@ -905,7 +906,9 @@ export async function runSdkRunCommand(
               ? `Logical turn ${named.join(' and ')}.`
               : ERRORS.recovery_state_invalid,
           recoverable: false,
-          nextAction: 'repair_request',
+          // Route, model, and toolset flags are overwritten from the row.
+          // Restore the pinned binding and continue this id.
+          nextAction: 'continue_logical_turn',
           sessionId: null,
           logicalTurnId: continuationRecord.logicalTurnId,
           ...metadata(),
