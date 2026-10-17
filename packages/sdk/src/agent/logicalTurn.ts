@@ -562,8 +562,24 @@ export async function superviseLogicalTurn(
       return await finish('failed', 'unsafe_effect', undefined, 'recovery_unsafe');
     record.status = 'running';
     save();
+    // Compaction inside prepare is paid work. The loop check below is too late.
+    if (isDeadlineTerminal(options.signal, record.deadlineAt, now()))
+      return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
     const prepare = options.prepare;
-    if (prepare) await withHeartbeat(() => Promise.resolve(prepare()));
+    if (prepare) {
+      try {
+        await withHeartbeat(() => Promise.resolve(prepare()));
+      } catch (error) {
+        if (
+          !(error instanceof LogicalTurnLeaseError) &&
+          !storageFault(error) &&
+          isDeadlineTerminal(options.signal, record.deadlineAt, now())
+        ) {
+          return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
+        }
+        throw error;
+      }
+    }
     trace({
       type: 'logical_turn_start',
       segment: record.counters.segments,

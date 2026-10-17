@@ -672,6 +672,45 @@ describe('logical-turn supervisor', () => {
     expect(stored?.status).not.toBe('cancelled');
   });
 
+  test('a past stored deadline does not prepare or run another segment', async () => {
+    let calls = 0;
+    let prepared = 0;
+    const fixture = setup(
+      async () => {
+        calls++;
+        return result('completed', 'durable answer');
+      },
+      {
+        prepare: () => {
+          prepared++;
+        },
+      },
+    );
+    const first = await superviseLogicalTurn(fixture.options);
+    expect(calls).toBe(1);
+    expect(prepared).toBe(1);
+    const stored = fixture.store.loadLogicalTurn(first.logicalTurnId);
+    if (!stored) throw new Error('logical turn row missing');
+    stored.status = 'running';
+    stored.deadlineAt = 1;
+    const { finishReason: _completedReason, ...running } = stored;
+    fixture.store.loadLogicalTurn = (id) =>
+      id === running.logicalTurnId ? structuredClone(running) : null;
+    const resumed = await superviseLogicalTurn({
+      ...fixture.options,
+      logicalTurnId: first.logicalTurnId,
+      now: () => 10_000,
+    });
+    expect(calls).toBe(1);
+    expect(prepared).toBe(1);
+    expect(resumed).toMatchObject({
+      status: 'exhausted',
+      code: 'continuation_exhausted',
+      finishReason: 'deadline',
+      logicalTurnId: first.logicalTurnId,
+    });
+  });
+
   test('a user abort before the deadline stays cancelled', async () => {
     const controller = new AbortController();
     const nowMs = Date.now();
