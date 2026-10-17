@@ -444,14 +444,14 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
    *  unbounded growth.
    *
    *  Uses json_extract on metadata.kind — strict (no false positives from
-   *  titles that happen to contain "cron"). messages and session_compactions
-   *  reference sessions without ON DELETE CASCADE (PRAGMA foreign_keys = ON
-   *  is enabled), so dependent rows must be removed first. tasks already
-   *  CASCADE / SET NULL via migration 3→4.
+   *  titles that happen to contain "cron"). messages, session_compactions,
+   *  and logical_turns reference sessions without ON DELETE CASCADE
+   *  (logical_turns has no session FK at all), so dependent rows must be
+   *  removed first. tasks already CASCADE / SET NULL via migration 3→4.
    *
-   *  Deletes via a CORRELATED SUBQUERY (mirroring cleanupPhantomReviews) — each
-   *  DELETE binds ONE parameter (the cutoff), never a per-id placeholder list,
-   *  so SQLite's bound-parameter ceiling (audit H14) can never be hit no matter
+   *  Deletes via a CORRELATED SUBQUERY (mirroring cleanupPhantomReviews) — the
+   *  only bound value is the cutoff, never a per-id placeholder list, so
+   *  SQLite's bound-parameter ceiling (audit H14) can never be hit no matter
    *  how many stale rows have accrued. Returns the number of session rows
    *  deleted. Called during runtime boot. */
   cleanupOldCronSessions(maxAgeMs = 30 * 24 * 3_600_000): number {
@@ -470,15 +470,15 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
    *  default keeps a month of inactive conversations recoverable.
    *
    *  Strictly scoped via json_extract(metadata,'$.kind') = 'channel' (no false
-   *  positives from titles). messages + session_compactions reference sessions
-   *  WITHOUT ON DELETE CASCADE (PRAGMA foreign_keys = ON), so dependent rows are
-   *  removed first; tasks CASCADE / SET NULL via migration 3→4. Wrapped in
-   *  writeWithRetry (matching the cron sweep) so a transient SQLITE_BUSY from a
-   *  concurrent writer is retried.
+   *  positives from titles). messages, session_compactions, and logical_turns
+   *  reference sessions WITHOUT ON DELETE CASCADE (logical_turns has no session
+   *  FK), so dependent rows are removed first; tasks CASCADE / SET NULL via
+   *  migration 3→4. Wrapped in writeWithRetry (matching the cron sweep) so a
+   *  transient SQLITE_BUSY from a concurrent writer is retried.
    *
-   *  Deletes via a CORRELATED SUBQUERY (mirroring cleanupPhantomReviews) — each
-   *  DELETE binds ONE parameter (the cutoff), never a per-id placeholder list,
-   *  so a flood of untrusted channel senders can never push the sweep past
+   *  Deletes via a CORRELATED SUBQUERY (mirroring cleanupPhantomReviews) — the
+   *  only bound value is the cutoff, never a per-id placeholder list, so a
+   *  flood of untrusted channel senders can never push the sweep past
    *  SQLite's bound-parameter ceiling (audit H14). Returns the number of
    *  session rows deleted. */
   cleanupOldChannelSessions(maxAgeMs = 30 * 24 * 3_600_000): number {
@@ -486,13 +486,14 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
   }
 
   /** Shared sweep for kind-tagged sessions older than maxAgeMs. Deletes the
-   *  dependent rows (messages, session_compactions) then the session rows, all
-   *  via a CORRELATED SUBQUERY keyed on a single cutoff parameter — so the
-   *  number of stale rows is irrelevant to the bound-parameter budget (audit
-   *  H14 / findings #10, #11). `ageColumn` is a fixed internal literal (never
-   *  caller input): 'created_at' for cron (each run is a fresh row) or
-   *  'last_updated' for channels (touched on every turn, so a recently-active
-   *  chat survives). Wrapped in writeWithRetry for SQLITE_BUSY resilience. */
+   *  dependent rows (logical turns, messages, session_compactions) then the
+   *  session rows, all via a CORRELATED SUBQUERY keyed on a single cutoff
+   *  parameter — so the number of stale rows is irrelevant to the
+   *  bound-parameter budget (audit H14 / findings #10, #11). `ageColumn` is a
+   *  fixed internal literal (never caller input): 'created_at' for cron (each
+   *  run is a fresh row) or 'last_updated' for channels (touched on every
+   *  turn, so a recently-active chat survives). Wrapped in writeWithRetry for
+   *  SQLITE_BUSY resilience. */
   private deleteSessionsByKind(
     kind: 'cron' | 'channel',
     ageColumn: 'created_at' | 'last_updated',
@@ -504,6 +505,9 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
          AND ${ageColumn} < ?`;
     return this.writeWithRetry(() => {
       const run = this.db.transaction((): number => {
+        // Before session_compactions rows disappear: logical turns for a
+        // stale session and for its direct compacted children.
+        this.deleteLogicalTurnsForSessions(staleSelect, cutoffSec);
         this.db.run(`DELETE FROM messages WHERE session_id IN (${staleSelect})`, [cutoffSec]);
         this.db.run(
           `DELETE FROM session_compactions
@@ -520,18 +524,47 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
     });
   }
 
+  /** logical_turns has no session FK. `finish()` stores `finalReply` and the
+   *  binding stores absolute `cwd` in the JSON record. Drop rows whose
+   *  sessionId or activeSessionId is a session from `sessionSelect`, or a
+   *  direct compacted child of one (`session_compactions`). `sessionSelect`
+   *  is a fixed internal fragment with exactly one bound parameter — never a
+   *  per-id placeholder list. Must run before those compaction rows are
+   *  deleted. Malformed JSON is skipped so a corrupt row cannot abort the
+   *  session delete. Ordinary parent_session_id children are not compacted
+   *  children and are left alone. */
+  private deleteLogicalTurnsForSessions(sessionSelect: string, binding: string | number): void {
+    const targets = `${sessionSelect}
+      UNION
+      SELECT child_session_id FROM session_compactions
+      WHERE parent_session_id IN (${sessionSelect})`;
+    this.db.run(
+      `DELETE FROM logical_turns
+       WHERE json_valid(record)
+         AND (json_extract(record, '$.sessionId') IN (${targets})
+           OR json_extract(record, '$.activeSessionId') IN (${targets}))`,
+      [binding, binding, binding, binding],
+    );
+  }
+
   /** Phase D — permanently remove a single session and every dependent row.
    *  FK policy: `messages` + `session_compactions` reference sessions WITHOUT
    *  ON DELETE CASCADE (PRAGMA foreign_keys = ON), so their rows are deleted
-   *  manually first; `tasks` CASCADEs / SET NULLs automatically (migration
-   *  3→4); child sessions (`sessions.parent_session_id` — an undeclared FK
-   *  column) are DETACHED (set NULL), never recursively deleted — they are
-   *  independent rows. Wrapped in a transaction so a partial delete can't
-   *  leave a FK violation. Returns true iff the session row existed and was
-   *  removed (idempotent: a missing or already-deleted id returns false). */
+   *  manually first; `logical_turns` has no session FK, so rows for this
+   *  session and its direct compacted children are deleted in the same
+   *  transaction (otherwise `finalReply` and `binding.cwd` stay behind);
+   *  `tasks` CASCADEs / SET NULLs automatically (migration 3→4); child
+   *  sessions (`sessions.parent_session_id` — an undeclared FK column) are
+   *  DETACHED (set NULL), never recursively deleted — they are independent
+   *  rows. Wrapped in a transaction so a partial delete can't leave a FK
+   *  violation. Returns true iff the session row existed and was removed
+   *  (idempotent: a missing or already-deleted id returns false). */
   deleteSession(sessionId: string): boolean {
     return this.writeWithRetry(() => {
       const run = this.db.transaction((): boolean => {
+        // While session_compactions still names compacted children. Detach
+        // does not remove that lineage; deleting it below would.
+        this.deleteLogicalTurnsForSessions('SELECT ?', sessionId);
         // Detach child sessions first: null their parent pointer so the
         // forthcoming parent-row delete leaves no dangling lineage.
         this.db.run('UPDATE sessions SET parent_session_id = NULL WHERE parent_session_id = ?', [
