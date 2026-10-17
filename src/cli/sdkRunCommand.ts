@@ -44,7 +44,7 @@ import { modelInputTokenAccounting } from '@yevgetman/sov-sdk/providers/tokenAcc
 import type { SkillContinuityPort } from '@yevgetman/sov-sdk/skills/continuity';
 import { isToolsetName } from '@yevgetman/sov-sdk/tool/toolset';
 import { defaultMaxTurns } from '@yevgetman/sov-sdk/tool/toolset';
-import { SessionDb } from '../agent/sessionDb.js';
+import { LogicalTurnRecordError, SessionDb } from '../agent/sessionDb.js';
 import { SessionNotFoundError } from '../server/errors.js';
 import {
   modelSystemPrompt,
@@ -1031,6 +1031,23 @@ export async function runSdkRunCommand(
         ...(logicalTurnId ? { logicalTurnId } : {}),
         ...metadata(),
         ...(continuationRecord ? { counters: continuationRecord.counters } : {}),
+        ...nativeTurnMetrics(receipts),
+      });
+      return 3;
+    }
+    // Corrupt JSON is invalid recovery state, not a provider failure.
+    if (err instanceof LogicalTurnRecordError) {
+      finish({
+        type: 'turn.error',
+        outcome: 'failed',
+        reason: 'recovery_state_invalid',
+        code: 'recovery_state_invalid',
+        error: ERRORS.recovery_state_invalid,
+        recoverable: false,
+        nextAction: 'repair_request',
+        sessionId: null,
+        ...(continuationId ? { logicalTurnId: continuationId } : {}),
+        ...metadata(),
         ...nativeTurnMetrics(receipts),
       });
       return 3;

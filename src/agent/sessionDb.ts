@@ -43,6 +43,16 @@ import type { ContentBlock, SystemSegment, TokenUsage } from '@yevgetman/sov-sdk
 import type { SessionStore, ToolExecution } from '@yevgetman/sov-sdk/persistence/sessionStore';
 import { type CostEstimate, estimateUsageCost } from '@yevgetman/sov-sdk/providers/pricing';
 
+/** The row exists, but its JSON is not a logical-turn record. */
+export class LogicalTurnRecordError extends Error {
+  readonly code = 'recovery_state_invalid' as const;
+
+  constructor() {
+    super('logical turn recovery state is invalid');
+    this.name = 'LogicalTurnRecordError';
+  }
+}
+
 /** Default DB path. Resolved at call time so a profile-aware
  *  HARNESS_HOME (set by `sov -p name` before imports) lands the DB
  *  under the right profile root. Phase 10.7 — Invariant #11. */
@@ -329,7 +339,9 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
         'SELECT record FROM logical_turns WHERE logical_turn_id = ?',
       )
       .get(logicalTurnId);
-    return row ? (JSON.parse(row.record) as LogicalTurnRecord) : null;
+    // A missing row stays null. Corrupt JSON is invalid recovery state, not a provider failure.
+    if (!row) return null;
+    return parseLogicalTurnRecord(row.record, logicalTurnId);
   }
 
   saveLogicalTurn(record: LogicalTurnRecord, owner: string): void {
@@ -1211,6 +1223,112 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
     }
     throw new Error('unreachable');
   }
+}
+
+const LOGICAL_TURN_STATUSES = new Set<string>([
+  'admitted',
+  'running',
+  'continuing',
+  'completed',
+  'waiting_user',
+  'cancelled',
+  'failed',
+  'exhausted',
+  'stalled',
+]);
+
+const LOGICAL_TURN_COUNTERS = [
+  'segments',
+  'modelCalls',
+  'toolCalls',
+  'providerRetries',
+  'contextRecoveries',
+  'inputTokens',
+  'outputTokens',
+  'cacheCreationInputTokens',
+  'cacheReadInputTokens',
+  'estimatedCostUsd',
+] as const;
+
+function parseLogicalTurnRecord(serialized: string, logicalTurnId: string): LogicalTurnRecord {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch {
+    throw new LogicalTurnRecordError();
+  }
+  if (!isLogicalTurnRecord(parsed, logicalTurnId)) throw new LogicalTurnRecordError();
+  return parsed;
+}
+
+function isLogicalTurnRecord(value: unknown, logicalTurnId: string): value is LogicalTurnRecord {
+  if (!isPlainRecord(value)) return false;
+  if (value.version !== 1 || value.logicalTurnId !== logicalTurnId) return false;
+  if (typeof value.sessionId !== 'string' || typeof value.activeSessionId !== 'string')
+    return false;
+  if (!isStringArray(value.compactedSessionIds) || !isPlainRecord(value.binding)) return false;
+  const binding = value.binding;
+  if (
+    typeof binding.provider !== 'string' ||
+    typeof binding.model !== 'string' ||
+    typeof binding.cwd !== 'string'
+  ) {
+    return false;
+  }
+  if (
+    !optionalString(binding, 'route') ||
+    !optionalString(binding, 'authKind') ||
+    !optionalString(binding, 'effort') ||
+    !optionalString(binding, 'toolset') ||
+    !optionalString(binding, 'permissionMode') ||
+    !optionalString(binding, 'policyDigest') ||
+    !optionalString(binding, 'bundleIdentity')
+  ) {
+    return false;
+  }
+  if (typeof value.bindingDigest !== 'string') return false;
+  if (!isFiniteNumber(value.segmentLimit) || !isFiniteNumber(value.logicalModelCallLimit)) {
+    return false;
+  }
+  if (value.deadlineAt !== undefined && !isFiniteNumber(value.deadlineAt)) return false;
+  if (!isLogicalTurnStatus(value.status)) return false;
+  if (value.lastCause !== undefined && typeof value.lastCause !== 'string') return false;
+  if (value.progressFingerprint !== undefined && typeof value.progressFingerprint !== 'string') {
+    return false;
+  }
+  if (!isFiniteNumber(value.repeatedNoProgress) || !isStringArray(value.runtimeContinuationIds)) {
+    return false;
+  }
+  if (value.finalReply !== undefined && typeof value.finalReply !== 'string') return false;
+  if (value.finishReason !== undefined && typeof value.finishReason !== 'string') return false;
+  if (value.originalUserMessageId !== undefined && !isFiniteNumber(value.originalUserMessageId)) {
+    return false;
+  }
+  if (!isPlainRecord(value.counters)) return false;
+  const counters = value.counters;
+  if (!LOGICAL_TURN_COUNTERS.every((key) => isFiniteNumber(counters[key]))) return false;
+  return isFiniteNumber(value.createdAt) && isFiniteNumber(value.updatedAt);
+}
+
+function isLogicalTurnStatus(value: unknown): value is LogicalTurnRecord['status'] {
+  return typeof value === 'string' && LOGICAL_TURN_STATUSES.has(value);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function optionalString(record: Record<string, unknown>, key: string): boolean {
+  const value = record[key];
+  return value === undefined || typeof value === 'string';
 }
 
 function nonTurnSkillContinuitySnapshot(serialized: string): string {
