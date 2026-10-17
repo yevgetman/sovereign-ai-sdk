@@ -65,6 +65,7 @@ export function createInMemorySessionStore(): InMemorySessionStore {
   let nextMessageId = 1;
 
   function createSession(input: CreateSessionInput): string {
+    assertLogicalTurnWriteLease();
     const sessionId = input.sessionId ?? randomUUID();
     const now = Date.now() / 1000;
     const session: Session = {
@@ -182,6 +183,7 @@ export function createInMemorySessionStore(): InMemorySessionStore {
   }
 
   function recordUsageEstimate(sessionId: string, usage: TokenUsage, estimate: CostEstimate): void {
+    assertLogicalTurnWriteLease();
     const known =
       estimate.complete &&
       estimate.amountUsd !== undefined &&

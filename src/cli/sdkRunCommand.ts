@@ -6,6 +6,7 @@ import {
   LOGICAL_TURN_RECOVERY_CAPABILITY,
   LogicalTurnLeaseError,
   logicalTurnCursor,
+  logicalTurnWorkSignal,
   superviseLogicalTurn,
 } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import type { LogicalTurnRecord } from '@yevgetman/sov-sdk/agent/logicalTurn';
@@ -994,14 +995,19 @@ export async function runSdkRunCommand(
       let noOp = false;
       try {
         const result = await Promise.race([
-          hostRuntime.compact(messages, id, controller.signal, {
-            onStreamEvent: meter.observe,
-            modelMetadata,
-            effort: routeSelection.effort,
-            inputTokenAccounting,
-            inputSystem: hop.system,
-            inputTools: toToolSchemas(hop.composed.tools),
-          }),
+          hostRuntime.compact(
+            messages,
+            id,
+            logicalTurnWorkSignal(controller.signal) ?? controller.signal,
+            {
+              onStreamEvent: meter.observe,
+              modelMetadata,
+              effort: routeSelection.effort,
+              inputTokenAccounting,
+              inputSystem: hop.system,
+              inputTools: toToolSchemas(hop.composed.tools),
+            },
+          ),
           canceled,
         ]);
         noOp = result.noOp === true || result.newSessionId === id;

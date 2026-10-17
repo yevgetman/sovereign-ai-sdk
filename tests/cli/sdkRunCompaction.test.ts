@@ -2,14 +2,21 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import {
+  LOGICAL_TURN_LEASE_MS,
+  LogicalTurnLeaseError,
+  superviseLogicalTurn,
+} from '@yevgetman/sov-sdk/agent/logicalTurn';
+import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import { ContextOverflowError } from '@yevgetman/sov-sdk/providers/errors';
+import type { CostEstimate } from '@yevgetman/sov-sdk/providers/pricing';
 import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
 import type { LLMProvider, ProviderRequest, Transport } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import { z } from 'zod';
 import { SessionDb } from '../../src/agent/sessionDb.js';
 import { type SdkRunDependencies, runSdkRunCommand } from '../../src/cli/sdkRunCommand.js';
+import { compactSession } from '../../src/compact/compactor.js';
 import { type Runtime, buildRuntime } from '../../src/server/runtime.js';
 
 const dirs: string[] = [];
@@ -821,4 +828,259 @@ test('a later segment compacts before the next model call and charges the summar
       outputTokens: 8,
     },
   });
+});
+
+test('stolen lease skips compaction child and usage writes', async () => {
+  const db = SessionDb.open({ path: ':memory:' });
+  try {
+    const parent = db.createSession({ model: 'm', provider: 'p' });
+    const history: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'one' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'two' }] },
+      { role: 'user', content: [{ type: 'text', text: 'three' }] },
+    ];
+    for (const message of history) db.saveMessage(parent, message);
+    let releaseSummary: (() => void) | undefined;
+    const summaryGate = new Promise<void>((resolve) => {
+      releaseSummary = resolve;
+    });
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const waiters: Array<() => void> = [];
+    let nowMs = 1_000;
+    let logicalTurnId = '';
+    let renewFailed = false;
+    const create = db.createLogicalTurn.bind(db);
+    db.createLogicalTurn = (record) => {
+      logicalTurnId = record.logicalTurnId;
+      create(record);
+    };
+    const renew = db.renewLogicalTurnLease.bind(db);
+    db.renewLogicalTurnLease = (id, owner, expiresAt) => {
+      const ok = renew(id, owner, expiresAt);
+      if (!ok) renewFailed = true;
+      return ok;
+    };
+    const estimate: CostEstimate = {
+      provider: 'p',
+      model: 'm',
+      state: 'unknown',
+      complete: false,
+      source: 'compact',
+      version: 1,
+      pricedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const refused = { usage: false, compaction: false, lineage: false };
+    const pending = superviseLogicalTurn({
+      store: db,
+      binding: { provider: 'p', model: 'm', cwd: '/tmp' },
+      sessionId: parent,
+      initialMessages: history,
+      rehydrate: () => history,
+      recoverySafe: () => true,
+      now: () => nowMs,
+      sleep: () =>
+        new Promise((resolve) => {
+          waiters.push(resolve);
+        }),
+      prepare: async () => {
+        await compactSession({
+          db,
+          sessionId: parent,
+          model: 'm',
+          providerName: 'p',
+          systemPrompt: [],
+          history,
+          tailTokenBudget: 1,
+          minTailMessages: 1,
+          summarize: async () => {
+            markStarted?.();
+            await summaryGate;
+            const attempt = (write: () => void): boolean => {
+              try {
+                write();
+                return false;
+              } catch (error) {
+                if (!(error instanceof LogicalTurnLeaseError)) throw error;
+                return true;
+              }
+            };
+            refused.usage = attempt(() =>
+              db.recordUsageEstimate(parent, { inputTokens: 4 }, estimate),
+            );
+            refused.compaction = attempt(() =>
+              db.recordCompactionUsage(parent, { inputTokens: 4, outputTokens: 1 }, 0.2, estimate),
+            );
+            refused.lineage = attempt(() => db.recordCompactionLineage(parent, parent));
+            return {
+              summary: 'kept',
+              usedAuxiliary: true,
+              usage: { inputTokens: 4, outputTokens: 1 },
+              estimatedCostUsd: 0.2,
+              costEstimate: estimate,
+            };
+          },
+        });
+      },
+      runSegment: async () => {
+        throw new Error('segment should not start');
+      },
+    }).then(
+      () => new Error('dispossessed compaction finished'),
+      (error: unknown) => error,
+    );
+    await started;
+    nowMs += LOGICAL_TURN_LEASE_MS + 1;
+    expect(db.acquireLogicalTurnLease(logicalTurnId, 'second-owner', nowMs + 30_000, nowMs)).toBe(
+      true,
+    );
+    const waiter = waiters.shift();
+    if (!waiter) throw new Error('heartbeat did not wait');
+    waiter();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(renewFailed).toBe(true);
+    const sessionsBefore = db.handle
+      .query<{ n: number }, []>('SELECT COUNT(*) AS n FROM sessions')
+      .get()?.n;
+    const usageBefore = db.handle
+      .query<{ n: number }, []>('SELECT COUNT(*) AS n FROM usage_estimates')
+      .get()?.n;
+    releaseSummary?.();
+    expect(await pending).toBeInstanceOf(LogicalTurnLeaseError);
+    expect(refused).toEqual({ usage: true, compaction: true, lineage: true });
+    expect(db.handle.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM sessions').get()?.n).toBe(
+      sessionsBefore,
+    );
+    expect(
+      db.handle.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM usage_estimates').get()?.n,
+    ).toBe(usageBefore);
+    expect(db.getCompactionsForParent(parent)).toEqual([]);
+    expect(db.loadLogicalTurn(logicalTurnId)?.activeSessionId).toBe(parent);
+    db.saveMessage(parent, {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'second owner' }],
+    });
+    db.recordUsageEstimate(parent, { inputTokens: 1 }, estimate);
+    expect(
+      db
+        .loadMessages(parent)
+        .some((row) =>
+          row.content.some((block) => block.type === 'text' && block.text === 'second owner'),
+        ),
+    ).toBe(true);
+    expect(
+      db.handle.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM usage_estimates').get()?.n,
+    ).toBe((usageBefore ?? 0) + 1);
+  } finally {
+    db.close();
+  }
+});
+
+test('a dispossessed compaction writes no child session and no usage row', async () => {
+  let releaseSummary: (() => void) | undefined;
+  const summaryGate = new Promise<void>((resolve) => {
+    releaseSummary = resolve;
+  });
+  let markSummaryStarted: (() => void) | undefined;
+  const summaryStarted = new Promise<void>((resolve) => {
+    markSummaryStarted = resolve;
+  });
+  let signalAbortedWhenSummaryResolved = false;
+  let renewFailed = false;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(req) {
+      if (!isSummary(req)) {
+        const message = answer('unused');
+        yield { type: 'assistant_message', message };
+        return message;
+      }
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 11, outputTokens: 4 } };
+      const message = answer('late handoff');
+      yield { type: 'assistant_message', message };
+      markSummaryStarted?.();
+      await summaryGate;
+      signalAbortedWhenSummaryResolved = req.signal?.aborted === true;
+      return message;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.proactiveCompactThreshold = 0.005;
+    const renew = runtime.sessionDb.renewLogicalTurnLease.bind(runtime.sessionDb);
+    runtime.sessionDb.renewLogicalTurnLease = (id, owner, expiresAt) => {
+      const ok = renew(id, owner, expiresAt);
+      if (!ok) {
+        renewFailed = true;
+        releaseSummary?.();
+      }
+      return ok;
+    };
+  });
+  const pending = runSdkRunCommand({ ...opts, resume: f.parent }, f.io, f.deps);
+  await summaryStarted;
+  const thief = SessionDb.open({ path: f.dbPath });
+  let logicalTurnId = '';
+  try {
+    const row = thief.handle
+      .query<{ logical_turn_id: string }, []>('SELECT logical_turn_id FROM logical_turns')
+      .get();
+    if (!row) throw new Error('logical turn missing');
+    logicalTurnId = row.logical_turn_id;
+    thief.handle.run('UPDATE logical_turns SET lease_expires_at = ? WHERE logical_turn_id = ?', [
+      Date.now() - 1,
+      logicalTurnId,
+    ]);
+    expect(
+      thief.acquireLogicalTurnLease(logicalTurnId, 'second-owner', Date.now() + 60_000, Date.now()),
+    ).toBe(true);
+    thief.saveMessage(f.parent, {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'second owner' }],
+    });
+  } finally {
+    thief.close();
+  }
+  expect(await pending).toBe(3);
+  expect(renewFailed).toBe(true);
+  expect(signalAbortedWhenSummaryResolved).toBe(true);
+  const db = SessionDb.open({ path: f.dbPath });
+  try {
+    const sessions = db.handle
+      .query<{ session_id: string; parent_session_id: string | null }, []>(
+        'SELECT session_id, parent_session_id FROM sessions',
+      )
+      .all();
+    expect(sessions).toEqual([{ session_id: f.parent, parent_session_id: null }]);
+    expect(
+      db.handle.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM usage_estimates').get()?.n,
+    ).toBe(0);
+    expect(db.getCompactionsForParent(f.parent)).toEqual([]);
+    expect(db.readLogicalTurnLease(logicalTurnId)?.owner).toBe('second-owner');
+    expect(db.loadLogicalTurn(logicalTurnId)?.activeSessionId).toBe(f.parent);
+    expect(
+      db
+        .loadMessages(f.parent)
+        .some((row) =>
+          row.content.some((block) => block.type === 'text' && block.text === 'second owner'),
+        ),
+    ).toBe(true);
+    const estimate: CostEstimate = {
+      provider: 'openai',
+      model: 'gpt-4.1',
+      state: 'unknown',
+      complete: false,
+      source: 'second-owner',
+      version: 1,
+      pricedAt: new Date().toISOString(),
+    };
+    db.recordUsageEstimate(f.parent, { inputTokens: 1, outputTokens: 1 }, estimate);
+    expect(
+      db.handle.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM usage_estimates').get()?.n,
+    ).toBe(1);
+  } finally {
+    db.close();
+  }
 });
