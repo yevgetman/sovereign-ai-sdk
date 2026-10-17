@@ -1,3 +1,20 @@
+## 2026-10-16 — Skill-list cursors keep their pinned detail
+
+Scope: `skills_list` continuation when `detail` is omitted. The omitted-detail
+default without a cursor stays `names`. No catalog continuation-check change,
+and no changelog or skill-catalog doc edit.
+
+Environment: macOS, Bun 1.3.13, isolated checkout `review-fix/116` at
+`a0c4102ab38dfab6a1b84199b54cdf56ca1d0f4b`. Dependencies installed with
+`--ignore-scripts` (no `packages/sdk/dist`, no `bin/sov-tui`).
+
+Commands:
+- Before the fix, `env -u FORCE_COLOR bun test --timeout 20000 tests/skills/catalog.test.ts -t 'skills_list cursor detail'` failed both new tests. The cursor description was `Keep the same query; changed catalogs require restart.` The follow-up that repeated the query but omitted detail threw `skill catalog changed or cursor query differs; restart enumeration without cursor`.
+- After the fix, `env -u FORCE_COLOR bun test --timeout 20000 tests/skills/catalog.test.ts tests/tools/skillsProgressiveTools.test.ts`: **16 pass / 0 fail**, 602 assertions. Related `tests/skills/kernelCompatibility.test.ts`, `tests/skills/catalogQuery.test.ts`, and `tests/skills/descriptor.test.ts` passed. `tests/skills/registry.test.ts` had one failure: the Node wrapper looks for `dist/skills/registry.js`, which this install did not build. That test does not call `skills_list`.
+- `bun run lint` passed (Biome, 1157 files; dependency-cruiser, 256 modules, no violations). `bun run typecheck` passed.
+
+Result: an activation or summary page continues from `nextCursor` alone, and from `nextCursor` plus the same query. A call with neither detail nor a cursor still returns names. An explicit conflicting detail still restarts. No live provider, install, upgrade, release, or deployment ran.
+
 ## 2026-10-16 — Continuation segments keep the MEMORY.md fence
 
 Scope: `query()` memory fencing on `continuation: true` only. Recall,
