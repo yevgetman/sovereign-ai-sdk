@@ -905,6 +905,118 @@ test('deadline during a segment runs the Stop command once', async () => {
   ).toEqual(['ran']);
 });
 
+test('resumed work aborts a blocking tool at the stored deadline', async () => {
+  let calls = 0;
+  let toolRuns = 0;
+  let toolStartedAt = 0;
+  let toolAbortedAt = 0;
+  let toolReason: unknown;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 3, outputTokens: 2 } };
+      if (calls === 1) {
+        const reply = message('durable answer');
+        yield { type: 'assistant_message', message: reply };
+        return reply;
+      }
+      if (calls > 2) {
+        const reply = message('model call after the stored deadline');
+        yield { type: 'assistant_message', message: reply };
+        return reply;
+      }
+      const reply: AssistantMessage = {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'stored-deadline', name: 'deadline_probe', input: {} }],
+      };
+      yield { type: 'message_stop', stop_reason: 'tool_use' };
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'deadline_probe',
+        description: () => 'stored deadline fixture',
+        inputSchema: z.unknown(),
+        async call(_input, context) {
+          toolRuns++;
+          toolStartedAt = Date.now();
+          // A late return is the overrun the resume timer must prevent.
+          await Promise.race([
+            waitForAbort(context.signal),
+            new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+          ]);
+          toolAbortedAt = Date.now();
+          toolReason = context.signal?.reason;
+          if (context.signal?.aborted !== true) return { data: 'overran the stored deadline' };
+          return { data: 'aborted at the stored deadline' };
+        },
+      }),
+    );
+  });
+  const first = capture();
+  expect(await runSdkRunCommand({ ...opts, toolset: 'coding' }, first.io, f.deps)).toBe(0);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const deadlineAt = Date.now() + 2500;
+  const db = SessionDb.open({ path: f.db });
+  try {
+    const record = db.loadLogicalTurn(logicalTurnId);
+    if (!record) throw new Error('logical turn row missing');
+    record.status = 'running';
+    record.deadlineAt = deadlineAt;
+    db.handle.run('UPDATE logical_turns SET record = ? WHERE logical_turn_id = ?', [
+      JSON.stringify(record),
+      logicalTurnId,
+    ]);
+  } finally {
+    db.close();
+  }
+  const second = capture();
+  const exitCode = await runSdkRunCommand(
+    { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+    second.io,
+    f.deps,
+  );
+  expect(toolRuns).toBe(1);
+  expect(toolStartedAt).toBeLessThanOrEqual(deadlineAt);
+  expect(toolReason).toBe('deadline');
+  expect(toolAbortedAt).toBeGreaterThanOrEqual(deadlineAt - 250);
+  expect(toolAbortedAt).toBeLessThanOrEqual(deadlineAt + 1000);
+  expect(calls).toBe(2);
+  expect(JSON.stringify(second.events)).not.toContain('overran the stored deadline');
+  expect(JSON.stringify(second.events)).not.toContain('model call after the stored deadline');
+  expect(exitCode).toBe(3);
+  const terminal = second.events.at(-1);
+  expect(terminal).toMatchObject({
+    type: 'turn.error',
+    outcome: 'exhausted',
+    reason: 'deadline',
+    code: 'continuation_exhausted',
+    finishReason: 'deadline',
+    recoverable: false,
+    nextAction: 'none',
+    logicalTurnId,
+  });
+  expect(terminal?.outcome).not.toBe('interrupted');
+  expect(terminal?.nextAction).not.toBe('continue_logical_turn');
+  expect(terminal?.nextAction).not.toBe('resume');
+  const stored = SessionDb.open({ path: f.db });
+  try {
+    const record = stored.loadLogicalTurn(logicalTurnId);
+    expect(record?.status).toBe('exhausted');
+    expect(record?.finishReason).toBe('deadline');
+    expect(record?.deadlineAt).toBe(deadlineAt);
+  } finally {
+    stored.close();
+  }
+});
+
 test('a usage storage failure during cancellation disables recovery and keeps errors secret-safe', async () => {
   const controller = new AbortController();
   const provider: LLMProvider = {

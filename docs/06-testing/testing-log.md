@@ -1,3 +1,36 @@
+## 2026-10-17 — Resumed work aborts at the stored deadline
+
+Scope: `--continue-logical-turn` of a still-running logical turn whose
+`deadlineAt` is a few seconds ahead. The resume omits `--deadline-ms`. A
+blocking tool must abort at that stored instant, and the row must stay the
+stored deadline. A new `--deadline-ms` is not treated as a replacement. The
+held-lease event and `packages/sdk/src/agent/logicalTurn.ts` were not changed.
+
+Environment: `/tmp/fix-sov-158` on `review-fix/158` from `c25f7679`, macOS,
+Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade, release,
+or deployment ran.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/cli/sdkRunRecovery.test.ts -t 'resumed work aborts a blocking tool'`
+failed. The tool started before `deadlineAt` and its signal reason stayed
+`undefined` through the 5s overrun cap (5.27s).
+
+After the fix, the same command passes inside `env -u FORCE_COLOR bun test
+--timeout 20000 tests/cli/sdkRunRecovery.test.ts -t 'deadline|resumed work
+aborts'`: **7 pass / 0 fail**. The tool aborts with reason `deadline` inside
+the stored window, the model is not called again, and the stored `deadlineAt`
+is unchanged. `tests/cli/sdkRunRecovery.test.ts tests/cli/sdkRunCommand.test.ts
+tests/cli/runCommand.test.ts` is **82 pass / 0 fail**, 636 assertions.
+
+`bun run lint` passed (Biome 1159 files; boundary 257 modules, 1054
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). None are in the deadline files.
+`env -u FORCE_COLOR bun test --timeout 20000` is **6598 pass / 31 skip / 0 fail**,
+27089 assertions, 625 files, 177.43 seconds, after `bun run build:sdk`. An
+earlier run without `packages/sdk/dist` failed 67 Node module tests; those
+passed once dist existed and are not part of this change.
+
 ## 2026-10-17 — Failed logical turns resume only for a safe transient
 
 Scope: direct `superviseLogicalTurn` resume of a stored `failed` row. A

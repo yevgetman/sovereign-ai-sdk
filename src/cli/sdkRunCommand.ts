@@ -317,8 +317,41 @@ export async function runSdkRunCommand(
   const externalAbort = () => controller.abort();
   deps.signal?.addEventListener('abort', externalAbort, { once: true });
   if (deps.signal?.aborted) controller.abort();
-  let deadline: ReturnType<typeof setTimeout> | undefined;
   let deadlineAt: number | undefined;
+  const deadlineTimers: ReturnType<typeof setTimeout>[] = [];
+  // A stored deadlineAt stays absolute. --deadline-ms on continue adds its own
+  // timer and does not replace that instant.
+  let storedDeadlineArmed = false;
+  // Node and Bun collapse a delay above this to 1ms.
+  const MAX_TIMER_MS = 2_147_483_647;
+  const abortForDeadline = (): void => {
+    if (controller.signal.aborted) return;
+    interruptionCause = 'deadline';
+    controller.abort('deadline');
+  };
+  const armDeadline = (delayMs: number): void => {
+    deadlineTimers.push(setTimeout(abortForDeadline, delayMs));
+  };
+  const armStoredResumeDeadline = (): void => {
+    if (storedDeadlineArmed || continuationRecord?.deadlineAt === undefined) return;
+    storedDeadlineArmed = true;
+    const schedule = (): void => {
+      if (controller.signal.aborted || continuationRecord?.deadlineAt === undefined) return;
+      const remainingMs = Math.max(0, continuationRecord.deadlineAt - Date.now());
+      if (remainingMs === 0) {
+        abortForDeadline();
+        return;
+      }
+      const delay = Math.min(remainingMs, MAX_TIMER_MS);
+      deadlineTimers.push(
+        setTimeout(() => {
+          if (delay < remainingMs) schedule();
+          else abortForDeadline();
+        }, delay),
+      );
+    };
+    schedule();
+  };
   let runtime: Runtime | undefined;
   let selected: SelectedRoute | undefined;
   let selectedMetadata: ModelRecord | undefined;
@@ -405,11 +438,7 @@ export async function runSdkRunCommand(
         opts.deadlineMs <= 0
       )
         throw new SdkInputError('invalid_input', 'invalid deadline');
-      deadline = setTimeout(() => {
-        if (controller.signal.aborted) return;
-        interruptionCause = 'deadline';
-        controller.abort('deadline');
-      }, opts.deadlineMs);
+      armDeadline(opts.deadlineMs);
       deadlineAt = Date.now() + opts.deadlineMs;
     }
     const raw = continuationId
@@ -1226,6 +1255,9 @@ export async function runSdkRunCommand(
         });
       },
       runSegment: async (segment) => {
+        // Arm after prepare(). An already-passed stored deadline stays the
+        // supervisor's pre-segment check; a future one aborts this signal.
+        armStoredResumeDeadline();
         boundaryRows = null;
         // Keep a child already pivoted by prepare(); resetting would drop the lease-held compaction.
         if (sessionId === segment.activeSessionId) {
@@ -1482,7 +1514,7 @@ export async function runSdkRunCommand(
         1000,
       );
     clearSkillCeiling(skillActivationTurnId);
-    if (deadline) clearTimeout(deadline);
+    for (const timer of deadlineTimers) clearTimeout(timer);
     process.off('SIGINT', sigint);
     process.off('SIGTERM', sigterm);
     deps.signal?.removeEventListener('abort', externalAbort);
