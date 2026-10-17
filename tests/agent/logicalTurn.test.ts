@@ -939,6 +939,58 @@ describe('logical-turn supervisor', () => {
     expect(fixture.store.loadLogicalTurn(first.logicalTurnId)?.status).toBe('failed');
   });
 
+  test('a resumed receipt is not scanned again while the lease is held', async () => {
+    let nowMs = 1_000_000;
+    let segments = 0;
+    const fixture = setup(async () => result('completed', 'first'), { now: () => nowMs });
+    const first = await superviseLogicalTurn(fixture.options);
+    const stored = fixture.store.loadLogicalTurn(first.logicalTurnId);
+    if (!stored) throw new Error('logical turn row missing');
+    expect(
+      fixture.store.acquireLogicalTurnLease(first.logicalTurnId, 'seed', nowMs + 1_000, nowMs),
+    ).toBe(true);
+    const { finishReason: _finished, ...running } = stored;
+    fixture.store.saveLogicalTurn({ ...running, status: 'running' }, 'seed');
+    fixture.store.releaseLogicalTurnLease(first.logicalTurnId, 'seed');
+
+    let scans = 0;
+    let scannedWhileHeld = false;
+    const resumed = await superviseLogicalTurn({
+      ...fixture.options,
+      logicalTurnId: first.logicalTurnId,
+      now: () => nowMs,
+      recoverySafe: () => {
+        scans += 1;
+        const lease = fixture.store.readLogicalTurnLease(first.logicalTurnId);
+        const held = lease?.owner != null && lease.expiresAt !== null && lease.expiresAt > nowMs;
+        if (!held) return true;
+        scannedWhileHeld = true;
+        nowMs += LOGICAL_TURN_LEASE_MS + 1_000;
+        fixture.store.acquireLogicalTurnLease(
+          first.logicalTurnId,
+          'other-owner',
+          nowMs + LOGICAL_TURN_LEASE_MS,
+          nowMs,
+        );
+        return false;
+      },
+      runSegment: async () => {
+        segments += 1;
+        return result('completed', 'resumed');
+      },
+    });
+
+    expect(scans).toBe(1);
+    expect(scannedWhileHeld).toBe(false);
+    expect(segments).toBe(1);
+    expect(resumed).toMatchObject({ status: 'completed', reply: 'resumed' });
+    expect(fixture.store.readLogicalTurnLease(first.logicalTurnId)).toEqual({
+      owner: null,
+      expiresAt: null,
+    });
+    expect(fixture.store.loadLogicalTurn(first.logicalTurnId)?.status).toBe('completed');
+  });
+
   test('checks recovery receipts before a resumed model call', async () => {
     let calls = 0;
     const fixture = setup(
