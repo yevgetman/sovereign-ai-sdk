@@ -1,4 +1,5 @@
 import type { Command } from '@commander-js/extra-typings';
+import { LOGICAL_TURN_RECOVERY_CAPABILITY } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { loadSettings } from '@yevgetman/sov-sdk/config/loader';
 import {
   getRoute,
@@ -39,6 +40,7 @@ export const SOV_ROUTE_CAPABILITIES = {
       schemaVersion: 1,
     },
   },
+  logicalTurnRecovery: LOGICAL_TURN_RECOVERY_CAPABILITY,
   routes: true,
   structuredInput: true,
   toolsets: true,

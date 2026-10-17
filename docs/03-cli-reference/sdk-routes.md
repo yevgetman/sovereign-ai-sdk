@@ -60,6 +60,8 @@ the active SOV profile's `model-catalog/` directory; credentials are never store
 Account-scoped caches do not borrow another account's catalog. Failed refreshes preserve
 stale metadata and exact configured model IDs. Use `capabilities.modelDiscovery` to
 check this additive machine interface without changing the existing route contract.
+`capabilities.logicalTurnRecovery` names SOV-owned automatic recovery
+(`owner` `sov`, `version` 1, `mode` `automatic`).
 
 Status is read-only:
 it does not call the provider, refresh tokens, open a browser or write credentials.
