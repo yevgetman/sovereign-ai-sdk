@@ -18,7 +18,7 @@ const inputSchema = z.object({
     .max(2048)
     .optional()
     .describe(
-      'Continuation from the previous page. Keep the same query; changed catalogs require restart.',
+      'Continuation from the previous page. Keep the same query and detail; changed catalogs require restart.',
     ),
   limit: z
     .number()
@@ -39,6 +39,33 @@ type Input = z.infer<typeof inputSchema>;
 
 type Output = import('../skills/catalog.js').SkillCatalogPage;
 
+type CatalogDetail = NonNullable<Input['detail']>;
+
+// Cursors pin detail. An omitted follow-up detail must reuse that pin;
+// only a call with neither detail nor a cursor defaults to names.
+function detailPinnedByCursor(cursor: string): CatalogDetail | undefined {
+  if (cursor.length > 2_048) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      detail?: unknown;
+    };
+    const detail = parsed.detail;
+    if (detail === 'names' || detail === 'summary' || detail === 'activation') return detail;
+  } catch {
+    // The catalog rejects an invalid cursor. Do not invent a detail here.
+  }
+  return undefined;
+}
+
+function requestedDetail(input: Input): CatalogDetail {
+  if (input.detail !== undefined) return input.detail;
+  if (input.cursor !== undefined) {
+    const pinned = detailPinnedByCursor(input.cursor);
+    if (pinned !== undefined) return pinned;
+  }
+  return 'names';
+}
+
 export const SkillsListTool = buildTool<Input, Output>({
   name: 'skills_list',
   description: () =>
@@ -57,7 +84,7 @@ export const SkillsListTool = buildTool<Input, Output>({
         ...(input.query !== undefined ? { query: input.query } : {}),
         ...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
         ...(input.limit !== undefined ? { limit: input.limit } : {}),
-        detail: input.detail ?? 'names',
+        detail: requestedDetail(input),
         ...(ctx.skillContextBudget !== undefined ? { budget: ctx.skillContextBudget } : {}),
       },
     );
@@ -90,7 +117,11 @@ export const SkillsListTool = buildTool<Input, Output>({
               status: 'success',
               summary: `${skills.length} of ${data.total} matching skills${truncated ? ' (continue with nextCursor)' : ''}`,
               ...(truncated
-                ? { next_actions: ['call skills_list with nextCursor and the same query'] }
+                ? {
+                    next_actions: [
+                      'call skills_list with nextCursor and the same query and detail',
+                    ],
+                  }
                 : {}),
             },
     };
