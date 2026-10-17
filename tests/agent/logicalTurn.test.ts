@@ -16,7 +16,8 @@ import type {
 } from '@yevgetman/sov-sdk/core/types';
 import type { HookRunner } from '@yevgetman/sov-sdk/hooks/types';
 import { createInMemorySessionStore } from '@yevgetman/sov-sdk/persistence/inMemoryStore';
-import { ProviderHttpError } from '@yevgetman/sov-sdk/providers/errors';
+import { ChatGptSubscriptionProvider } from '@yevgetman/sov-sdk/providers/chatgpt';
+import { ProviderHttpError, SubscriptionHttpError } from '@yevgetman/sov-sdk/providers/errors';
 import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
@@ -282,6 +283,107 @@ describe('logical-turn supervisor', () => {
     expect(calls).toBe(3);
     expect(delays[0]).toBeGreaterThanOrEqual(100);
     expect(delays[1]).toBeGreaterThanOrEqual(200);
+  });
+});
+
+async function runSubscriptionStatuses(status: number, retryAfter?: string) {
+  let sends = 0;
+  let segments = 0;
+  const transportWaits: number[] = [];
+  const supervisorWaits: number[] = [];
+  const provider = new ChatGptSubscriptionProvider({
+    port: {
+      async read() {
+        return {
+          accessToken: 'fake-access',
+          refreshToken: 'fake-refresh',
+          expiresAt: 1e15,
+          accountBinding: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        };
+      },
+      async write() {},
+      async delete() {},
+    },
+    fetchImpl: async () => {
+      sends += 1;
+      return new Response('busy', {
+        status,
+        ...(retryAfter !== undefined ? { headers: { 'retry-after': retryAfter } } : {}),
+      });
+    },
+    deps: {
+      sleep: async (ms) => {
+        transportWaits.push(ms);
+      },
+      random: () => 0,
+      now: () => 0,
+    },
+  });
+  const { options } = setup(
+    async (segment) => {
+      segments += 1;
+      const terminal = await drainQuery(
+        query({
+          provider,
+          model: 'gpt-5.3-codex',
+          messages: segment.messages,
+          systemPrompt: [],
+          maxTokens: 32,
+          logicalTurn: true,
+          sessionId: 'session-1',
+          cwd: '/tmp/project',
+        }),
+      );
+      return {
+        sessionId: 'session-1',
+        terminal,
+        iterationsUsed: 0,
+        toolCallCount: 0,
+        distinctToolNames: [],
+        messages: segment.messages,
+      };
+    },
+    {
+      sleep: async (ms) => {
+        if (ms === 10_000) return;
+        supervisorWaits.push(ms);
+      },
+    },
+  );
+  const outcome = await superviseLogicalTurn(options);
+  return { sends, segments, transportWaits, supervisorWaits, outcome };
+}
+
+describe('subscription status retries', () => {
+  test('three subscription 503s send three times and do not start another segment', async () => {
+    const seen = await runSubscriptionStatuses(503);
+    expect(seen.segments).toBe(1);
+    expect(seen.sends).toBe(3);
+    expect(seen.transportWaits).toEqual([500, 1500]);
+    expect(seen.supervisorWaits).toEqual([]);
+    expect(seen.outcome.status).toBe('failed');
+    expect(seen.outcome.counters.segments).toBe(1);
+    expect(seen.outcome.counters.providerRetries).toBe(0);
+    expect(seen.outcome.finalSegment?.terminal.error).toBeInstanceOf(SubscriptionHttpError);
+    expect((seen.outcome.finalSegment?.terminal.error as SubscriptionHttpError).status).toBe(503);
+  });
+
+  test('Retry-After is honored inside the three sends and does not open a segment', async () => {
+    const seen = await runSubscriptionStatuses(503, '2');
+    expect(seen.segments).toBe(1);
+    expect(seen.sends).toBe(3);
+    expect(seen.transportWaits).toEqual([2_000, 2_000]);
+    expect(seen.supervisorWaits).toEqual([]);
+    expect(seen.outcome.counters.providerRetries).toBe(0);
+  });
+
+  test('Retry-After over 10 seconds does not add a segment attempt', async () => {
+    const seen = await runSubscriptionStatuses(429, '30');
+    expect(seen.segments).toBe(1);
+    expect(seen.sends).toBe(1);
+    expect(seen.transportWaits).toEqual([]);
+    expect(seen.supervisorWaits).toEqual([]);
+    expect(seen.outcome.status).toBe('failed');
   });
 });
 

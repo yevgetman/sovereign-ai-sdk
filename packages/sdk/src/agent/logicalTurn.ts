@@ -621,10 +621,9 @@ function assistantTextLength(result: RunResult): number {
 
 function transientDelay(error: Error | undefined, attempt: number): number | undefined {
   if (!error) return undefined;
-  if (error instanceof ProviderHttpError || error instanceof SubscriptionHttpError) {
+  if (error instanceof ProviderHttpError) {
     if (![429, 502, 503, 504].includes(error.status)) return undefined;
-    const retryAfter =
-      error instanceof ProviderHttpError ? headerValue(error.headers, 'retry-after') : undefined;
+    const retryAfter = headerValue(error.headers, 'retry-after');
     const seconds = retryAfter ? Number(retryAfter) : Number.NaN;
     const base =
       Number.isFinite(seconds) && seconds >= 0
@@ -637,6 +636,9 @@ function transientDelay(error: Error | undefined, attempt: number): number | und
   // Subscription transports already apply their bounded before-delivery retry
   // policy. Retrying the terminal stream error here would multiply requests.
   if (error instanceof SubscriptionStreamError) return undefined;
+  // requestAttempt owns 429/502/503/504: at most three sends, Retry-After
+  // capped at 10 seconds. Another segment would send past that budget.
+  if (error instanceof SubscriptionHttpError) return undefined;
   return undefined;
 }
 
