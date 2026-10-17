@@ -7,8 +7,20 @@ import {
   type LogicalTurnSupervisorOptions,
   superviseLogicalTurn,
 } from '@yevgetman/sov-sdk/agent/logicalTurn';
+import { query } from '@yevgetman/sov-sdk/core/query';
+import type {
+  AssistantMessage,
+  Message,
+  StreamEvent,
+  Terminal,
+} from '@yevgetman/sov-sdk/core/types';
+import type { HookRunner } from '@yevgetman/sov-sdk/hooks/types';
 import { createInMemorySessionStore } from '@yevgetman/sov-sdk/persistence/inMemoryStore';
 import { ProviderHttpError } from '@yevgetman/sov-sdk/providers/errors';
+import type { LLMProvider } from '@yevgetman/sov-sdk/providers/types';
+import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
+import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
+import { z } from 'zod';
 import { SessionDb } from '../../src/agent/sessionDb.js';
 
 const binding = {
@@ -223,6 +235,276 @@ describe('logical-turn supervisor', () => {
     expect(calls).toBe(3);
     expect(delays[0]).toBeGreaterThanOrEqual(100);
     expect(delays[1]).toBeGreaterThanOrEqual(200);
+  });
+});
+
+const echoTool = buildTool({
+  name: 'Echo',
+  description: () => 'echo input',
+  inputSchema: z.object({ text: z.string() }),
+  async call(input) {
+    return { data: { echoed: input.text } };
+  },
+}) as unknown as Tool<unknown, unknown>;
+
+const stopToolContext: ToolContext = {
+  cwd: '/tmp/project',
+  bundleRoot: '/tmp/project',
+  sessionId: 'session-1',
+};
+
+const toolUseAnswer: AssistantMessage = {
+  role: 'assistant',
+  content: [{ type: 'tool_use', id: 'tool-1', name: 'Echo', input: { text: 'hello' } }],
+};
+
+const textAnswer: AssistantMessage = {
+  role: 'assistant',
+  content: [{ type: 'text', text: 'ok' }],
+};
+
+function toolUseProvider(): LLMProvider {
+  return {
+    name: 'tool-use',
+    async *stream(): AsyncGenerator<StreamEvent, AssistantMessage> {
+      yield { type: 'message_start' };
+      yield { type: 'message_stop', stop_reason: 'tool_use' };
+      yield { type: 'assistant_message', message: toolUseAnswer };
+      return toolUseAnswer;
+    },
+  };
+}
+
+function flakyThenOkProvider(): LLMProvider {
+  let calls = 0;
+  return {
+    name: 'flaky',
+    async *stream(): AsyncGenerator<StreamEvent, AssistantMessage> {
+      calls += 1;
+      if (calls === 1) throw new ProviderHttpError('flaky', 503, 'unavailable');
+      yield { type: 'message_start' };
+      yield { type: 'text_delta', text: 'ok' };
+      yield { type: 'message_stop', stop_reason: 'end_turn' };
+      yield { type: 'assistant_message', message: textAnswer };
+      return textAnswer;
+    },
+  };
+}
+
+async function drainQuery(gen: AsyncGenerator<StreamEvent | Message, Terminal>): Promise<Terminal> {
+  while (true) {
+    const step = await gen.next();
+    if (step.done) return step.value;
+  }
+}
+
+function stopRecorder(): { hookRunner: HookRunner; stops: string[]; prompts: number } {
+  const stops: string[] = [];
+  let prompts = 0;
+  const hookRunner: HookRunner = async (event, payload) => {
+    if (event === 'UserPromptSubmit') prompts += 1;
+    if (event === 'Stop') {
+      if (payload.hookEventName !== 'Stop') throw new Error('expected Stop payload');
+      stops.push((payload as { reason: string }).reason);
+    }
+    return { block: false };
+  };
+  return {
+    hookRunner,
+    stops,
+    get prompts() {
+      return prompts;
+    },
+  };
+}
+
+async function runObservedSegment(
+  segment: {
+    messages: Message[];
+    continuation: boolean;
+    remainingModelCalls: number;
+  },
+  observed: {
+    hookRunner: HookRunner;
+    recall?: () => Promise<{ injectionText: string; lessons: [] }>;
+  },
+  mode: 'max_turns' | 'checkin' | 'text' | 'error-then-text',
+  provider: LLMProvider,
+): Promise<RunResult> {
+  const terminal = await drainQuery(
+    query({
+      provider,
+      model: 'fixture-model',
+      messages: segment.messages,
+      systemPrompt: [{ text: 'system', cacheable: true }],
+      maxTokens: 32,
+      maxTurns: mode === 'max_turns' ? 1 : segment.remainingModelCalls,
+      continuation: segment.continuation,
+      logicalTurn: true,
+      hookRunner: observed.hookRunner,
+      sessionId: 'session-1',
+      cwd: '/tmp/project',
+      ...(observed.recall ? { recall: observed.recall } : {}),
+      ...(mode === 'max_turns' || mode === 'checkin'
+        ? { tools: [echoTool], toolContext: stopToolContext }
+        : {}),
+      ...(mode === 'checkin' ? { maxToolCallsBeforeCheckin: 1 } : {}),
+    }),
+  );
+  return {
+    sessionId: 'session-1',
+    terminal,
+    iterationsUsed: 1,
+    toolCallCount: mode === 'max_turns' || mode === 'checkin' ? 1 : 0,
+    distinctToolNames: [],
+    messages: segment.messages,
+    ...(terminal.reason === 'completed' ? { finalAssistant: textAnswer } : {}),
+  };
+}
+
+describe('logical turn Stop hooks', () => {
+  test('a 503 then success records one Stop and does not rerun user-turn hooks', async () => {
+    const observed = stopRecorder();
+    let recalls = 0;
+    const provider = flakyThenOkProvider();
+    const { options } = setup(
+      (segment) =>
+        runObservedSegment(
+          segment,
+          {
+            hookRunner: observed.hookRunner,
+            recall: async () => {
+              recalls += 1;
+              return { injectionText: 'RECALL_MARKER', lessons: [] };
+            },
+          },
+          'error-then-text',
+          provider,
+        ),
+      { sleep: async () => {} },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('completed');
+    expect(outcome.counters.providerRetries).toBe(1);
+    expect(observed.stops).toEqual(['completed']);
+    expect(observed.prompts).toBe(1);
+    expect(recalls).toBe(1);
+  });
+
+  test('a stall after max_turns records one Stop', async () => {
+    const observed = stopRecorder();
+    const provider = toolUseProvider();
+    const { options } = setup(
+      (segment) => runObservedSegment(segment, observed, 'max_turns', provider),
+      { progressSnapshot: () => ({ same: true }) },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('stalled');
+    expect(observed.stops).toEqual(['max_turns']);
+  });
+
+  test('a check-in after max_turns records one Stop', async () => {
+    const observed = stopRecorder();
+    const provider = toolUseProvider();
+    let segments = 0;
+    const { options } = setup((segment) => {
+      segments += 1;
+      return runObservedSegment(
+        segment,
+        observed,
+        segments === 1 ? 'max_turns' : 'checkin',
+        provider,
+      );
+    });
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('waiting_user');
+    expect(segments).toBe(2);
+    expect(observed.stops).toEqual(['checkin']);
+  });
+
+  test('model-call exhaustion after max_turns records one Stop', async () => {
+    const observed = stopRecorder();
+    const provider = toolUseProvider();
+    const { options } = setup(
+      (segment) => runObservedSegment(segment, observed, 'max_turns', provider),
+      { logicalModelCallLimit: 1 },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('exhausted');
+    expect(outcome.finishReason).toBe('model_call_limit');
+    expect(outcome.counters.segments).toBe(1);
+    expect(observed.stops).toEqual(['max_turns']);
+  });
+
+  test('a deadline after max_turns records one Stop', async () => {
+    const observed = stopRecorder();
+    const provider = toolUseProvider();
+    let nowMs = 0;
+    const { options } = setup(
+      async (segment) => {
+        const result = await runObservedSegment(segment, observed, 'max_turns', provider);
+        nowMs = 5;
+        return result;
+      },
+      { deadlineAt: 5, now: () => nowMs },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('exhausted');
+    expect(outcome.finishReason).toBe('deadline');
+    expect(observed.stops).toEqual(['max_turns']);
+  });
+
+  test('recovery_unsafe after max_turns records one Stop', async () => {
+    const observed = stopRecorder();
+    const provider = toolUseProvider();
+    const { options } = setup(
+      (segment) => runObservedSegment(segment, observed, 'max_turns', provider),
+      { recoverySafe: () => false },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('failed');
+    expect(outcome.code).toBe('recovery_unsafe');
+    expect(observed.stops).toEqual(['max_turns']);
+  });
+
+  test('a non-retryable provider error records one Stop', async () => {
+    const observed = stopRecorder();
+    const { options } = setup((segment) =>
+      runObservedSegment(segment, observed, 'text', {
+        name: 'denied',
+        async *stream(): AsyncGenerator<StreamEvent, AssistantMessage> {
+          yield { type: 'message_start' };
+          throw new ProviderHttpError('denied', 400, 'bad request');
+        },
+      }),
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('failed');
+    expect(observed.stops).toEqual(['error']);
+  });
+
+  test('a provider error outside a logical turn still records Stop', async () => {
+    const observed = stopRecorder();
+    const terminal = await drainQuery(
+      query({
+        provider: {
+          name: 'down',
+          async *stream(): AsyncGenerator<StreamEvent, AssistantMessage> {
+            yield { type: 'message_start' };
+            throw new ProviderHttpError('down', 503, 'unavailable');
+          },
+        },
+        model: 'fixture-model',
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'do the work' }] }],
+        systemPrompt: [],
+        maxTokens: 32,
+        hookRunner: observed.hookRunner,
+        sessionId: 'session-1',
+        cwd: '/tmp/project',
+      }),
+    );
+    expect(terminal.reason).toBe('error');
+    expect(observed.stops).toEqual(['error']);
   });
 });
 

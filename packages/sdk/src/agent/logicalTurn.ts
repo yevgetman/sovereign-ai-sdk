@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { logicalSegmentStop } from '../core/query.js';
 import type { Message, Terminal, TokenUsage } from '../core/types.js';
 import {
   PersistBeforeRunError,
@@ -317,12 +318,23 @@ export async function superviseLogicalTurn(
     held.record.updatedAt = now();
     options.store.saveLogicalTurn(held.record, leaseOwner);
   };
-  const finish = (
+  let pendingStop: (() => Promise<void>) | undefined;
+  const fireTerminalStop = async (): Promise<void> => {
+    const fire = pendingStop;
+    pendingStop = undefined;
+    if (!fire) return;
+    try {
+      await fire();
+    } catch {
+      // Stop hooks are observers; a failure must not change the terminal.
+    }
+  };
+  const finish = async (
     status: LogicalTurnStatus,
     finishReason: string,
     finalSegment?: RunResult,
     code?: LogicalTurnResult['code'],
-  ): LogicalTurnResult => {
+  ): Promise<LogicalTurnResult> => {
     held.record.status = status;
     held.record.finishReason = finishReason;
     if (finalSegment)
@@ -340,7 +352,7 @@ export async function superviseLogicalTurn(
       activeSessionId: held.record.activeSessionId,
       outcome: status,
     });
-    return {
+    const outcome: LogicalTurnResult = {
       logicalTurnId: held.record.logicalTurnId,
       status,
       ...(code !== undefined ? { code } : {}),
@@ -350,6 +362,9 @@ export async function superviseLogicalTurn(
       finishReason,
       reply: held.record.finalReply ?? '',
     };
+    // The segment suppressed Stop. Fire it once this outcome is durable.
+    await fireTerminalStop();
+    return outcome;
   };
 
   try {
@@ -406,7 +421,7 @@ export async function superviseLogicalTurn(
       return invalidResult(record.logicalTurnId, record.activeSessionId, 'recovery_state_invalid');
     }
     if (resuming && !options.recoverySafe(record.activeSessionId))
-      return finish('failed', 'unsafe_effect', undefined, 'recovery_unsafe');
+      return await finish('failed', 'unsafe_effect', undefined, 'recovery_unsafe');
     record.status = 'running';
     save();
     if (options.prepare) await withHeartbeat(Promise.resolve(options.prepare()));
@@ -422,12 +437,12 @@ export async function superviseLogicalTurn(
         : [...options.initialMessages];
     let transientAttempts = 0;
     for (;;) {
-      if (options.signal?.aborted) return finish('cancelled', 'cancelled', undefined);
+      if (options.signal?.aborted) return await finish('cancelled', 'cancelled', undefined);
       if (record.deadlineAt !== undefined && now() >= record.deadlineAt)
-        return finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
+        return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
       const remaining = record.logicalModelCallLimit - record.counters.modelCalls;
       if (remaining <= 0)
-        return finish('exhausted', 'model_call_limit', undefined, 'continuation_exhausted');
+        return await finish('exhausted', 'model_call_limit', undefined, 'continuation_exhausted');
       const segment = record.counters.segments + 1;
       if (!renewLease()) throw new LogicalTurnLeaseError();
       trace({
@@ -456,7 +471,7 @@ export async function superviseLogicalTurn(
           options.signal?.aborted &&
           !preservesAbortCause(error, record.deadlineAt, now())
         )
-          finish('cancelled', 'cancelled', undefined);
+          await finish('cancelled', 'cancelled', undefined);
         throw error;
       }
       const previousCause = record.lastCause;
@@ -474,6 +489,8 @@ export async function superviseLogicalTurn(
       record.counters.toolCalls += result.toolCallCount;
       addUsage(record.counters, result.usage, result.estimatedCostUsd);
       record.lastCause = result.terminal.reason;
+      const deferredStop = logicalSegmentStop(result.terminal);
+      if (deferredStop) pendingStop = deferredStop;
       trace({
         type: 'segment_end',
         segment,
@@ -482,17 +499,19 @@ export async function superviseLogicalTurn(
         activeSessionId: record.activeSessionId,
       });
 
-      if (result.terminal.reason === 'completed') return finish('completed', 'completed', result);
-      if (result.terminal.reason === 'checkin') return finish('waiting_user', 'checkin', result);
+      if (result.terminal.reason === 'completed')
+        return await finish('completed', 'completed', result);
+      if (result.terminal.reason === 'checkin')
+        return await finish('waiting_user', 'checkin', result);
       if (result.terminal.reason === 'interrupted' || options.signal?.aborted)
-        return finish('cancelled', 'cancelled', result);
+        return await finish('cancelled', 'cancelled', result);
 
       if (result.terminal.reason === 'error') {
         const transient = transientDelay(result.terminal.error, transientAttempts);
         if (transient === undefined || transientAttempts >= 2)
-          return finish('failed', 'failed', result);
+          return await finish('failed', 'failed', result);
         if (!options.recoverySafe(record.activeSessionId))
-          return finish('failed', 'unsafe_effect', result, 'recovery_unsafe');
+          return await finish('failed', 'unsafe_effect', result, 'recovery_unsafe');
         transientAttempts++;
         record.counters.providerRetries++;
         save();
@@ -510,7 +529,7 @@ export async function superviseLogicalTurn(
 
       transientAttempts = 0;
       if (!options.recoverySafe(record.activeSessionId))
-        return finish('failed', 'unsafe_effect', result, 'recovery_unsafe');
+        return await finish('failed', 'unsafe_effect', result, 'recovery_unsafe');
       const snapshot = options.progressSnapshot?.(record.activeSessionId) ?? messages;
       const fingerprint = digest({
         snapshot,
@@ -523,7 +542,7 @@ export async function superviseLogicalTurn(
           : 0;
       record.progressFingerprint = fingerprint;
       if (record.repeatedNoProgress >= 1)
-        return finish('stalled', 'no_progress', result, 'continuation_stalled');
+        return await finish('stalled', 'no_progress', result, 'continuation_stalled');
 
       if (result.terminal.reason === 'max_tokens') {
         const id = `${record.logicalTurnId}:output:${segment}`;
