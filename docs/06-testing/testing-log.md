@@ -1,3 +1,45 @@
+## 2026-10-17 — Logical-turn id is named when prepare fails after the row exists
+
+Scope: `session.started` included `logicalTurnId` only for
+`--continue-logical-turn`. A new id was minted inside `superviseLogicalTurn`
+after that event, and catch terminals (`storage_failed`, `logical_turn_leased`,
+deadline, and the generic `turn.error`) omitted it. The host now mints or
+reads the id before prepare, puts it on `session.started`, passes it as
+`allocatedLogicalTurnId` for a new row (not a resume), and copies it onto
+every catch `finish()`. `segmentLimit` stays omitted. An unsafe resume still
+records `failed` / `unsafe_effect`.
+
+Environment: `/private/tmp/fix-sov-193` on `review-fix/193` from `69e6a2be`,
+macOS, Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade,
+release, or deployment.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/cli/sdkRunRecovery.test.ts -t 'prepare storage failure names|lease refusal on a new logical turn'`
+failed both cases. `SELECT logical_turn_id FROM logical_turns` returned an id
+(`7edd686e-3ed2-4ea6-b40d-eef46d98c003` after compaction threw
+`SessionPersistenceError`, `ba108f28-5de0-44a0-9d3d-5476090414a2` after lease
+acquire returned false) while `session.started.logicalTurnId` was `undefined`.
+Exit codes were already 1 and 3. The catch `finish()` payloads did not carry
+the new id.
+
+After the fix those tests pass: `session.started` and `turn.error` use the
+same `logical_turn_id`. The compaction failure leaves the row `running`. The
+allocated-id supervisor test rejects `SessionPersistenceError` from `prepare`
+without treating the id as a resume, and the row stays `running` with no
+`segmentLimit`. `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts tests/agent/sessionDb.logicalTurnRecord.test.ts
+tests/cli/sdkRunRecovery.test.ts tests/cli/sdkRunCompaction.test.ts
+tests/cli/sdkRunCommand.test.ts tests/cli/runCommand.test.ts
+tests/cli/nativeRunOutcome.test.ts tests/server/skillCeilingContinuation.test.ts`
+was 198 pass / 0 fail. `bun run lint` passed (Biome 1159 files; boundary 257
+modules, 1055 dependencies, no violations). `bun run typecheck` reports the
+same 3 existing errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212
+and 366) and `tests/skills/catalog.test.ts` (line 370). A full
+`bun test --timeout 20000` was 6556 pass / 31 skip / 67 fail, all
+`ERR_MODULE_NOT_FOUND` for `packages/sdk/dist` after the tarball test deleted
+that build. Rebuilding the SDK and rerunning
+`tests/providers/modelImportOrder.test.ts` and `tests/skills` was 465 pass / 0 fail.
+
 ## 2026-10-17 — Unsafe resume records a failed logical turn
 
 Scope: continuing a `running` or `continuing` logical turn whose session has a

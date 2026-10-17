@@ -15,6 +15,13 @@ covers a `started` or `unknown` tool receipt and an ambiguous truncated tool
 call. A later `--continue-logical-turn` reads that terminal row and does not
 retry the unsafe decision. The row does not keep a lease after the stop.
 
+`session.started` includes `logicalTurnId` for a new turn, not only for
+`--continue-logical-turn`. The same id is on `turn.error` when prepare,
+compaction, storage, or a lease refusal fails after that id is assigned.
+The durable row uses that id, so recovery can continue it. `--resume` does
+not. Hosts may pass `allocatedLogicalTurnId` when creating a row; omitting
+it still mints an id inside the supervisor. That field is not a resume.
+
 The durable logical-turn row does not store `segmentLimit`. That field was a
 toolset turn cap, or a default of 10, and the supervisor never applied it.
 Continuation still stops at the logical model-call budget (default 100), the

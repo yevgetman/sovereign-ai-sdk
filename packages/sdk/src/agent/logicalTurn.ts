@@ -246,7 +246,10 @@ export type LogicalTurnSupervisorOptions = {
   onContinuing?: (event: LogicalTurnContinuation) => void;
   onTrace?: (event: LogicalTurnTraceEvent) => void;
   signal?: AbortSignal;
+  /** Existing row to resume. A missing row is invalid recovery state. */
   logicalTurnId?: string;
+  /** New-row id. Not a resume. Ignored when `logicalTurnId` is set. */
+  allocatedLogicalTurnId?: string;
   activeSessionId?: string;
   /** Cumulative model-call budget. Default 100. There is no segment-count option. */
   logicalModelCallLimit?: number;
@@ -343,7 +346,7 @@ export async function superviseLogicalTurn(
     const createdAt = now();
     record = {
       version: 1,
-      logicalTurnId: randomUUID(),
+      logicalTurnId: options.allocatedLogicalTurnId || randomUUID(),
       ...(options.originalUserMessageId !== undefined
         ? { originalUserMessageId: options.originalUserMessageId }
         : {}),

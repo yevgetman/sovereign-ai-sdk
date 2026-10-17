@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { AMBIGUOUS_MAX_TOKENS_TOOL_NOTE } from '@yevgetman/sov-sdk/core/query';
 import type { AssistantMessage, Message } from '@yevgetman/sov-sdk/core/types';
 import { buildHookRunner } from '@yevgetman/sov-sdk/hooks/runner';
+import { SessionPersistenceError } from '@yevgetman/sov-sdk/providers/errors';
 import { RouteError, getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
 import type { LLMProvider, Transport } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
@@ -2706,5 +2707,82 @@ test('a short deadline still aborts while long timers are chunked', async () => 
       reason: 'deadline',
       code: 'continuation_exhausted',
     });
+  });
+});
+
+function logicalTurnIdRow(path: string): string {
+  const db = SessionDb.open({ path });
+  try {
+    const row = db.handle
+      .query<{ logical_turn_id: string }, []>('SELECT logical_turn_id FROM logical_turns')
+      .get();
+    if (!row?.logical_turn_id) throw new Error('logical turn row missing');
+    return row.logical_turn_id;
+  } finally {
+    db.close();
+  }
+}
+
+test('prepare storage failure names the logical turn created before compaction', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('should not run');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.proactiveCompactThreshold = 0;
+    runtime.compact = async () => {
+      throw new SessionPersistenceError(new Error('compact failed after admit'));
+    };
+  });
+  const c = capture();
+  expect(await runSdkRunCommand(opts, c.io, f.deps)).toBe(1);
+  expect(calls).toBe(0);
+  const logicalTurnId = logicalTurnIdRow(f.db);
+  const started = c.events.find((event) => event.type === 'session.started');
+  expect(started?.logicalTurnId).toBe(logicalTurnId);
+  expect(c.events.at(-1)).toMatchObject({
+    type: 'turn.error',
+    code: 'storage_failed',
+    logicalTurnId,
+  });
+  const db = SessionDb.open({ path: f.db });
+  try {
+    expect(db.loadLogicalTurn(logicalTurnId)?.status).toBe('running');
+  } finally {
+    db.close();
+  }
+});
+
+test('a lease refusal on a new logical turn names the admitted id', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('should not run');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.sessionDb.acquireLogicalTurnLease = () => false;
+  });
+  const c = capture();
+  expect(await runSdkRunCommand(opts, c.io, f.deps)).toBe(3);
+  expect(calls).toBe(0);
+  const logicalTurnId = logicalTurnIdRow(f.db);
+  const started = c.events.find((event) => event.type === 'session.started');
+  expect(started?.logicalTurnId).toBe(logicalTurnId);
+  expect(c.events.at(-1)).toMatchObject({
+    type: 'turn.error',
+    code: 'logical_turn_leased',
+    nextAction: 'continue_logical_turn',
+    logicalTurnId,
   });
 });

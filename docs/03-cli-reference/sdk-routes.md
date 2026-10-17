@@ -287,7 +287,11 @@ are denied because this surface has no interactive approver.
 Each recognized request ends with exactly one `turn.completed` or `turn.error`.
 Completion contains `reply`, `sessionId`, `activeSessionId`, `logicalTurnId`,
 `finishReason`, cumulative counters and route metadata. `session.started`
-advertises `capabilities.logicalTurnRecovery`. A bounded segment that ends at
+includes that same `logicalTurnId` for a new turn and for
+`--continue-logical-turn`, and advertises `capabilities.logicalTurnRecovery`.
+A `turn.error` after the id is assigned also carries it, including storage
+and lease failures. The SQLite row is then the one named by that id.
+`--resume` starts a different logical turn; it does not continue this one. A bounded segment that ends at
 `max_tokens` or `max_turns` emits `turn.continuing`, reloads durable state and
 continues without replaying the original prompt. The toolset segment defaults
 are chat 1, web 6, ops 8 and coding 100 model calls. Those numbers bound model
