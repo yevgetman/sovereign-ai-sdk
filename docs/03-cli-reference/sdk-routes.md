@@ -411,9 +411,12 @@ returns 3: `--continue-logical-turn` of a stored cancelled id is
 is still SIGINT 130 or SIGTERM 143, not 3. A stall returns 3
 (`continuation_stalled`), including resume of a stored stall. Invalid
 recovery state returns 3 (`recovery_state_invalid`) for a skill-approval
-mismatch, an MCP identity mismatch, a working-directory or permission-policy
-mismatch, any other bound route, provider, auth, model, effort, toolset,
-permission mode, or bundle mismatch, and a corrupt logical-turn record.
+mismatch, an MCP identity mismatch, a hook-scope mismatch, a working-directory
+or permission-policy mismatch, any other bound route, provider, auth, model,
+effort, toolset, permission mode, or bundle mismatch, and a corrupt
+logical-turn record. A hook-scope mismatch is a stored hook digest that
+differs from the current hooks. An old row has no hook pin: empty hooks
+cannot widen it, and any command is a hook-scope mismatch.
 Unsafe recovery returns 3 (`recovery_unsafe`) when the stored session has no
 usable receipt target, including a `started` or `unknown` tool receipt or an
 ambiguous truncated tool call. That stop records `failed` with finish reason
