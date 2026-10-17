@@ -1,11 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
 import {
+  LogicalTurnLeaseError,
+  type LogicalTurnRecord,
+  type LogicalTurnStore,
   type LogicalTurnSupervisorOptions,
   superviseLogicalTurn,
 } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { createInMemorySessionStore } from '@yevgetman/sov-sdk/persistence/inMemoryStore';
 import { ProviderHttpError } from '@yevgetman/sov-sdk/providers/errors';
+import { SessionDb } from '../../src/agent/sessionDb.js';
 
 const binding = {
   route: 'fixture',
@@ -208,6 +212,7 @@ describe('logical-turn supervisor', () => {
       },
       {
         sleep: async (ms) => {
+          if (ms === 10_000) return;
           delays.push(ms);
         },
       },
@@ -218,5 +223,289 @@ describe('logical-turn supervisor', () => {
     expect(calls).toBe(3);
     expect(delays[0]).toBeGreaterThanOrEqual(100);
     expect(delays[1]).toBeGreaterThanOrEqual(200);
+  });
+});
+
+const LEASE_COUNTERS: LogicalTurnRecord['counters'] = {
+  segments: 1,
+  modelCalls: 1,
+  toolCalls: 0,
+  providerRetries: 0,
+  contextRecoveries: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheCreationInputTokens: 0,
+  cacheReadInputTokens: 0,
+  estimatedCostUsd: 0,
+};
+
+function storedTurn(id: string): LogicalTurnRecord {
+  return {
+    version: 1,
+    logicalTurnId: id,
+    sessionId: 'session-1',
+    activeSessionId: 'session-1',
+    compactedSessionIds: [],
+    binding,
+    bindingDigest: 'digest',
+    segmentLimit: 10,
+    logicalModelCallLimit: 100,
+    status: 'running',
+    repeatedNoProgress: 0,
+    runtimeContinuationIds: [],
+    counters: { ...LEASE_COUNTERS },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+function expectShortFencedLease(store: LogicalTurnStore): void {
+  const now = 50_000;
+  const record = storedTurn('lt-fence');
+  store.createLogicalTurn(record);
+  expect(store.acquireLogicalTurnLease(record.logicalTurnId, 'owner-a', now + 30_000, now)).toBe(
+    true,
+  );
+  expect(
+    store.acquireLogicalTurnLease(record.logicalTurnId, 'owner-b', now + 30_000, now + 1_000),
+  ).toBe(false);
+  expect(
+    store.acquireLogicalTurnLease(record.logicalTurnId, 'owner-b', now + 30_000, now + 30_000),
+  ).toBe(true);
+  store.saveLogicalTurn({ ...record, finalReply: 'kept' }, 'owner-b');
+  expect(() => store.saveLogicalTurn({ ...record, finalReply: 'lost' }, 'owner-a')).toThrow(
+    LogicalTurnLeaseError,
+  );
+  expect(store.loadLogicalTurn(record.logicalTurnId)?.finalReply).toBe('kept');
+  expect(store.renewLogicalTurnLease(record.logicalTurnId, 'owner-a', now + 90_000)).toBe(false);
+  store.releaseLogicalTurnLease(record.logicalTurnId, 'owner-b');
+  expect(store.renewLogicalTurnLease(record.logicalTurnId, 'owner-b', now + 120_000)).toBe(false);
+  expect(store.loadLogicalTurn(record.logicalTurnId)?.finalReply).toBe('kept');
+  expect(
+    store.acquireLogicalTurnLease(record.logicalTurnId, 'owner-c', now + 120_000, now + 30_000),
+  ).toBe(true);
+}
+
+describe('logical-turn lease stores', () => {
+  test('in-memory leases follow supervisor time and fence the owner', () => {
+    expectShortFencedLease(createInMemorySessionStore());
+  });
+
+  test('sqlite leases follow supervisor time and fence the owner', () => {
+    const db = SessionDb.open({ path: ':memory:' });
+    try {
+      expectShortFencedLease(db);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe('logical-turn lease lifetime', () => {
+  test('a live model call past five minutes keeps the short lease', async () => {
+    let nowMs = 1_700_000_000_000;
+    const startedAt = nowMs;
+    const waiters: Array<(advanced: boolean) => void> = [];
+    const expiries: Array<{ expiresAt: number; at: number }> = [];
+    let releaseSegment: (() => void) | undefined;
+    const segmentGate = new Promise<void>((resolve) => {
+      releaseSegment = resolve;
+    });
+    let segmentStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      segmentStarted = resolve;
+    });
+    const fixture = setup(
+      async () => {
+        segmentStarted?.();
+        await segmentGate;
+        return result('completed', 'done');
+      },
+      {
+        now: () => nowMs,
+        sleep: (ms) =>
+          new Promise((resolve) => {
+            waiters.push((advanced) => {
+              if (advanced) nowMs += ms;
+              resolve();
+            });
+          }),
+      },
+    );
+    const acquire = fixture.store.acquireLogicalTurnLease.bind(fixture.store);
+    fixture.store.acquireLogicalTurnLease = (id, owner, expiresAt, at) => {
+      expiries.push({ expiresAt, at });
+      return acquire(id, owner, expiresAt, at);
+    };
+    const renew = fixture.store.renewLogicalTurnLease?.bind(fixture.store);
+    fixture.store.renewLogicalTurnLease = (id, owner, expiresAt) => {
+      expiries.push({ expiresAt, at: nowMs });
+      return renew ? renew(id, owner, expiresAt) : false;
+    };
+    let logicalTurnId = '';
+    const create = fixture.store.createLogicalTurn.bind(fixture.store);
+    fixture.store.createLogicalTurn = (record) => {
+      logicalTurnId = record.logicalTurnId;
+      create(record);
+    };
+
+    const first = superviseLogicalTurn(fixture.options);
+    try {
+      await started;
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      const target = nowMs + 6 * 60_000;
+      while (nowMs < target) {
+        const waiter = waiters.shift();
+        if (!waiter) {
+          await Promise.resolve();
+          if (waiters.length === 0) {
+            nowMs = target;
+            break;
+          }
+          continue;
+        }
+        waiter(true);
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      }
+
+      let secondCalls = 0;
+      const continued = superviseLogicalTurn({
+        ...fixture.options,
+        logicalTurnId,
+        runSegment: async () => {
+          secondCalls++;
+          return result('completed', 'other');
+        },
+      });
+      await expect(continued).rejects.toBeInstanceOf(LogicalTurnLeaseError);
+      expect(secondCalls).toBe(0);
+      expect(expiries.length).toBeGreaterThan(0);
+      expect(expiries.every((row) => row.expiresAt - row.at <= 30_000)).toBe(true);
+      expect(Math.max(...expiries.map((row) => row.expiresAt))).toBeGreaterThan(
+        startedAt + 5 * 60_000,
+      );
+    } finally {
+      releaseSegment?.();
+      for (const waiter of waiters.splice(0)) waiter(false);
+    }
+    await expect(first).resolves.toMatchObject({ status: 'completed', reply: 'done' });
+  });
+
+  test('an expired lease is reclaimed after a crash only when recovery is safe', async () => {
+    let nowMs = Date.now();
+    let releaseSegment: (() => void) | undefined;
+    const segmentGate = new Promise<void>((resolve) => {
+      releaseSegment = resolve;
+    });
+    let segmentStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      segmentStarted = resolve;
+    });
+    const fixture = setup(
+      async () => {
+        segmentStarted?.();
+        await segmentGate;
+        return result('completed', 'stale');
+      },
+      {
+        deadlineAt: nowMs + 60 * 60_000,
+        now: () => nowMs,
+        sleep: () => new Promise(() => {}),
+      },
+    );
+    let logicalTurnId = '';
+    const create = fixture.store.createLogicalTurn.bind(fixture.store);
+    fixture.store.createLogicalTurn = (record) => {
+      logicalTurnId = record.logicalTurnId;
+      create(record);
+    };
+    const first = superviseLogicalTurn(fixture.options).then(
+      () => new Error('stale owner overwrote the turn'),
+      (error: unknown) => error,
+    );
+    try {
+      await started;
+      nowMs += 31_000;
+
+      let secondCalls = 0;
+      const resumed = await superviseLogicalTurn({
+        ...fixture.options,
+        logicalTurnId,
+        runSegment: async () => {
+          secondCalls++;
+          return result('completed', 'resumed');
+        },
+      });
+      expect(secondCalls).toBe(1);
+      expect(resumed).toMatchObject({ status: 'completed', reply: 'resumed' });
+    } finally {
+      releaseSegment?.();
+    }
+    await expect(first).resolves.toBeInstanceOf(LogicalTurnLeaseError);
+    expect(fixture.store.loadLogicalTurn(logicalTurnId)?.finalReply).toBe('resumed');
+  });
+
+  test('does not reclaim an expired lease when recovery is unsafe', async () => {
+    let nowMs = Date.now();
+    let releaseSegment: (() => void) | undefined;
+    const segmentGate = new Promise<void>((resolve) => {
+      releaseSegment = resolve;
+    });
+    let segmentStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      segmentStarted = resolve;
+    });
+    const fixture = setup(
+      async () => {
+        segmentStarted?.();
+        await segmentGate;
+        return result('completed', 'stale');
+      },
+      {
+        deadlineAt: nowMs + 60 * 60_000,
+        now: () => nowMs,
+        sleep: () => new Promise(() => {}),
+      },
+    );
+    let logicalTurnId = '';
+    const create = fixture.store.createLogicalTurn.bind(fixture.store);
+    fixture.store.createLogicalTurn = (record) => {
+      logicalTurnId = record.logicalTurnId;
+      create(record);
+    };
+    const first = superviseLogicalTurn(fixture.options).catch((error: unknown) => error);
+    try {
+      await started;
+      nowMs += 31_000;
+      let calls = 0;
+      const probe = { freeDuringCheck: false };
+      const blocked = await superviseLogicalTurn({
+        ...fixture.options,
+        logicalTurnId,
+        recoverySafe: () => {
+          probe.freeDuringCheck = fixture.store.acquireLogicalTurnLease(
+            logicalTurnId,
+            'probe',
+            nowMs + 1_000,
+            nowMs,
+          );
+          if (probe.freeDuringCheck) fixture.store.releaseLogicalTurnLease(logicalTurnId, 'probe');
+          return false;
+        },
+        runSegment: async () => {
+          calls++;
+          return result('completed', 'unsafe');
+        },
+      });
+      expect(blocked).toMatchObject({ status: 'failed', code: 'recovery_unsafe' });
+      expect(probe.freeDuringCheck).toBe(true);
+      expect(calls).toBe(0);
+      expect(
+        fixture.store.acquireLogicalTurnLease(logicalTurnId, 'later', nowMs + 30_000, nowMs),
+      ).toBe(true);
+    } finally {
+      releaseSegment?.();
+    }
+    await first;
   });
 });

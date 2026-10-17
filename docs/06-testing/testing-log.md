@@ -1,3 +1,28 @@
+## 2026-10-16 — Logical-turn leases stay with the working owner
+
+Scope: a short renewable logical-turn lease, owner-fenced record writes,
+reclaim only after receipt checks, and compaction only after the lease is
+held. Ordinary max_turns continuation, check-in outcomes, names pages, and
+the provider_failed host mapping were left unchanged.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts` was **10 pass / 5 fail**. Both stores let a
+second owner take a lease that supervisor time still held. A model call with
+no deadline accepted a second continuation before five minutes. A crashed
+owner with a one-hour deadline still held the lease 31 seconds later, so
+neither a safe resume nor an unsafe receipt check could proceed.
+
+After the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts tests/cli/sdkRunRecovery.test.ts
+tests/cli/sdkRunCompaction.test.ts tests/cli/sdkRunCommand.test.ts` is **79
+pass / 0 fail**, 448 assertions. The live five-minute call keeps every lease
+gap at or under 30 seconds and rejects the second worker with no segment
+dispatch. An expired lease is taken only when recovery is safe, and the
+displaced owner cannot overwrite the resumed reply. `bun run lint` and
+`bun run typecheck` pass. `bin/sov-tui` is absent here, so a missing TUI
+binary was not treated as a product failure. No live provider, install,
+upgrade, release, or deployment ran.
+
 ## 2026-10-16 — Cancelled logical turns cannot continue
 
 Scope: logical-turn cancellation persistence and host refusal of

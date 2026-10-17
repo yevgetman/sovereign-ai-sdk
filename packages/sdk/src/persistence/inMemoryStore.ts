@@ -22,7 +22,11 @@ import type { CostEstimate } from '../providers/pricing.js';
 // stored state.
 
 import { randomUUID } from 'node:crypto';
-import type { LogicalTurnRecord, LogicalTurnStore } from '../agent/logicalTurn.js';
+import {
+  LogicalTurnLeaseError,
+  type LogicalTurnRecord,
+  type LogicalTurnStore,
+} from '../agent/logicalTurn.js';
 import type {
   CreateSessionInput,
   SaveMessageInput,
@@ -224,14 +228,36 @@ export function createInMemorySessionStore(): InMemorySessionStore {
     const record = logicalTurns.get(logicalTurnId);
     return record ? deepCopy(record) : null;
   }
-  function saveLogicalTurn(record: LogicalTurnRecord): void {
+  function saveLogicalTurn(record: LogicalTurnRecord, owner: string): void {
     if (!logicalTurns.has(record.logicalTurnId)) throw new Error('logical turn does not exist');
+    const lease = logicalTurnLeases.get(record.logicalTurnId);
+    if (!lease || lease.owner !== owner) throw new LogicalTurnLeaseError();
     logicalTurns.set(record.logicalTurnId, deepCopy(record));
   }
-  function acquireLogicalTurnLease(id: string, owner: string, expiresAt: number): boolean {
+  function readLogicalTurnLease(
+    id: string,
+  ): { owner: string | null; expiresAt: number | null } | null {
+    if (!logicalTurns.has(id)) return null;
+    const lease = logicalTurnLeases.get(id);
+    return lease
+      ? { owner: lease.owner, expiresAt: lease.expiresAt }
+      : { owner: null, expiresAt: null };
+  }
+  function acquireLogicalTurnLease(
+    id: string,
+    owner: string,
+    expiresAt: number,
+    now: number,
+  ): boolean {
     if (!logicalTurns.has(id)) return false;
     const lease = logicalTurnLeases.get(id);
-    if (lease && lease.owner !== owner && lease.expiresAt > Date.now()) return false;
+    if (lease && lease.owner !== owner && lease.expiresAt > now) return false;
+    logicalTurnLeases.set(id, { owner, expiresAt });
+    return true;
+  }
+  function renewLogicalTurnLease(id: string, owner: string, expiresAt: number): boolean {
+    const lease = logicalTurnLeases.get(id);
+    if (!lease || lease.owner !== owner) return false;
     logicalTurnLeases.set(id, { owner, expiresAt });
     return true;
   }
@@ -253,7 +279,9 @@ export function createInMemorySessionStore(): InMemorySessionStore {
     createLogicalTurn,
     loadLogicalTurn,
     saveLogicalTurn,
+    readLogicalTurnLease,
     acquireLogicalTurnLease,
+    renewLogicalTurnLease,
     releaseLogicalTurnLease,
   };
 }
