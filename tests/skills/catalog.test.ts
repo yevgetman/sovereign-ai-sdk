@@ -358,4 +358,31 @@ describe('skills_list cursor detail', () => {
     expect(namesContinued.data.detail).toBe('names');
     await expect(SkillsListTool.call({ cursor: 'bad' }, ctx)).rejects.toThrow('invalid');
   });
+
+  test('description does not assign whenToUse or activation to summary', async () => {
+    const described = SkillsListTool.description({});
+    expect(described).toContain('detail names');
+    expect(described).toContain('limit 100');
+    expect(described).toContain('names to enumerate');
+    expect(described).toContain('summary to discover');
+    expect(described).toContain('activation before selection');
+    expect(described).not.toContain('summary for discovery and activation');
+    for (const sentence of described.split(/(?<=\.)\s+/)) {
+      const lower = sentence.toLowerCase();
+      expect(lower).not.toMatch(/summary[^.\n]{0,80}whentouse/);
+      expect(lower).not.toMatch(/whentouse[^.\n]{0,80}summary/);
+      expect(lower).not.toMatch(/(?:default|defaults|omitted)[^.\n]{0,80}activation/);
+      expect(lower).not.toMatch(/activation[^.\n]{0,80}(?:default|defaults|omitted)/);
+    }
+    const omitted = await SkillsListTool.call({}, ctx);
+    expect(omitted.data.detail).toBe('names');
+    expect(omitted.data.skills.every((entry) => entry.whenToUse === undefined)).toBe(true);
+    const summary = await SkillsListTool.call({ detail: 'summary', limit: 1 }, ctx);
+    expect(summary.data.detail).toBe('summary');
+    expect(summary.data.skills[0]?.description).toBeDefined();
+    expect(summary.data.skills[0]?.whenToUse).toBeUndefined();
+    const activation = await SkillsListTool.call({ detail: 'activation', limit: 1 }, ctx);
+    expect(activation.data.detail).toBe('activation');
+    expect(activation.data.skills[0]?.whenToUse).toBeDefined();
+  });
 });
