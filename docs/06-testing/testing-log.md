@@ -1,3 +1,20 @@
+## 2026-10-16 — Continuation segments keep the MEMORY.md fence
+
+Scope: `query()` memory fencing on `continuation: true` only. Recall,
+UserPromptSubmit, and user conduct gates stay skipped. No logical-turn
+supervisor or host command changes.
+
+Environment: macOS, Bun 1.3.13, isolated checkout `review-fix/127` at
+`e5fd228d2d36b8c0c63fd4792c3871d50060fddb`. Dependencies installed with
+`--ignore-scripts`.
+
+Commands:
+- Before the fix, `env -u FORCE_COLOR bun test --timeout 20000 tests/core/query.test.ts -t 'reapplies the memory fence'` failed: the post-`max_turns` provider request was `do the thing` with no `UNIQUE_MEMORY_FENCE_H8_127`.
+- After the fix, `env -u FORCE_COLOR bun test --timeout 20000 tests/core/query.test.ts tests/memory/injection.test.ts`: **44 pass / 0 fail**, 153 assertions.
+- `bun run lint` passed (Biome, 1157 files; dependency-cruiser, 256 modules, no violations). `bun run typecheck` passed.
+
+Result: the fence is in the first segment request and the rehydrated continuation request, once, without mutating the caller's messages. No live provider, install, upgrade, release, or deployment ran.
+
 ## 2026-10-16 — Cancelled logical turns cannot continue
 
 Scope: logical-turn cancellation persistence and host refusal of
