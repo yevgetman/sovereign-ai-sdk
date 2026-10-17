@@ -71,6 +71,8 @@ export type LogicalTurnBinding = {
   skillApprovalDigest?: string;
   /** MCP server pin. Absent on rows written before MCP identity was pinned. */
   mcpIdentityDigest?: string;
+  /** Hook event, matcher, and command pin. Absent on rows written before hook scope was pinned. */
+  hookScopeDigest?: string;
   cwd: string;
   bundleIdentity?: string;
 };

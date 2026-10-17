@@ -1288,6 +1288,7 @@ function isLogicalTurnRecord(value: unknown, logicalTurnId: string): value is Lo
     !optionalString(binding, 'policyDigest') ||
     !optionalString(binding, 'skillApprovalDigest') ||
     !optionalString(binding, 'mcpIdentityDigest') ||
+    !optionalString(binding, 'hookScopeDigest') ||
     !optionalString(binding, 'bundleIdentity')
   ) {
     return false;

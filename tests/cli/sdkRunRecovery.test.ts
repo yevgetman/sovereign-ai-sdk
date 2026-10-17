@@ -1,6 +1,8 @@
 import { afterAll, afterEach, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -2245,4 +2247,216 @@ test('a failed logical turn resumes only when the stored cause is a safe transie
     logicalTurnId,
     reply: 'retried answer',
   });
+});
+
+test('a PreToolUse matcher change is recovery_state_invalid before hook spawn', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('durable answer');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider);
+  writeFileSync(
+    join(f.home, 'config.json'),
+    JSON.stringify({ learning: { disabled: true }, review: { disabled: true } }),
+  );
+  const project = join(f.home, 'project');
+  const marker = join(f.home, 'hook-ran');
+  const script = join(f.home, 'hook.sh');
+  mkdirSync(join(project, '.harness'), { recursive: true });
+  writeFileSync(script, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\n`);
+  chmodSync(script, 0o755);
+  const command = script;
+  const hooks = (matcher: string) =>
+    JSON.stringify({
+      hooks: { PreToolUse: [{ matcher, hooks: [{ type: 'command', command }] }] },
+    });
+  writeFileSync(join(project, '.harness', 'settings.local.json'), hooks('Read'));
+  writeFileSync(
+    join(f.home, 'shell-hooks-allowlist.json'),
+    JSON.stringify({ version: 1, decisions: { [`PreToolUse:${command}`]: 'allow' } }),
+  );
+  const first = capture();
+  expect(
+    await withHarness(f.home, () =>
+      inDirectory(project, () =>
+        runSdkRunCommand({ ...opts, permissionMode: 'bypass' }, first.io, f.deps),
+      ),
+    ),
+  ).toBe(0);
+  expect(calls).toBe(1);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const stored = logicalTurnRecord(f.db, logicalTurnId);
+  expect(stored).not.toContain(script);
+  expect(stored).not.toContain('hook.sh');
+  const same = capture();
+  expect(
+    await withHarness(f.home, () =>
+      inDirectory(project, () =>
+        runSdkRunCommand(
+          {
+            json: true,
+            sdk: true,
+            db: f.db,
+            continueLogicalTurn: logicalTurnId,
+            permissionMode: 'bypass',
+          },
+          same.io,
+          f.deps,
+        ),
+      ),
+    ),
+  ).toBe(0);
+  expect(calls).toBe(1);
+  writeFileSync(join(project, '.harness', 'settings.local.json'), hooks('*'));
+  const second = capture();
+  expect(
+    await withHarness(f.home, () =>
+      inDirectory(project, () =>
+        runSdkRunCommand(
+          {
+            json: true,
+            sdk: true,
+            db: f.db,
+            continueLogicalTurn: logicalTurnId,
+            permissionMode: 'bypass',
+          },
+          second.io,
+          f.deps,
+        ),
+      ),
+    ),
+  ).toBe(3);
+  const terminal = second.events.at(-1);
+  expect(second.events.some((event) => event.type === 'session.started')).toBe(false);
+  expect(terminal).toMatchObject({
+    type: 'turn.error',
+    code: 'recovery_state_invalid',
+    recoverable: false,
+    logicalTurnId,
+  });
+  expect(terminal?.error).toBe('Logical turn hook-scope mismatch.');
+  expect(String(terminal?.error)).not.toContain(script);
+  expect(String(terminal?.error)).not.toContain(marker);
+  expect(calls).toBe(1);
+  expect(existsSync(marker)).toBe(false);
+  expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
+});
+
+function bindingDigest(value: unknown): string {
+  const stable = (entry: unknown): unknown => {
+    if (Array.isArray(entry)) return entry.map(stable);
+    if (entry && typeof entry === 'object') {
+      return Object.fromEntries(
+        Object.entries(entry as Record<string, unknown>)
+          .filter(([, item]) => item !== undefined)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, item]) => [key, stable(item)]),
+      );
+    }
+    return entry;
+  };
+  return createHash('sha256')
+    .update(JSON.stringify(stable(value)))
+    .digest('hex');
+}
+
+test('a pre-pin row continues only when the current hooks cannot widen', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('durable answer');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider);
+  writeFileSync(
+    join(f.home, 'config.json'),
+    JSON.stringify({ learning: { disabled: true }, review: { disabled: true } }),
+  );
+  const project = join(f.home, 'project');
+  mkdirSync(project, { recursive: true });
+  const first = capture();
+  expect(
+    await withHarness(f.home, () =>
+      inDirectory(project, () => runSdkRunCommand(opts, first.io, f.deps)),
+    ),
+  ).toBe(0);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const db = SessionDb.open({ path: f.db });
+  try {
+    const record = db.loadLogicalTurn(logicalTurnId);
+    if (!record) throw new Error('logical turn row missing');
+    expect(typeof record.binding.hookScopeDigest).toBe('string');
+    const { hookScopeDigest: _omit, ...binding } = record.binding;
+    record.binding = binding;
+    record.bindingDigest = bindingDigest(record.binding);
+    db.handle.run('UPDATE logical_turns SET record = ? WHERE logical_turn_id = ?', [
+      JSON.stringify(record),
+      logicalTurnId,
+    ]);
+  } finally {
+    db.close();
+  }
+  const open = capture();
+  expect(
+    await withHarness(f.home, () =>
+      inDirectory(project, () =>
+        runSdkRunCommand(
+          { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+          open.io,
+          f.deps,
+        ),
+      ),
+    ),
+  ).toBe(0);
+  expect(calls).toBe(1);
+  const widened = SessionDb.open({ path: f.db });
+  try {
+    const record = widened.loadLogicalTurn(logicalTurnId);
+    if (!record) throw new Error('logical turn row missing');
+    const { hookScopeDigest: _omit, ...binding } = record.binding;
+    record.binding = binding;
+    record.bindingDigest = bindingDigest(record.binding);
+    widened.handle.run('UPDATE logical_turns SET record = ? WHERE logical_turn_id = ?', [
+      JSON.stringify(record),
+      logicalTurnId,
+    ]);
+  } finally {
+    widened.close();
+  }
+  mkdirSync(join(project, '.harness'), { recursive: true });
+  const command = join(f.home, 'hook.sh');
+  writeFileSync(command, '#!/bin/sh\nexit 0\n');
+  chmodSync(command, 0o755);
+  writeFileSync(
+    join(project, '.harness', 'settings.local.json'),
+    JSON.stringify({
+      hooks: { PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command }] }] },
+    }),
+  );
+  const blocked = capture();
+  expect(
+    await withHarness(f.home, () =>
+      inDirectory(project, () =>
+        runSdkRunCommand(
+          { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+          blocked.io,
+          f.deps,
+        ),
+      ),
+    ),
+  ).toBe(3);
+  expect(blocked.events.some((event) => event.type === 'session.started')).toBe(false);
+  expect(blocked.events.at(-1)?.error).toBe('Logical turn hook-scope mismatch.');
+  expect(String(blocked.events.at(-1)?.error)).not.toContain(command);
+  expect(calls).toBe(1);
 });

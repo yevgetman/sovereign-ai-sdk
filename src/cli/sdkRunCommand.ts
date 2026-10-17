@@ -14,6 +14,7 @@ import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import {
   ConfigurationError,
   type RuntimeSettingsSnapshot,
+  loadHookSettings,
   loadMcpServerSettings,
   loadPermissionSettings,
   loadRuntimeSettingsSnapshot,
@@ -464,13 +465,23 @@ export async function runSdkRunCommand(
     const mcpIdentityDigest = sha256Json(
       mcpServerIdentity(settingsSnapshot, process.cwd(), harnessHome),
     );
+    const hookIdentity = hookScopeIdentity(settingsSnapshot, process.cwd(), harnessHome);
+    const hookScopeDigest = sha256Json(hookIdentity);
+    const storedHookDigest = continuationRecord?.binding.hookScopeDigest;
+    // An old row has no pin. Empty hooks cannot widen. Any command can.
+    const hookMismatch =
+      continuationRecord !== undefined &&
+      (storedHookDigest === undefined
+        ? hookIdentity.length > 0
+        : storedHookDigest !== hookScopeDigest);
     if (continuationRecord) {
       const skillMismatch = continuationRecord.binding.skillApprovalDigest !== skillApprovalDigest;
       const mcpMismatch = continuationRecord.binding.mcpIdentityDigest !== mcpIdentityDigest;
-      if (skillMismatch || mcpMismatch) {
+      if (skillMismatch || mcpMismatch || hookMismatch) {
         const named = [
           skillMismatch ? 'skill-approval mismatch' : undefined,
           mcpMismatch ? 'MCP mismatch' : undefined,
+          hookMismatch ? 'hook-scope mismatch' : undefined,
         ].filter((item) => item !== undefined);
         finish({
           type: 'turn.error',
@@ -1211,6 +1222,10 @@ export async function runSdkRunCommand(
         policyDigest,
         skillApprovalDigest,
         mcpIdentityDigest,
+        // Keep an unpinned empty hook set off the binding so old rows still match.
+        ...(!continuationRecord || storedHookDigest !== undefined || hookIdentity.length > 0
+          ? { hookScopeDigest }
+          : {}),
         cwd: process.cwd(),
         ...(string(opts.bundle) ? { bundleIdentity: String(opts.bundle) } : {}),
       },
@@ -1640,6 +1655,24 @@ function mcpServerIdentity(
   harnessHome: string,
 ): unknown {
   return loadMcpServerSettings({ cwd, harnessHome, snapshot }).servers;
+}
+
+/** Event, matcher, and command only. The stored row keeps the digest, not the command. */
+function hookScopeIdentity(
+  snapshot: RuntimeSettingsSnapshot,
+  cwd: string,
+  harnessHome: string,
+): Array<{ event: string; matcher: string | null; command: string }> {
+  const loaded = loadHookSettings({ cwd, harnessHome, snapshot });
+  const identity: Array<{ event: string; matcher: string | null; command: string }> = [];
+  for (const event of ['PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop'] as const) {
+    for (const config of loaded.hooksByEvent[event]) {
+      for (const hook of config.hooks) {
+        identity.push({ event, matcher: config.matcher ?? null, command: hook.command });
+      }
+    }
+  }
+  return identity;
 }
 
 /** Native wire block ids are unique across tool calls and model rounds. */
