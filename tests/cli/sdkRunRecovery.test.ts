@@ -462,11 +462,14 @@ test('continuing a cancelled logical turn does not call the model', async () => 
     type: 'turn.error',
     code: 'recovery_state_invalid',
     recoverable: false,
+    nextAction: 'none',
     logicalTurnId,
   });
-  const nextAction = second.events.at(-1)?.nextAction;
-  expect(nextAction).not.toBe('resume');
-  expect(nextAction).not.toBe('continue_logical_turn');
+  const terminal = second.events.at(-1);
+  expect(String(terminal?.error)).toMatch(/cancell?ed/i);
+  expect(terminal?.nextAction).not.toBe('repair_request');
+  expect(terminal?.nextAction).not.toBe('resume');
+  expect(terminal?.nextAction).not.toBe('continue_logical_turn');
 });
 
 test('a held lease waits to continue the same turn without a provider call or stored-row change', async () => {
