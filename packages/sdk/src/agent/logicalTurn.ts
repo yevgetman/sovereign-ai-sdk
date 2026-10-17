@@ -466,6 +466,12 @@ export async function superviseLogicalTurn(
     options.store.saveLogicalTurn(held.record, leaseOwner);
   };
   let pendingStop: ((reason?: Terminal['reason']) => Promise<void>) | undefined;
+  // A user abort must not keep the previous segment's reason. The closure
+  // still on the lease is this attempt, or none, and runs as interrupted.
+  const armUserAbortStop = (): void => {
+    const stop = binding.stop;
+    pendingStop = stop ? () => stop('interrupted') : undefined;
+  };
   const fireTerminalStop = async (): Promise<void> => {
     const fire = pendingStop;
     pendingStop = undefined;
@@ -602,7 +608,10 @@ export async function superviseLogicalTurn(
       // Deadline wins over a shared abort. A user stop before the deadline stays cancelled.
       if (isDeadlineTerminal(options.signal, record.deadlineAt, now()))
         return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
-      if (options.signal?.aborted) return await finish('cancelled', 'cancelled', undefined);
+      if (options.signal?.aborted) {
+        armUserAbortStop();
+        return await finish('cancelled', 'cancelled', undefined);
+      }
       const remaining = record.logicalModelCallLimit - record.counters.modelCalls;
       if (remaining <= 0)
         return await finish('exhausted', 'model_call_limit', undefined, 'continuation_exhausted');
@@ -679,8 +688,10 @@ export async function superviseLogicalTurn(
         return await finish('waiting_user', 'checkin', result);
       if (isDeadlineTerminal(options.signal, record.deadlineAt, now()))
         return await finish('exhausted', 'deadline', result, 'continuation_exhausted');
-      if (result.terminal.reason === 'interrupted' || options.signal?.aborted)
+      if (result.terminal.reason === 'interrupted' || options.signal?.aborted) {
+        armUserAbortStop();
         return await finish('cancelled', 'cancelled', result);
+      }
 
       if (result.terminal.reason === 'error') {
         const transient = transientDelay(
@@ -706,7 +717,10 @@ export async function superviseLogicalTurn(
         await withHeartbeat(() => sleepWithSignal(transient, options.signal, pause));
         if (isDeadlineTerminal(options.signal, record.deadlineAt, now()))
           return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
-        if (options.signal?.aborted) return await finish('cancelled', 'cancelled', undefined);
+        if (options.signal?.aborted) {
+          armUserAbortStop();
+          return await finish('cancelled', 'cancelled', undefined);
+        }
         messages = options.rehydrate(record.activeSessionId);
         continue;
       }
