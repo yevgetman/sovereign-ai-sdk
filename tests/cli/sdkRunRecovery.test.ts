@@ -136,6 +136,8 @@ test('pre-session deadline is continuation_exhausted and not an interrupt', asyn
   expect(c.events[0]?.code).not.toBe('interrupted');
   expect(c.events[0]?.nextAction).not.toBe('resume');
   expect(c.events[0]?.nextAction).not.toBe('continue_logical_turn');
+  expect(String(c.events[0]?.error)).toMatch(/deadline/i);
+  expect(String(c.events[0]?.error)).not.toContain('cumulative recovery budget');
 });
 for (const exhausted of ['max_tokens', 'max_turns'] as const) {
   test(`${exhausted} treats new transcript rows as progress until the model-call budget`, async () => {
@@ -323,6 +325,7 @@ test('model-call cap is not resumable and a follow-up continue does not call the
   expect(terminal?.outcome).not.toBe('interrupted');
   expect(terminal?.nextAction).not.toBe('continue_logical_turn');
   expect(terminal?.nextAction).not.toBe('resume');
+  expect(terminal?.error).toBe('Logical turn exhausted its cumulative recovery budget.');
   // Host logicalModelCallLimit. One coding segment spends the whole budget.
   expect(calls).toBe(100);
   expect(toolRuns).toBe(100);
@@ -808,6 +811,8 @@ for (const stage of [
       recoverable: false,
       nextAction: 'none',
     });
+    expect(String(terminal?.error)).toMatch(/deadline/i);
+    expect(String(terminal?.error)).not.toContain('cumulative recovery budget');
     expect(terminal?.outcome).not.toBe('interrupted');
     expect(terminal?.code).not.toBe('cancelled');
     expect(terminal?.code).not.toBe('interrupted');
@@ -853,6 +858,8 @@ for (const stage of [
       expect(continued.events.at(-1)?.outcome).not.toBe('interrupted');
       expect(continued.events.at(-1)?.nextAction).not.toBe('resume');
       expect(continued.events.at(-1)?.nextAction).not.toBe('continue_logical_turn');
+      expect(String(continued.events.at(-1)?.error)).toMatch(/deadline/i);
+      expect(String(continued.events.at(-1)?.error)).not.toContain('cumulative recovery budget');
     }
   });
 }
