@@ -756,3 +756,69 @@ test('coding overflow after the logical model-call cap does not start another 10
     db.close();
   }
 });
+
+test('a later segment compacts before the next model call and charges the summary', async () => {
+  const order: string[] = [];
+  let mains = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(req) {
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 4, outputTokens: 1 } };
+      if (isSummary(req)) {
+        order.push('summary');
+        const message = answer('Keep the task.');
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'end_turn' };
+        return message;
+      }
+      mains++;
+      order.push('main');
+      // Web's segment limit is 6. Those tool rounds stay under the hard window
+      // and leave a head the next segment can summarize.
+      if (mains <= 6) {
+        const message: AssistantMessage = {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: `probe-${mains}`, name: 'WebSearch', input: {} }],
+        };
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'tool_use' };
+        return message;
+      }
+      const message = answer('done');
+      yield { type: 'assistant_message', message };
+      yield { type: 'message_stop', stop_reason: 'end_turn' };
+      return message;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.proactiveCompactThreshold = 0;
+    runtime.loop = { mode: 'off' };
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'WebSearch',
+        description: () => 'fixture',
+        inputSchema: z.unknown(),
+        async call() {
+          // Larger than the compaction tail budget, still under the hard window.
+          return { data: 'r'.repeat(6000) };
+        },
+      }),
+    );
+  });
+  expect(await runSdkRunCommand({ ...opts, toolset: 'web' }, f.io, f.deps)).toBe(0);
+  expect(order).toEqual(['main', 'main', 'main', 'main', 'main', 'main', 'summary', 'main']);
+  expect(f.events.at(-1)).toMatchObject({
+    type: 'turn.completed',
+    reply: 'done',
+    counters: {
+      segments: 2,
+      modelCalls: 8,
+      toolCalls: 6,
+      inputTokens: 32,
+      outputTokens: 8,
+    },
+  });
+});
