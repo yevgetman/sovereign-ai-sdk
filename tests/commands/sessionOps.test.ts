@@ -128,6 +128,33 @@ describe('renderExport', () => {
     expect(out).toContain('**← result**');
     expect(out).toContain('a.txt');
   });
+
+  test('markdown hides a runtime continuation marker and json keeps it', () => {
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'question' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'partial' }] },
+      {
+        role: 'user',
+        origin: 'runtime',
+        id: 'logical:output:1',
+        content: [
+          {
+            type: 'text',
+            text: 'Continue the interrupted answer without repeating text already saved. Do not start a new task.',
+          },
+        ],
+      },
+    ];
+    const md = renderExport(messages, 'md', makeCtx());
+    expect(md).toContain('## Turn 1 — User');
+    expect(md).toContain('question');
+    expect(md).toContain('- **messages**: 2');
+    expect(md).not.toContain('Continue the interrupted answer');
+    expect(md).not.toContain('## Turn 2 — User');
+    const json = renderExport(messages, 'json', makeCtx());
+    expect(json).toContain('logical:output:1');
+    expect(json).toContain('Continue the interrupted answer');
+  });
 });
 
 describe('/init prompt command', () => {

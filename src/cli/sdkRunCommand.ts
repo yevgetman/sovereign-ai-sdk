@@ -14,6 +14,7 @@ import {
   ConfigurationError,
   loadRuntimeSettingsSnapshot,
 } from '@yevgetman/sov-sdk/config/settings';
+import { AMBIGUOUS_MAX_TOKENS_TOOL_NOTE } from '@yevgetman/sov-sdk/core/query';
 import type { Message, StreamEvent, TokenUsage } from '@yevgetman/sov-sdk/core/types';
 import { toToolSchemas } from '@yevgetman/sov-sdk/mcp/schemaSerialization';
 import type { SessionStore } from '@yevgetman/sov-sdk/persistence/sessionStore';
@@ -44,6 +45,7 @@ import { modelInputTokenAccounting } from '@yevgetman/sov-sdk/providers/tokenAcc
 import type { SkillContinuityPort } from '@yevgetman/sov-sdk/skills/continuity';
 import { isToolsetName } from '@yevgetman/sov-sdk/tool/toolset';
 import { defaultMaxTurns } from '@yevgetman/sov-sdk/tool/toolset';
+import { persistMessage } from '../agent/persistMessage.js';
 import { LogicalTurnRecordError, SessionDb } from '../agent/sessionDb.js';
 import { SessionNotFoundError } from '../server/errors.js';
 import {
@@ -891,7 +893,9 @@ export async function runSdkRunCommand(
         }
       },
       rehydrate: () => hydrate(),
-      recoverySafe: (id) => hasNativeRecoveryTarget(hostRuntime.sessionDb, id),
+      recoverySafe: (id) =>
+        hasNativeRecoveryTarget(hostRuntime.sessionDb, id) &&
+        !ambiguousTruncatedToolRequest(hostRuntime.sessionDb, id),
       progressSnapshot: (id) => {
         const receipts = new Map<string, string>();
         for (const receipt of hostRuntime.sessionDb.loadToolExecutions(id))
@@ -908,10 +912,16 @@ export async function runSdkRunCommand(
           })),
         };
       },
-      persistRuntimeContinuation: ({ activeSessionId, text }) => {
-        hostRuntime.sessionDb.saveMessage(activeSessionId, {
+      persistRuntimeContinuation: ({ activeSessionId, id, text }) => {
+        const rows = hostRuntime.sessionDb.loadMessages(activeSessionId);
+        if (rows.some((row) => row.toolCallId === id || runtimeMarkerId(row) === id)) return;
+        // A truncated tool call already stored its synthetic tool_result user row.
+        if (rows.at(-1)?.role === 'user') return;
+        persistMessage(hostRuntime, activeSessionId, {
           role: 'user',
           content: [{ type: 'text', text }],
+          toolCallId: id,
+          toolCalls: { origin: 'runtime', id },
         });
       },
       onContinuing: (event) => emit({ type: 'turn.continuing', ...event }),
@@ -970,6 +980,7 @@ export async function runSdkRunCommand(
         ? 'waiting_user'
         : logical.status;
     const failed = !['completed', 'waiting_user'].includes(logical.status);
+    const ambiguousTool = ambiguousTruncatedToolRequest(runtime.sessionDb, sessionId);
     const durable = hasNativeRecoveryTarget(runtime.sessionDb, sessionId);
     if (!failed && !durable)
       throw new SessionPersistenceError(new Error('completed session could not be verified'));
@@ -993,12 +1004,14 @@ export async function runSdkRunCommand(
         ? {
             code: deadlineTerminal ? deadlineCode : logical.code,
             error: ERRORS[deadlineTerminal ? deadlineCode : (logical.code ?? 'provider_failed')],
-            recoverable: deadlineTerminal ? false : durable,
+            recoverable: deadlineTerminal || ambiguousTool ? false : durable,
             nextAction: deadlineTerminal
               ? 'none'
-              : durable
-                ? 'continue_logical_turn'
-                : 'inspect_session',
+              : ambiguousTool
+                ? 'inspect_session'
+                : durable
+                  ? 'continue_logical_turn'
+                  : 'inspect_session',
           }
         : { nextAction: logical.status === 'waiting_user' ? 'user_input' : 'none' }),
       sessionId: failed && !durable ? null : sessionId,
@@ -1260,6 +1273,35 @@ async function boundedDispose(runtime: Runtime): Promise<void> {
     })().catch(() => {}),
     3000,
   );
+}
+
+function runtimeMarkerId(row: {
+  toolCallId: string | null;
+  toolCalls: unknown;
+}): string | undefined {
+  if (!row.toolCalls || typeof row.toolCalls !== 'object') return undefined;
+  const id = (row.toolCalls as { id?: unknown; origin?: unknown }).id;
+  if ((row.toolCalls as { origin?: unknown }).origin !== 'runtime') return undefined;
+  if (typeof id === 'string' && id.length > 0) return id;
+  return row.toolCallId ?? undefined;
+}
+
+function ambiguousTruncatedToolRequest(store: SessionStore, sessionId: string | null): boolean {
+  if (!sessionId) return false;
+  try {
+    const last = store.loadMessages(sessionId).at(-1);
+    if (!last || last.role !== 'user') return false;
+    const results = last.content.filter((block) => block.type === 'tool_result');
+    if (results.length === 0) return false;
+    return results.every(
+      (block) =>
+        block.type === 'tool_result' &&
+        block.is_error === true &&
+        block.content === AMBIGUOUS_MAX_TOKENS_TOOL_NOTE,
+    );
+  } catch {
+    return false;
+  }
 }
 
 function isStorageFault(error: unknown): boolean {

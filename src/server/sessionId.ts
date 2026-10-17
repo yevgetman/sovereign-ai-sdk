@@ -8,14 +8,12 @@
 // session DB queries.
 //
 // `loadHistoryAsMessages` reads the persisted message rows for a session and
-// projects them into the `Message` shape the model + compactor consume. The
-// cast narrows the storage role string to the `Message['role']` union without
-// changing the underlying value. Drift between callers (turns route + compact
-// route) would diverge the model's pre-compaction view from the turn-time
-// view — keeping a single helper guarantees the projection stays aligned.
+// projects them into the `Message` shape the model, compactor, and `/export`
+// consume. A runtime continuation row keeps its origin and stable id.
 
 import type { Message } from '@yevgetman/sov-sdk/core/types';
 import type { SessionDb } from '../agent/sessionDb.js';
+import { storedRowToMessage } from './turnComposition.js';
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
@@ -24,17 +22,8 @@ export function isValidSessionId(id: string): boolean {
 }
 
 /** Load a session's persisted history and project each row to a `Message`.
- *  The cast narrows the storage `role` string to the `Message['role']` union
- *  without changing the underlying value. Both the turns route (proactive +
- *  recovery hydration) and the compact route (pre-compaction history view)
- *  use this; keeping a single helper ensures any future signature change
- *  (e.g. column additions, content-shape migrations) updates both paths
- *  together. */
+ *  A runtime continuation row keeps its origin and stable id. Compact,
+ *  channel seed, and `/export` share this projection. */
 export function loadHistoryAsMessages(sessionDb: SessionDb, sessionId: string): Message[] {
-  return sessionDb.loadMessages(sessionId).map(
-    (m): Message => ({
-      role: m.role as Message['role'],
-      content: m.content,
-    }),
-  );
+  return sessionDb.loadMessages(sessionId).map(storedRowToMessage);
 }

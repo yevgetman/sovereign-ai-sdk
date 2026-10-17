@@ -76,6 +76,7 @@ import type {
   StreamEvent,
   Terminal,
   TokenUsage,
+  UserMessage,
 } from './types.js';
 
 const DEFAULT_MAX_TURNS = 100;
@@ -635,7 +636,7 @@ async function* queryInternal(
   const requestHistory = (): Message[] => {
     if (!retainedSkillGuidance) return history;
     const copy = history.slice();
-    let index = copy.findLastIndex((message) => message.role === 'user');
+    let index = copy.findLastIndex((message) => isHumanUserMessage(message));
     if (index < 0) {
       copy.unshift({ role: 'user', content: [] });
       index = 0;
@@ -1018,10 +1019,7 @@ async function* queryInternal(
     if (stopReason === 'max_tokens') {
       if (toolUseBlocks.length > 0) {
         const msg = consumeGuidance(
-          synthesizeToolResultMessage(
-            toolUseBlocks,
-            'tool call was not executed because the assistant response hit max_tokens before completing the turn',
-          ),
+          synthesizeToolResultMessage(toolUseBlocks, AMBIGUOUS_MAX_TOKENS_TOOL_NOTE),
         );
         history.push(msg);
         yield msg;
@@ -1386,7 +1384,7 @@ async function reinjectMemoryFence(
   const history = [...messages];
   for (let i = history.length - 1; i >= 0; i--) {
     const msg = history[i];
-    if (!msg || msg.role !== 'user') continue;
+    if (!isHumanUserMessage(msg)) continue;
     if (msg.content.some((block) => block.type === 'tool_result')) continue;
     const textIndex = msg.content.findIndex((block) => block.type === 'text');
     const block = msg.content[textIndex];
@@ -1415,7 +1413,7 @@ async function reinjectMemoryFence(
 function rewriteLatestUserText(messages: Message[], next: string): Message[] {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (!message || message.role !== 'user') continue;
+    if (!isHumanUserMessage(message)) continue;
     const idx = message.content.findIndex((block) => block.type === 'text');
     if (idx === -1) continue;
     const updatedContent = message.content.slice();
@@ -1435,7 +1433,7 @@ function rewriteLatestUserText(messages: Message[], next: string): Message[] {
 function extractInjectedPrefix(messages: Message[], originalUserText: string): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (!message || message.role !== 'user') continue;
+    if (!isHumanUserMessage(message)) continue;
     const block = message.content.find((b) => b.type === 'text');
     if (!block || block.type !== 'text') return '';
     if (block.text === originalUserText) return '';
@@ -1447,10 +1445,18 @@ function extractInjectedPrefix(messages: Message[], originalUserText: string): s
   return '';
 }
 
+/** A truncated tool call is not a request to guess. The note is the synthetic result. */
+export const AMBIGUOUS_MAX_TOKENS_TOOL_NOTE =
+  'tool call was not executed because the assistant response hit max_tokens before completing the turn';
+
+function isHumanUserMessage(message: Message | undefined): message is UserMessage {
+  return message?.role === 'user' && message.origin !== 'runtime';
+}
+
 function latestUserText(messages: Message[]): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (!message || message.role !== 'user') continue;
+    if (!isHumanUserMessage(message)) continue;
     const text = message.content.find((block) => block.type === 'text');
     return text?.type === 'text' ? text.text : undefined;
   }
