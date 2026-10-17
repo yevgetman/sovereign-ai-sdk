@@ -11,6 +11,7 @@ import {
   type LogicalTurnStore,
   type LogicalTurnSupervisorOptions,
   logicalTurnCursor,
+  logicalTurnWorkSignal,
   superviseLogicalTurn,
 } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { query } from '@yevgetman/sov-sdk/core/query';
@@ -273,6 +274,200 @@ describe('logical-turn supervisor', () => {
     expect(safety).toBe(0);
     expect(snapshots).toBe(0);
     expect(rehydrates).toBe(0);
+    expect(seen[1]).toEqual(messages);
+  });
+
+  test('a resumed non-terminal turn reads the transcript once', async () => {
+    let reads = 0;
+    let safety = 0;
+    let rehydrates = 0;
+    let boundaries = 0;
+    let calls = 0;
+    let resumePhase = false;
+    let boundaryInsideHeartbeat = false;
+    const seen: Message[][] = [];
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'do the work' }] },
+    ];
+    const progress = {
+      transcriptIds: [1],
+      transcriptCount: 1,
+      receipts: [] as unknown[],
+      cursor: null,
+      compactionChildId: 'session-1',
+    };
+    const fixture = setup(
+      async (segment) => {
+        calls += 1;
+        seen.push(segment.messages);
+        return calls === 1 ? result('max_turns', 'partial') : result('completed', 'resumed');
+      },
+      {
+        logicalModelCallLimit: 1,
+        recoverySafe: () => {
+          safety += 1;
+          reads += 1;
+          return true;
+        },
+        progressSnapshot: () => {
+          reads += 1;
+          return progress;
+        },
+        rehydrate: () => {
+          rehydrates += 1;
+          reads += 1;
+          return messages;
+        },
+        readBoundary: () => {
+          boundaries += 1;
+          reads += 1;
+          if (resumePhase) boundaryInsideHeartbeat = logicalTurnWorkSignal() !== undefined;
+          return { safe: true, progress, messages: () => messages };
+        },
+      },
+    );
+    const first = await superviseLogicalTurn(fixture.options);
+    expect(first.status).toBe('exhausted');
+    expect(calls).toBe(1);
+    expect(boundaries).toBe(1);
+    expect(safety).toBe(0);
+    expect(rehydrates).toBe(0);
+    expect(reads).toBe(1);
+
+    const stored = fixture.store.loadLogicalTurn(first.logicalTurnId);
+    if (!stored) throw new Error('logical turn row missing');
+    const now = Date.now();
+    expect(
+      fixture.store.acquireLogicalTurnLease(first.logicalTurnId, 'seed', now + 1_000, now),
+    ).toBe(true);
+    const { finishReason: _finished, ...running } = stored;
+    fixture.store.saveLogicalTurn(
+      {
+        ...running,
+        status: 'running',
+        counters: { ...running.counters, modelCalls: 0 },
+      },
+      'seed',
+    );
+    fixture.store.releaseLogicalTurnLease(first.logicalTurnId, 'seed');
+
+    resumePhase = true;
+    const readsBeforeResume = reads;
+    const safetyBefore = safety;
+    const rehydratesBefore = rehydrates;
+    const boundariesBefore = boundaries;
+    const resumed = await superviseLogicalTurn({
+      ...fixture.options,
+      logicalTurnId: first.logicalTurnId,
+    });
+    expect(resumed.status).toBe('completed');
+    expect(resumed.reply).toBe('resumed');
+    expect(calls).toBe(2);
+    expect(boundaries - boundariesBefore).toBe(1);
+    expect(safety - safetyBefore).toBe(0);
+    expect(rehydrates - rehydratesBefore).toBe(0);
+    expect(reads - readsBeforeResume).toBe(1);
+    expect(boundaryInsideHeartbeat).toBe(true);
+    expect(seen[1]).toEqual(messages);
+  });
+
+  test('an unsafe resume snapshot does not scan again or start a segment', async () => {
+    let safety = 0;
+    let calls = 0;
+    const fixture = setup(
+      async () => {
+        calls += 1;
+        return result('max_turns');
+      },
+      { logicalModelCallLimit: 1 },
+    );
+    const first = await superviseLogicalTurn(fixture.options);
+    expect(first.status).toBe('exhausted');
+    const stored = fixture.store.loadLogicalTurn(first.logicalTurnId);
+    if (!stored) throw new Error('logical turn row missing');
+    const now = Date.now();
+    expect(
+      fixture.store.acquireLogicalTurnLease(first.logicalTurnId, 'seed', now + 1_000, now),
+    ).toBe(true);
+    const { finishReason: _finished, ...running } = stored;
+    fixture.store.saveLogicalTurn(
+      {
+        ...running,
+        status: 'running',
+        counters: { ...running.counters, modelCalls: 0 },
+      },
+      'seed',
+    );
+    fixture.store.releaseLogicalTurnLease(first.logicalTurnId, 'seed');
+    const resumed = await superviseLogicalTurn({
+      ...fixture.options,
+      logicalTurnId: first.logicalTurnId,
+      recoverySafe: () => {
+        safety += 1;
+        return true;
+      },
+      rehydrate: () => {
+        throw new Error('resume rehydrated the transcript');
+      },
+      readBoundary: () => ({ safe: false, messages: () => [] }),
+    });
+    expect(calls).toBe(1);
+    expect(safety).toBe(0);
+    expect(resumed).toMatchObject({
+      status: 'failed',
+      code: 'recovery_unsafe',
+      finishReason: 'unsafe_effect',
+    });
+    expect(fixture.store.loadLogicalTurn(first.logicalTurnId)?.status).toBe('failed');
+  });
+
+  test('a transient retry reads the transcript once', async () => {
+    let reads = 0;
+    let safety = 0;
+    let rehydrates = 0;
+    let boundaries = 0;
+    let calls = 0;
+    const seen: Message[][] = [];
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'do the work' }] },
+    ];
+    const { options } = setup(
+      async (segment) => {
+        calls += 1;
+        seen.push(segment.messages);
+        if (calls === 1) {
+          const failed = result('error');
+          failed.terminal.error = new ProviderHttpError('fixture', 503, 'unavailable');
+          return failed;
+        }
+        return result('completed', 'done');
+      },
+      {
+        recoverySafe: () => {
+          safety += 1;
+          reads += 1;
+          return true;
+        },
+        rehydrate: () => {
+          rehydrates += 1;
+          reads += 1;
+          return messages;
+        },
+        readBoundary: () => {
+          boundaries += 1;
+          reads += 1;
+          return { safe: true, messages: () => messages };
+        },
+        sleep: async () => {},
+      },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('completed');
+    expect(calls).toBe(2);
+    expect(boundaries).toBe(1);
+    expect(safety).toBe(0);
+    expect(rehydrates).toBe(0);
+    expect(reads).toBe(1);
     expect(seen[1]).toEqual(messages);
   });
 
