@@ -76,6 +76,7 @@ import {
   gateTurnInstructions,
   headlessDenyAsk,
   hydrateSessionHistory,
+  isRuntimeContinuationRow,
   loadStoredMessages,
   persistTurnMessage,
   restoreLogicalTurnSkillCeiling,
@@ -154,6 +155,19 @@ function latestHumanUserText(messages: readonly Message[]): string | undefined {
     if (message.content.some((block) => block.type === 'tool_result')) continue;
     const text = message.content.find((block) => block.type === 'text');
     return text?.type === 'text' ? text.text : undefined;
+  }
+  return undefined;
+}
+
+/** Human prompt row in the session that is active now. Proactive compaction
+ * copies the ungated prompt into the child under a new id before the gate runs. */
+function currentHumanUserMessageId(db: SessionDb, sessionId: string): number | undefined {
+  const rows = db.loadMessages(sessionId);
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    if (!row || row.role !== 'user' || isRuntimeContinuationRow(row)) continue;
+    if (row.content.some((block) => block.type === 'tool_result')) continue;
+    return row.id;
   }
   return undefined;
 }
@@ -712,11 +726,17 @@ export async function runSdkRunCommand(
       async *stream(
         request: Parameters<(typeof routeSelection.provider)['stream']>[0],
       ): AsyncGenerator<StreamEvent, AssistantMessage> {
-        if (persistGatedUserText && gatedUserMessageId !== undefined) {
-          const text = latestHumanUserText(request.messages);
-          if (text !== undefined)
-            replaceStoredUserText(hostRuntime.sessionDb, gatedUserMessageId, text);
-          persistGatedUserText = false;
+        if (persistGatedUserText) {
+          const activeSessionId = sessionId;
+          const messageId =
+            activeSessionId !== null
+              ? currentHumanUserMessageId(hostRuntime.sessionDb, activeSessionId)
+              : undefined;
+          if (messageId !== undefined) {
+            const text = latestHumanUserText(request.messages);
+            if (text !== undefined) replaceStoredUserText(hostRuntime.sessionDb, messageId, text);
+            persistGatedUserText = false;
+          }
         }
         return yield* routeSelection.provider.stream(request);
       },
@@ -820,7 +840,6 @@ export async function runSdkRunCommand(
     const originalUserMessageId = continuationId
       ? runtime.sessionDb.loadLogicalTurn(continuationId)?.originalUserMessageId
       : runtime.sessionDb.loadMessages(sessionId).at(-1)?.id;
-    const gatedUserMessageId = originalUserMessageId;
     let messages = hydrate();
     // Refuse unsafe prior effects before a paid summary or inference call.
     // Complete journal receipts can repair their missing canonical batch.
@@ -1367,8 +1386,11 @@ export async function runSdkRunCommand(
       const error = result.terminal.error;
       // The gate returned before any provider call. Keep its verdict, not the
       // rejected prompt, in the row a later resume would rehydrate.
-      if (error?.name === 'UserTurnPolicyError' && originalUserMessageId !== undefined)
-        replaceStoredUserText(hostRuntime.sessionDb, originalUserMessageId, error.message);
+      if (error?.name === 'UserTurnPolicyError' && sessionId !== null) {
+        const messageId = currentHumanUserMessageId(hostRuntime.sessionDb, sessionId);
+        if (messageId !== undefined)
+          replaceStoredUserText(hostRuntime.sessionDb, messageId, error.message);
+      }
       throw error ?? new Error('provider failed');
     }
     const outcome = deadlineTerminal
