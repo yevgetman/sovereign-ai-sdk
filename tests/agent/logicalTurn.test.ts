@@ -30,6 +30,7 @@ import { ChatGptSubscriptionProvider } from '@yevgetman/sov-sdk/providers/chatgp
 import {
   ProviderHttpError,
   ProviderStreamError,
+  SessionPersistenceError,
   SubscriptionHttpError,
   SubscriptionStreamError,
 } from '@yevgetman/sov-sdk/providers/errors';
@@ -113,6 +114,25 @@ describe('logical-turn supervisor', () => {
     expect(calls.map((call) => call.continuation)).toEqual([false, true]);
     expect(continuing).toHaveLength(1);
     expect(store.loadLogicalTurn(outcome.logicalTurnId)?.status).toBe('completed');
+  });
+
+  test('an allocated id is stored before prepare and is not a resume', async () => {
+    let prepared = false;
+    const { store, options } = setup(async () => result('completed', 'done'), {
+      allocatedLogicalTurnId: 'allocated-turn',
+      recoverySafe: () => false,
+      prepare: () => {
+        prepared = true;
+        expect(store.loadLogicalTurn('allocated-turn')?.status).toBe('running');
+        throw new SessionPersistenceError(new Error('prepare failed'));
+      },
+    });
+    await expect(superviseLogicalTurn(options)).rejects.toBeInstanceOf(SessionPersistenceError);
+    expect(prepared).toBe(true);
+    const stored = store.loadLogicalTurn('allocated-turn');
+    expect(stored?.logicalTurnId).toBe('allocated-turn');
+    expect(stored?.status).toBe('running');
+    expect(stored).not.toHaveProperty('segmentLimit');
   });
 
   test('a stored segmentLimit does not cap max_tokens continuation', async () => {

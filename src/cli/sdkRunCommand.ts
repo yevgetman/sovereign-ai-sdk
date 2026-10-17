@@ -392,6 +392,9 @@ export async function runSdkRunCommand(
     write(`${JSON.stringify(obj)}\n`);
   };
   const continuationId = string(opts.continueLogicalTurn);
+  // Known before prepare. A new id is minted at session.started; a continuation uses the flag.
+  let logicalTurnId = continuationId;
+  const logicalTurnIdentity = () => (logicalTurnId ? { logicalTurnId } : {});
   let continuationRecord: LogicalTurnRecord | undefined;
   let routeId = string(opts.route);
   const metadata = () => ({
@@ -829,12 +832,14 @@ export async function runSdkRunCommand(
         throw new SessionPersistenceError(new Error('session receipt history requires inspection'));
       assertReadableRecoveryStore(hostRuntime.sessionDb, sessionId);
     }
+    const admittedLogicalTurnId = logicalTurnId ?? randomUUID();
+    logicalTurnId = admittedLogicalTurnId;
     emit({
       type: 'session.started',
       sessionId,
       activeSessionId: sessionId,
       resumed: !!string(opts.resume),
-      ...(continuationId ? { logicalTurnId: continuationId } : {}),
+      logicalTurnId: admittedLogicalTurnId,
       ...metadata(),
       toolset,
       ...permissionMetadata,
@@ -1241,7 +1246,9 @@ export async function runSdkRunCommand(
       // Toolset maxTurns bounds one segment inside runSegment. It is not a segment count.
       logicalModelCallLimit: 100,
       ...(deadlineAt !== undefined ? { deadlineAt } : {}),
-      ...(continuationId ? { logicalTurnId: continuationId } : {}),
+      ...(continuationId
+        ? { logicalTurnId: continuationId }
+        : { allocatedLogicalTurnId: admittedLogicalTurnId }),
       signal: controller.signal,
       prepare: async () => {
         await compactIfProactive();
@@ -1424,7 +1431,6 @@ export async function runSdkRunCommand(
     // A live owner already holds this turn. This launch must not start another worker.
     // Wait out the lease, then continue the same id. This is not a spent budget.
     if (err instanceof LogicalTurnLeaseError) {
-      const logicalTurnId = continuationRecord?.logicalTurnId ?? continuationId;
       finish({
         type: 'turn.error',
         outcome: 'failed',
@@ -1435,7 +1441,7 @@ export async function runSdkRunCommand(
         nextAction: 'continue_logical_turn',
         retryAfterMs: remainingLogicalTurnLeaseMs(runtime?.sessionDb, logicalTurnId),
         sessionId: null,
-        ...(logicalTurnId ? { logicalTurnId } : {}),
+        ...logicalTurnIdentity(),
         ...metadata(),
         ...(continuationRecord ? { counters: continuationRecord.counters } : {}),
         ...nativeTurnMetrics(receipts),
@@ -1453,7 +1459,7 @@ export async function runSdkRunCommand(
         recoverable: false,
         nextAction: 'repair_request',
         sessionId: null,
-        ...(continuationId ? { logicalTurnId: continuationId } : {}),
+        ...logicalTurnIdentity(),
         ...metadata(),
         ...nativeTurnMetrics(receipts),
       });
@@ -1472,6 +1478,7 @@ export async function runSdkRunCommand(
         nextAction: 'none',
         sessionId: durable ? sessionId : null,
         ...(durable ? { activeSessionId: sessionId } : {}),
+        ...logicalTurnIdentity(),
         ...nativeTurnMetrics(receipts),
         ...metadata(),
       });
@@ -1530,6 +1537,7 @@ export async function runSdkRunCommand(
                     : 'repair_request',
       sessionId: durable ? sessionId : null,
       ...(durable ? { activeSessionId: sessionId } : {}),
+      ...logicalTurnIdentity(),
       ...nativeTurnMetrics(receipts),
       ...metadata(),
       code,
