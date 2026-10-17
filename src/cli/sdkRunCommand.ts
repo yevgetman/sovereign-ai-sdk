@@ -589,8 +589,13 @@ export async function runSdkRunCommand(
     let messages = hydrate();
     // Refuse unsafe prior effects before a paid summary or inference call.
     // Complete journal receipts can repair their missing canonical batch.
-    if (!hasNativeRecoveryTarget(hostRuntime.sessionDb, sessionId))
-      throw new SessionPersistenceError(new Error('session receipt history requires inspection'));
+    // A continuation's started or unknown receipt is recovery_unsafe below.
+    // An unreadable store is still a storage fault.
+    if (!hasNativeRecoveryTarget(hostRuntime.sessionDb, sessionId)) {
+      if (!continuationRecord || sessionId === null)
+        throw new SessionPersistenceError(new Error('session receipt history requires inspection'));
+      assertReadableRecoveryStore(hostRuntime.sessionDb, sessionId);
+    }
     emit({
       type: 'session.started',
       sessionId,
@@ -1425,6 +1430,17 @@ function isStorageFault(error: unknown): boolean {
     error instanceof SessionPersistenceError ||
     error instanceof ToolStorageError
   );
+}
+
+/** A clean re-read is an unsafe receipt. A throw is a storage fault. */
+function assertReadableRecoveryStore(store: SessionDb, sessionId: string): void {
+  try {
+    store.getSession(sessionId);
+    store.loadMessages(sessionId);
+    store.loadToolExecutions(sessionId);
+  } catch (error) {
+    throw new SessionPersistenceError(error);
+  }
 }
 type AttemptCharge = { usage?: TokenUsage; estimatedCostUsd?: number };
 

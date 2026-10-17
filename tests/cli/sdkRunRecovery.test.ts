@@ -1344,3 +1344,124 @@ test('a changed permission policy names the policy mismatch and keeps the row', 
   expect(String(terminal?.error)).not.toContain(origin);
   expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
 });
+
+for (const state of ['unknown', 'started'] as const) {
+  test(`continuing a ${state} tool receipt is recovery_unsafe without a provider call`, async () => {
+    let calls = 0;
+    const provider: LLMProvider = {
+      name: 'openai',
+      async *stream() {
+        calls++;
+        const reply = message('durable answer');
+        yield { type: 'assistant_message', message: reply };
+        return reply;
+      },
+    };
+    const f = fixture(provider);
+    const first = capture();
+    expect(await runSdkRunCommand(opts, first.io, f.deps)).toBe(0);
+    expect(calls).toBe(1);
+    const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+    const sessionId = String(first.events.at(-1)?.activeSessionId);
+    const db = SessionDb.open({ path: f.db });
+    try {
+      const record = db.loadLogicalTurn(logicalTurnId);
+      if (!record) throw new Error('logical turn row missing');
+      record.status = 'running';
+      db.handle.run('UPDATE logical_turns SET record = ? WHERE logical_turn_id = ?', [
+        JSON.stringify(record),
+        logicalTurnId,
+      ]);
+      const assistantMessageId = db.saveMessage(sessionId, {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: `effect-${state}`, name: 'fixture', input: {} }],
+      });
+      db.saveToolExecution(sessionId, {
+        assistantMessageId,
+        toolUseId: `effect-${state}`,
+        state,
+      });
+    } finally {
+      db.close();
+    }
+    const second = capture();
+    expect(
+      await runSdkRunCommand(
+        { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+        second.io,
+        f.deps,
+      ),
+    ).toBe(3);
+    expect(calls).toBe(1);
+    expect(second.events.at(-1)).toMatchObject({
+      type: 'turn.error',
+      outcome: 'failed',
+      reason: 'unsafe_effect',
+      code: 'recovery_unsafe',
+      error: 'Logical turn cannot continue because a tool effect is not safely replayable.',
+      recoverable: false,
+      nextAction: 'inspect_session',
+      sessionId: null,
+      logicalTurnId,
+    });
+    expect(JSON.stringify(second.events)).not.toContain('storage_failed');
+    expect(JSON.stringify(second.events)).not.toContain('inspect_storage');
+    expect(JSON.stringify(second.events)).not.toContain('Session storage failed');
+  });
+}
+
+test('a continuation with an unreadable session store still reports storage_failed', async () => {
+  let calls = 0;
+  let fault = false;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('durable answer');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    const get = runtime.sessionDb.getSession.bind(runtime.sessionDb);
+    let reads = 0;
+    runtime.sessionDb.getSession = (sessionId: string, owner?: string) => {
+      reads += 1;
+      if (fault && reads > 1) throw new Error('private continuation store failure');
+      return get(sessionId, owner);
+    };
+  });
+  const first = capture();
+  expect(await runSdkRunCommand(opts, first.io, f.deps)).toBe(0);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const db = SessionDb.open({ path: f.db });
+  try {
+    const record = db.loadLogicalTurn(logicalTurnId);
+    if (!record) throw new Error('logical turn row missing');
+    record.status = 'running';
+    db.handle.run('UPDATE logical_turns SET record = ? WHERE logical_turn_id = ?', [
+      JSON.stringify(record),
+      logicalTurnId,
+    ]);
+  } finally {
+    db.close();
+  }
+  fault = true;
+  const second = capture();
+  expect(
+    await runSdkRunCommand(
+      { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+      second.io,
+      f.deps,
+    ),
+  ).toBe(1);
+  expect(calls).toBe(1);
+  expect(second.events.at(-1)).toMatchObject({
+    type: 'turn.error',
+    code: 'storage_failed',
+    recoverable: false,
+    nextAction: 'inspect_storage',
+  });
+  expect(second.events.at(-1)?.code).not.toBe('recovery_unsafe');
+  expect(JSON.stringify(second.events)).not.toContain('private continuation store failure');
+});
