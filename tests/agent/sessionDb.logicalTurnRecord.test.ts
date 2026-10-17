@@ -136,6 +136,9 @@ for (const [id, record] of [
       logicalTurnId: id,
     });
     expect(terminal?.code).not.toBe('provider_failed');
+    expect(terminal?.error).toBe('Logical turn recovery state is invalid.');
+    expect(String(terminal?.error)).not.toContain('working-directory');
+    expect(String(terminal?.error)).not.toContain('policy');
     expect(String(terminal?.error)).not.toContain('provider');
   });
 }

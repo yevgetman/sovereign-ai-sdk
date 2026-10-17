@@ -601,34 +601,45 @@ export async function runSdkRunCommand(
       ...permissionMetadata,
       capabilities: { logicalTurnRecovery: LOGICAL_TURN_RECOVERY_CAPABILITY },
     });
-    if (
-      continuationRecord &&
-      (continuationRecord.binding.route !== resolvedRouteId ||
-        continuationRecord.binding.provider !== routeSelection.route.provider ||
-        continuationRecord.binding.authKind !== routeSelection.route.auth ||
-        continuationRecord.binding.model !== routeSelection.model ||
-        continuationRecord.binding.effort !== routeSelection.effort ||
-        continuationRecord.binding.toolset !== toolset ||
-        continuationRecord.binding.permissionMode !== hostRuntime.permissionMode ||
-        continuationRecord.binding.policyDigest !== policyDigest ||
-        continuationRecord.binding.cwd !== process.cwd() ||
-        continuationRecord.binding.bundleIdentity !== string(opts.bundle))
-    ) {
-      finish({
-        type: 'turn.error',
-        outcome: 'failed',
-        reason: 'recovery_state_invalid',
-        code: 'recovery_state_invalid',
-        error: ERRORS.recovery_state_invalid,
-        recoverable: false,
-        nextAction: 'repair_request',
-        sessionId: null,
-        logicalTurnId: continuationRecord.logicalTurnId,
-        ...metadata(),
-        counters: continuationRecord.counters,
-        ...nativeTurnMetrics(receipts),
-      });
-      return 3;
+    if (continuationRecord) {
+      const binding = continuationRecord.binding;
+      // A moved directory or a changed permission policy is an intact row.
+      // Corrupt JSON stays on the LogicalTurnRecordError path.
+      const cwdMismatch = binding.cwd !== process.cwd();
+      const policyMismatch = binding.policyDigest !== policyDigest;
+      const otherMismatch =
+        binding.route !== resolvedRouteId ||
+        binding.provider !== routeSelection.route.provider ||
+        binding.authKind !== routeSelection.route.auth ||
+        binding.model !== routeSelection.model ||
+        binding.effort !== routeSelection.effort ||
+        binding.toolset !== toolset ||
+        binding.permissionMode !== hostRuntime.permissionMode ||
+        binding.bundleIdentity !== string(opts.bundle);
+      if (cwdMismatch || policyMismatch || otherMismatch) {
+        const named = [
+          cwdMismatch ? 'working-directory mismatch' : undefined,
+          policyMismatch ? 'permission-policy mismatch' : undefined,
+        ].filter((item) => item !== undefined);
+        finish({
+          type: 'turn.error',
+          outcome: 'failed',
+          reason: 'recovery_state_invalid',
+          code: 'recovery_state_invalid',
+          error:
+            named.length > 0
+              ? `Logical turn ${named.join(' and ')}.`
+              : ERRORS.recovery_state_invalid,
+          recoverable: false,
+          nextAction: 'repair_request',
+          sessionId: null,
+          logicalTurnId: continuationRecord.logicalTurnId,
+          ...metadata(),
+          counters: continuationRecord.counters,
+          ...nativeTurnMetrics(receipts),
+        });
+        return 3;
+      }
     }
     if (continuationRecord?.status === 'cancelled') {
       finish({
