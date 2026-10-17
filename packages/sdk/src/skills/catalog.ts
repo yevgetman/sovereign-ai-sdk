@@ -84,6 +84,47 @@ type Cursor = {
 function encodeCursor(cursor: Cursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString('base64url');
 }
+const ORDINARY_NAME_BYTES = 64;
+const NAMES_PAGE_LIMIT = 100;
+
+// A names page has to carry the tool's maximum page of ordinary identities
+// plus its continuation cursor. Summary and activation stay on pageTokens.
+function ordinaryNamesPageBytes(): number {
+  const name = 'n'.repeat(ORDINARY_NAME_BYTES);
+  const skills = Array.from({ length: NAMES_PAGE_LIMIT }, () => ({ name }));
+  const generation = 'f'.repeat(24);
+  const nextCursor = encodeCursor({
+    v: 1,
+    generation,
+    query: '',
+    offset: NAMES_PAGE_LIMIT,
+    detail: 'names',
+  });
+  const pending = {
+    generation,
+    skills,
+    total: NAMES_PAGE_LIMIT + 1,
+    returned: 0,
+    remaining: NAMES_PAGE_LIMIT + 1,
+    truncated: true,
+    detail: 'names' as const,
+    nextCursor,
+  };
+  const issued = { ...pending, returned: NAMES_PAGE_LIMIT, remaining: 1 };
+  return Math.max(
+    skillTextTokenBound(JSON.stringify(pending)),
+    skillTextTokenBound(JSON.stringify(issued)),
+  );
+}
+
+const NAMES_PAGE_BYTES = ordinaryNamesPageBytes();
+
+function namesPageByteCap(budget: SkillContextBudget): number {
+  const available = budget.availableTokens;
+  if (!Number.isSafeInteger(available) || available < 0) return budget.pageTokens;
+  return Math.min(available, Math.max(budget.pageTokens, NAMES_PAGE_BYTES));
+}
+
 function decodeCursor(value: string): Cursor {
   if (value.length > 2_048) throw new Error('skill catalog cursor is invalid; restart enumeration');
   try {
@@ -145,7 +186,8 @@ export function listSkillCatalog(
   const limit = options.limit ?? 25;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
     throw new Error('skill catalog limit must be an integer from 1 to 100');
-  const byteCap = (options.budget ?? resolveSkillContextBudget()).pageTokens;
+  const budget = options.budget ?? resolveSkillContextBudget();
+  const byteCap = detail === 'names' ? namesPageByteCap(budget) : budget.pageTokens;
   if (!Number.isSafeInteger(byteCap) || byteCap < 0)
     throw new Error('skill page budget must be a nonnegative safe integer');
   const page: SkillCatalogPage = {
