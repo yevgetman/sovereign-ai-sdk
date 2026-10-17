@@ -1168,6 +1168,32 @@ export async function runSdkRunCommand(
           ),
       };
     };
+    // Same threshold check as the pre-loop prepare. Later segments do not call prepare.
+    const compactIfProactive = async (): Promise<AttemptCharge | undefined> => {
+      // A deadline that already aborted the work signal must not start a summary.
+      if (controller.signal.aborted) return undefined;
+      const segmentSchemas = toToolSchemas(hop.composed.tools);
+      if (
+        !shouldCompactModelRequest(
+          messages,
+          hop.system,
+          segmentSchemas,
+          modelSnapshot.limits,
+          hostRuntime.proactiveCompactThreshold,
+          {
+            counter: inputTokenAccounting,
+            model: routeSelection.model,
+            metadata: modelMetadata,
+          },
+        ) ||
+        !canReduce(hop, messages)
+      )
+        return undefined;
+      const charge = await compact();
+      if (!charge) return undefined;
+      hop = makeHop();
+      return charge;
+    };
     // Arm before prepare(). A stored deadline must abort compaction, not only the segment.
     armStoredResumeDeadline();
     const logical = await superviseLogicalTurn({
@@ -1195,25 +1221,7 @@ export async function runSdkRunCommand(
       ...(continuationId ? { logicalTurnId: continuationId } : {}),
       signal: controller.signal,
       prepare: async () => {
-        const segmentSchemas = toToolSchemas(hop.composed.tools);
-        if (
-          shouldCompactModelRequest(
-            messages,
-            hop.system,
-            segmentSchemas,
-            modelSnapshot.limits,
-            hostRuntime.proactiveCompactThreshold,
-            {
-              counter: inputTokenAccounting,
-              model: routeSelection.model,
-              metadata: modelMetadata,
-            },
-          ) &&
-          canReduce(hop, messages) &&
-          (await compact())
-        ) {
-          hop = makeHop();
-        }
+        await compactIfProactive();
       },
       rehydrate: () => hydrate(),
       recoverySafe: (id) =>
@@ -1263,7 +1271,34 @@ export async function runSdkRunCommand(
           messages = segment.messages;
           hop = makeHop();
         }
-        let result = await runOnce(segment);
+        // The supervisor calls prepare once. Continuation segments still need
+        // the proactive check, inside this lease and the remaining model budget.
+        let summary: AttemptCharge | undefined;
+        let remainingModelCalls = segment.remainingModelCalls;
+        if (segment.continuation) {
+          summary = await compactIfProactive();
+          if (summary) remainingModelCalls -= 1;
+        }
+        if (remainingModelCalls <= 0) {
+          const activeSessionId = sessionId as string;
+          return {
+            sessionId: activeSessionId,
+            terminal: { reason: 'max_turns' as const },
+            iterationsUsed: 1,
+            toolCallCount: 0,
+            distinctToolNames: [],
+            messages,
+            ...(summary?.usage ? { usage: summary.usage } : {}),
+            ...(summary?.estimatedCostUsd !== undefined
+              ? { estimatedCostUsd: summary.estimatedCostUsd }
+              : {}),
+          };
+        }
+        let result = await runOnce({
+          continuation: segment.continuation,
+          remainingModelCalls,
+        });
+        if (summary) result = chargeLeadingSummary(result, summary);
         if (overflow(result)) {
           messages = hydrate();
           const recoveryHop = makeHop();
@@ -1774,6 +1809,18 @@ function mergeRecoveredAttempts(
     iterationsUsed: abandoned.iterationsUsed + 1 + retry.iterationsUsed,
     toolCallCount: abandoned.toolCallCount + retry.toolCallCount,
     distinctToolNames: [...names].sort(),
+    ...(usage !== undefined ? { usage } : {}),
+    ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
+  };
+}
+
+/** A proactive summary before a continuation segment is one model call. */
+function chargeLeadingSummary(result: RunResult, compaction: AttemptCharge): RunResult {
+  const usage = sumTokenUsage(result.usage, compaction.usage);
+  const estimatedCostUsd = pricedTotal(attemptCharge(result), compaction);
+  return {
+    ...result,
+    iterationsUsed: result.iterationsUsed + 1,
     ...(usage !== undefined ? { usage } : {}),
     ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
   };
