@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
 import {
+  LOGICAL_TURN_LEASE_MS,
   LOGICAL_TURN_RECOVERY_CAPABILITY,
   LogicalTurnLeaseError,
   logicalTurnCursor,
@@ -121,7 +122,8 @@ const ERRORS: Record<string, string> = {
   continuation_failed: 'Logical turn failed and cannot continue.',
   recovery_unsafe: 'Logical turn cannot continue because a tool effect is not safely replayable.',
   recovery_state_invalid: 'Logical turn recovery state is invalid.',
-  logical_turn_leased: 'Logical turn is owned elsewhere.',
+  logical_turn_leased:
+    'A live owner is busy with this logical turn. Continue a crashed owner after the lease expires.',
 };
 const UNKNOWN_LOGICAL_TURN = 'logical turn does not exist';
 const MISSING_LOGICAL_TURN_ROUTE = 'logical turn route is missing';
@@ -260,6 +262,24 @@ function turnErrorText(code: string, err: unknown): string {
   }
   return ERRORS[code] ?? 'Selected provider failed. No route fallback was performed.';
 }
+
+/** Time left on another owner's lease. An unreadable expiry waits out one full lease. */
+function remainingLogicalTurnLeaseMs(
+  store: SessionDb | undefined,
+  logicalTurnId: string | undefined,
+): number {
+  if (!store || !logicalTurnId) return LOGICAL_TURN_LEASE_MS;
+  try {
+    const lease = store.readLogicalTurnLease(logicalTurnId);
+    if (!lease) return LOGICAL_TURN_LEASE_MS;
+    const expiresAt = lease.expiresAt;
+    if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return 0;
+    return Math.max(0, Math.ceil(expiresAt - Date.now()));
+  } catch {
+    return LOGICAL_TURN_LEASE_MS;
+  }
+}
+
 function interrupted(signal: AbortSignal): Promise<never> {
   return new Promise((_, reject) => {
     if (signal.aborted) reject(new Error('interrupted'));
@@ -1311,6 +1331,7 @@ export async function runSdkRunCommand(
     return failed ? 3 : 0;
   } catch (err) {
     // A live owner already holds this turn. This launch must not start another worker.
+    // Wait out the lease, then continue the same id. This is not a spent budget.
     if (err instanceof LogicalTurnLeaseError) {
       const logicalTurnId = continuationRecord?.logicalTurnId ?? continuationId;
       finish({
@@ -1319,8 +1340,9 @@ export async function runSdkRunCommand(
         reason: 'logical_turn_leased',
         code: 'logical_turn_leased',
         error: ERRORS.logical_turn_leased,
-        recoverable: false,
-        nextAction: 'none',
+        recoverable: true,
+        nextAction: 'continue_logical_turn',
+        retryAfterMs: remainingLogicalTurnLeaseMs(runtime?.sessionDb, logicalTurnId),
         sessionId: null,
         ...(logicalTurnId ? { logicalTurnId } : {}),
         ...metadata(),

@@ -1,3 +1,38 @@
+## 2026-10-17 — Held logical-turn lease is a timed retry
+
+Scope: `--continue-logical-turn` while another owner holds an unexpired
+lease. This launch still does not run tools or rewrite the stored row.
+The terminal is recoverable, `nextAction` is `continue_logical_turn`, and
+`retryAfterMs` is the time left on the lease. After `lease_expires_at`, the
+same id is still accepted when receipts are safe. The lease-loss abort in
+`logicalTurn.ts` was not changed.
+
+Environment: `/tmp/fix-sov-157` on `review-fix/157` from `f6d929ea`, macOS,
+Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade, release,
+or deployment ran.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/cli/sdkRunRecovery.test.ts -t 'held lease|expired lease'` failed the
+held-lease case. The terminal was `logical_turn_leased`, `recoverable: false`,
+`nextAction: "none"`, and the message was "Logical turn is owned elsewhere."
+The provider was not called. The expired-lease case already passed.
+
+After the fix, the same command is **2 pass / 0 fail**. The held lease exits 3
+with `recoverable: true`, `nextAction: "continue_logical_turn"`, and
+`retryAfterMs` inside the stored lease window. There is no tool start and no
+stored-row change. The expired lease exits 0 and completes the same id.
+`tests/cli/sdkRunRecovery.test.ts` and `tests/cli/sdkRunCommand.test.ts` were
+**66 pass / 0 fail**, 504 assertions.
+
+`bun run lint` passed (Biome 1159 files; boundary 257 modules, 1054
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). None are in the lease files.
+`env -u FORCE_COLOR bun test --timeout 20000` is **6594 pass / 31 skip / 0 fail**,
+27033 assertions, 625 files, 177.41 seconds. An earlier run without
+`bin/sov-tui` failed 21 launcher tests; those passed after a local TUI build
+and are not part of this change.
+
 ## 2026-10-17 — Continuation help no longer requires stdin
 
 Scope: `sov run --help` and the legacy input check for

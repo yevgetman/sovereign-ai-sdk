@@ -299,8 +299,13 @@ recovery state emit `turn.error` with `continuation_exhausted`,
 `continuation_stalled`, `recovery_unsafe` or `recovery_state_invalid`. Use
 `--continue-logical-turn <id>` with `--sdk --json` to continue stored work
 without a replacement prompt. A live owner keeps a short lease, so a second
-continuation does not run tools. After a crash the lease expires in about 30
-seconds, and a continuation may take it only when receipt recovery is safe.
+continuation does not run tools or start another worker. While that lease is
+unexpired the event is `logical_turn_leased` with `recoverable: true`,
+`nextAction: "continue_logical_turn"`, and `retryAfterMs` set to the time left
+on the lease. It is not `nextAction: "none"`. The message says a live owner is
+busy and a crashed owner can be continued after the lease expires. After a
+crash the lease expires in about 30 seconds, and the same id is accepted only
+when receipt recovery is safe.
 Route, model, effort, toolset, permissions, working directory and bundle
 identity stay bound to the stored record.
 Cancellation emits `outcome: "interrupted"`. Exhaustion and a deadline emit
@@ -388,7 +393,9 @@ aborts the launch and a later `--continue-logical-turn` of that exhausted
 record. A model-call cap returns 3 (`continuation_exhausted`, reason
 `model_call_limit`), both when the running turn reaches the cap and when a
 continuation is asked to resume it. A lease conflict returns 3
-(`logical_turn_leased`) while another owner holds the turn. A cancelled continuation
+(`logical_turn_leased`) while another owner holds the turn. That stop is
+recoverable: wait `retryAfterMs`, then continue the same id. It does not use
+`nextAction: "none"`. A cancelled continuation
 returns 3: `--continue-logical-turn` of a stored cancelled id is
 `recovery_state_invalid` and does not call the model. An in-process cancel
 is still SIGINT 130 or SIGTERM 143, not 3. A stall returns 3
