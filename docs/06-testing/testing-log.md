@@ -1,3 +1,34 @@
+## 2026-10-17 — Lost logical-turn lease aborts the in-flight segment
+
+Scope: failed renewal aborts the segment signal that `createAgent` passes to
+the provider and tools. Transcript and tool-journal writes from that owner are
+rejected once the lease belongs to someone else. A caller stop still aborts
+the segment without marking the lease lost, so that transcript can persist.
+`sdkRunCommand`, `query`, and `turnComposition` were not changed.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts -t "aborts the blocked tool"` failed 2 tests.
+`expect(providerSignal?.aborted).toBe(true)` received `undefined`. The blocked
+tool was not aborted, and a late `saveMessage` from the dispossessed worker
+could still land.
+
+After the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts` is **48 pass / 0 fail**. A second supervisor,
+and a stolen sqlite lease, abort the blocked tool before its effect or late
+row. The dispossessed worker rejects with `LogicalTurnLeaseError`. The resumed
+reply stays `resumed`. `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/createAgent.test.ts tests/agent/toolExecutionJournal.test.ts
+tests/agent/durableToolReceipts.test.ts tests/cli/sdkRunRecovery.test.ts` passed
+in the same run as the lease file.
+
+`bun run lint` passed. `bun run typecheck` reports 3 existing errors in
+`tests/cli/sdkSubscriptionImages.test.ts` and `tests/skills/catalog.test.ts`,
+none in the lease files. A full `bun test` reported 6519 pass / 67 fail /
+31 skip. All 67 were `ERR_MODULE_NOT_FOUND` for `packages/sdk/dist` while the
+tarball test rebuilt that directory. Re-running `tests/skills` and
+`tests/providers/modelImportOrder.test.ts` after dist existed is **465 pass /
+0 fail**. No live provider, product install, upgrade, release, or deployment ran.
+
 ## 2026-10-16 — Continuation boundary loads the transcript once
 
 Scope: one stored read per logical-turn segment boundary, shared by the safety
