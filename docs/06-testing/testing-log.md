@@ -1,3 +1,35 @@
+## 2026-10-17 — Continuation cursor scan stops at the newest page
+
+Scope: `logicalTurnCursor` walks transcript order from the end and returns
+the first pagination cursor. A tool result still wins over its request.
+Tool-result bodies larger than `LOGICAL_TURN_CURSOR_PARSE_CAP` (65536) are
+not parsed. After a segment returns, the supervisor renews the logical-turn
+lease before the boundary read and again after the progress fingerprint.
+`src/cli/sdkRunCommand.ts` was not edited.
+
+Environment: `/tmp/fix-sov-160` on `review-fix/160` from `90b0b80c`, macOS,
+Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade, release,
+or deployment ran.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts -t 'newest cursor wins'` failed. The newest
+oversized tool result still supplied `hidden` instead of the earlier
+`page-9`.
+
+After the fix, that test passes. An older oversized body, grown again, does
+not replace a trailing `page-9`. A tool result still wins over the request
+ahead of it. An edit to an older body that leaves `nextCursor` alone still
+stalls. The boundary read observes a lease renew that happens after the
+segment returns and before `readBoundary`. `env -u FORCE_COLOR bun test
+--timeout 20000 tests/agent/logicalTurn.test.ts` is **53 pass / 0 fail**.
+
+`bun run lint` passed (Biome 1159 files; boundary 257 modules, 1055
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). After `bun run build`,
+`env -u FORCE_COLOR bun test --timeout 20000` is **6604 pass / 31 skip /
+0 fail**, 27132 assertions, 625 files, 174.93 seconds.
+
 ## 2026-10-17 — Resumed work aborts at the stored deadline
 
 Scope: `--continue-logical-turn` of a still-running logical turn whose

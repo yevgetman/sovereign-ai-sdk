@@ -23,6 +23,8 @@ export const LOGICAL_TURN_RECOVERY_CAPABILITY = {
 /** Short enough that a crashed owner can be resumed, long enough to cover one refresh gap. */
 export const LOGICAL_TURN_LEASE_MS = 30_000;
 export const LOGICAL_TURN_LEASE_RENEW_MS = 10_000;
+/** Tool-result bodies above this are not parsed for a pagination cursor. */
+export const LOGICAL_TURN_CURSOR_PARSE_CAP = 65_536;
 
 /** A failed row may resume only when finishReason or lastCause is one of these. */
 const SAFE_TRANSIENT_FAILURES = new Set([
@@ -682,6 +684,9 @@ export async function superviseLogicalTurn(
       }
 
       transientAttempts = 0;
+      // The segment heartbeat has stopped. Renew before and after the boundary
+      // read so a cursor scan cannot outlive this owner's lease.
+      if (!renewLease()) throw new LogicalTurnLeaseError();
       const boundary = options.readBoundary?.(record.activeSessionId);
       const safe = boundary ? boundary.safe : options.recoverySafe(record.activeSessionId);
       if (!safe) return await finish('failed', 'unsafe_effect', result, 'recovery_unsafe');
@@ -701,6 +706,7 @@ export async function superviseLogicalTurn(
         assistantTextLength: assistantTextLength(result),
         activeSessionId: record.activeSessionId,
       });
+      if (!renewLease()) throw new LogicalTurnLeaseError();
       record.repeatedNoProgress =
         record.progressFingerprint === fingerprint && previousCause === result.terminal.reason
           ? record.repeatedNoProgress + 1
@@ -885,19 +891,22 @@ export function logicalTurnCursor(
     content: readonly { type: string; content?: string; input?: unknown }[];
   }[],
 ): string | undefined {
-  let cursor: string | undefined;
-  for (const message of messages) {
-    for (const block of message.content) {
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const content = messages[messageIndex]?.content ?? [];
+    for (let blockIndex = content.length - 1; blockIndex >= 0; blockIndex -= 1) {
+      const block = content[blockIndex];
+      if (!block) continue;
       if (block.type === 'tool_result' && typeof block.content === 'string') {
+        if (block.content.length > LOGICAL_TURN_CURSOR_PARSE_CAP) continue;
         const found = cursorInJson(block.content);
-        if (found !== undefined) cursor = found;
+        if (found !== undefined) return found;
       } else if (block.type === 'tool_use') {
         const found = cursorOnInput(block.input);
-        if (found !== undefined) cursor = found;
+        if (found !== undefined) return found;
       }
     }
   }
-  return cursor;
+  return undefined;
 }
 
 function cursorOnInput(input: unknown): string | undefined {
