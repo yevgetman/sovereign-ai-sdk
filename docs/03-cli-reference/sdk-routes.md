@@ -373,9 +373,35 @@ keep their existing typed errors and do not retry. Native `turn.error` events re
 the fixed `deliveryPhase` and `deliveryReason` fields; incomplete delivery reports
 `recoverable: false`.
 
-Exit codes are 0 for completion, 1 for turn failure, 2 for invalid input/options,
-130 for SIGINT and 143 for SIGTERM. A Grok 403 reports `tier_blocked` and never
-switches to a paid API key.
+Exit codes are 0 for completion (including `waiting_user` and a completed
+continuation), 1 for a turn failure that is not a logical-turn stop, 2 for
+invalid input or options, 3 for a logical-turn stop, 130 for SIGINT and 143
+for SIGTERM. Exit 3 is no longer `needs_continuation`. A `max_tokens` or
+`max_turns` segment emits `turn.continuing` and stays in the same process. A
+`checkin` completes with `waiting_user` and exits 0. Do not start another
+prompt on exit 3. That code used to mean the partial answer needed another
+turn. It now means the logical turn has stopped.
+
+These logical-turn stops all return 3. A deadline returns 3
+(`continuation_exhausted`, reason `deadline`), including a deadline that
+aborts the launch and a later `--continue-logical-turn` of that exhausted
+record. A model-call cap returns 3 (`continuation_exhausted`, reason
+`model_call_limit`), both when the running turn reaches the cap and when a
+continuation is asked to resume it. A lease conflict returns 3
+(`logical_turn_leased`) while another owner holds the turn. A cancelled continuation
+returns 3: `--continue-logical-turn` of a stored cancelled id is
+`recovery_state_invalid` and does not call the model. An in-process cancel
+is still SIGINT 130 or SIGTERM 143, not 3. A stall returns 3
+(`continuation_stalled`), including resume of a stored stall. Invalid
+recovery state returns 3 (`recovery_state_invalid`) for a skill-approval
+mismatch, an MCP identity mismatch, a working-directory or permission-policy
+mismatch, any other bound route, provider, auth, model, effort, toolset,
+permission mode, or bundle mismatch, and a corrupt logical-turn record.
+Unsafe recovery returns 3 (`recovery_unsafe`) when the stored session has no
+usable receipt target. Any other failed logical result returns the same 3
+when its status is not `completed` or `waiting_user` and it is not rethrown
+as an interrupt or a provider failure. A Grok 403 reports `tier_blocked`
+and never switches to a paid API key.
 
 ## Verification limits
 
