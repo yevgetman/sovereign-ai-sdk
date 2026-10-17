@@ -130,9 +130,12 @@ test('pre-session deadline is continuation_exhausted and not an interrupt', asyn
 });
 for (const exhausted of ['max_tokens', 'max_turns'] as const) {
   test(`${exhausted} continues internally then stops repeated no-progress work`, async () => {
+    let calls = 0;
+    let toolRuns = 0;
     const provider: LLMProvider = {
       name: 'openai',
       async *stream() {
+        calls++;
         yield { type: 'message_start' };
         yield { type: 'usage_delta', usage: { inputTokens: 3, outputTokens: 2 } };
         yield {
@@ -160,6 +163,7 @@ for (const exhausted of ['max_tokens', 'max_turns'] as const) {
           description: () => 'fixture',
           inputSchema: z.unknown(),
           async call() {
+            toolRuns++;
             return { data: 'receipt' };
           },
         }),
@@ -180,11 +184,13 @@ for (const exhausted of ['max_tokens', 'max_turns'] as const) {
       reason: 'no_progress',
       code: 'continuation_stalled',
       finishReason: 'no_progress',
-      recoverable: true,
-      nextAction: 'continue_logical_turn',
+      recoverable: false,
+      nextAction: 'none',
     });
     expect(terminal?.finishReason).not.toBe('max_turns');
     expect(terminal?.finishReason).not.toBe('max_tokens');
+    expect(terminal?.nextAction).not.toBe('continue_logical_turn');
+    expect(terminal?.nextAction).not.toBe('resume');
     expect(c.events.filter((event) => event.type === 'turn.continuing')).toHaveLength(1);
     expect(c.events.some((event) => event.type === 'turn.completed')).toBe(false);
     const db = SessionDb.open({ path: f.db });
@@ -194,8 +200,128 @@ for (const exhausted of ['max_tokens', 'max_turns'] as const) {
     } finally {
       db.close();
     }
+    const callsAfterStop = calls;
+    const toolsAfterStop = toolRuns;
+    const logicalTurnId = String(terminal?.logicalTurnId);
+    const continued = capture();
+    expect(
+      await runSdkRunCommand(
+        { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+        continued.io,
+        f.deps,
+      ),
+    ).toBe(3);
+    expect(calls).toBe(callsAfterStop);
+    expect(toolRuns).toBe(toolsAfterStop);
+    expect(continued.events.at(-1)).toMatchObject({
+      type: 'turn.error',
+      outcome: 'stalled',
+      code: 'continuation_stalled',
+      finishReason: 'no_progress',
+      recoverable: false,
+      nextAction: 'none',
+      logicalTurnId,
+    });
+    expect(continued.events.at(-1)?.finishReason).not.toBe('max_turns');
+    expect(continued.events.at(-1)?.finishReason).not.toBe('max_tokens');
+    expect(continued.events.at(-1)?.outcome).not.toBe('interrupted');
+    const after = SessionDb.open({ path: f.db });
+    try {
+      expect(after.loadLogicalTurn(logicalTurnId)?.status).toBe('stalled');
+    } finally {
+      after.close();
+    }
   });
 }
+
+test('model-call cap is not resumable and a follow-up continue does not call the model', async () => {
+  let calls = 0;
+  let toolRuns = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const id = `cap-${calls}`;
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 1, outputTokens: 1 } };
+      yield { type: 'message_stop', stop_reason: 'tool_use' };
+      const reply: AssistantMessage = {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id, name: 'cap_probe', input: { n: calls } }],
+      };
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.loop = { mode: 'off' };
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'cap_probe',
+        description: () => 'cap fixture',
+        inputSchema: z.unknown(),
+        async call() {
+          toolRuns++;
+          return { data: `receipt-${toolRuns}` };
+        },
+      }),
+    );
+  });
+  const c = capture();
+  expect(await runSdkRunCommand({ ...opts, toolset: 'coding' }, c.io, f.deps)).toBe(3);
+  const terminal = c.events.at(-1);
+  expect(terminal).toMatchObject({
+    type: 'turn.error',
+    outcome: 'exhausted',
+    reason: 'model_call_limit',
+    code: 'continuation_exhausted',
+    finishReason: 'model_call_limit',
+    recoverable: false,
+    nextAction: 'none',
+  });
+  expect(terminal?.finishReason).not.toBe('max_turns');
+  expect(terminal?.finishReason).not.toBe('max_tokens');
+  expect(terminal?.outcome).not.toBe('interrupted');
+  expect(terminal?.nextAction).not.toBe('continue_logical_turn');
+  expect(terminal?.nextAction).not.toBe('resume');
+  // Host logicalModelCallLimit. One coding segment spends the whole budget.
+  expect(calls).toBe(100);
+  expect(toolRuns).toBe(100);
+  const logicalTurnId = String(terminal?.logicalTurnId);
+  const continued = capture();
+  expect(
+    await runSdkRunCommand(
+      { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+      continued.io,
+      f.deps,
+    ),
+  ).toBe(3);
+  expect(calls).toBe(100);
+  expect(toolRuns).toBe(100);
+  expect(continued.events.some((event) => event.type === 'turn.continuing')).toBe(false);
+  expect(continued.events.at(-1)).toMatchObject({
+    type: 'turn.error',
+    outcome: 'exhausted',
+    reason: 'model_call_limit',
+    code: 'continuation_exhausted',
+    finishReason: 'model_call_limit',
+    recoverable: false,
+    nextAction: 'none',
+    logicalTurnId,
+  });
+  expect(continued.events.at(-1)?.finishReason).not.toBe('max_turns');
+  expect(continued.events.at(-1)?.outcome).not.toBe('interrupted');
+  const after = SessionDb.open({ path: f.db });
+  try {
+    const stored = after.loadLogicalTurn(logicalTurnId);
+    expect(stored?.status).toBe('exhausted');
+    expect(stored?.finishReason).toBe('model_call_limit');
+  } finally {
+    after.close();
+  }
+});
 for (const stage of ['post-session', 'mid-stream', 'after-final-event'] as const) {
   test(`cancellation ${stage} preserves only a verified durable session and usage once`, async () => {
     const controller = new AbortController();
@@ -604,7 +730,35 @@ for (const stage of [
       db.close();
     }
     if (stage === 'post-session') expect(calls).toBe(0);
-    if (stage === 'mid-stream') expect(calls).toBe(1);
+    if (stage === 'mid-stream') {
+      expect(calls).toBe(1);
+      const continued = capture();
+      expect(
+        await runSdkRunCommand(
+          {
+            json: true,
+            sdk: true,
+            db: f.db,
+            continueLogicalTurn: String(terminal?.logicalTurnId),
+          },
+          continued.io,
+          f.deps,
+        ),
+      ).toBe(3);
+      expect(calls).toBe(1);
+      expect(continued.events.at(-1)).toMatchObject({
+        type: 'turn.error',
+        outcome: 'exhausted',
+        reason: 'deadline',
+        code: 'continuation_exhausted',
+        finishReason: 'deadline',
+        recoverable: false,
+        nextAction: 'none',
+      });
+      expect(continued.events.at(-1)?.outcome).not.toBe('interrupted');
+      expect(continued.events.at(-1)?.nextAction).not.toBe('resume');
+      expect(continued.events.at(-1)?.nextAction).not.toBe('continue_logical_turn');
+    }
   });
 }
 
