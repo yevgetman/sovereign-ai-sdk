@@ -105,7 +105,7 @@ describe('logical-turn supervisor', () => {
     expect(store.loadLogicalTurn(outcome.logicalTurnId)?.status).toBe('completed');
   });
 
-  test('stops after two equal no-progress segment outcomes', async () => {
+  test('stops after two identical continuation attempts', async () => {
     const { options } = setup(async () => result('max_turns'));
     const outcome = await superviseLogicalTurn({
       ...options,
@@ -113,7 +113,182 @@ describe('logical-turn supervisor', () => {
     });
     expect(outcome.status).toBe('stalled');
     expect(outcome.code).toBe('continuation_stalled');
-    expect(outcome.counters.segments).toBe(2);
+    expect(outcome.counters.segments).toBe(3);
+    expect(outcome.finishReason).toBe('repeated:max_turns');
+  });
+
+  test('one unchanged continuation does not stall', async () => {
+    let calls = 0;
+    const { store, options } = setup(async () => {
+      calls += 1;
+      return calls < 3 ? result('max_turns') : result('completed', 'done');
+    });
+    const outcome = await superviseLogicalTurn({
+      ...options,
+      progressSnapshot: () => ({
+        transcriptIds: [1],
+        transcriptCount: 1,
+        receipts: [],
+        cursor: null,
+        compactionChildId: 'session-1',
+      }),
+    });
+    expect(calls).toBe(3);
+    expect(outcome.status).toBe('completed');
+    expect(outcome.code).toBeUndefined();
+    expect(store.loadLogicalTurn(outcome.logicalTurnId)?.repeatedNoProgress).toBe(1);
+  });
+
+  test('two identical continuation attempts stall and name what repeated', async () => {
+    const { store, options } = setup(async () => result('max_turns', 'partial'));
+    const outcome = await superviseLogicalTurn({
+      ...options,
+      progressSnapshot: () => ({
+        transcriptIds: [1],
+        transcriptCount: 1,
+        receipts: [['page', 'completed']],
+        cursor: 'same',
+        compactionChildId: 'session-1',
+      }),
+    });
+    expect(outcome.status).toBe('stalled');
+    expect(outcome.code).toBe('continuation_stalled');
+    expect(outcome.counters.segments).toBe(3);
+    expect(outcome.finishReason).toBe('repeated:max_turns');
+    expect(store.loadLogicalTurn(outcome.logicalTurnId)?.finishReason).toBe('repeated:max_turns');
+    expect(store.loadLogicalTurn(outcome.logicalTurnId)?.repeatedNoProgress).toBe(2);
+  });
+
+  test('a new cursor changes the fingerprint', async () => {
+    let calls = 0;
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'list',
+            content: JSON.stringify({ data: { nextCursor: 'page-1' } }),
+          },
+        ],
+      },
+    ];
+    const { options } = setup(
+      async () => {
+        calls += 1;
+        if (calls === 2) {
+          messages[0] = {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'list',
+                content: JSON.stringify({ data: { nextCursor: 'page-2' } }),
+              },
+            ],
+          };
+        }
+        return calls < 4 ? result('max_turns') : result('completed', 'done');
+      },
+      {
+        rehydrate: () => messages,
+        progressSnapshot: () => ({ receipts: [['list', 'completed']] }),
+      },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('completed');
+    expect(calls).toBe(4);
+  });
+
+  test('a new transcript row changes the fingerprint', async () => {
+    let calls = 0;
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'do the work' }] },
+    ];
+    const { options } = setup(
+      async () => {
+        calls += 1;
+        if (calls === 2) {
+          messages.push({ role: 'assistant', content: [{ type: 'text', text: 'page' }] });
+        }
+        return calls < 4 ? result('max_turns') : result('completed', 'done');
+      },
+      {
+        rehydrate: () => messages,
+        progressSnapshot: () => ({ receipts: [] }),
+      },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('completed');
+    expect(calls).toBe(4);
+  });
+
+  test('a new completed receipt is progress and a started receipt is not', async () => {
+    let startedCalls = 0;
+    const started = setup(
+      async () => {
+        startedCalls += 1;
+        return result('max_turns');
+      },
+      {
+        progressSnapshot: () => ({
+          transcriptIds: [1],
+          transcriptCount: 1,
+          receipts: [[`pending-${startedCalls}`, 'started']],
+          cursor: null,
+          compactionChildId: 'session-1',
+        }),
+      },
+    );
+    const stalled = await superviseLogicalTurn(started.options);
+    expect(stalled.status).toBe('stalled');
+    expect(stalled.counters.segments).toBe(3);
+
+    let calls = 0;
+    const { options } = setup(
+      async () => {
+        calls += 1;
+        return calls < 4 ? result('max_turns') : result('completed', 'done');
+      },
+      {
+        progressSnapshot: () => ({
+          transcriptIds: [1],
+          transcriptCount: 1,
+          receipts: calls >= 2 ? [['page', 'completed']] : [],
+          cursor: null,
+          compactionChildId: 'session-1',
+        }),
+      },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('completed');
+    expect(calls).toBe(4);
+  });
+
+  test('a new compaction child changes the fingerprint', async () => {
+    let calls = 0;
+    const { options } = setup(
+      async () => {
+        calls += 1;
+        const sessionId = calls === 1 ? 'session-1' : 'child-1';
+        return {
+          ...result(calls < 4 ? 'max_turns' : 'completed', calls < 4 ? '' : 'done'),
+          sessionId,
+        };
+      },
+      {
+        progressSnapshot: () => ({
+          transcriptIds: [1],
+          transcriptCount: 1,
+          receipts: [],
+          cursor: null,
+        }),
+      },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('completed');
+    expect(outcome.activeSessionId).toBe('child-1');
+    expect(calls).toBe(4);
   });
 
   test('does not recover across unsafe tool receipts', async () => {

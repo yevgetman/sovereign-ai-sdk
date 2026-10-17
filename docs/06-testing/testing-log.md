@@ -1,3 +1,28 @@
+## 2026-10-16 — Stall fingerprint includes durable progress facts
+
+Scope: logical-turn progress fingerprint in `packages/sdk/src/agent/logicalTurn.ts`.
+Connection-loss retry, abort-during-backoff, and `SubscriptionHttpError` segment
+policy were not changed. The host still refuses to resume a stalled row.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts -t "one unchanged continuation|two identical continuation|new cursor|new transcript row|new compaction child"`
+failed 5 tests. One unchanged continuation stalled at 2 segments. Two identical
+continuations stalled at 2 segments instead of 3. A new cursor, transcript row,
+or compaction child still stalled.
+
+After the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts` is **43 pass / 0 fail**. One unchanged
+continuation completes. The second identical continuation returns
+`continuation_stalled` with `finishReason` `repeated:max_turns`. A new cursor,
+transcript row, compaction child, or completed receipt does not stall.
+`env -u FORCE_COLOR bun test --timeout 60000 tests/cli/sdkRunRecovery.test.ts`
+is **28 pass / 0 fail**. Repeated host work that appends transcript rows runs
+to the model-call budget instead of stalling; a stored stalled row is still
+refused with no further provider call. `bun run lint` passed. `bun run
+typecheck` reports 3 existing errors in `tests/cli/sdkSubscriptionImages.test.ts`
+and `tests/skills/catalog.test.ts`, none in the fingerprint files. No live
+provider, product install, upgrade, release, or deployment ran.
+
 ## 2026-10-16 — Overflow recovery stays inside the logical model-call budget
 
 Scope: native `runSegment` context-overflow retry in `src/cli/sdkRunCommand.ts`.
