@@ -571,8 +571,9 @@ export async function superviseLogicalTurn(
     if (record.status === 'failed' && !isSafeTransientFailure(record)) {
       return storedFailure(record);
     }
-    if (unsafeResume || (resuming && !options.recoverySafe(record.activeSessionId)))
-      return await finish('failed', 'unsafe_effect', undefined, 'recovery_unsafe');
+    // Reuse the pre-lease decision. Scanning again here holds the lease with no
+    // heartbeat, so a long receipt read can lose the row before finish saves.
+    if (unsafeResume) return await finish('failed', 'unsafe_effect', undefined, 'recovery_unsafe');
     record.status = 'running';
     save();
     // Compaction inside prepare is paid work. The loop check below is too late.
