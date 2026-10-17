@@ -86,6 +86,18 @@ function pickEffort(value: unknown): ReasoningEffort | undefined {
 }
 
 export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Promise<number> {
+  const writeStderr =
+    io.writeStderr ??
+    ((s: string): void => {
+      process.stderr.write(s);
+    });
+  const continuationId = pickString(opts.continueLogicalTurn);
+  // Continuation is prompt-free. Name a missing --json before the SDK host,
+  // which would otherwise demand stdin and --route as well.
+  if (continuationId !== undefined && opts.sdk === true && pickBoolean(opts.json) !== true) {
+    writeStderr('sov run: --continue-logical-turn requires --json\n');
+    return 2;
+  }
   if (opts.sdk === true) {
     const { runSdkRunCommand } = await import('./sdkRunCommand.js');
     return runSdkRunCommand(opts, io);
@@ -95,14 +107,19 @@ export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Pr
     ((s: string): void => {
       process.stdout.write(s);
     });
-  const writeStderr =
-    io.writeStderr ??
-    ((s: string): void => {
-      process.stderr.write(s);
-    });
   const writeJson = (obj: JsonObject | ServerEvent): void => {
     writeStdout(`${JSON.stringify(obj)}\n`);
   };
+
+  // A stored continuation never uses the legacy stdin contract. --sdk is the
+  // missing flag until it is present; do not ask for stdin or --route.
+  if (
+    continuationId !== undefined &&
+    (pickBoolean(opts.json) !== true || pickBoolean(opts.stdin) !== true)
+  ) {
+    writeStderr('sov run: --continue-logical-turn requires --sdk\n');
+    return 2;
+  }
 
   if (pickBoolean(opts.json) !== true || pickBoolean(opts.stdin) !== true) {
     writeStderr('sov run: the initial machine contract requires --json and --stdin\n');

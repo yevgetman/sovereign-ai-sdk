@@ -1,3 +1,33 @@
+## 2026-10-17 — Continuation help no longer requires stdin
+
+Scope: `sov run --help` and the legacy input check for
+`--continue-logical-turn`. The SDK host and logical-turn supervisor were not
+edited.
+
+Before the fix, `sov run --help` described only the `--json --stdin` contract,
+and `sov run --continue-logical-turn lt-test` printed that the initial machine
+contract requires `--json` and `--stdin`. `sov run --sdk
+--continue-logical-turn lt-test` emitted a generic invalid-input event.
+`env -u FORCE_COLOR -u NO_COLOR bun test --timeout 20000
+tests/cli/runCommand.test.ts -t 'help describes prompt-free|continuation names the one missing|prompt-free --sdk --json continuation'`
+failed those two new cases. The `--sdk --json` form already reached
+`logical turn does not exist`.
+
+After the fix, the same command passes, and with the existing contract tests
+it is **5 pass / 0 fail**. Help's continuation example is `sov run --sdk
+--json --continue-logical-turn <id>` and does not include `--stdin`. The two
+commands name `--sdk` and `--json` respectively, with no stdin or `--route`.
+`tests/cli/runCommand.test.ts tests/agent/sessionDb.logicalTurnRecord.test.ts
+tests/cli/sdkRunCommand.test.ts` is **49 pass / 0 fail**. `bun run lint`
+passed (Biome, 1158 files; dependency-cruiser, 256 modules, no violations).
+`bun run typecheck` reports 3 existing errors in
+`tests/cli/sdkSubscriptionImages.test.ts` and `tests/skills/catalog.test.ts`,
+none in the continuation files. `env -u FORCE_COLOR -u NO_COLOR bun test
+--timeout 20000` was **6499 pass / 31 skip / 88 fail / 5 errors**. Those
+failures are missing `packages/sdk/dist` modules and a missing `bin/sov-tui`
+after `bun install --ignore-scripts`. The continuation tests passed inside
+that run. No live provider, install, upgrade, release, or deployment ran.
+
 ## 2026-10-17 — Skill allow-list survives a logical-turn segment
 
 Scope: skill `allowedTools` on a logical turn. A continuation segment,
