@@ -521,17 +521,9 @@ export async function superviseLogicalTurn(
     ) {
       throw new LogicalTurnLeaseError();
     }
-    if (resuming && !options.recoverySafe(record.activeSessionId)) {
-      return {
-        logicalTurnId: record.logicalTurnId,
-        status: 'failed',
-        code: 'recovery_unsafe',
-        activeSessionId: record.activeSessionId,
-        counters: { ...record.counters },
-        finishReason: 'unsafe_effect',
-        reply: record.finalReply ?? '',
-      };
-    }
+    // Decide before the lease so the receipt read does not occupy it.
+    // Persistence still goes through finish once this owner holds the lease.
+    const unsafeResume = resuming && !options.recoverySafe(record.activeSessionId);
     if (
       !options.store.acquireLogicalTurnLease(
         record.logicalTurnId,
@@ -570,7 +562,7 @@ export async function superviseLogicalTurn(
     if (record.status === 'failed' && !isSafeTransientFailure(record)) {
       return storedFailure(record);
     }
-    if (resuming && !options.recoverySafe(record.activeSessionId))
+    if (unsafeResume || (resuming && !options.recoverySafe(record.activeSessionId)))
       return await finish('failed', 'unsafe_effect', undefined, 'recovery_unsafe');
     record.status = 'running';
     save();

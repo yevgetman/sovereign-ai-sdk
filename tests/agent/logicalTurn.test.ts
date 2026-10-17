@@ -869,6 +869,56 @@ describe('logical-turn supervisor', () => {
     expect(denied).toMatchObject({ status: 'failed', finishReason: 'provider_response_invalid' });
   });
 
+  test('an unsafe resume of a running turn records failed and releases the lease', async () => {
+    let calls = 0;
+    const fixture = setup(async () => {
+      calls += 1;
+      return result('completed', 'durable answer');
+    });
+    const first = await superviseLogicalTurn(fixture.options);
+    const stored = fixture.store.loadLogicalTurn(first.logicalTurnId);
+    if (!stored) throw new Error('logical turn row missing');
+    const now = Date.now();
+    expect(
+      fixture.store.acquireLogicalTurnLease(first.logicalTurnId, 'seed', now + 1_000, now),
+    ).toBe(true);
+    const { finishReason: _finished, ...running } = stored;
+    fixture.store.saveLogicalTurn({ ...running, status: 'running' }, 'seed');
+    fixture.store.releaseLogicalTurnLease(first.logicalTurnId, 'seed');
+    const resumed = await superviseLogicalTurn({
+      ...fixture.options,
+      logicalTurnId: first.logicalTurnId,
+      recoverySafe: () => false,
+      runSegment: async () => {
+        calls += 1;
+        return result('completed', 'should not run');
+      },
+    });
+    expect(calls).toBe(1);
+    expect(resumed).toMatchObject({
+      status: 'failed',
+      code: 'recovery_unsafe',
+      finishReason: 'unsafe_effect',
+    });
+    const failed = fixture.store.loadLogicalTurn(first.logicalTurnId);
+    expect(failed?.status).toBe('failed');
+    expect(failed?.finishReason).toBe('unsafe_effect');
+    expect(failed).not.toHaveProperty('segmentLimit');
+    expect(fixture.store.readLogicalTurnLease(first.logicalTurnId)).toEqual({
+      owner: null,
+      expiresAt: null,
+    });
+    const repeated = await superviseLogicalTurn({
+      ...fixture.options,
+      logicalTurnId: first.logicalTurnId,
+      recoverySafe: () => false,
+    });
+    expect(calls).toBe(1);
+    expect(repeated).toMatchObject({ status: 'failed', finishReason: 'unsafe_effect' });
+    expect(repeated.code).toBeUndefined();
+    expect(fixture.store.loadLogicalTurn(first.logicalTurnId)?.status).toBe('failed');
+  });
+
   test('checks recovery receipts before a resumed model call', async () => {
     let calls = 0;
     const fixture = setup(

@@ -10,6 +10,11 @@ and a model-call cap all return 3, as do a stall, an unsafe receipt, and
 invalid recovery state. Do not start another prompt on exit 3. See
 [SDK routes](docs/03-cli-reference/sdk-routes.md).
 
+An unsafe resume records `failed` with finish reason `unsafe_effect`. That
+covers a `started` or `unknown` tool receipt and an ambiguous truncated tool
+call. A later `--continue-logical-turn` reads that terminal row and does not
+retry the unsafe decision. The row does not keep a lease after the stop.
+
 The durable logical-turn row does not store `segmentLimit`. That field was a
 toolset turn cap, or a default of 10, and the supervisor never applied it.
 Continuation still stops at the logical model-call budget (default 100), the
