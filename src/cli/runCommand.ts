@@ -113,7 +113,8 @@ export async function runRunCommand(opts: RunOptions, io: RunCommandIO = {}): Pr
     opts.route !== undefined ||
     opts.inputFormat === 'json' ||
     (opts.toolset !== undefined && opts.toolset !== 'coding') ||
-    opts.deadlineMs !== undefined
+    opts.deadlineMs !== undefined ||
+    opts.continueLogicalTurn !== undefined
   ) {
     writeJson({
       type: 'turn.error',

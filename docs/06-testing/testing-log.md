@@ -1,3 +1,19 @@
+## 2026-10-16 — Reject legacy `--continue-logical-turn` without `--sdk`
+
+Scope: legacy `sov run` without `--sdk` must reject `--continue-logical-turn` with the existing native-only control error, before stdin, a listener, or a session. The SDK continuation path is unchanged.
+
+Environment: macOS, Bun 1.3.13, isolated checkout `review-fix/109` starting at `db64d31b8e2f25423b60119ae02f9876ddcc3ae7`. The first complete run inherited both `FORCE_COLOR=1` and `NO_COLOR=1`, and dependencies were installed with `--ignore-scripts` so `bin/sov-tui` was absent until a later TUI build.
+
+Commands:
+- Before the fix, a direct `runRunCommand({ json, stdin, continueLogicalTurn }, fake IO)` call exited 0, read stdin once, created a session database, and ended on `turn.completed` for a new unresumed session.
+- `bun test --timeout 20000 tests/cli/runCommand.test.ts -t 'rejects --continue-logical-turn'` failed before the edit (received exit 0) and passed after.
+- `bun test --timeout 20000 tests/cli/runCommand.test.ts tests/cli/sdkRunCommand.test.ts -t 'prompt-free continuation|rejects --continue-logical-turn|runRunCommand'`: **12 pass / 0 fail**, 73 assertions.
+- `bun run lint` passed (Biome, 1157 files; dependency-cruiser, 256 modules, no violations). `bun run typecheck` passed.
+- Source CLI `bun src/main.ts run --json --stdin --continue-logical-turn lt-existing` exited 2 with one `invalid_input` event and created no database. The same flag with `--sdk` still entered the SDK host.
+- Complete `bun run test`: **6485 pass / 31 skip / 31 fail**, 26310 assertions, 623 files, 239.76s. The 31 failures were environmental: Node `NO_COLOR`/`FORCE_COLOR` stderr, missing `bin/sov-tui`, and launcher smokes that timed out under full-suite load. After building the TUI and unsetting those color variables, the seven affected files passed **58 pass / 0 fail**, and `tests/cli/tuiLauncherIntegration.test.ts` passed **6 pass / 1 existing skip / 0 fail**.
+
+Result: the regression passes. No live provider, installed upgrade, release, or deployment.
+
 ## 2026-10-16 — Resilient logical turns and compact skill discovery
 
 Scope: SOV SDK logical-turn supervision, native headless recovery, durable
