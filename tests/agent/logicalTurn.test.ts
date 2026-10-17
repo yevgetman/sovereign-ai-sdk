@@ -159,6 +159,161 @@ describe('logical-turn supervisor', () => {
     expect(store.loadLogicalTurn(outcome.logicalTurnId)?.repeatedNoProgress).toBe(2);
   });
 
+  test('a segment boundary reads the transcript once', async () => {
+    let reads = 0;
+    let safety = 0;
+    let snapshots = 0;
+    let rehydrates = 0;
+    let calls = 0;
+    const seen: Message[][] = [];
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'do the work' }] },
+    ];
+    const progress = {
+      transcriptIds: [1],
+      transcriptCount: 1,
+      receipts: [] as unknown[],
+      cursor: null,
+      compactionChildId: 'session-1',
+    };
+    const { options } = setup(
+      async (segment) => {
+        calls += 1;
+        seen.push(segment.messages);
+        return calls < 2 ? result('max_turns') : result('completed', 'done');
+      },
+      {
+        recoverySafe: () => {
+          safety += 1;
+          reads += 1;
+          return true;
+        },
+        progressSnapshot: () => {
+          snapshots += 1;
+          reads += 1;
+          return progress;
+        },
+        rehydrate: () => {
+          rehydrates += 1;
+          reads += 1;
+          return messages;
+        },
+        readBoundary: () => {
+          reads += 1;
+          return { safe: true, progress, messages: () => messages };
+        },
+      },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('completed');
+    expect(calls).toBe(2);
+    expect(reads).toBe(1);
+    expect(safety).toBe(0);
+    expect(snapshots).toBe(0);
+    expect(rehydrates).toBe(0);
+    expect(seen[1]).toEqual(messages);
+  });
+
+  test('an old tool-result byte does not change the fingerprint', async () => {
+    let calls = 0;
+    const note = { text: 'alpha' };
+    const messages = (): Message[] => [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'list',
+            content: JSON.stringify({ data: { nextCursor: 'page-1', note: note.text } }),
+          },
+        ],
+      },
+    ];
+    const progress = {
+      transcriptIds: [1],
+      transcriptCount: 1,
+      receipts: [['list', 'completed']],
+      cursor: 'page-1',
+      compactionChildId: 'session-1',
+    };
+    const { options } = setup(
+      async () => {
+        calls += 1;
+        if (calls === 2) note.text = 'beta';
+        return result('max_turns');
+      },
+      {
+        readBoundary: () => ({ safe: true, progress, messages }),
+        rehydrate: () => {
+          throw new Error('boundary reloaded the transcript');
+        },
+      },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('stalled');
+    expect(outcome.code).toBe('continuation_stalled');
+    expect(outcome.counters.segments).toBe(3);
+    expect(outcome.finishReason).toBe('repeated:max_turns');
+    expect(calls).toBe(3);
+  });
+
+  test('a max_tokens boundary keeps the continuation marker without a second read', async () => {
+    let reads = 0;
+    let calls = 0;
+    const seen: Message[][] = [];
+    const base: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'do the work' }] }];
+    let marked = false;
+    const progress = {
+      transcriptIds: [1],
+      transcriptCount: 1,
+      receipts: [] as unknown[],
+      cursor: null,
+      compactionChildId: 'session-1',
+    };
+    const { options } = setup(
+      async (segment) => {
+        calls += 1;
+        seen.push(segment.messages);
+        return calls < 2 ? result('max_tokens', 'partial') : result('completed', 'done');
+      },
+      {
+        readBoundary: () => {
+          reads += 1;
+          return {
+            safe: true,
+            progress,
+            messages: () =>
+              marked
+                ? [
+                    ...base,
+                    {
+                      role: 'user' as const,
+                      content: [{ type: 'text' as const, text: 'continue' }],
+                      origin: 'runtime' as const,
+                      id: 'marker',
+                    },
+                  ]
+                : base,
+          };
+        },
+        persistRuntimeContinuation: () => {
+          marked = true;
+        },
+        rehydrate: () => {
+          reads += 1;
+          return base;
+        },
+      },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('completed');
+    expect(reads).toBe(1);
+    expect(calls).toBe(2);
+    expect(
+      seen[1]?.some((message) => message.role === 'user' && message.origin === 'runtime'),
+    ).toBe(true);
+  });
+
   test('a new cursor changes the fingerprint', async () => {
     let calls = 0;
     const messages: Message[] = [
