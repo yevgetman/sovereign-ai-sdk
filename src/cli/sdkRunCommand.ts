@@ -18,8 +18,14 @@ import {
   loadRuntimeSettingsSnapshot,
 } from '@yevgetman/sov-sdk/config/settings';
 import { AMBIGUOUS_MAX_TOKENS_TOOL_NOTE } from '@yevgetman/sov-sdk/core/query';
-import type { Message, StreamEvent, TokenUsage } from '@yevgetman/sov-sdk/core/types';
+import type {
+  AssistantMessage,
+  Message,
+  StreamEvent,
+  TokenUsage,
+} from '@yevgetman/sov-sdk/core/types';
 import { toToolSchemas } from '@yevgetman/sov-sdk/mcp/schemaSerialization';
+import { FENCE_PREAMBLE } from '@yevgetman/sov-sdk/memory/injection';
 import type { SessionStore } from '@yevgetman/sov-sdk/persistence/sessionStore';
 import {
   ContextOverflowError,
@@ -109,6 +115,7 @@ const ERRORS: Record<string, string> = {
     'Subscription token service returned an invalid response. Check provider status before retrying.',
   continuation_exhausted: 'Logical turn exhausted its cumulative recovery budget.',
   continuation_stalled: 'Logical turn stopped after two attempts made no progress.',
+  continuation_failed: 'Logical turn failed and cannot continue.',
   recovery_unsafe: 'Logical turn cannot continue because a tool effect is not safely replayable.',
   recovery_state_invalid: 'Logical turn recovery state is invalid.',
   logical_turn_leased: 'Logical turn is owned elsewhere.',
@@ -116,6 +123,95 @@ const ERRORS: Record<string, string> = {
 const UNKNOWN_LOGICAL_TURN = 'logical turn does not exist';
 const MISSING_LOGICAL_TURN_ROUTE = 'logical turn route is missing';
 const STDIN_CONTINUE_CLASH = '--stdin cannot be combined with --continue-logical-turn';
+/** A failed row may resume only when its stored cause is one of these. */
+const SAFE_TRANSIENT_CAUSES = new Set([
+  'transient_provider',
+  'rate_limited',
+  'provider_unavailable',
+  'provider_timeout',
+]);
+
+function isSafeTransientFailure(record: LogicalTurnRecord): boolean {
+  return [record.finishReason, record.lastCause].some(
+    (cause) => cause !== undefined && SAFE_TRANSIENT_CAUSES.has(cause),
+  );
+}
+
+/** Text of the latest human user turn, skipping tool results and runtime markers. */
+function latestHumanUserText(messages: readonly Message[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || message.role !== 'user' || message.origin === 'runtime') continue;
+    if (message.content.some((block) => block.type === 'tool_result')) continue;
+    const text = message.content.find((block) => block.type === 'text');
+    return text?.type === 'text' ? text.text : undefined;
+  }
+  return undefined;
+}
+
+const RECALL_FENCE_OPEN = '<recall-context>';
+const RECALL_FENCE_CLOSE = '</recall-context>';
+const MEMORY_FENCE_CLOSE = '</memory-context>';
+
+/** Memory and recall fences are reapplied on the next segment. Anything else
+ *  that changes the stored prompt is a user-turn gate and has to be kept. */
+function ephemeralInjectionRemainder(prefix: string): string | undefined {
+  let rest = prefix.trim();
+  while (rest.length > 0) {
+    if (rest.startsWith(RECALL_FENCE_OPEN)) {
+      const end = rest.indexOf(RECALL_FENCE_CLOSE);
+      if (end < 0) return undefined;
+      rest = rest.slice(end + RECALL_FENCE_CLOSE.length).trim();
+      continue;
+    }
+    if (rest.startsWith(FENCE_PREAMBLE)) {
+      const end = rest.indexOf(MEMORY_FENCE_CLOSE);
+      if (end < 0) return undefined;
+      rest = rest.slice(end + MEMORY_FENCE_CLOSE.length).trim();
+      continue;
+    }
+    return undefined;
+  }
+  return rest;
+}
+
+/** The text to store, or undefined when the provider text is only the stored
+ *  prompt plus ephemeral memory and recall fences. */
+function gatedUserText(providerText: string, stored: string): string | undefined {
+  if (providerText === stored) return undefined;
+  if (!providerText.endsWith(stored)) return providerText;
+  const prefix = providerText.slice(0, providerText.length - stored.length);
+  return ephemeralInjectionRemainder(prefix) === '' ? undefined : providerText;
+}
+
+/** Replace the stored user prompt with the post-gate text before a later segment reloads it. */
+function replaceStoredUserText(db: SessionDb, messageId: number, text: string): void {
+  const row = db.handle
+    .query<{ content: string }, [number]>('SELECT content FROM messages WHERE id = ?')
+    .get(messageId);
+  if (!row) throw new SessionPersistenceError(new Error('gated user message is missing'));
+  let content: unknown;
+  try {
+    content = JSON.parse(row.content) as unknown;
+  } catch (error) {
+    throw new SessionPersistenceError(error);
+  }
+  if (!Array.isArray(content))
+    throw new SessionPersistenceError(new Error('gated user message is invalid'));
+  const index = content.findIndex(
+    (block) =>
+      block !== null && typeof block === 'object' && (block as { type?: unknown }).type === 'text',
+  );
+  if (index < 0) return;
+  const block = content[index] as { type?: unknown; text?: unknown };
+  const next = typeof block.text === 'string' ? gatedUserText(text, block.text) : text;
+  if (next === undefined) return;
+  content[index] = { ...block, type: 'text', text: next };
+  db.handle.run('UPDATE messages SET content = ? WHERE id = ?', [
+    JSON.stringify(content),
+    messageId,
+  ]);
+}
 const CONTINUATION_INPUT_ERRORS = new Set([
   UNKNOWN_LOGICAL_TURN,
   MISSING_LOGICAL_TURN_ROUTE,
@@ -522,6 +618,23 @@ export async function runSdkRunCommand(
         loadStoredMessages(persistence, sessionId as string),
         sessionId as string,
       );
+    // The first model call of a user segment sees the post-gate prompt. Record
+    // that text before the provider runs so the next segment reloads it.
+    let persistGatedUserText = false;
+    const turnProvider = {
+      name: routeSelection.provider.name,
+      async *stream(
+        request: Parameters<(typeof routeSelection.provider)['stream']>[0],
+      ): AsyncGenerator<StreamEvent, AssistantMessage> {
+        if (persistGatedUserText && gatedUserMessageId !== undefined) {
+          const text = latestHumanUserText(request.messages);
+          if (text !== undefined)
+            replaceStoredUserText(hostRuntime.sessionDb, gatedUserMessageId, text);
+          persistGatedUserText = false;
+        }
+        return yield* routeSelection.provider.stream(request);
+      },
+    };
     const makeHop = () => {
       const id = sessionId as string;
       const sessionCtx = hostRuntime.getSessionContext(id);
@@ -568,7 +681,7 @@ export async function runSdkRunCommand(
           ask: headlessDenyAsk,
           permissionMode: hostRuntime.permissionMode,
         }),
-        provider: routeSelection.provider,
+        provider: turnProvider,
         model: routeSelection.model,
         modelMetadata,
         effort: routeSelection.effort,
@@ -615,12 +728,13 @@ export async function runSdkRunCommand(
         accounting.enforce === false || accounting.tokens + 1 <= modelSnapshot.limits.contextTokens
       );
     };
-    // Persist the original prompt once. Each retry reloads the latest durable
-    // transcript, including completed tools, rather than replaying the input.
+    // Persist the prompt before the model runs. A user-turn gate may replace
+    // this row with the gated text, or a denial, before the first provider call.
     if (!continuationId) persistTurnMessage(persistence, sessionId, input.message);
     const originalUserMessageId = continuationId
       ? runtime.sessionDb.loadLogicalTurn(continuationId)?.originalUserMessageId
       : runtime.sessionDb.loadMessages(sessionId).at(-1)?.id;
+    const gatedUserMessageId = originalUserMessageId;
     let messages = hydrate();
     // Refuse unsafe prior effects before a paid summary or inference call.
     // Complete journal receipts can repair their missing canonical batch.
@@ -691,6 +805,24 @@ export async function runSdkRunCommand(
         error: ERRORS.recovery_state_invalid,
         recoverable: false,
         nextAction: 'repair_request',
+        sessionId: null,
+        logicalTurnId: continuationRecord.logicalTurnId,
+        ...metadata(),
+        counters: continuationRecord.counters,
+        ...nativeTurnMetrics(receipts),
+      });
+      return 3;
+    }
+    // A policy denial and any other non-transient failure must not run again.
+    if (continuationRecord?.status === 'failed' && !isSafeTransientFailure(continuationRecord)) {
+      finish({
+        type: 'turn.error',
+        outcome: 'failed',
+        reason: continuationRecord.finishReason ?? 'failed',
+        code: 'continuation_failed',
+        error: ERRORS.continuation_failed,
+        recoverable: false,
+        nextAction: 'none',
         sessionId: null,
         logicalTurnId: continuationRecord.logicalTurnId,
         ...metadata(),
@@ -892,6 +1024,7 @@ export async function runSdkRunCommand(
       let settledResult: RunResult | undefined;
       let drive: Promise<RunResult> | undefined;
       try {
+        persistGatedUserText = segment.continuation !== true;
         activeStream = hop.composed.agent.run(messages, {
           ...hop.composed.perTurn({
             sessionId: id,
@@ -1110,8 +1243,14 @@ export async function runSdkRunCommand(
     // Model-call cap and a repeated fingerprint are terminal, same as a deadline.
     const nonResumableStop =
       deadlineTerminal || logical.status === 'exhausted' || logical.status === 'stalled';
-    if (logical.status === 'failed' && !logical.code && result?.terminal.reason === 'error')
-      throw result.terminal.error ?? new Error('provider failed');
+    if (logical.status === 'failed' && !logical.code && result?.terminal.reason === 'error') {
+      const error = result.terminal.error;
+      // The gate returned before any provider call. Keep its verdict, not the
+      // rejected prompt, in the row a later resume would rehydrate.
+      if (error?.name === 'UserTurnPolicyError' && originalUserMessageId !== undefined)
+        replaceStoredUserText(hostRuntime.sessionDb, originalUserMessageId, error.message);
+      throw error ?? new Error('provider failed');
+    }
     const outcome = deadlineTerminal
       ? 'exhausted'
       : logical.status === 'waiting_user'

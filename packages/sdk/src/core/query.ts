@@ -399,9 +399,11 @@ async function* queryInternal(
       signal,
     );
     if (result.block) {
+      const error = new Error(result.reason ?? 'prompt rejected by UserPromptSubmit hook');
+      error.name = 'UserTurnPolicyError';
       const terminal: Terminal = {
         reason: 'error',
-        error: new Error(result.reason ?? 'prompt rejected by UserPromptSubmit hook'),
+        error,
       };
       await maybeFireStop(terminal.reason);
       return terminal;
@@ -477,9 +479,11 @@ async function* queryInternal(
             await maybeFireStop('completed');
             return refusal;
           }
+          const error = new Error('prompt rejected by conduct preGate');
+          error.name = 'UserTurnPolicyError';
           const terminal: Terminal = {
             reason: 'error',
-            error: new Error('prompt rejected by conduct preGate'),
+            error,
           };
           await maybeFireStop(terminal.reason);
           return terminal;
