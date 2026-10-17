@@ -82,12 +82,14 @@ import type {
 
 const DEFAULT_MAX_TURNS = 100;
 
-type DeferredLogicalStop = { fire?: () => Promise<void> };
+type DeferredLogicalStop = { fire?: (reason?: Terminal['reason']) => Promise<void> };
 
-const logicalStops = new WeakMap<Terminal, () => Promise<void>>();
+const logicalStops = new WeakMap<Terminal, (reason?: Terminal['reason']) => Promise<void>>();
 
 /** Stop hook deferred by one logical-turn segment. Absent when that segment fired nothing. */
-export function logicalSegmentStop(terminal: Terminal): (() => Promise<void>) | undefined {
+export function logicalSegmentStop(
+  terminal: Terminal,
+): ((reason?: Terminal['reason']) => Promise<void>) | undefined {
   return logicalStops.get(terminal);
 }
 
@@ -553,10 +555,11 @@ async function* queryInternal(
       // signal is often already aborted (deadline) when that closure runs;
       // binding Stop to it skips the command. The host may also drop the
       // returned terminal on that abort, so the lease binding keeps the closure.
-      deferred.fire = () => {
+      deferred.fire = (override?: Terminal['reason']) => {
+        const stopReason = override ?? reason;
         if (signal && !signal.aborted)
-          return fireStopHook(hookRunner, sessionId, cwd, reason, signal);
-        return fireStopHook(hookRunner, sessionId, cwd, reason);
+          return fireStopHook(hookRunner, sessionId, cwd, stopReason, signal);
+        return fireStopHook(hookRunner, sessionId, cwd, stopReason);
       };
       rememberLogicalSegmentStop(deferred.fire);
       return;

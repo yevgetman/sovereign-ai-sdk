@@ -1543,6 +1543,100 @@ describe('logical turn Stop hooks', () => {
     }
   });
 
+  test('a user abort after max_turns does not run the previous Stop reason', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'logical-stop-cancel-'));
+    const marker = join(dir, 'stops.txt');
+    const script = join(dir, 'stop.cjs');
+    writeFileSync(
+      script,
+      `#!/usr/bin/env node
+const { appendFileSync, readFileSync } = require('node:fs');
+const payload = JSON.parse(readFileSync(0, 'utf8'));
+appendFileSync(${JSON.stringify(marker)}, String(payload.reason) + '\\n');
+`,
+    );
+    chmodSync(script, 0o755);
+    const hookRunner = buildHookRunner({
+      hooksByEvent: {
+        PreToolUse: [],
+        PostToolUse: [],
+        UserPromptSubmit: [],
+        Stop: [{ hooks: [{ type: 'command', command: script }] }],
+      },
+      consent: async () => 'allow',
+      logStderr: () => {},
+    });
+    const stopLines = (): string[] => {
+      try {
+        return readFileSync(marker, 'utf8')
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+      } catch {
+        return [];
+      }
+    };
+    const controller = new AbortController();
+    let segments = 0;
+    const { store, options } = setup(
+      async (segment) => {
+        segments += 1;
+        const terminal = await drainQuery(
+          query({
+            provider: toolUseProvider(),
+            model: 'fixture-model',
+            messages: segment.messages,
+            systemPrompt: [{ text: 'system', cacheable: true }],
+            maxTokens: 32,
+            maxTurns: 1,
+            continuation: segment.continuation,
+            logicalTurn: true,
+            hookRunner,
+            sessionId: 'session-1',
+            cwd: dir,
+            tools: [echoTool],
+            toolContext: stopToolContext,
+            signal: segment.signal,
+          }),
+        );
+        expect(terminal.reason).toBe('max_turns');
+        // Neither segment is a logical ending. The command must stay idle.
+        expect(stopLines()).toEqual([]);
+        if (segments === 1) {
+          return {
+            sessionId: 'session-1',
+            terminal,
+            iterationsUsed: 1,
+            toolCallCount: 1,
+            distinctToolNames: ['Echo'],
+            messages: segment.messages,
+          };
+        }
+        controller.abort();
+        throw new Error('interrupted');
+      },
+      { signal: controller.signal },
+    );
+    const ids: string[] = [];
+    const create = store.createLogicalTurn.bind(store);
+    store.createLogicalTurn = (record) => {
+      ids.push(record.logicalTurnId);
+      create(record);
+    };
+    try {
+      await expect(superviseLogicalTurn(options)).rejects.toThrow('interrupted');
+      expect(segments).toBe(2);
+      const logicalTurnId = ids[0];
+      if (!logicalTurnId) throw new Error('missing logical turn');
+      const stored = store.loadLogicalTurn(logicalTurnId);
+      expect(stored?.status).toBe('cancelled');
+      expect(stored?.finishReason).toBe('cancelled');
+      expect(stopLines()).toEqual(['interrupted']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('a deadline after max_turns records one Stop', async () => {
     const observed = stopRecorder();
     const provider = toolUseProvider();

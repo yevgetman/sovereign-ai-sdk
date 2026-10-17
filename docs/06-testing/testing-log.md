@@ -31,6 +31,33 @@ showed 67 failures, all `ERR_MODULE_NOT_FOUND` for `packages/sdk/dist` while
 the tarball test deleted that build; rerunning `tests/providers/modelImportOrder.test.ts`
 and `tests/skills` with `dist` present was **465 pass / 0 fail**.
 
+## 2026-10-17 — User abort does not run the previous Stop reason
+
+Scope: a logical turn whose first segment ends `max_turns`, then the caller
+aborts the next segment (not `reason: 'deadline'`). The host drops that
+segment's terminal. The stored row stays `cancelled`. The command Stop hook
+must not see `max_turns`; it runs once with `interrupted`.
+`src/cli/sdkRunCommand.ts` was not edited.
+
+Environment: `/private/tmp/fix-sov-189` on `review-fix/189` from `71736fa4`,
+macOS, Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade,
+release, or deployment ran.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts -t 'a user abort after max_turns does not run the previous Stop reason'`
+failed. The row was `cancelled` and the hook file was `max_turns`.
+
+After the fix, that test passes: the file is `interrupted` once. The deadline
+Stop command test and the other logical-turn Stop cases still pass.
+`bun run lint` passed (Biome 1159 files; boundary 257 modules, 1055
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). A full `env -u FORCE_COLOR bun test
+--timeout 20000` before `dist` existed failed 67 Node tests with
+`ERR_MODULE_NOT_FOUND`. After `bun run build`, the same command is **6613
+pass / 31 skip / 0 fail**, 27227 assertions, 625 files, 177.21 seconds.
+
+
 ## 2026-10-17 — Continuation cursor scan stops at the newest page
 
 Scope: `logicalTurnCursor` walks transcript order from the end and returns
