@@ -166,8 +166,8 @@ export type QueryParams = {
   /** Internal segment after the original user turn was admitted. Skips
    * user-message hooks, recall, and user conduct gates. */
   continuation?: boolean;
-  /** The caller will supervise safe segment boundaries and fire one logical
-   * terminal. Segment-only max limits must not run Stop hooks. */
+  /** The caller supervises segment boundaries and fires one Stop at the
+   * logical terminal. A segment must not run Stop hooks itself. */
   logicalTurn?: boolean;
   /** When set, the turn loop pauses after this many cumulative tool calls
    *  and returns terminal reason 'checkin'. The caller (REPL) surfaces a
