@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { AMBIGUOUS_MAX_TOKENS_TOOL_NOTE } from '@yevgetman/sov-sdk/core/query';
 import type { AssistantMessage, Message } from '@yevgetman/sov-sdk/core/types';
 import { buildHookRunner } from '@yevgetman/sov-sdk/hooks/runner';
+import { FENCE_PREAMBLE, formatMemorySnapshot } from '@yevgetman/sov-sdk/memory/injection';
 import { SessionPersistenceError } from '@yevgetman/sov-sdk/providers/errors';
 import { RouteError, getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
 import type { LLMProvider, Transport } from '@yevgetman/sov-sdk/providers/types';
@@ -2299,6 +2300,120 @@ test('segment 2 rehydrates a UserPromptSubmit rewrite instead of the original pr
   for (const prompt of seen) {
     expect(prompt).toContain('rewritten-by-hook');
     expect(prompt).not.toContain('question');
+  }
+});
+
+test('a rewritten prompt is stored without memory or recall fences', async () => {
+  const seen: string[] = [];
+  let calls = 0;
+  let memorySnapshots = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(request) {
+      calls++;
+      const prompt = request.messages
+        .filter((message) => message.role === 'user' && message.origin !== 'runtime')
+        .flatMap((message) => message.content)
+        .filter((block) => block.type === 'text')
+        .map((block) => (block.type === 'text' ? block.text : ''))
+        .join('\n');
+      seen.push(prompt);
+      if (calls <= 6) {
+        const reply: AssistantMessage = {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: `fence-${calls}`, name: 'WebSearch', input: { n: calls } },
+          ],
+        };
+        yield { type: 'message_start' };
+        yield { type: 'usage_delta', usage: { inputTokens: 1, outputTokens: 1 } };
+        yield { type: 'message_stop', stop_reason: 'tool_use' };
+        yield { type: 'assistant_message', message: reply };
+        return reply;
+      }
+      const reply = message('done');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.loop = { mode: 'off' };
+    runtime.hookRunner = async (event) => {
+      if (event === 'UserPromptSubmit')
+        return { block: false, rewrittenPrompt: 'rewritten-by-hook' };
+      return { block: false };
+    };
+    const readContext = runtime.getSessionContext.bind(runtime);
+    runtime.getSessionContext = (sessionId: string) => {
+      const ctx = readContext(sessionId);
+      ctx.memoryManager.prefetchSnapshot = async () => {
+        const body = memorySnapshots === 0 ? 'MemorySnapOne' : 'MemorySnapTwo';
+        memorySnapshots += 1;
+        return formatMemorySnapshot({ memory: body });
+      };
+      ctx.recall = async () => ({ injectionText: 'RecallLessonMarker', lessons: [] });
+      return ctx;
+    };
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'WebSearch',
+        description: () => 'fixture',
+        inputSchema: z.unknown(),
+        async call() {
+          return { data: 'receipt' };
+        },
+      }),
+    );
+  });
+  const c = capture();
+  expect(await runSdkRunCommand({ ...opts, toolset: 'web' }, c.io, f.deps)).toBe(0);
+  expect(calls).toBe(7);
+  expect(memorySnapshots).toBe(2);
+  const segment = seen.slice(0, 6);
+  expect(segment).toHaveLength(6);
+  for (const prompt of segment) {
+    expect(prompt).toContain('rewritten-by-hook');
+    expect(prompt).toContain('MemorySnapOne');
+    expect(prompt).toContain('RecallLessonMarker');
+    expect(prompt).toContain('<recall-context>');
+    expect(prompt).toContain(FENCE_PREAMBLE);
+    expect(prompt).not.toContain('question');
+    expect(prompt).not.toContain('MemorySnapTwo');
+  }
+  const next = seen[6] ?? '';
+  expect(next).toContain('rewritten-by-hook');
+  expect(next).toContain('MemorySnapTwo');
+  expect(next).toContain(FENCE_PREAMBLE);
+  expect(next).not.toContain('MemorySnapOne');
+  expect(next).not.toContain('RecallLessonMarker');
+  expect(next).not.toContain('<recall-context>');
+  expect(next).not.toContain('question');
+  const db = SessionDb.open({ path: f.db });
+  try {
+    const session = db.handle
+      .query<{ session_id: string }, []>('SELECT session_id FROM sessions')
+      .get();
+    const stored = db.loadMessages(session?.session_id ?? '');
+    const human = [...stored].reverse().find((row) => {
+      if (row.role !== 'user') return false;
+      if (row.content.some((block) => block.type === 'tool_result')) return false;
+      const marker = row.toolCalls;
+      if (
+        marker &&
+        typeof marker === 'object' &&
+        (marker as { origin?: unknown }).origin === 'runtime'
+      )
+        return false;
+      return true;
+    });
+    expect(human?.content).toEqual([{ type: 'text', text: 'rewritten-by-hook' }]);
+    expect(db.search('MemorySnapOne')).toEqual([]);
+    expect(db.search('MemorySnapTwo')).toEqual([]);
+    expect(db.search('RecallLessonMarker')).toEqual([]);
+  } finally {
+    db.close();
   }
 });
 
