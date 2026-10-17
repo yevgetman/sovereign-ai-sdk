@@ -303,8 +303,9 @@ continuation does not run tools. After a crash the lease expires in about 30
 seconds, and a continuation may take it only when receipt recovery is safe.
 Route, model, effort, toolset, permissions, working directory and bundle
 identity stay bound to the stored record.
-Cancellation emits `outcome: "interrupted"`; other errors emit
-`outcome: "failed"`.
+Cancellation emits `outcome: "interrupted"`. Exhaustion and a deadline emit
+`outcome: "exhausted"`. A repeated no-progress fingerprint emits
+`outcome: "stalled"`. Other errors emit `outcome: "failed"`.
 
 Native runs opt in to committing approved completed assistant messages before
 exposing them. A cooperative cancelled drive gets at most one second to settle
