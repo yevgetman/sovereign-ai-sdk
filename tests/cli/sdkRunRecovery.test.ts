@@ -1017,6 +1017,169 @@ test('resumed work aborts a blocking tool at the stored deadline', async () => {
   }
 });
 
+function isSummaryRequest(system: ReadonlyArray<{ text?: string }>): boolean {
+  return system.some((segment) =>
+    segment.text?.includes('compressing an agent harness conversation'),
+  );
+}
+
+function appendReducibleHistory(dbPath: string, sessionId: string): void {
+  const db = SessionDb.open({ path: dbPath });
+  try {
+    for (let i = 0; i < 10; i++)
+      db.saveMessage(sessionId, {
+        role: i % 2 ? 'assistant' : 'user',
+        content: [{ type: 'text', text: `history-${i} ${'a'.repeat(2000)}` }],
+      });
+  } finally {
+    db.close();
+  }
+}
+
+function markRunningAtDeadline(dbPath: string, logicalTurnId: string, deadlineAt: number): void {
+  const db = SessionDb.open({ path: dbPath });
+  try {
+    const record = db.loadLogicalTurn(logicalTurnId);
+    if (!record) throw new Error('logical turn row missing');
+    record.status = 'running';
+    record.deadlineAt = deadlineAt;
+    db.handle.run('UPDATE logical_turns SET record = ? WHERE logical_turn_id = ?', [
+      JSON.stringify(record),
+      logicalTurnId,
+    ]);
+  } finally {
+    db.close();
+  }
+}
+
+test('a past stored deadline does not run resumed compaction', async () => {
+  let summaries = 0;
+  let mains = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(request) {
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 3, outputTokens: 2 } };
+      if (isSummaryRequest(request.system)) {
+        summaries++;
+        const reply = message('summary after the stored deadline');
+        yield { type: 'assistant_message', message: reply };
+        return reply;
+      }
+      mains++;
+      const reply = message('durable answer');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.proactiveCompactThreshold = 0;
+  });
+  const first = capture();
+  expect(await runSdkRunCommand({ ...opts, toolset: 'coding' }, first.io, f.deps)).toBe(0);
+  expect(summaries).toBe(0);
+  expect(mains).toBe(1);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const sessionId = String(first.events.at(-1)?.activeSessionId);
+  appendReducibleHistory(f.db, sessionId);
+  const deadlineAt = Date.now() - 1000;
+  markRunningAtDeadline(f.db, logicalTurnId, deadlineAt);
+  const second = capture();
+  const exitCode = await runSdkRunCommand(
+    { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+    second.io,
+    f.deps,
+  );
+  expect(summaries).toBe(0);
+  expect(mains).toBe(1);
+  expect(exitCode).toBe(3);
+  expect(second.events.at(-1)).toMatchObject({
+    type: 'turn.error',
+    outcome: 'exhausted',
+    reason: 'deadline',
+    code: 'continuation_exhausted',
+    logicalTurnId,
+  });
+  const stored = SessionDb.open({ path: f.db });
+  try {
+    const record = stored.loadLogicalTurn(logicalTurnId);
+    expect(record?.status).toBe('exhausted');
+    expect(record?.finishReason).toBe('deadline');
+    expect(record?.deadlineAt).toBe(deadlineAt);
+  } finally {
+    stored.close();
+  }
+});
+
+test('a stored deadline aborts compaction that is still running', async () => {
+  let summaries = 0;
+  let mains = 0;
+  let summaryAborted = false;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(request) {
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 3, outputTokens: 2 } };
+      if (isSummaryRequest(request.system)) {
+        summaries++;
+        summaryAborted = await Promise.race([
+          waitForAbort(request.signal).then(() => request.signal?.reason === 'deadline'),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)),
+        ]);
+        if (!summaryAborted) {
+          const reply = message('summary finished after the stored deadline');
+          yield { type: 'assistant_message', message: reply };
+          return reply;
+        }
+        throw new Error('summary aborted at the stored deadline');
+      }
+      mains++;
+      const reply = message(
+        mains === 1 ? 'durable answer' : 'model call after the stored deadline',
+      );
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.proactiveCompactThreshold = 0;
+  });
+  const first = capture();
+  expect(await runSdkRunCommand({ ...opts, toolset: 'coding' }, first.io, f.deps)).toBe(0);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const sessionId = String(first.events.at(-1)?.activeSessionId);
+  appendReducibleHistory(f.db, sessionId);
+  const deadlineAt = Date.now() + 1500;
+  markRunningAtDeadline(f.db, logicalTurnId, deadlineAt);
+  const second = capture();
+  const exitCode = await runSdkRunCommand(
+    { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+    second.io,
+    f.deps,
+  );
+  expect(summaries).toBe(1);
+  expect(summaryAborted).toBe(true);
+  expect(mains).toBe(1);
+  expect(JSON.stringify(second.events)).not.toContain('model call after the stored deadline');
+  expect(JSON.stringify(second.events)).not.toContain('summary finished after the stored deadline');
+  expect(exitCode).toBe(3);
+  expect(second.events.at(-1)).toMatchObject({
+    type: 'turn.error',
+    outcome: 'exhausted',
+    reason: 'deadline',
+    code: 'continuation_exhausted',
+    logicalTurnId,
+  });
+  const stored = SessionDb.open({ path: f.db });
+  try {
+    const record = stored.loadLogicalTurn(logicalTurnId);
+    expect(record?.status).toBe('exhausted');
+    expect(record?.deadlineAt).toBe(deadlineAt);
+  } finally {
+    stored.close();
+  }
+});
+
 test('a usage storage failure during cancellation disables recovery and keeps errors secret-safe', async () => {
   const controller = new AbortController();
   const provider: LLMProvider = {

@@ -1168,6 +1168,8 @@ export async function runSdkRunCommand(
           ),
       };
     };
+    // Arm before prepare(). A stored deadline must abort compaction, not only the segment.
+    armStoredResumeDeadline();
     const logical = await superviseLogicalTurn({
       store: skillCeilingLogicalTurnStore(hostRuntime.sessionDb, skillActivationTurnId),
       binding: {
@@ -1255,9 +1257,6 @@ export async function runSdkRunCommand(
         });
       },
       runSegment: async (segment) => {
-        // Arm after prepare(). An already-passed stored deadline stays the
-        // supervisor's pre-segment check; a future one aborts this signal.
-        armStoredResumeDeadline();
         boundaryRows = null;
         // Keep a child already pivoted by prepare(); resetting would drop the lease-held compaction.
         if (sessionId === segment.activeSessionId) {
