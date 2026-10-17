@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { LOGICAL_TURN_RECOVERY_CAPABILITY } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { SessionPersistenceError } from '@yevgetman/sov-sdk/providers/errors';
 import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
 import { SessionDb } from '../../src/agent/sessionDb.js';
@@ -209,5 +210,14 @@ test('capabilities advertise the exact skill settings contract offline', () => {
     listPolicy: 'replace',
     approvalFileOption: '--skill-approval-file',
     doctorSchemaVersion: 1,
+  });
+});
+
+test('capabilities advertise logical-turn recovery offline', () => {
+  expect(SOV_ROUTE_CAPABILITIES.logicalTurnRecovery).toEqual(LOGICAL_TURN_RECOVERY_CAPABILITY);
+  expect(SOV_ROUTE_CAPABILITIES.logicalTurnRecovery).toEqual({
+    owner: 'sov',
+    version: 1,
+    mode: 'automatic',
   });
 });
