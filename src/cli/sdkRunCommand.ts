@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
 import {
   LOGICAL_TURN_RECOVERY_CAPABILITY,
+  LogicalTurnLeaseError,
   superviseLogicalTurn,
 } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import type { LogicalTurnRecord } from '@yevgetman/sov-sdk/agent/logicalTurn';
@@ -105,6 +106,7 @@ const ERRORS: Record<string, string> = {
   continuation_stalled: 'Logical turn stopped after two attempts made no progress.',
   recovery_unsafe: 'Logical turn cannot continue because a tool effect is not safely replayable.',
   recovery_state_invalid: 'Logical turn recovery state is invalid.',
+  logical_turn_leased: 'Logical turn is owned elsewhere.',
 };
 function string(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
@@ -980,6 +982,25 @@ export async function runSdkRunCommand(
     });
     return failed ? 3 : 0;
   } catch (err) {
+    // A live owner already holds this turn. This launch must not start another worker.
+    if (err instanceof LogicalTurnLeaseError) {
+      const logicalTurnId = continuationRecord?.logicalTurnId ?? continuationId;
+      finish({
+        type: 'turn.error',
+        outcome: 'failed',
+        reason: 'logical_turn_leased',
+        code: 'logical_turn_leased',
+        error: ERRORS.logical_turn_leased,
+        recoverable: false,
+        nextAction: 'none',
+        sessionId: null,
+        ...(logicalTurnId ? { logicalTurnId } : {}),
+        ...metadata(),
+        ...(continuationRecord ? { counters: continuationRecord.counters } : {}),
+        ...nativeTurnMetrics(receipts),
+      });
+      return 3;
+    }
     storageFault ||= isStorageFault(err);
     let code: string = storageFault
       ? 'storage_failed'

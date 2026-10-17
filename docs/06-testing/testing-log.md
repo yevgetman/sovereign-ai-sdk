@@ -1,3 +1,22 @@
+## 2026-10-16 — Lease conflicts stay off the provider-failure wire
+
+Scope: host mapping of `LogicalTurnLeaseError` on `--continue-logical-turn`.
+The lease implementation was not changed. A second launch must not start a
+provider call or rewrite the stored logical-turn row.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/cli/sdkRunRecovery.test.ts -t 'held lease'` failed. The continuation
+exited 1 and the terminal code was `provider_failed`. Provider calls stayed
+at the original turn.
+
+After the fix, the same command passes. The terminal is `logical_turn_leased`,
+`recoverable: false`, `nextAction: "none"`, and the message says the turn is
+owned elsewhere. The logical-turn row and transcript are unchanged, and the
+provider is not called. `env -u FORCE_COLOR bun test --timeout 20000
+tests/cli/sdkRunRecovery.test.ts tests/cli/sdkRunCommand.test.ts` is **51 pass
+/ 0 fail**, 259 assertions. `bun run lint` and `bun run typecheck` pass. No
+live provider, install, upgrade, release, or deployment ran.
+
 ## 2026-10-16 — Logical-turn leases stay with the working owner
 
 Scope: a short renewable logical-turn lease, owner-fenced record writes,
