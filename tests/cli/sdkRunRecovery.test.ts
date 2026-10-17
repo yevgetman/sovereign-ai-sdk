@@ -155,9 +155,12 @@ for (const exhausted of ['max_tokens', 'max_turns'] as const) {
       outcome: 'stalled',
       reason: 'no_progress',
       code: 'continuation_stalled',
+      finishReason: 'no_progress',
       recoverable: true,
       nextAction: 'continue_logical_turn',
     });
+    expect(terminal?.finishReason).not.toBe('max_turns');
+    expect(terminal?.finishReason).not.toBe('max_tokens');
     expect(c.events.filter((event) => event.type === 'turn.continuing')).toHaveLength(1);
     expect(c.events.some((event) => event.type === 'turn.completed')).toBe(false);
     const db = SessionDb.open({ path: f.db });
@@ -383,7 +386,11 @@ test('completed tool receipt survives post-tool cancellation and is not replayed
       f.deps,
     ),
   ).toBe(0);
-  expect(resumed.events.at(-1)).toMatchObject({ type: 'turn.completed', outcome: 'completed' });
+  expect(resumed.events.at(-1)).toMatchObject({
+    type: 'turn.completed',
+    outcome: 'completed',
+    finishReason: 'end_turn',
+  });
   expect(effects).toBe(1);
 });
 
