@@ -457,7 +457,7 @@ test('continuing a cancelled logical turn does not call the model', async () => 
   expect(nextAction).not.toBe('continue_logical_turn');
 });
 
-test('a held lease refuses continuation without a provider call or stored-row change', async () => {
+test('a held lease waits to continue the same turn without a provider call or stored-row change', async () => {
   let calls = 0;
   const provider: LLMProvider = {
     name: 'openai',
@@ -476,6 +476,7 @@ test('a held lease refuses continuation without a provider call or stored-row ch
   const db = SessionDb.open({ path: f.db });
   let storedBefore = '';
   let messagesBefore = '';
+  const leaseExpiresAt = Date.now() + 20_000;
   try {
     const row = db.handle
       .query<{ record: string }, [string]>(
@@ -487,7 +488,7 @@ test('a held lease refuses continuation without a provider call or stored-row ch
     db.handle.run(
       `UPDATE logical_turns SET record = ?, lease_owner = ?, lease_expires_at = ?
        WHERE logical_turn_id = ?`,
-      [JSON.stringify(record), 'other-owner', Date.now() + 30_000, logicalTurnId],
+      [JSON.stringify(record), 'other-owner', leaseExpiresAt, logicalTurnId],
     );
     storedBefore = JSON.stringify(
       db.handle
@@ -503,24 +504,36 @@ test('a held lease refuses continuation without a provider call or stored-row ch
   } finally {
     db.close();
   }
+  const commandStarted = Date.now();
   const second = capture();
   const exitCode = await runSdkRunCommand(
     { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
     second.io,
     f.deps,
   );
+  const commandFinished = Date.now();
   expect(calls).toBe(1);
+  expect(second.events.some((event) => event.type === 'tool_use_start')).toBe(false);
   const terminal = second.events.at(-1);
   expect(terminal?.code).not.toBe('provider_failed');
   expect(terminal).toMatchObject({
     type: 'turn.error',
     code: 'logical_turn_leased',
-    recoverable: false,
+    recoverable: true,
     logicalTurnId,
-    nextAction: 'none',
+    nextAction: 'continue_logical_turn',
   });
-  expect(String(terminal?.error)).toContain('owned elsewhere');
+  const retryAfterMs = terminal?.retryAfterMs;
+  expect(typeof retryAfterMs).toBe('number');
+  if (typeof retryAfterMs !== 'number') throw new Error('retryAfterMs missing');
+  expect(retryAfterMs).toBeGreaterThan(0);
+  expect(retryAfterMs).toBeGreaterThanOrEqual(leaseExpiresAt - commandFinished);
+  expect(retryAfterMs).toBeLessThanOrEqual(leaseExpiresAt - commandStarted + 1);
+  expect(String(terminal?.error)).toContain('live owner');
+  expect(String(terminal?.error)).toContain('crashed owner');
+  expect(String(terminal?.error)).toContain('lease expires');
   expect(String(terminal?.error)).not.toContain('provider failed');
+  expect(terminal?.nextAction).not.toBe('none');
   expect(terminal?.nextAction).not.toBe('repair_request');
   expect(exitCode).toBe(3);
   const after = SessionDb.open({ path: f.db });
@@ -541,6 +554,51 @@ test('a held lease refuses continuation without a provider call or stored-row ch
   } finally {
     after.close();
   }
+});
+
+test('an expired lease accepts the same logical turn when receipts are safe', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message(calls === 1 ? 'durable answer' : 'continued answer');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider);
+  const first = capture();
+  expect(await runSdkRunCommand(opts, first.io, f.deps)).toBe(0);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const db = SessionDb.open({ path: f.db });
+  try {
+    const record = db.loadLogicalTurn(logicalTurnId);
+    if (!record) throw new Error('logical turn row missing');
+    record.status = 'running';
+    db.handle.run(
+      `UPDATE logical_turns SET record = ?, lease_owner = ?, lease_expires_at = ?
+       WHERE logical_turn_id = ?`,
+      [JSON.stringify(record), 'crashed-owner', Date.now() - 1, logicalTurnId],
+    );
+  } finally {
+    db.close();
+  }
+  const second = capture();
+  const exitCode = await runSdkRunCommand(
+    { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+    second.io,
+    f.deps,
+  );
+  expect(calls).toBe(2);
+  expect(exitCode).toBe(0);
+  const terminal = second.events.at(-1);
+  expect(terminal?.code).not.toBe('logical_turn_leased');
+  expect(terminal).toMatchObject({
+    type: 'turn.completed',
+    logicalTurnId,
+    reply: 'continued answer',
+  });
 });
 
 test('an uncooperative cancelled provider never advertises recovery', async () => {
