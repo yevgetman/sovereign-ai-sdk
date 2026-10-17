@@ -1,3 +1,35 @@
+## 2026-10-17 — Unsafe resume records a failed logical turn
+
+Scope: continuing a `running` or `continuing` logical turn whose session has a
+`started` or `unknown` tool receipt, or an ambiguous max-tokens tool note,
+returned `recovery_unsafe` without updating the row. The row now becomes
+`failed` / `unsafe_effect` after the lease is held, and the lease is released.
+A second `--continue-logical-turn` reads that terminal row (`continuation_failed`)
+instead of retrying the unsafe decision. `segmentLimit` stays omitted.
+
+Environment: `/private/tmp/fix-sov-191` on `review-fix/191`, macOS, Bun 1.3.13
+(`bf2e2cec`). No live provider, product install, upgrade, release, or deployment.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts -t 'unsafe resume of a running turn'` failed:
+the supervisor returned `recovery_unsafe` while `record.status` stayed
+`running`. The same command against `tests/cli/sdkRunRecovery.test.ts -t
+'tool receipt is recovery_unsafe|ambiguous truncated tool call'` failed the
+same way: `started` and `unknown` receipts left `running`, and an ambiguous
+truncated tool call left `continuing`.
+
+After the fix those tests pass. `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts tests/agent/sessionDb.logicalTurnRecord.test.ts
+tests/cli/sdkRunRecovery.test.ts tests/cli/sdkRunCompaction.test.ts
+tests/cli/nativeRunOutcome.test.ts tests/server/skillCeilingContinuation.test.ts`
+was 154 pass / 0 fail. `bun run lint` passed. `bun run typecheck` reports the
+same 3 existing errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212
+and 366) and `tests/skills/catalog.test.ts` (line 370). A full
+`bun test --timeout 20000` was 6553 pass / 31 skip / 67 fail, all
+`ERR_MODULE_NOT_FOUND` for `packages/sdk/dist` after the tarball test deleted
+that build. Rebuilding the SDK and rerunning
+`tests/providers/modelImportOrder.test.ts` and `tests/skills` was 465 pass / 0 fail.
+
 ## 2026-10-17 — Logical turns do not store an unenforced segment limit
 
 Scope: `segmentLimit` was written on the logical-turn row (host toolset turn

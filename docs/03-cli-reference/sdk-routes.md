@@ -409,9 +409,14 @@ mismatch, an MCP identity mismatch, a working-directory or permission-policy
 mismatch, any other bound route, provider, auth, model, effort, toolset,
 permission mode, or bundle mismatch, and a corrupt logical-turn record.
 Unsafe recovery returns 3 (`recovery_unsafe`) when the stored session has no
-usable receipt target. Any other failed logical result returns the same 3
-when its status is not `completed` or `waiting_user` and it is not rethrown
-as an interrupt or a provider failure. A Grok 403 reports `tier_blocked`
+usable receipt target, including a `started` or `unknown` tool receipt or an
+ambiguous truncated tool call. That stop records `failed` with finish reason
+`unsafe_effect` after the lease is held, then releases the lease. A later
+`--continue-logical-turn` of that row is `continuation_failed` and does not
+retry the unsafe decision or treat the turn as still running. Any other failed
+logical result returns the same 3 when its status is not `completed` or
+`waiting_user` and it is not rethrown as an interrupt or a provider failure.
+A Grok 403 reports `tier_blocked`
 and never switches to a paid API key.
 
 ## Verification limits

@@ -821,8 +821,9 @@ export async function runSdkRunCommand(
     let messages = hydrate();
     // Refuse unsafe prior effects before a paid summary or inference call.
     // Complete journal receipts can repair their missing canonical batch.
-    // A continuation's started or unknown receipt is recovery_unsafe below.
-    // An unreadable store is still a storage fault.
+    // A continuation's started, unknown, or ambiguous receipt is recorded
+    // failed by the supervisor after it holds the lease. An unreadable
+    // store is still a storage fault.
     if (!hasNativeRecoveryTarget(hostRuntime.sessionDb, sessionId)) {
       if (!continuationRecord || sessionId === null)
         throw new SessionPersistenceError(new Error('session receipt history requires inspection'));
@@ -963,23 +964,6 @@ export async function runSdkRunCommand(
         ...nativeTurnMetrics(receipts),
       });
       return 0;
-    }
-    if (continuationRecord && !hasNativeRecoveryTarget(hostRuntime.sessionDb, sessionId)) {
-      finish({
-        type: 'turn.error',
-        outcome: 'failed',
-        reason: 'unsafe_effect',
-        code: 'recovery_unsafe',
-        error: ERRORS.recovery_unsafe,
-        recoverable: false,
-        nextAction: 'inspect_session',
-        sessionId: null,
-        logicalTurnId: continuationRecord.logicalTurnId,
-        ...metadata(),
-        counters: continuationRecord.counters,
-        ...nativeTurnMetrics(receipts),
-      });
-      return 3;
     }
     stage = 'provider';
     const compact = async (): Promise<

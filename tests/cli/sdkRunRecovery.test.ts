@@ -12,6 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { AMBIGUOUS_MAX_TOKENS_TOOL_NOTE } from '@yevgetman/sov-sdk/core/query';
 import type { AssistantMessage, Message } from '@yevgetman/sov-sdk/core/types';
 import { buildHookRunner } from '@yevgetman/sov-sdk/hooks/runner';
 import { RouteError, getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
@@ -1693,6 +1694,25 @@ test('a chat logical turn does not store a segment-count limit', async () => {
   expect(raw.counters?.segments).toBe(1);
 });
 
+function storedLogicalTurn(
+  path: string,
+  id: string,
+): { record: NonNullable<ReturnType<SessionDb['loadLogicalTurn']>>; leaseOwner: string | null } {
+  const db = SessionDb.open({ path });
+  try {
+    const row = db.handle
+      .query<{ lease_owner: string | null }, [string]>(
+        'SELECT lease_owner FROM logical_turns WHERE logical_turn_id = ?',
+      )
+      .get(id);
+    const record = db.loadLogicalTurn(id);
+    if (!record || !row) throw new Error('logical turn row missing');
+    return { record, leaseOwner: row.lease_owner };
+  } finally {
+    db.close();
+  }
+}
+
 function logicalTurnRecord(path: string, id: string): string {
   const db = SessionDb.open({ path });
   try {
@@ -2032,8 +2052,111 @@ for (const state of ['unknown', 'started'] as const) {
     expect(JSON.stringify(second.events)).not.toContain('storage_failed');
     expect(JSON.stringify(second.events)).not.toContain('inspect_storage');
     expect(JSON.stringify(second.events)).not.toContain('Session storage failed');
+    const failed = storedLogicalTurn(f.db, logicalTurnId);
+    expect(failed.record.status).toBe('failed');
+    expect(failed.record.finishReason).toBe('unsafe_effect');
+    expect(failed.record).not.toHaveProperty('segmentLimit');
+    expect(failed.leaseOwner).toBeNull();
+    const third = capture();
+    expect(
+      await runSdkRunCommand(
+        { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+        third.io,
+        f.deps,
+      ),
+    ).toBe(3);
+    expect(calls).toBe(1);
+    expect(third.events.at(-1)).toMatchObject({
+      type: 'turn.error',
+      outcome: 'failed',
+      reason: 'unsafe_effect',
+      code: 'continuation_failed',
+      recoverable: false,
+      nextAction: 'none',
+      logicalTurnId,
+    });
+    expect(storedLogicalTurn(f.db, logicalTurnId).record.status).toBe('failed');
   });
 }
+
+test('continuing an ambiguous truncated tool call records failed', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('durable answer');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider);
+  const first = capture();
+  expect(await runSdkRunCommand(opts, first.io, f.deps)).toBe(0);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const sessionId = String(first.events.at(-1)?.activeSessionId);
+  const db = SessionDb.open({ path: f.db });
+  try {
+    const record = db.loadLogicalTurn(logicalTurnId);
+    if (!record) throw new Error('logical turn row missing');
+    record.status = 'continuing';
+    db.handle.run('UPDATE logical_turns SET record = ? WHERE logical_turn_id = ?', [
+      JSON.stringify(record),
+      logicalTurnId,
+    ]);
+    db.saveMessage(sessionId, {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'truncated-tool', name: 'fixture', input: {} }],
+    });
+    db.saveMessage(sessionId, {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'truncated-tool',
+          content: AMBIGUOUS_MAX_TOKENS_TOOL_NOTE,
+          is_error: true,
+        },
+      ],
+    });
+  } finally {
+    db.close();
+  }
+  const second = capture();
+  expect(
+    await runSdkRunCommand(
+      { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+      second.io,
+      f.deps,
+    ),
+  ).toBe(3);
+  expect(calls).toBe(1);
+  expect(second.events.at(-1)).toMatchObject({
+    type: 'turn.error',
+    outcome: 'failed',
+    reason: 'unsafe_effect',
+    code: 'recovery_unsafe',
+    recoverable: false,
+    nextAction: 'inspect_session',
+    logicalTurnId,
+  });
+  const failed = storedLogicalTurn(f.db, logicalTurnId);
+  expect(failed.record.status).toBe('failed');
+  expect(failed.record.finishReason).toBe('unsafe_effect');
+  expect(failed.record).not.toHaveProperty('segmentLimit');
+  expect(failed.leaseOwner).toBeNull();
+  const third = capture();
+  expect(
+    await runSdkRunCommand(
+      { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+      third.io,
+      f.deps,
+    ),
+  ).toBe(3);
+  expect(calls).toBe(1);
+  expect(third.events.at(-1)?.code).toBe('continuation_failed');
+  expect(storedLogicalTurn(f.db, logicalTurnId).record.status).toBe('failed');
+});
 
 test('a continuation with an unreadable session store still reports storage_failed', async () => {
   let calls = 0;
