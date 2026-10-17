@@ -1084,3 +1084,146 @@ test('a dispossessed compaction writes no child session and no usage row', async
     db.close();
   }
 });
+
+function lastHumanText(db: SessionDb, sessionId: string): string | undefined {
+  const rows = db.loadMessages(sessionId);
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    if (!row || row.role !== 'user') continue;
+    if (row.content.some((block) => block.type === 'tool_result')) continue;
+    if (
+      row.toolCalls &&
+      typeof row.toolCalls === 'object' &&
+      (row.toolCalls as { origin?: unknown }).origin === 'runtime'
+    )
+      continue;
+    const text = row.content.find((block) => block.type === 'text');
+    return text?.type === 'text' ? text.text : undefined;
+  }
+  return undefined;
+}
+
+function latestRequestHumanText(request: ProviderRequest): string | undefined {
+  for (let i = request.messages.length - 1; i >= 0; i--) {
+    const message = request.messages[i];
+    if (!message || message.role !== 'user' || message.origin === 'runtime') continue;
+    if (message.content.some((block) => block.type === 'tool_result')) continue;
+    const text = message.content.find((block) => block.type === 'text');
+    return text?.type === 'text' ? text.text : undefined;
+  }
+  return undefined;
+}
+
+test('proactive compaction stores the prompt gate on the child human row', async () => {
+  const seen: string[] = [];
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(request) {
+      if (isSummary(request)) {
+        const message = answer('Task remains active.');
+        yield { type: 'assistant_message', message };
+        return message;
+      }
+      calls++;
+      const prompt = latestRequestHumanText(request);
+      if (prompt !== undefined) seen.push(prompt);
+      if (calls <= 6) {
+        const reply: AssistantMessage = {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: `rewrite-${calls}`, name: 'WebSearch', input: { n: calls } },
+          ],
+        };
+        yield { type: 'message_start' };
+        yield { type: 'usage_delta', usage: { inputTokens: 1, outputTokens: 1 } };
+        yield { type: 'message_stop', stop_reason: 'tool_use' };
+        yield { type: 'assistant_message', message: reply };
+        return reply;
+      }
+      const message = answer('done');
+      yield { type: 'assistant_message', message };
+      return message;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.proactiveCompactThreshold = 0.005;
+    runtime.loop = { mode: 'off' };
+    runtime.hookRunner = async (event) => {
+      if (event === 'UserPromptSubmit')
+        return { block: false, rewrittenPrompt: 'rewritten-by-hook' };
+      return { block: false };
+    };
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'WebSearch',
+        description: () => 'fixture',
+        inputSchema: z.unknown(),
+        async call() {
+          return { data: 'receipt' };
+        },
+      }),
+    );
+  });
+  f.io.readStdin = async () => JSON.stringify({ inputVersion: 1, text: 'ungated-secret-prompt' });
+  expect(await runSdkRunCommand({ ...opts, resume: f.parent, toolset: 'web' }, f.io, f.deps)).toBe(
+    0,
+  );
+  const child = String(f.events.at(-1)?.activeSessionId);
+  expect(child).not.toBe(f.parent);
+  expect(calls).toBe(7);
+  expect(seen.length).toBeGreaterThan(1);
+  for (const prompt of seen) {
+    expect(prompt).toContain('rewritten-by-hook');
+    expect(prompt).not.toContain('ungated-secret-prompt');
+  }
+  const db = SessionDb.open({ path: f.dbPath });
+  try {
+    expect(lastHumanText(db, child)).toContain('rewritten-by-hook');
+    expect(lastHumanText(db, child)).not.toContain('ungated-secret-prompt');
+    expect(lastHumanText(db, f.parent)).toBe('ungated-secret-prompt');
+  } finally {
+    db.close();
+  }
+});
+
+test('proactive compaction writes a prompt denial onto the child human row', async () => {
+  let mains = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(request) {
+      if (isSummary(request)) {
+        const message = answer('Task remains active.');
+        yield { type: 'assistant_message', message };
+        return message;
+      }
+      mains++;
+      const message = answer('should not run');
+      yield { type: 'assistant_message', message };
+      return message;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.proactiveCompactThreshold = 0.005;
+    runtime.hookRunner = async (event) => {
+      if (event === 'UserPromptSubmit') return { block: true, reason: 'forbidden prompt' };
+      return { block: false };
+    };
+  });
+  f.io.readStdin = async () => JSON.stringify({ inputVersion: 1, text: 'ungated-secret-prompt' });
+  expect(await runSdkRunCommand({ ...opts, resume: f.parent }, f.io, f.deps)).not.toBe(0);
+  expect(mains).toBe(0);
+  const child = String(
+    f.events.find((event) => event.type === 'compaction_complete')?.activeSessionId,
+  );
+  expect(child).not.toBe(f.parent);
+  const db = SessionDb.open({ path: f.dbPath });
+  try {
+    expect(lastHumanText(db, child)).toBe('forbidden prompt');
+    expect(lastHumanText(db, f.parent)).toBe('ungated-secret-prompt');
+  } finally {
+    db.close();
+  }
+});
