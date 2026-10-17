@@ -10,9 +10,11 @@ import {
 import type { LogicalTurnRecord } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { ContextManagementError } from '@yevgetman/sov-sdk/compact/contextManagement';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
-import { loadPermissionSettings } from '@yevgetman/sov-sdk/config/settings';
 import {
   ConfigurationError,
+  type RuntimeSettingsSnapshot,
+  loadMcpServerSettings,
+  loadPermissionSettings,
   loadRuntimeSettingsSnapshot,
 } from '@yevgetman/sov-sdk/config/settings';
 import { AMBIGUOUS_MAX_TOKENS_TOOL_NOTE } from '@yevgetman/sov-sdk/core/query';
@@ -303,6 +305,39 @@ export async function runSdkRunCommand(
         ? { skillApprovalFile: String(opts.skillApprovalFile) }
         : {}),
     });
+    // Pin the allow-list and MCP servers before boot. A wider file or a new
+    // server must not create tools, and the stored row is left unchanged.
+    const skillApprovalDigest = sha256Json(
+      skillApprovalIdentity(settingsSnapshot, string(opts.skillApprovalFile)),
+    );
+    const mcpIdentityDigest = sha256Json(
+      mcpServerIdentity(settingsSnapshot, process.cwd(), harnessHome),
+    );
+    if (continuationRecord) {
+      const skillMismatch = continuationRecord.binding.skillApprovalDigest !== skillApprovalDigest;
+      const mcpMismatch = continuationRecord.binding.mcpIdentityDigest !== mcpIdentityDigest;
+      if (skillMismatch || mcpMismatch) {
+        const named = [
+          skillMismatch ? 'skill-approval mismatch' : undefined,
+          mcpMismatch ? 'MCP mismatch' : undefined,
+        ].filter((item) => item !== undefined);
+        finish({
+          type: 'turn.error',
+          outcome: 'failed',
+          reason: 'recovery_state_invalid',
+          code: 'recovery_state_invalid',
+          error: `Logical turn ${named.join(' and ')}.`,
+          recoverable: false,
+          nextAction: 'repair_request',
+          sessionId: null,
+          logicalTurnId: continuationRecord.logicalTurnId,
+          ...metadata(),
+          counters: continuationRecord.counters,
+          ...nativeTurnMetrics(receipts),
+        });
+        return 3;
+      }
+    }
     const settings = settingsSnapshot.config;
     const requestedRoute = getRoute(resolvedRouteId, settings);
     const requestedModel =
@@ -958,6 +993,8 @@ export async function runSdkRunCommand(
         toolset,
         permissionMode: hostRuntime.permissionMode,
         policyDigest,
+        skillApprovalDigest,
+        mcpIdentityDigest,
         cwd: process.cwd(),
         ...(string(opts.bundle) ? { bundleIdentity: String(opts.bundle) } : {}),
       },
@@ -1292,6 +1329,53 @@ export async function runSdkRunCommand(
       await boundedDispose(runtime);
     }
   }
+}
+
+function sha256Json(value: unknown): string {
+  return createHash('sha256')
+    .update(JSON.stringify(canonicalize(value)))
+    .digest('hex');
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, entry]) => entry !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalize(entry)]),
+    );
+  }
+  return value;
+}
+
+/** Effective skill allow-list. Raw layer text stays cwd-stable; an approval file wins. */
+function skillApprovalIdentity(
+  snapshot: RuntimeSettingsSnapshot,
+  skillApprovalFile: string | undefined,
+): unknown {
+  if (skillApprovalFile !== undefined) {
+    return { approvalFile: true, roots: snapshot.discovery.allowedLinkRoots ?? [] };
+  }
+  for (const name of ['local', 'user'] as const) {
+    const roots = snapshot.layers.find((layer) => layer.name === name)?.settings.skills?.discovery
+      ?.allowedLinkRoots;
+    if (roots !== undefined) return { approvalFile: false, source: name, roots };
+  }
+  const configured = snapshot.config.skills?.discovery?.allowedLinkRoots;
+  if (configured !== undefined) {
+    return { approvalFile: false, source: 'profile-config', roots: configured };
+  }
+  return { approvalFile: false, source: 'default', roots: null };
+}
+
+function mcpServerIdentity(
+  snapshot: RuntimeSettingsSnapshot,
+  cwd: string,
+  harnessHome: string,
+): unknown {
+  return loadMcpServerSettings({ cwd, harnessHome, snapshot }).servers;
 }
 
 /** Native wire block ids are unique across tool calls and model rounds. */

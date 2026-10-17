@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AssistantMessage, Message } from '@yevgetman/sov-sdk/core/types';
@@ -1261,6 +1261,21 @@ async function inDirectory<T>(cwd: string, run: () => Promise<T>): Promise<T> {
   }
 }
 
+async function withHarness<T>(home: string, run: () => Promise<T>): Promise<T> {
+  const previousHome = process.env.HARNESS_HOME;
+  const previousConfig = process.env.HARNESS_CONFIG;
+  process.env.HARNESS_HOME = home;
+  process.env.HARNESS_CONFIG = join(home, 'config.json');
+  try {
+    return await run();
+  } finally {
+    if (previousHome === undefined) Reflect.deleteProperty(process.env, 'HARNESS_HOME');
+    else process.env.HARNESS_HOME = previousHome;
+    if (previousConfig === undefined) Reflect.deleteProperty(process.env, 'HARNESS_CONFIG');
+    else process.env.HARNESS_CONFIG = previousConfig;
+  }
+}
+
 function logicalTurnRecord(path: string, id: string): string {
   const db = SessionDb.open({ path });
   try {
@@ -1342,6 +1357,199 @@ test('a changed permission policy names the policy mismatch and keeps the row', 
   });
   expect(terminal?.error).toBe('Logical turn permission-policy mismatch.');
   expect(String(terminal?.error)).not.toContain(origin);
+  expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
+});
+
+test('continuing a bypass turn with a wider skill approval refuses before those tools exist', async () => {
+  let calls = 0;
+  let boots = 0;
+  let widenedTools = false;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('durable answer');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider);
+  writeFileSync(
+    join(f.home, 'config.json'),
+    JSON.stringify({ learning: { disabled: true }, review: { disabled: true } }),
+  );
+  f.deps.runtime = async (options) => {
+    const runtime = await buildRuntime({
+      ...options,
+      harnessHome: f.home,
+      dbPath: f.db,
+      cronEnabled: false,
+    });
+    boots++;
+    if (runtime.skillRegistryManager.snapshot().registry.byName.has('recoveryWidenSkill'))
+      widenedTools = true;
+    return runtime;
+  };
+  const project = join(f.home, 'project');
+  const skillDir = join(f.home, 'skill-root', 'recoveryWidenSkill');
+  mkdirSync(join(project, '.git'), { recursive: true });
+  mkdirSync(join(project, '.agents', 'skills'), { recursive: true });
+  mkdirSync(skillDir, { recursive: true });
+  symlinkSync(skillDir, join(project, '.agents', 'skills', 'recoveryWidenSkill'));
+  writeFileSync(
+    join(skillDir, 'SKILL.md'),
+    [
+      '---',
+      'name: recoveryWidenSkill',
+      'description: Use when the user asks to check a widened approval',
+      'whenToUse: Use when the user asks to check a widened approval',
+      '---',
+      'Widened skill body.',
+      '',
+    ].join('\n'),
+  );
+  const narrow = join(f.home, 'approval-narrow.json');
+  const wide = join(f.home, 'approval-wide.json');
+  const approval = (roots: string[]) =>
+    JSON.stringify({ skills: { discovery: { allowedLinkRoots: roots } } });
+  writeFileSync(narrow, approval([]));
+  writeFileSync(wide, approval([skillDir]));
+  const first = capture();
+  expect(
+    await withHarness(f.home, () =>
+      inDirectory(project, () =>
+        runSdkRunCommand(
+          { ...opts, permissionMode: 'bypass', skillApprovalFile: narrow },
+          first.io,
+          f.deps,
+        ),
+      ),
+    ),
+  ).toBe(0);
+  expect(calls).toBe(1);
+  expect(boots).toBe(1);
+  expect(widenedTools).toBe(false);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const stored = logicalTurnRecord(f.db, logicalTurnId);
+  const second = capture();
+  expect(
+    await withHarness(f.home, () =>
+      inDirectory(project, () =>
+        runSdkRunCommand(
+          {
+            json: true,
+            sdk: true,
+            db: f.db,
+            continueLogicalTurn: logicalTurnId,
+            permissionMode: 'bypass',
+            skillApprovalFile: wide,
+          },
+          second.io,
+          f.deps,
+        ),
+      ),
+    ),
+  ).toBe(3);
+  const terminal = second.events.at(-1);
+  expect(second.events.some((event) => event.type === 'session.started')).toBe(false);
+  expect(terminal).toMatchObject({
+    type: 'turn.error',
+    code: 'recovery_state_invalid',
+    recoverable: false,
+    logicalTurnId,
+  });
+  expect(terminal?.error).toBe('Logical turn skill-approval mismatch.');
+  expect(String(terminal?.error)).not.toContain('working-directory');
+  expect(String(terminal?.error)).not.toContain('permission-policy');
+  expect(String(terminal?.error)).not.toContain(skillDir);
+  expect(String(terminal?.error)).not.toContain('recovery state is invalid');
+  expect(calls).toBe(1);
+  expect(boots).toBe(1);
+  expect(widenedTools).toBe(false);
+  expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
+});
+
+test('a changed MCP server identity is recovery_state_invalid before that server exists', async () => {
+  let calls = 0;
+  let boots = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('durable answer');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider);
+  writeFileSync(
+    join(f.home, 'config.json'),
+    JSON.stringify({ learning: { disabled: true }, review: { disabled: true } }),
+  );
+  f.deps.runtime = async (options) => {
+    const runtime = await buildRuntime({
+      ...options,
+      harnessHome: f.home,
+      dbPath: f.db,
+      cronEnabled: false,
+    });
+    boots++;
+    return runtime;
+  };
+  const project = join(f.home, 'project');
+  mkdirSync(join(project, '.git'), { recursive: true });
+  const first = capture();
+  expect(
+    await withHarness(f.home, () =>
+      inDirectory(project, () =>
+        runSdkRunCommand({ ...opts, permissionMode: 'bypass' }, first.io, f.deps),
+      ),
+    ),
+  ).toBe(0);
+  expect(calls).toBe(1);
+  expect(boots).toBe(1);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const stored = logicalTurnRecord(f.db, logicalTurnId);
+  mkdirSync(join(project, '.harness'), { recursive: true });
+  writeFileSync(
+    join(project, '.harness', 'settings.local.json'),
+    JSON.stringify({
+      mcpServers: { widened: { type: 'http', url: 'http://127.0.0.1:9/mcp' } },
+    }),
+  );
+  const second = capture();
+  expect(
+    await withHarness(f.home, () =>
+      inDirectory(project, () =>
+        runSdkRunCommand(
+          {
+            json: true,
+            sdk: true,
+            db: f.db,
+            continueLogicalTurn: logicalTurnId,
+            permissionMode: 'bypass',
+          },
+          second.io,
+          f.deps,
+        ),
+      ),
+    ),
+  ).toBe(3);
+  const terminal = second.events.at(-1);
+  expect(second.events.some((event) => event.type === 'session.started')).toBe(false);
+  expect(terminal).toMatchObject({
+    type: 'turn.error',
+    code: 'recovery_state_invalid',
+    recoverable: false,
+    logicalTurnId,
+  });
+  expect(terminal?.error).toBe('Logical turn MCP mismatch.');
+  expect(String(terminal?.error)).not.toContain('working-directory');
+  expect(String(terminal?.error)).not.toContain('permission-policy');
+  expect(String(terminal?.error)).not.toContain('127.0.0.1');
+  expect(String(terminal?.error)).not.toContain('recovery state is invalid');
+  expect(calls).toBe(1);
+  expect(boots).toBe(1);
   expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
 });
 
