@@ -125,6 +125,8 @@ const ERRORS: Record<string, string> = {
   logical_turn_leased:
     'A live owner is busy with this logical turn. Continue a crashed owner after the lease expires.',
 };
+/** Same code as the model-call cap. The sentence names the deadline, not that cap. */
+const DEADLINE_EXHAUSTED_ERROR = 'Logical turn reached its deadline.';
 const UNKNOWN_LOGICAL_TURN = 'logical turn does not exist';
 const MISSING_LOGICAL_TURN_ROUTE = 'logical turn route is missing';
 const STDIN_CONTINUE_CLASH = '--stdin cannot be combined with --continue-logical-turn';
@@ -897,7 +899,7 @@ export async function runSdkRunCommand(
         outcome: continuationRecord.status,
         reason: storedReason,
         code,
-        error: ERRORS[code],
+        error: storedReason === 'deadline' ? DEADLINE_EXHAUSTED_ERROR : ERRORS[code],
         recoverable: false,
         nextAction: 'none',
         sessionId,
@@ -1370,7 +1372,9 @@ export async function runSdkRunCommand(
       ...(failed
         ? {
             code: deadlineTerminal ? deadlineCode : logical.code,
-            error: ERRORS[deadlineTerminal ? deadlineCode : (logical.code ?? 'provider_failed')],
+            error: deadlineTerminal
+              ? DEADLINE_EXHAUSTED_ERROR
+              : ERRORS[logical.code ?? 'provider_failed'],
             recoverable: nonResumableStop || ambiguousTool ? false : durable,
             nextAction: nonResumableStop
               ? 'none'
@@ -1442,7 +1446,7 @@ export async function runSdkRunCommand(
         outcome: 'exhausted',
         reason: 'deadline',
         code: 'continuation_exhausted',
-        error: ERRORS.continuation_exhausted,
+        error: DEADLINE_EXHAUSTED_ERROR,
         recoverable: false,
         nextAction: 'none',
         sessionId: durable ? sessionId : null,
