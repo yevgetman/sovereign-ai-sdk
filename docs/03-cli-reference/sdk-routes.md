@@ -291,7 +291,9 @@ advertises `capabilities.logicalTurnRecovery`. A bounded segment that ends at
 `max_tokens` or `max_turns` emits `turn.continuing`, reloads durable state and
 continues without replaying the original prompt. The toolset segment defaults
 are chat 1, web 6, ops 8 and coding 100 model calls. The logical-turn default is
-100 model calls. `--deadline-ms` covers the complete logical turn.
+100 model calls. `--deadline-ms` covers the complete logical turn, and
+`--continue-logical-turn` aborts at the stored deadline when this invocation
+omits `--deadline-ms`, including a tool that is still blocked.
 
 A deliberate `checkin` emits `turn.completed` with `outcome: "waiting_user"`.
 Exhaustion, two unchanged progress fingerprints, unsafe receipts and invalid
