@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — logical-turn continuation
+
+**Harness:** `--continue-logical-turn <id>` continues one stored logical turn
+without a replacement prompt. Exit 3 is a logical-turn stop and is no longer
+`needs_continuation`. A deadline, a lease conflict, a cancelled continuation,
+and a model-call cap all return 3, as do a stall, an unsafe receipt, and
+invalid recovery state. Do not start another prompt on exit 3. See
+[SDK routes](docs/03-cli-reference/sdk-routes.md).
+
 ## Unreleased — skill catalog projections (#120)
 
 **SDK:** `skills_list` accepts `detail` (`names`, `summary`, or `activation`).
