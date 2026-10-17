@@ -333,7 +333,23 @@ export async function runSdkRunCommand(
     controller.abort('deadline');
   };
   const armDeadline = (delayMs: number): void => {
-    deadlineTimers.push(setTimeout(abortForDeadline, delayMs));
+    const endsAt = Date.now() + delayMs;
+    const schedule = (): void => {
+      if (controller.signal.aborted) return;
+      const remainingMs = Math.max(0, endsAt - Date.now());
+      if (remainingMs === 0) {
+        abortForDeadline();
+        return;
+      }
+      const delay = Math.min(remainingMs, MAX_TIMER_MS);
+      deadlineTimers.push(
+        setTimeout(() => {
+          if (delay < remainingMs) schedule();
+          else abortForDeadline();
+        }, delay),
+      );
+    };
+    schedule();
   };
   const armStoredResumeDeadline = (): void => {
     if (storedDeadlineArmed || continuationRecord?.deadlineAt === undefined) return;
