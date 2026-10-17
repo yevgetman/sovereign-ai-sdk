@@ -15,6 +15,7 @@ import type {
   Terminal,
 } from '@yevgetman/sov-sdk/core/types';
 import type { HookRunner } from '@yevgetman/sov-sdk/hooks/types';
+import { FENCE_PREAMBLE, formatMemorySnapshot } from '@yevgetman/sov-sdk/memory/injection';
 import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
@@ -417,6 +418,81 @@ describe('query() — Phase 2 turn loop', () => {
     expect(JSON.stringify(alreadyFenced)).toBe(alreadyBefore);
     expect(recalls).toBe(1);
     expect(userPromptSubmits).toBe(1);
+  });
+
+  test('reapplies the current memory snapshot when the stored prompt only mentions the tag', async () => {
+    // The host rehydrates the original user text. Mentioning <memory-context>
+    // is not a fence, so the next segment must start with the preamble and
+    // carry the current snapshot once.
+    const marker = 'UNIQUE_MEMORY_BODY_TAG_MENTION_170';
+    const prompt = 'Explain the <memory-context> tag. It is not a stored fence.';
+    const snapshot = formatMemorySnapshot({ memory: marker });
+    const seen: ProviderRequest[] = [];
+    const messages: Message[] = [{ role: 'user', content: [{ type: 'text', text: prompt }] }];
+    const before = JSON.stringify(messages);
+    const gen = query({
+      provider: capturingProvider((req) => seen.push(snapshotRequest(req))),
+      model: 'claude-sonnet-4-6',
+      messages,
+      systemPrompt: [{ text: 'system', cacheable: true }],
+      maxTokens: 256,
+      continuation: true,
+      memoryManager: {
+        async prefetchSnapshot() {
+          return snapshot;
+        },
+        async syncTurn() {},
+        async onMemoryWrite() {},
+        async onDelegation() {},
+      },
+    });
+    expect((await drainToTerminal(gen)).reason).toBe('completed');
+    const user = seen[0]?.messages.find((message) => message.role === 'user');
+    const block = user?.content.find((part) => part.type === 'text');
+    expect(block?.type).toBe('text');
+    if (block?.type === 'text') {
+      expect(block.text.startsWith(FENCE_PREAMBLE)).toBe(true);
+      expect(block.text.startsWith(snapshot)).toBe(true);
+      expect(block.text.split(snapshot)).toHaveLength(2);
+      expect(block.text.split(marker)).toHaveLength(2);
+      expect(block.text.split(prompt)).toHaveLength(2);
+      expect(block.text.endsWith(prompt)).toBe(true);
+    }
+    expect(JSON.stringify(messages)).toBe(before);
+  });
+
+  test('does not stack a memory fence that already starts with the preamble', async () => {
+    const oldMarker = 'UNIQUE_OLD_MEMORY_FENCE_170';
+    const newMarker = 'UNIQUE_NEW_MEMORY_FENCE_170';
+    const prompt = 'continue the task';
+    const stored = `${formatMemorySnapshot({ memory: oldMarker })}\n\n${prompt}`;
+    const seen: ProviderRequest[] = [];
+    const messages: Message[] = [{ role: 'user', content: [{ type: 'text', text: stored }] }];
+    const before = JSON.stringify(messages);
+    const gen = query({
+      provider: capturingProvider((req) => seen.push(snapshotRequest(req))),
+      model: 'claude-sonnet-4-6',
+      messages,
+      systemPrompt: [{ text: 'system', cacheable: true }],
+      maxTokens: 256,
+      continuation: true,
+      memoryManager: {
+        async prefetchSnapshot() {
+          return formatMemorySnapshot({ memory: newMarker });
+        },
+        async syncTurn() {},
+        async onMemoryWrite() {},
+        async onDelegation() {},
+      },
+    });
+    expect((await drainToTerminal(gen)).reason).toBe('completed');
+    const user = seen[0]?.messages.find((message) => message.role === 'user');
+    const block = user?.content.find((part) => part.type === 'text');
+    expect(block).toEqual({ type: 'text', text: stored });
+    expect(stored.startsWith(FENCE_PREAMBLE)).toBe(true);
+    expect(stored).toContain(oldMarker);
+    expect(stored).not.toContain(newMarker);
+    expect(JSON.stringify(messages)).toBe(before);
   });
 
   test('a runtime continuation marker is not a new user turn', async () => {

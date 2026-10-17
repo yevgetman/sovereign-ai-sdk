@@ -31,6 +31,7 @@ import {
 import { LoopDetectorState } from '../loop/detector.js';
 import { toToolSchemas } from '../mcp/schemaSerialization.js';
 import {
+  FENCE_PREAMBLE,
   injectMemoryIntoLatestUserMessage,
   injectMemoryIntoUserText,
 } from '../memory/injection.js';
@@ -1390,6 +1391,17 @@ async function fireStopHook(
   }
 }
 
+/** True when stored text already opens with the preamble and a closed block.
+ *  Mentioning `<memory-context>` is not itself a fence. */
+function hasLeadingClosedMemoryFence(text: string): boolean {
+  if (!text.startsWith(FENCE_PREAMBLE)) return false;
+  const rest = text.slice(FENCE_PREAMBLE.length).trimStart();
+  const open = '<memory-context>';
+  const close = '</memory-context>';
+  if (!rest.startsWith(open)) return false;
+  return rest.indexOf(close) >= open.length;
+}
+
 /** Reapply the memory fence to the original user message after rehydration.
  *  Tool-result tails have no user text, so they are skipped. The caller's
  *  messages are not mutated, and a fence that is already present is left as-is. */
@@ -1407,13 +1419,10 @@ async function reinjectMemoryFence(
     if (!block || block.type !== 'text') continue;
     const snapshot = await memory.prefetchSnapshot(block.text);
     const trimmed = snapshot.trim();
-    // A changed snapshot must not stack a second fence onto user text that
-    // already has one. The caller's stored message stays untouched.
-    if (
-      !trimmed ||
-      block.text.includes(trimmed) ||
-      (trimmed.includes('<memory-context>') && block.text.includes('<memory-context>'))
-    ) {
+    // Already present only when this snapshot is stored, or the text starts
+    // with the preamble and a closed <memory-context> block. A bare tag
+    // mention still receives the current snapshot once.
+    if (!trimmed || block.text.includes(trimmed) || hasLeadingClosedMemoryFence(block.text)) {
       return history;
     }
     const next = injectMemoryIntoUserText(block.text, snapshot);
