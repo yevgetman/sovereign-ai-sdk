@@ -4,6 +4,7 @@ import type { Message, Terminal, TokenUsage } from '../core/types.js';
 import {
   PersistBeforeRunError,
   ProviderHttpError,
+  ProviderStreamError,
   SessionPersistenceError,
   SubscriptionHttpError,
   SubscriptionRefreshError,
@@ -205,8 +206,6 @@ export async function superviseLogicalTurn(
   options: LogicalTurnSupervisorOptions,
 ): Promise<LogicalTurnResult> {
   const now = options.now ?? Date.now;
-  const sleep =
-    options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   const startedAt = now();
   const bindingDigest = digest(options.binding);
   let record = options.logicalTurnId ? options.store.loadLogicalTurn(options.logicalTurnId) : null;
@@ -509,7 +508,11 @@ export async function superviseLogicalTurn(
         return await finish('cancelled', 'cancelled', result);
 
       if (result.terminal.reason === 'error') {
-        const transient = transientDelay(result.terminal.error, transientAttempts);
+        const transient = transientDelay(
+          result.terminal.error,
+          transientAttempts,
+          hasCommittedOutput(result),
+        );
         if (transient === undefined || transientAttempts >= 2)
           return await finish('failed', 'failed', result);
         if (!options.recoverySafe(record.activeSessionId))
@@ -524,7 +527,11 @@ export async function superviseLogicalTurn(
           counters: { ...record.counters },
           activeSessionId: record.activeSessionId,
         });
-        await withHeartbeat(sleep(transient));
+        // Cancellation during the wait must not start the next attempt.
+        await withHeartbeat(sleepWithSignal(transient, options.signal, pause));
+        if (isDeadlineTerminal(options.signal, record.deadlineAt, now()))
+          return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
+        if (options.signal?.aborted) return await finish('cancelled', 'cancelled', undefined);
         messages = options.rehydrate(record.activeSessionId);
         continue;
       }
@@ -619,8 +626,12 @@ function assistantTextLength(result: RunResult): number {
   );
 }
 
-function transientDelay(error: Error | undefined, attempt: number): number | undefined {
-  if (!error) return undefined;
+function transientDelay(
+  error: Error | undefined,
+  attempt: number,
+  committed = false,
+): number | undefined {
+  if (!error || error.name === 'AbortError') return undefined;
   if (error instanceof ProviderHttpError) {
     if (![429, 502, 503, 504].includes(error.status)) return undefined;
     const retryAfter = headerValue(error.headers, 'retry-after');
@@ -639,7 +650,92 @@ function transientDelay(error: Error | undefined, attempt: number): number | und
   // requestAttempt owns 429/502/503/504: at most three sends, Retry-After
   // capped at 10 seconds. Another segment would send past that budget.
   if (error instanceof SubscriptionHttpError) return undefined;
-  return undefined;
+  // Timeout or connection loss only before this attempt committed output.
+  if (committed || !isPreDeliveryTransportFault(error)) return undefined;
+  return withJitter(Math.min(10_000, 100 * 2 ** attempt));
+}
+
+/** Resolves early when `signal` aborts. The caller decides deadline versus cancel. */
+function sleepWithSignal(
+  ms: number,
+  signal: AbortSignal | undefined,
+  wait: (ms: number) => Promise<void>,
+): Promise<void> {
+  if (!signal) return wait(ms);
+  if (signal.aborted) return Promise.resolve();
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<void>((resolve) => {
+    onAbort = () => resolve();
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  const delay = wait(ms);
+  // An injected wait can reject after abort already settled the race.
+  void delay.catch(() => {});
+  return Promise.race([delay, aborted]).finally(() => {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  });
+}
+
+function hasCommittedOutput(result: RunResult): boolean {
+  return (result.finalAssistant?.content ?? []).some(
+    (block) => block.type !== 'text' || block.text.length > 0,
+  );
+}
+
+function isPreDeliveryTransportFault(error: Error): boolean {
+  if (
+    error instanceof ProviderHttpError ||
+    error instanceof ProviderStreamError ||
+    error instanceof SubscriptionHttpError ||
+    error instanceof SubscriptionStreamError ||
+    error instanceof SubscriptionRefreshError ||
+    error instanceof PersistBeforeRunError ||
+    error instanceof SessionPersistenceError ||
+    error instanceof ToolStorageError
+  )
+    return false;
+  return isTimeoutFault(error) || isConnectionLoss(error);
+}
+
+function isTimeoutFault(error: Error): boolean {
+  return walkCauses(error, (current) => {
+    if (current.name === 'TimeoutError') return true;
+    const code = errorCode(current);
+    return (
+      code === 'ETIMEDOUT' ||
+      code === 'UND_ERR_CONNECT_TIMEOUT' ||
+      code === 'UND_ERR_HEADERS_TIMEOUT' ||
+      code === 'UND_ERR_BODY_TIMEOUT'
+    );
+  });
+}
+
+function isConnectionLoss(error: Error): boolean {
+  return walkCauses(error, (current) => {
+    const code = errorCode(current);
+    if (code === 'ECONNRESET' || code === 'EPIPE' || code === 'UND_ERR_SOCKET') return true;
+    const message = current.message.toLowerCase();
+    return (
+      message.includes('econnreset') ||
+      message.includes('socket hang up') ||
+      message.includes('fetch failed')
+    );
+  });
+}
+
+function walkCauses(error: Error, match: (current: Error) => boolean): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth++) {
+    if (current.name === 'AbortError') return false;
+    if (match(current)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+function errorCode(error: Error): string | undefined {
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
 }
 
 function withJitter(baseMs: number): number {
