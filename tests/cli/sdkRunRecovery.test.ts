@@ -2298,6 +2298,17 @@ test('a blocked prompt is not sent when the failed logical turn is continued', a
   const first = capture();
   expect(await runSdkRunCommand(opts, first.io, f.deps)).not.toBe(0);
   expect(calls).toBe(0);
+  const denied = first.events.find((event) => event.type === 'turn.error');
+  expect(denied).toMatchObject({
+    type: 'turn.error',
+    code: 'policy_denied',
+    recoverable: false,
+    nextAction: 'none',
+  });
+  expect(denied?.code).not.toBe('provider_failed');
+  expect(denied?.nextAction).not.toBe('repair_request');
+  expect(String(denied?.error)).toContain('forbidden prompt');
+  expect(String(denied?.error).toLowerCase()).not.toContain('provider failed');
   const db = SessionDb.open({ path: f.db });
   let logicalTurnId = '';
   try {
