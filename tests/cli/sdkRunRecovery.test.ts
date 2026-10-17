@@ -2460,3 +2460,113 @@ test('a pre-pin row continues only when the current hooks cannot widen', async (
   expect(String(blocked.events.at(-1)?.error)).not.toContain(command);
   expect(calls).toBe(1);
 });
+
+const MAX_TIMER_MS = 2_147_483_647;
+
+/** Delays above the 32-bit timer max fire on the next turn. A max-sized chunk stays pending. */
+async function withCollapsedLongTimers(run: (delays: number[]) => Promise<void>): Promise<void> {
+  const delays: number[] = [];
+  const originalSet = globalThis.setTimeout;
+  const originalClear = globalThis.clearTimeout;
+  const held = new Set<ReturnType<typeof setTimeout>>();
+  globalThis.setTimeout = ((handler: unknown, timeout?: number, ...args: unknown[]) => {
+    const delay = typeof timeout === 'number' ? timeout : 0;
+    delays.push(delay);
+    if (delay > MAX_TIMER_MS) {
+      queueMicrotask(() => {
+        if (typeof handler === 'function') (handler as (...params: unknown[]) => void)(...args);
+      });
+      const idle = originalSet(() => {}, 60_000);
+      held.add(idle);
+      return idle;
+    }
+    if (delay === MAX_TIMER_MS) {
+      const idle = originalSet(() => {}, 60_000);
+      held.add(idle);
+      return idle;
+    }
+    return originalSet(handler as Parameters<typeof setTimeout>[0], delay, ...(args as []));
+  }) as typeof setTimeout;
+  globalThis.clearTimeout = ((id?: ReturnType<typeof setTimeout>) => {
+    if (id !== undefined) held.delete(id);
+    originalClear(id);
+  }) as typeof clearTimeout;
+  try {
+    await run(delays);
+  } finally {
+    globalThis.setTimeout = originalSet;
+    globalThis.clearTimeout = originalClear;
+    for (const id of held) originalClear(id);
+  }
+}
+
+test('a long deadline does not abort on the first timer tick', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('durable answer');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider);
+  await withCollapsedLongTimers(async (delays) => {
+    const first = capture();
+    expect(
+      await runSdkRunCommand({ ...opts, deadlineMs: MAX_TIMER_MS + 1 }, first.io, f.deps),
+    ).toBe(0);
+    expect(calls).toBe(1);
+    expect(delays.some((delay) => delay > MAX_TIMER_MS)).toBe(false);
+    expect(delays).toContain(MAX_TIMER_MS);
+    const terminal = first.events.at(-1);
+    expect(terminal).toMatchObject({ type: 'turn.completed', outcome: 'completed' });
+    expect(terminal?.reason).not.toBe('deadline');
+    const logicalTurnId = String(terminal?.logicalTurnId);
+    const db = SessionDb.open({ path: f.db });
+    try {
+      const record = db.loadLogicalTurn(logicalTurnId);
+      expect(record?.status).toBe('completed');
+      expect(record?.status).not.toBe('exhausted');
+      expect(record?.finishReason).not.toBe('deadline');
+    } finally {
+      db.close();
+    }
+    const continued = capture();
+    expect(
+      await runSdkRunCommand(
+        {
+          json: true,
+          sdk: true,
+          db: f.db,
+          continueLogicalTurn: logicalTurnId,
+          deadlineMs: MAX_TIMER_MS + 1,
+        },
+        continued.io,
+        f.deps,
+      ),
+    ).toBe(0);
+    expect(calls).toBe(1);
+    expect(continued.events.at(-1)?.reason).not.toBe('deadline');
+    expect(delays.some((delay) => delay > MAX_TIMER_MS)).toBe(false);
+  });
+});
+
+test('a short deadline still aborts while long timers are chunked', async () => {
+  await withCollapsedLongTimers(async () => {
+    const c = capture();
+    expect(
+      await runSdkRunCommand(
+        { ...opts, deadlineMs: 20 },
+        { ...c.io, readStdin: async () => new Promise<string>(() => {}) },
+      ),
+    ).toBe(3);
+    expect(c.events[0]).toMatchObject({
+      type: 'turn.error',
+      outcome: 'exhausted',
+      reason: 'deadline',
+      code: 'continuation_exhausted',
+    });
+  });
+});
