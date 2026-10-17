@@ -609,6 +609,23 @@ export async function runSdkRunCommand(
       });
       return 3;
     }
+    if (continuationRecord?.status === 'cancelled') {
+      finish({
+        type: 'turn.error',
+        outcome: 'failed',
+        reason: 'recovery_state_invalid',
+        code: 'recovery_state_invalid',
+        error: ERRORS.recovery_state_invalid,
+        recoverable: false,
+        nextAction: 'repair_request',
+        sessionId: null,
+        logicalTurnId: continuationRecord.logicalTurnId,
+        ...metadata(),
+        counters: continuationRecord.counters,
+        ...nativeTurnMetrics(receipts),
+      });
+      return 3;
+    }
     if (
       continuationRecord &&
       (continuationRecord.status === 'completed' || continuationRecord.status === 'waiting_user')

@@ -1,3 +1,23 @@
+## 2026-10-16 — Cancelled logical turns cannot continue
+
+Scope: logical-turn cancellation persistence and host refusal of
+`--continue-logical-turn` for a cancelled id. Deadline, lease, and
+exhausted/stalled recovery were not redesigned.
+
+Clean isolated macOS worktree, Bun 1.3.13. `bun run lint` and
+`bun run typecheck` pass. Focused `bun test tests/agent/logicalTurn.test.ts
+tests/cli/sdkRunRecovery.test.ts tests/cli/sdkRunCompaction.test.ts
+tests/cli/sdkRunCommand.test.ts --timeout 20000`: **74 pass / 0 fail**.
+Before the fix, the new supervisor test threw `interrupted` with the row
+left `running`, and the new host test stored `running` instead of
+`cancelled`. Complete `bun run test` after `bun run build`: **6507 pass /
+31 skip / 10 fail**, 26389 assertions, 623 files, 169.55s. All 10 failures
+are Node stderr checks under this runner's `FORCE_COLOR` plus `NO_COLOR`
+(empty-stderr and uncolored `COMMIT_RETAINED true` expectations). Unsetting
+`NO_COLOR` clears 9 of them; the remaining store-observer failure is ANSI
+coloring of `true`. None touch logical-turn continuation. No live provider,
+install, upgrade, release, or deployment ran.
+
 ## 2026-10-16 — Resilient logical turns and compact skill discovery
 
 Scope: SOV SDK logical-turn supervision, native headless recovery, durable

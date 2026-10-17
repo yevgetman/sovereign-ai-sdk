@@ -222,6 +222,60 @@ for (const stage of ['post-session', 'mid-stream', 'after-final-event'] as const
   });
 }
 
+test('continuing a cancelled logical turn does not call the model', async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      if (calls === 1) {
+        yield { type: 'message_start' };
+        yield { type: 'usage_delta', usage: { inputTokens: 3, outputTokens: 2 } };
+        controller.abort();
+        throw new Error('fixture aborted');
+      }
+      const reply = message('should not run');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider);
+  const first = capture();
+  expect(await runSdkRunCommand(opts, first.io, { ...f.deps, signal: controller.signal })).toBe(
+    130,
+  );
+  const db = SessionDb.open({ path: f.db });
+  let logicalTurnId = '';
+  try {
+    const rows = db.handle.query<{ record: string }, []>('SELECT record FROM logical_turns').all();
+    expect(rows).toHaveLength(1);
+    const record = JSON.parse(rows[0]?.record ?? '{}') as { logicalTurnId: string; status: string };
+    logicalTurnId = record.logicalTurnId;
+    expect(record.status).toBe('cancelled');
+  } finally {
+    db.close();
+  }
+  const second = capture();
+  expect(
+    await runSdkRunCommand(
+      { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+      second.io,
+      f.deps,
+    ),
+  ).toBe(3);
+  expect(calls).toBe(1);
+  expect(second.events.at(-1)).toMatchObject({
+    type: 'turn.error',
+    code: 'recovery_state_invalid',
+    recoverable: false,
+    logicalTurnId,
+  });
+  const nextAction = second.events.at(-1)?.nextAction;
+  expect(nextAction).not.toBe('resume');
+  expect(nextAction).not.toBe('continue_logical_turn');
+});
+
 test('an uncooperative cancelled provider never advertises recovery', async () => {
   const controller = new AbortController();
   const provider: LLMProvider = {

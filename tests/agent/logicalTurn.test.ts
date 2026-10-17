@@ -129,6 +129,36 @@ describe('logical-turn supervisor', () => {
     expect(outcome.code).toBe('recovery_state_invalid');
   });
 
+  test('an aborted segment stays cancelled and is not continued', async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const fixture = setup(
+      async () => {
+        calls++;
+        controller.abort();
+        throw new Error('interrupted');
+      },
+      { signal: controller.signal },
+    );
+    const ids: string[] = [];
+    const create = fixture.store.createLogicalTurn.bind(fixture.store);
+    fixture.store.createLogicalTurn = (record) => {
+      ids.push(record.logicalTurnId);
+      create(record);
+    };
+    await expect(superviseLogicalTurn(fixture.options)).rejects.toThrow('interrupted');
+    const logicalTurnId = ids[0];
+    if (!logicalTurnId) throw new Error('missing logical turn');
+    expect(fixture.store.loadLogicalTurn(logicalTurnId)?.status).toBe('cancelled');
+    const { signal: _stop, ...resume } = fixture.options;
+    const continued = await superviseLogicalTurn({
+      ...resume,
+      logicalTurnId,
+    });
+    expect(calls).toBe(1);
+    expect(continued).toMatchObject({ status: 'failed', code: 'recovery_state_invalid' });
+  });
+
   test('reuses a completed receipt without another model call', async () => {
     let calls = 0;
     const fixture = setup(async () => {
