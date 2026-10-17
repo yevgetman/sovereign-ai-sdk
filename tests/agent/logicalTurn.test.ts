@@ -4,11 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type RunResult, createAgent } from '@yevgetman/sov-sdk/agent/createAgent';
 import {
+  LOGICAL_TURN_CURSOR_PARSE_CAP,
   LOGICAL_TURN_LEASE_MS,
   LogicalTurnLeaseError,
   type LogicalTurnRecord,
   type LogicalTurnStore,
   type LogicalTurnSupervisorOptions,
+  logicalTurnCursor,
   superviseLogicalTurn,
 } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { query } from '@yevgetman/sov-sdk/core/query';
@@ -361,6 +363,133 @@ describe('logical-turn supervisor', () => {
     const outcome = await superviseLogicalTurn(options);
     expect(outcome.status).toBe('completed');
     expect(calls).toBe(4);
+  });
+
+  test('the newest cursor wins without parsing older oversized tool bodies', () => {
+    const oversized = `{"nextCursor":"hidden","pad":"${'x'.repeat(LOGICAL_TURN_CURSOR_PARSE_CAP)}"}`;
+    expect(oversized.length).toBeGreaterThan(LOGICAL_TURN_CURSOR_PARSE_CAP);
+    const trailing = JSON.stringify({ nextCursor: 'page-9' });
+    const olderDump = `not-json-${'y'.repeat(LOGICAL_TURN_CURSOR_PARSE_CAP)}`;
+    expect(
+      logicalTurnCursor([
+        { content: [{ type: 'tool_result', content: trailing }] },
+        { content: [{ type: 'tool_result', content: oversized }] },
+      ]),
+    ).toBe('page-9');
+    expect(
+      logicalTurnCursor([
+        { content: [{ type: 'tool_result', content: olderDump }] },
+        { content: [{ type: 'tool_result', content: `${olderDump}more` }] },
+        { content: [{ type: 'tool_result', content: trailing }] },
+      ]),
+    ).toBe('page-9');
+    expect(
+      logicalTurnCursor([
+        {
+          content: [
+            { type: 'tool_use', input: { cursor: 'from-request' } },
+            {
+              type: 'tool_result',
+              content: JSON.stringify({ data: { nextCursor: 'from-result' } }),
+            },
+          ],
+        },
+      ]),
+    ).toBe('from-result');
+  });
+
+  test('an older tool body that does not change nextCursor still stalls', async () => {
+    let calls = 0;
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'old',
+            content: `not-json-${'x'.repeat(LOGICAL_TURN_CURSOR_PARSE_CAP)}`,
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'list',
+            content: JSON.stringify({ nextCursor: 'page-1' }),
+          },
+        ],
+      },
+    ];
+    const { options } = setup(
+      async () => {
+        calls += 1;
+        if (calls === 2) {
+          const older = messages[0]?.content[0];
+          if (older && older.type === 'tool_result')
+            older.content = `not-json-${'y'.repeat(LOGICAL_TURN_CURSOR_PARSE_CAP)}`;
+        }
+        return result('max_turns');
+      },
+      {
+        rehydrate: () => messages,
+        progressSnapshot: () => ({
+          receipts: [
+            ['old', 'completed'],
+            ['list', 'completed'],
+          ],
+        }),
+      },
+    );
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('stalled');
+    expect(outcome.code).toBe('continuation_stalled');
+    expect(calls).toBe(3);
+  });
+
+  test('the boundary read renews the lease after the segment returns', async () => {
+    let calls = 0;
+    let segmentReturned = false;
+    let boundarySeen = false;
+    let renewedAfterReturnBeforeBoundary = false;
+    const progress = {
+      transcriptIds: [1],
+      transcriptCount: 1,
+      receipts: [] as unknown[],
+      cursor: null,
+      compactionChildId: 'session-1',
+    };
+    const { store, options } = setup(
+      async () => {
+        calls += 1;
+        segmentReturned = false;
+        const value = calls < 2 ? result('max_turns') : result('completed', 'done');
+        segmentReturned = true;
+        return value;
+      },
+      {
+        readBoundary: () => {
+          boundarySeen = true;
+          return {
+            safe: true,
+            progress,
+            messages: () => [
+              { role: 'user' as const, content: [{ type: 'text' as const, text: 'do the work' }] },
+            ],
+          };
+        },
+      },
+    );
+    const renew = store.renewLogicalTurnLease.bind(store);
+    store.renewLogicalTurnLease = (id, owner, expiresAt) => {
+      if (segmentReturned && !boundarySeen) renewedAfterReturnBeforeBoundary = true;
+      return renew(id, owner, expiresAt);
+    };
+    const outcome = await superviseLogicalTurn(options);
+    expect(outcome.status).toBe('completed');
+    expect(renewedAfterReturnBeforeBoundary).toBe(true);
+    expect(calls).toBe(2);
   });
 
   test('a new transcript row changes the fingerprint', async () => {
