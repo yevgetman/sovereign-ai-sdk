@@ -228,9 +228,11 @@ export type LogicalTurnSupervisorOptions = {
    */
   progressSnapshot?: (activeSessionId: string) => unknown;
   /**
-   * One continuation read, shared by the safety check, the id fingerprint, and
-   * the next segment. When set, that boundary does not call the other three.
-   * `messages` is read after a max_tokens marker is saved.
+   * One stored read, shared by the safety bit and the message list. A
+   * continuation also uses it for the id fingerprint. Resume and a transient
+   * retry use this snapshot instead of recoverySafe plus rehydrate. When set,
+   * that boundary does not call the other three. `messages` is read after a
+   * max_tokens marker is saved.
    */
   readBoundary?: (activeSessionId: string) => {
     safe: boolean;
@@ -452,6 +454,24 @@ export async function superviseLogicalTurn(
       void beat;
     }
   };
+  // Renew around the read, and run the read inside the heartbeat, so a long
+  // transcript walk cannot sit in the gap where the lease is not refreshed.
+  const readSharedBoundary = async (
+    includeMessages: boolean,
+  ): Promise<{ safe: boolean; messages?: Message[] }> => {
+    const read = options.readBoundary;
+    if (!read) throw new LogicalTurnLeaseError();
+    if (!renewLease()) throw new LogicalTurnLeaseError();
+    const boundary = await withHeartbeat(() => {
+      const snapshot = read(held.record.activeSessionId);
+      return Promise.resolve({
+        safe: snapshot.safe,
+        ...(includeMessages ? { messages: snapshot.messages() } : {}),
+      });
+    });
+    if (!renewLease()) throw new LogicalTurnLeaseError();
+    return boundary;
+  };
 
   const trace = (event: Omit<LogicalTurnTraceEvent, 'logicalTurnId' | 'elapsedMs'>): void => {
     options.onTrace?.({
@@ -530,9 +550,13 @@ export async function superviseLogicalTurn(
     ) {
       throw new LogicalTurnLeaseError();
     }
-    // Decide before the lease so the receipt read does not occupy it.
-    // Persistence still goes through finish once this owner holds the lease.
-    const unsafeResume = resuming && !options.recoverySafe(record.activeSessionId);
+    // Without a shared boundary, decide before the lease and reuse that bit.
+    // A second recoverySafe between acquire and the heartbeat can outlive the
+    // lease and make finish throw instead of storing unsafe_effect.
+    const unsafeResume =
+      resuming &&
+      options.readBoundary === undefined &&
+      !options.recoverySafe(record.activeSessionId);
     if (
       !options.store.acquireLogicalTurnLease(
         record.logicalTurnId,
@@ -571,9 +595,18 @@ export async function superviseLogicalTurn(
     if (record.status === 'failed' && !isSafeTransientFailure(record)) {
       return storedFailure(record);
     }
-    // Reuse the pre-lease decision. Scanning again here holds the lease with no
-    // heartbeat, so a long receipt read can lose the row before finish saves.
-    if (unsafeResume) return await finish('failed', 'unsafe_effect', undefined, 'recovery_unsafe');
+    // Reuse the pre-lease bit. Do not call recoverySafe again in this gap.
+    // A provided boundary is one snapshot for the safety bit and the messages,
+    // taken inside the heartbeat after the lease is held.
+    let resumedMessages: Message[] | undefined;
+    if (resuming && options.readBoundary) {
+      const boundary = await readSharedBoundary(record.counters.segments > 0);
+      if (!boundary.safe)
+        return await finish('failed', 'unsafe_effect', undefined, 'recovery_unsafe');
+      resumedMessages = boundary.messages;
+    } else if (unsafeResume) {
+      return await finish('failed', 'unsafe_effect', undefined, 'recovery_unsafe');
+    }
     record.status = 'running';
     save();
     // Compaction inside prepare is paid work. The loop check below is too late.
@@ -602,7 +635,7 @@ export async function superviseLogicalTurn(
     });
     let messages =
       record.counters.segments > 0
-        ? options.rehydrate(record.activeSessionId)
+        ? (resumedMessages ?? options.rehydrate(record.activeSessionId))
         : [...options.initialMessages];
     let transientAttempts = 0;
     for (;;) {
@@ -702,8 +735,15 @@ export async function superviseLogicalTurn(
         );
         if (transient === undefined || transientAttempts >= 2)
           return await finish('failed', 'failed', result);
-        if (!options.recoverySafe(record.activeSessionId))
+        let retryMessages: Message[] | undefined;
+        if (options.readBoundary) {
+          const boundary = await readSharedBoundary(true);
+          if (!boundary.safe)
+            return await finish('failed', 'unsafe_effect', result, 'recovery_unsafe');
+          retryMessages = boundary.messages;
+        } else if (!options.recoverySafe(record.activeSessionId)) {
           return await finish('failed', 'unsafe_effect', result, 'recovery_unsafe');
+        }
         transientAttempts++;
         record.counters.providerRetries++;
         save();
@@ -722,7 +762,7 @@ export async function superviseLogicalTurn(
           armUserAbortStop();
           return await finish('cancelled', 'cancelled', undefined);
         }
-        messages = options.rehydrate(record.activeSessionId);
+        messages = retryMessages ?? options.rehydrate(record.activeSessionId);
         continue;
       }
 
