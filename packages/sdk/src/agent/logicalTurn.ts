@@ -160,7 +160,7 @@ type LeaseBinding = {
   signal: AbortSignal;
   lost: boolean;
   /** Stop deferred by the segment in flight. Kept if the host drops the terminal. */
-  stop?: (() => Promise<void>) | undefined;
+  stop?: ((reason?: Terminal['reason']) => Promise<void>) | undefined;
 };
 
 const leaseBindings = new AsyncLocalStorage<LeaseBinding>();
@@ -177,7 +177,9 @@ function clearSegment(logicalTurnId: string, owner: string): void {
 }
 
 /** Remember the Stop closure for the segment on this async stack. */
-export function rememberLogicalSegmentStop(fire: () => Promise<void>): void {
+export function rememberLogicalSegmentStop(
+  fire: (reason?: Terminal['reason']) => Promise<void>,
+): void {
   const binding = leaseBindings.getStore();
   if (binding) binding.stop = fire;
 }
@@ -452,7 +454,7 @@ export async function superviseLogicalTurn(
     held.record.updatedAt = now();
     options.store.saveLogicalTurn(held.record, leaseOwner);
   };
-  let pendingStop: (() => Promise<void>) | undefined;
+  let pendingStop: ((reason?: Terminal['reason']) => Promise<void>) | undefined;
   const fireTerminalStop = async (): Promise<void> => {
     const fire = pendingStop;
     pendingStop = undefined;
@@ -634,7 +636,12 @@ export async function superviseLogicalTurn(
             if (binding.stop) pendingStop = binding.stop;
             return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
           }
-          if (options.signal?.aborted) await finish('cancelled', 'cancelled', undefined);
+          if (options.signal?.aborted) {
+            // Drop a prior segment's Stop. This segment's closure, if any, is interrupted.
+            const stop = binding.stop;
+            pendingStop = stop ? () => stop('interrupted') : undefined;
+            await finish('cancelled', 'cancelled', undefined);
+          }
         }
         throw error;
       }
