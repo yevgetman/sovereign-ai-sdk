@@ -17,6 +17,10 @@ export const LOGICAL_TURN_RECOVERY_CAPABILITY = {
   mode: 'automatic',
 } as const;
 
+/** Short enough that a crashed owner can be resumed, long enough to cover one refresh gap. */
+export const LOGICAL_TURN_LEASE_MS = 30_000;
+export const LOGICAL_TURN_LEASE_RENEW_MS = 10_000;
+
 export type LogicalTurnStatus =
   | 'admitted'
   | 'running'
@@ -81,13 +85,19 @@ export type LogicalTurnRecord = {
 export interface LogicalTurnStore {
   createLogicalTurn(record: LogicalTurnRecord): void;
   loadLogicalTurn(logicalTurnId: string): LogicalTurnRecord | null;
-  saveLogicalTurn(record: LogicalTurnRecord): void;
+  /** Persist only while `owner` still holds the lease. */
+  saveLogicalTurn(record: LogicalTurnRecord, owner: string): void;
+  readLogicalTurnLease(
+    logicalTurnId: string,
+  ): { owner: string | null; expiresAt: number | null } | null;
   acquireLogicalTurnLease(
     logicalTurnId: string,
     owner: string,
     expiresAt: number,
     now: number,
   ): boolean;
+  /** Extend our lease. Does not take a free, expired, or foreign lease. */
+  renewLogicalTurnLease(logicalTurnId: string, owner: string, expiresAt: number): boolean;
   releaseLogicalTurnLease(logicalTurnId: string, owner: string): void;
 }
 
@@ -129,6 +139,8 @@ export type LogicalTurnSupervisorOptions = {
   sessionId: string;
   originalUserMessageId?: number;
   initialMessages: Message[];
+  /** Lease-held work that must finish before the first model segment, such as compaction. */
+  prepare?: () => Promise<void> | void;
   runSegment: (input: {
     messages: Message[];
     activeSessionId: string;
@@ -241,21 +253,69 @@ export async function superviseLogicalTurn(
     };
     options.store.createLogicalTurn(record);
   }
+  const resuming = options.logicalTurnId !== undefined;
+  const held = { record };
   const leaseOwner = randomUUID();
-  const leaseUntil = Math.max(record.deadlineAt ?? now() + 300_000, now() + 30_000);
-  if (!options.store.acquireLogicalTurnLease(record.logicalTurnId, leaseOwner, leaseUntil, now()))
-    throw new LogicalTurnLeaseError();
+  let leased = false;
+  const leaseExpiresAt = (): number => now() + LOGICAL_TURN_LEASE_MS;
+  const renewLease = (): boolean =>
+    options.store.renewLogicalTurnLease(held.record.logicalTurnId, leaseOwner, leaseExpiresAt());
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  const pause = (ms: number): Promise<void> => {
+    if (options.sleep) return options.sleep(ms);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        timers.delete(timer);
+        resolve();
+      }, ms);
+      timers.add(timer);
+    });
+  };
+  const clearPauses = (): void => {
+    for (const timer of timers) clearTimeout(timer);
+    timers.clear();
+  };
+  const withHeartbeat = async <T>(work: Promise<T>): Promise<T> => {
+    let stopped = false;
+    let settled = false;
+    let rejectLost: (error: Error) => void = () => {};
+    const lost = new Promise<never>((_, reject) => {
+      rejectLost = reject;
+    });
+    const beat = (async () => {
+      while (!stopped && !settled) {
+        await pause(LOGICAL_TURN_LEASE_RENEW_MS);
+        if (stopped || settled) return;
+        if (!renewLease()) {
+          if (!settled) rejectLost(new LogicalTurnLeaseError());
+          return;
+        }
+      }
+    })().catch((error: unknown) => {
+      if (settled) return;
+      rejectLost(error instanceof Error ? error : new LogicalTurnLeaseError());
+    });
+    try {
+      return await Promise.race([work, lost]);
+    } finally {
+      settled = true;
+      stopped = true;
+      clearPauses();
+      void beat;
+    }
+  };
 
   const trace = (event: Omit<LogicalTurnTraceEvent, 'logicalTurnId' | 'elapsedMs'>): void => {
     options.onTrace?.({
       ...event,
-      logicalTurnId: record.logicalTurnId,
+      logicalTurnId: held.record.logicalTurnId,
       elapsedMs: Math.max(0, now() - startedAt),
     });
   };
   const save = (): void => {
-    record.updatedAt = now();
-    options.store.saveLogicalTurn(record);
+    if (!renewLease()) throw new LogicalTurnLeaseError();
+    held.record.updatedAt = now();
+    options.store.saveLogicalTurn(held.record, leaseOwner);
   };
   const finish = (
     status: LogicalTurnStatus,
@@ -263,47 +323,99 @@ export async function superviseLogicalTurn(
     finalSegment?: RunResult,
     code?: LogicalTurnResult['code'],
   ): LogicalTurnResult => {
-    record.status = status;
-    record.finishReason = finishReason;
+    held.record.status = status;
+    held.record.finishReason = finishReason;
     if (finalSegment)
-      record.finalReply =
+      held.record.finalReply =
         finalSegment.finalAssistant?.content
           .filter((block) => block.type === 'text')
           .map((block) => (block.type === 'text' ? block.text : ''))
           .join('') ?? '';
-    record.updatedAt = now();
-    options.store.saveLogicalTurn(record);
+    save();
     trace({
       type: 'logical_turn_end',
-      segment: record.counters.segments,
+      segment: held.record.counters.segments,
       cause: finishReason,
-      counters: { ...record.counters },
-      activeSessionId: record.activeSessionId,
+      counters: { ...held.record.counters },
+      activeSessionId: held.record.activeSessionId,
       outcome: status,
     });
     return {
-      logicalTurnId: record.logicalTurnId,
+      logicalTurnId: held.record.logicalTurnId,
       status,
       ...(code !== undefined ? { code } : {}),
-      activeSessionId: record.activeSessionId,
+      activeSessionId: held.record.activeSessionId,
       ...(finalSegment !== undefined ? { finalSegment } : {}),
-      counters: { ...record.counters },
+      counters: { ...held.record.counters },
       finishReason,
-      reply: record.finalReply ?? '',
+      reply: held.record.finalReply ?? '',
     };
   };
 
   try {
+    const activeLease = options.store.readLogicalTurnLease(record.logicalTurnId);
+    if (
+      activeLease?.owner &&
+      activeLease.owner !== leaseOwner &&
+      activeLease.expiresAt !== null &&
+      activeLease.expiresAt > now()
+    ) {
+      throw new LogicalTurnLeaseError();
+    }
+    if (resuming && !options.recoverySafe(record.activeSessionId)) {
+      return {
+        logicalTurnId: record.logicalTurnId,
+        status: 'failed',
+        code: 'recovery_unsafe',
+        activeSessionId: record.activeSessionId,
+        counters: { ...record.counters },
+        finishReason: 'unsafe_effect',
+        reply: record.finalReply ?? '',
+      };
+    }
+    if (
+      !options.store.acquireLogicalTurnLease(
+        record.logicalTurnId,
+        leaseOwner,
+        leaseExpiresAt(),
+        now(),
+      )
+    ) {
+      throw new LogicalTurnLeaseError();
+    }
+    leased = true;
+    const reloaded = options.store.loadLogicalTurn(record.logicalTurnId);
+    if (!reloaded)
+      return invalidResult(record.logicalTurnId, record.activeSessionId, 'recovery_state_invalid');
+    record = reloaded;
+    held.record = record;
+    if (record.bindingDigest !== bindingDigest) {
+      return invalidResult(record.logicalTurnId, record.activeSessionId, 'recovery_state_invalid');
+    }
+    if (record.status === 'completed' || record.status === 'waiting_user') {
+      return {
+        logicalTurnId: record.logicalTurnId,
+        status: record.status,
+        activeSessionId: record.activeSessionId,
+        counters: { ...record.counters },
+        finishReason: record.finishReason ?? record.status,
+        reply: record.finalReply ?? '',
+      };
+    }
+    if (record.status === 'cancelled') {
+      return invalidResult(record.logicalTurnId, record.activeSessionId, 'recovery_state_invalid');
+    }
+    if (resuming && !options.recoverySafe(record.activeSessionId))
+      return finish('failed', 'unsafe_effect', undefined, 'recovery_unsafe');
     record.status = 'running';
     save();
+    if (options.prepare) await withHeartbeat(Promise.resolve(options.prepare()));
     trace({
       type: 'logical_turn_start',
       segment: record.counters.segments,
       counters: { ...record.counters },
       activeSessionId: record.activeSessionId,
     });
-    if (record.counters.segments > 0 && !options.recoverySafe(record.activeSessionId))
-      return finish('failed', 'unsafe_effect', undefined, 'recovery_unsafe');
     let messages =
       record.counters.segments > 0
         ? options.rehydrate(record.activeSessionId)
@@ -317,6 +429,7 @@ export async function superviseLogicalTurn(
       if (remaining <= 0)
         return finish('exhausted', 'model_call_limit', undefined, 'continuation_exhausted');
       const segment = record.counters.segments + 1;
+      if (!renewLease()) throw new LogicalTurnLeaseError();
       trace({
         type: 'segment_start',
         segment,
@@ -325,17 +438,24 @@ export async function superviseLogicalTurn(
       });
       let result: RunResult;
       try {
-        result = await options.runSegment({
-          messages,
-          activeSessionId: record.activeSessionId,
-          segment,
-          continuation: segment > 1,
-          remainingModelCalls: remaining,
-        });
+        result = await withHeartbeat(
+          options.runSegment({
+            messages,
+            activeSessionId: record.activeSessionId,
+            segment,
+            continuation: segment > 1,
+            remainingModelCalls: remaining,
+          }),
+        );
       } catch (error) {
         // Deadline and storage faults already have their own terminals.
         // Persist cancellation, then rethrow so the host keeps a pivoted session.
-        if (options.signal?.aborted && !preservesAbortCause(error, record.deadlineAt, now()))
+        // A lost lease must not overwrite the worker that now owns the record.
+        if (
+          !(error instanceof LogicalTurnLeaseError) &&
+          options.signal?.aborted &&
+          !preservesAbortCause(error, record.deadlineAt, now())
+        )
           finish('cancelled', 'cancelled', undefined);
         throw error;
       }
@@ -383,7 +503,7 @@ export async function superviseLogicalTurn(
           counters: { ...record.counters },
           activeSessionId: record.activeSessionId,
         });
-        await sleep(transient);
+        await withHeartbeat(sleep(transient));
         messages = options.rehydrate(record.activeSessionId);
         continue;
       }
@@ -452,7 +572,8 @@ export async function superviseLogicalTurn(
       });
     }
   } finally {
-    options.store.releaseLogicalTurnLease(record.logicalTurnId, leaseOwner);
+    clearPauses();
+    if (leased) options.store.releaseLogicalTurnLease(record.logicalTurnId, leaseOwner);
   }
 }
 

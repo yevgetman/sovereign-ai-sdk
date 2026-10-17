@@ -25,7 +25,11 @@ import { Database, SQLiteError } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { LogicalTurnRecord, LogicalTurnStore } from '@yevgetman/sov-sdk/agent/logicalTurn';
+import {
+  LogicalTurnLeaseError,
+  type LogicalTurnRecord,
+  type LogicalTurnStore,
+} from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import type {
   CreateSessionInput,
@@ -328,19 +332,35 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
     return row ? (JSON.parse(row.record) as LogicalTurnRecord) : null;
   }
 
-  saveLogicalTurn(record: LogicalTurnRecord): void {
+  saveLogicalTurn(record: LogicalTurnRecord, owner: string): void {
     const changes = this.writeWithRetry(
       () =>
-        this.db.run('UPDATE logical_turns SET record = ? WHERE logical_turn_id = ?', [
-          JSON.stringify(record),
-          record.logicalTurnId,
-        ]).changes ?? 0,
+        this.db.run(
+          'UPDATE logical_turns SET record = ? WHERE logical_turn_id = ? AND lease_owner = ?',
+          [JSON.stringify(record), record.logicalTurnId, owner],
+        ).changes ?? 0,
     );
-    if (changes !== 1) throw new Error('logical turn does not exist');
+    if (changes === 1) return;
+    const existing = this.db
+      .query<{ logical_turn_id: string }, [string]>(
+        'SELECT logical_turn_id FROM logical_turns WHERE logical_turn_id = ?',
+      )
+      .get(record.logicalTurnId);
+    if (!existing) throw new Error('logical turn does not exist');
+    throw new LogicalTurnLeaseError();
   }
 
-  acquireLogicalTurnLease(id: string, owner: string, expiresAt: number): boolean {
-    const now = Date.now();
+  readLogicalTurnLease(id: string): { owner: string | null; expiresAt: number | null } | null {
+    const row = this.db
+      .query<{ lease_owner: string | null; lease_expires_at: number | null }, [string]>(
+        'SELECT lease_owner, lease_expires_at FROM logical_turns WHERE logical_turn_id = ?',
+      )
+      .get(id);
+    if (!row) return null;
+    return { owner: row.lease_owner, expiresAt: row.lease_expires_at };
+  }
+
+  acquireLogicalTurnLease(id: string, owner: string, expiresAt: number, now: number): boolean {
     const changes = this.writeWithRetry(
       () =>
         this.db.run(
@@ -348,6 +368,18 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
            WHERE logical_turn_id = ? AND
              (lease_owner IS NULL OR lease_owner = ? OR lease_expires_at <= ?)`,
           [owner, expiresAt, id, owner, now],
+        ).changes ?? 0,
+    );
+    return changes === 1;
+  }
+
+  renewLogicalTurnLease(id: string, owner: string, expiresAt: number): boolean {
+    const changes = this.writeWithRetry(
+      () =>
+        this.db.run(
+          `UPDATE logical_turns SET lease_owner = ?, lease_expires_at = ?
+           WHERE logical_turn_id = ? AND lease_owner = ?`,
+          [owner, expiresAt, id, owner],
         ).changes ?? 0,
     );
     return changes === 1;

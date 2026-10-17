@@ -766,18 +766,6 @@ export async function runSdkRunCommand(
       selected.provider.name,
       modelMetadata,
     );
-    if (
-      shouldCompactModelRequest(
-        messages,
-        hop.system,
-        schemas,
-        modelSnapshot.limits,
-        runtime.proactiveCompactThreshold,
-        { counter: inputTokenAccounting, model: routeSelection.model, metadata: modelMetadata },
-      )
-    ) {
-      if (canReduce(hop, messages) && (await compact())) hop = makeHop();
-    }
     const runOnce = async (segment: {
       continuation: boolean;
       remainingModelCalls: number;
@@ -871,6 +859,27 @@ export async function runSdkRunCommand(
       ...(deadlineAt !== undefined ? { deadlineAt } : {}),
       ...(continuationId ? { logicalTurnId: continuationId } : {}),
       signal: controller.signal,
+      prepare: async () => {
+        const segmentSchemas = toToolSchemas(hop.composed.tools);
+        if (
+          shouldCompactModelRequest(
+            messages,
+            hop.system,
+            segmentSchemas,
+            modelSnapshot.limits,
+            hostRuntime.proactiveCompactThreshold,
+            {
+              counter: inputTokenAccounting,
+              model: routeSelection.model,
+              metadata: modelMetadata,
+            },
+          ) &&
+          canReduce(hop, messages) &&
+          (await compact())
+        ) {
+          hop = makeHop();
+        }
+      },
       rehydrate: () => hydrate(),
       recoverySafe: (id) => hasNativeRecoveryTarget(hostRuntime.sessionDb, id),
       progressSnapshot: (id) => {
@@ -906,9 +915,11 @@ export async function runSdkRunCommand(
         });
       },
       runSegment: async (segment) => {
-        messages = segment.messages;
-        sessionId = segment.activeSessionId;
-        hop = makeHop();
+        // Keep a child already pivoted by prepare(); resetting would drop the lease-held compaction.
+        if (sessionId === segment.activeSessionId) {
+          messages = segment.messages;
+          hop = makeHop();
+        }
         let result = await runOnce(segment);
         if (overflow(result)) {
           messages = hydrate();

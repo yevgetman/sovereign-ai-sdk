@@ -295,8 +295,11 @@ Exhaustion, two unchanged progress fingerprints, unsafe receipts and invalid
 recovery state emit `turn.error` with `continuation_exhausted`,
 `continuation_stalled`, `recovery_unsafe` or `recovery_state_invalid`. Use
 `--continue-logical-turn <id>` with `--sdk --json` to continue stored work
-without a replacement prompt. Route, model, effort, toolset, permissions,
-working directory and bundle identity stay bound to the stored record.
+without a replacement prompt. A live owner keeps a short lease, so a second
+continuation does not run tools. After a crash the lease expires in about 30
+seconds, and a continuation may take it only when receipt recovery is safe.
+Route, model, effort, toolset, permissions, working directory and bundle
+identity stay bound to the stored record.
 Cancellation emits `outcome: "interrupted"`; other errors emit
 `outcome: "failed"`.
 
