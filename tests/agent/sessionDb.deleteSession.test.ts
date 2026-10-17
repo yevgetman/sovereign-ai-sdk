@@ -4,6 +4,7 @@
 // DELETE /sessions/:id gateway route.
 
 import { describe, expect, test } from 'bun:test';
+import type { LogicalTurnRecord } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { SessionDb } from '../../src/agent/sessionDb.js';
 
 function open(): SessionDb {
@@ -36,6 +37,65 @@ function insertTask(
      ) VALUES (?, ?, ?, 'agent', 'prompt', 'queued', ?, ?)`,
     [taskId, parentSessionId, childSessionId, now, now],
   );
+}
+
+const TURN_COUNTERS: LogicalTurnRecord['counters'] = {
+  segments: 1,
+  modelCalls: 1,
+  toolCalls: 0,
+  providerRetries: 0,
+  contextRecoveries: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheCreationInputTokens: 0,
+  cacheReadInputTokens: 0,
+  estimatedCostUsd: 0,
+};
+
+/** Stored shape `finish()` writes: `finalReply` plus absolute `binding.cwd`. */
+function finishedTurn(
+  id: string,
+  sessionId: string,
+  opts: {
+    activeSessionId?: string;
+    compactedSessionIds?: string[];
+    finalReply: string;
+    cwd: string;
+  },
+): LogicalTurnRecord {
+  return {
+    version: 1,
+    logicalTurnId: id,
+    sessionId,
+    activeSessionId: opts.activeSessionId ?? sessionId,
+    compactedSessionIds: opts.compactedSessionIds ?? [],
+    binding: { provider: 'p', model: 'm', cwd: opts.cwd },
+    bindingDigest: 'digest',
+    logicalModelCallLimit: 10,
+    status: 'completed',
+    repeatedNoProgress: 0,
+    runtimeContinuationIds: [],
+    finalReply: opts.finalReply,
+    finishReason: 'completed',
+    counters: { ...TURN_COUNTERS },
+    createdAt: 1,
+    updatedAt: 2,
+  };
+}
+
+function logicalTurnIds(db: SessionDb): string[] {
+  return db.handle
+    .query<{ logical_turn_id: string }, []>('SELECT logical_turn_id FROM logical_turns')
+    .all()
+    .map((row) => row.logical_turn_id);
+}
+
+function logicalTurnBlob(db: SessionDb): string {
+  return db.handle
+    .query<{ record: string }, []>('SELECT record FROM logical_turns')
+    .all()
+    .map((row) => row.record)
+    .join('\n');
 }
 
 /** Read a single task row's `child_session_id` (null when SET NULL fired). */
@@ -165,4 +225,178 @@ describe('SessionDb.deleteSession', () => {
     expect(db.getSession(id)).toBeNull();
     db.close();
   });
+
+  test('removes logical turns for the session and its compacted children', () => {
+    const db = open();
+    const parent = db.createSession({ model: 'm', provider: 'p' });
+    const child = db.createSession({ model: 'm', provider: 'p', parentSessionId: parent });
+    const grandchild = db.createSession({ model: 'm', provider: 'p', parentSessionId: child });
+    // Ordinary child (subagent), not a compaction. Its turn must stay.
+    const subagent = db.createSession({ model: 'm', provider: 'p', parentSessionId: parent });
+    const other = db.createSession({ model: 'm', provider: 'p' });
+    db.recordCompactionLineage(parent, child);
+    db.recordCompactionLineage(child, grandchild);
+
+    const reply = 'secret final reply';
+    const cwd = '/Users/secret/absolute-cwd';
+    db.createLogicalTurn(finishedTurn('turn-parent', parent, { finalReply: reply, cwd }));
+    // Admitted on the compacted child only — still part of the parent's lineage.
+    db.createLogicalTurn(finishedTurn('turn-child', child, { finalReply: reply, cwd }));
+    db.createLogicalTurn(
+      finishedTurn('turn-span', parent, {
+        activeSessionId: child,
+        compactedSessionIds: [parent],
+        finalReply: reply,
+        cwd,
+      }),
+    );
+    db.createLogicalTurn(
+      finishedTurn('turn-grandchild', grandchild, {
+        finalReply: 'grandchild reply',
+        cwd: '/tmp/grandchild-cwd',
+      }),
+    );
+    db.createLogicalTurn(
+      finishedTurn('turn-subagent', subagent, {
+        finalReply: 'subagent reply',
+        cwd: '/tmp/subagent-cwd',
+      }),
+    );
+    db.createLogicalTurn(
+      finishedTurn('turn-other', other, { finalReply: 'keep this reply', cwd: '/tmp/keep-cwd' }),
+    );
+    // Malformed recovery JSON must not abort the session delete.
+    db.handle.run('INSERT INTO logical_turns (logical_turn_id, record) VALUES (?, ?)', [
+      'turn-corrupt',
+      'not-json',
+    ]);
+
+    expect(db.deleteSession(parent)).toBe(true);
+
+    expect(logicalTurnIds(db).sort()).toEqual(
+      ['turn-corrupt', 'turn-grandchild', 'turn-other', 'turn-subagent'].sort(),
+    );
+    const blob = logicalTurnBlob(db);
+    expect(blob).not.toContain(reply);
+    expect(blob).not.toContain(cwd);
+    expect(blob).toContain('keep this reply');
+    expect(blob).toContain('/tmp/keep-cwd');
+    // Compaction children are detached, not deleted. Their turns are still gone.
+    expect(db.getSession(child)?.parentSessionId).toBeNull();
+    expect(db.getSession(grandchild)).not.toBeNull();
+    expect(db.getSession(subagent)?.parentSessionId).toBeNull();
+    expect(db.getSession(other)).not.toBeNull();
+    db.close();
+  });
+
+  test('deleting a compacted child removes that child turn but not the parent turn', () => {
+    const db = open();
+    const parent = db.createSession({ model: 'm', provider: 'p' });
+    const child = db.createSession({ model: 'm', provider: 'p', parentSessionId: parent });
+    db.recordCompactionLineage(parent, child);
+    db.createLogicalTurn(
+      finishedTurn('turn-parent', parent, {
+        finalReply: 'parent reply',
+        cwd: '/tmp/parent-cwd',
+      }),
+    );
+    db.createLogicalTurn(
+      finishedTurn('turn-child', child, {
+        finalReply: 'child reply',
+        cwd: '/tmp/child-cwd',
+      }),
+    );
+
+    expect(db.deleteSession(child)).toBe(true);
+
+    expect(logicalTurnIds(db)).toEqual(['turn-parent']);
+    const blob = logicalTurnBlob(db);
+    expect(blob).not.toContain('child reply');
+    expect(blob).not.toContain('/tmp/child-cwd');
+    expect(blob).toContain('parent reply');
+    expect(blob).toContain('/tmp/parent-cwd');
+    expect(db.getSession(parent)).not.toBeNull();
+    db.close();
+  });
+});
+
+describe('SessionDb kind sweeps delete logical turns', () => {
+  const sweeps = [
+    {
+      kind: 'cron' as const,
+      ageColumn: 'created_at',
+      cleanup: (db: SessionDb) => db.cleanupOldCronSessions(),
+    },
+    {
+      kind: 'channel' as const,
+      ageColumn: 'last_updated',
+      cleanup: (db: SessionDb) => db.cleanupOldChannelSessions(),
+    },
+  ];
+
+  for (const sweep of sweeps) {
+    test(`cleanup of stale ${sweep.kind} sessions removes their logical turns and compacted-child turns`, () => {
+      const db = open();
+      const parent = db.createSession({
+        model: 'm',
+        provider: 'p',
+        metadata: { kind: sweep.kind },
+      });
+      // Fresh compacted child: the session row survives the sweep, the turn must not.
+      const child = db.createSession({
+        model: 'm',
+        provider: 'p',
+        parentSessionId: parent,
+        metadata: { kind: sweep.kind },
+      });
+      const subagent = db.createSession({
+        model: 'm',
+        provider: 'p',
+        parentSessionId: parent,
+        metadata: { kind: sweep.kind },
+      });
+      const fresh = db.createSession({
+        model: 'm',
+        provider: 'p',
+        metadata: { kind: sweep.kind },
+      });
+      db.recordCompactionLineage(parent, child);
+
+      const reply = `stale ${sweep.kind} reply`;
+      const cwd = `/Users/secret/${sweep.kind}-cwd`;
+      db.createLogicalTurn(finishedTurn('turn-parent', parent, { finalReply: reply, cwd }));
+      db.createLogicalTurn(finishedTurn('turn-child', child, { finalReply: reply, cwd }));
+      db.createLogicalTurn(
+        finishedTurn('turn-subagent', subagent, {
+          finalReply: `${sweep.kind} subagent reply`,
+          cwd: `/tmp/${sweep.kind}-subagent-cwd`,
+        }),
+      );
+      db.createLogicalTurn(
+        finishedTurn('turn-fresh', fresh, {
+          finalReply: `fresh ${sweep.kind} reply`,
+          cwd: `/tmp/${sweep.kind}-fresh-cwd`,
+        }),
+      );
+
+      const staleSec = (Date.now() - 31 * 24 * 3_600_000) / 1000;
+      db.handle
+        .prepare(`UPDATE sessions SET ${sweep.ageColumn} = ? WHERE session_id = ?`)
+        .run(staleSec, parent);
+
+      expect(sweep.cleanup(db)).toBe(1);
+
+      expect(db.getSession(parent)).toBeNull();
+      expect(db.getSession(child)).not.toBeNull();
+      expect(db.getSession(subagent)).not.toBeNull();
+      expect(db.getSession(fresh)).not.toBeNull();
+      expect(logicalTurnIds(db).sort()).toEqual(['turn-fresh', 'turn-subagent'].sort());
+      const blob = logicalTurnBlob(db);
+      expect(blob).not.toContain(reply);
+      expect(blob).not.toContain(cwd);
+      expect(blob).toContain(`fresh ${sweep.kind} reply`);
+      expect(blob).toContain(`/tmp/${sweep.kind}-fresh-cwd`);
+      db.close();
+    });
+  }
 });
