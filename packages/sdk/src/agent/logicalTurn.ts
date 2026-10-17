@@ -24,6 +24,14 @@ export const LOGICAL_TURN_RECOVERY_CAPABILITY = {
 export const LOGICAL_TURN_LEASE_MS = 30_000;
 export const LOGICAL_TURN_LEASE_RENEW_MS = 10_000;
 
+/** A failed row may resume only when finishReason or lastCause is one of these. */
+const SAFE_TRANSIENT_FAILURES = new Set([
+  'transient_provider',
+  'rate_limited',
+  'provider_unavailable',
+  'provider_timeout',
+]);
+
 export type LogicalTurnStatus =
   | 'admitted'
   | 'running'
@@ -313,6 +321,9 @@ export async function superviseLogicalTurn(
   if (record?.status === 'cancelled') {
     return invalidResult(record.logicalTurnId, record.activeSessionId, 'recovery_state_invalid');
   }
+  if (record?.status === 'failed' && !isSafeTransientFailure(record)) {
+    return storedFailure(record);
+  }
   if (!record) {
     const createdAt = now();
     record = {
@@ -540,6 +551,10 @@ export async function superviseLogicalTurn(
     }
     if (record.status === 'cancelled') {
       return invalidResult(record.logicalTurnId, record.activeSessionId, 'recovery_state_invalid');
+    }
+    // Reloaded after the lease. A non-transient failure must not start work.
+    if (record.status === 'failed' && !isSafeTransientFailure(record)) {
+      return storedFailure(record);
     }
     if (resuming && !options.recoverySafe(record.activeSessionId))
       return await finish('failed', 'unsafe_effect', undefined, 'recovery_unsafe');
@@ -1092,6 +1107,23 @@ function isDeadlineTerminal(
 ): boolean {
   if (signal?.aborted && signal.reason === 'deadline') return true;
   return deadlineAt !== undefined && nowMs >= deadlineAt;
+}
+
+function isSafeTransientFailure(record: LogicalTurnRecord): boolean {
+  return [record.finishReason, record.lastCause].some(
+    (cause) => cause !== undefined && SAFE_TRANSIENT_FAILURES.has(cause),
+  );
+}
+
+function storedFailure(record: LogicalTurnRecord): LogicalTurnResult {
+  return {
+    logicalTurnId: record.logicalTurnId,
+    status: 'failed',
+    activeSessionId: record.activeSessionId,
+    counters: { ...record.counters },
+    finishReason: record.finishReason ?? 'failed',
+    reply: record.finalReply ?? '',
+  };
 }
 
 function invalidResult(
