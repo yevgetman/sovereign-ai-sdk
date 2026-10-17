@@ -1755,11 +1755,29 @@ test('continuing the same id from another cwd names the working-directory mismat
     type: 'turn.error',
     code: 'recovery_state_invalid',
     recoverable: false,
+    nextAction: 'continue_logical_turn',
     logicalTurnId,
   });
   expect(terminal?.error).toBe('Logical turn working-directory mismatch.');
+  expect(terminal?.nextAction).not.toBe('repair_request');
   expect(String(terminal?.error)).not.toContain(origin);
   expect(String(terminal?.error)).not.toContain(elsewhere);
+  expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
+  const restored = capture();
+  expect(
+    await inDirectory(origin, () =>
+      runSdkRunCommand(
+        { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+        restored.io,
+        f.deps,
+      ),
+    ),
+  ).toBe(0);
+  expect(restored.events.at(-1)).toMatchObject({
+    type: 'turn.completed',
+    outcome: 'completed',
+    logicalTurnId,
+  });
   expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
 });
 
@@ -1791,9 +1809,11 @@ test('a changed permission policy names the policy mismatch and keeps the row', 
     type: 'turn.error',
     code: 'recovery_state_invalid',
     recoverable: false,
+    nextAction: 'continue_logical_turn',
     logicalTurnId,
   });
   expect(terminal?.error).toBe('Logical turn permission-policy mismatch.');
+  expect(terminal?.nextAction).not.toBe('repair_request');
   expect(String(terminal?.error)).not.toContain(origin);
   expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
 });
@@ -1894,9 +1914,11 @@ test('continuing a bypass turn with a wider skill approval refuses before those 
     type: 'turn.error',
     code: 'recovery_state_invalid',
     recoverable: false,
+    nextAction: 'continue_logical_turn',
     logicalTurnId,
   });
   expect(terminal?.error).toBe('Logical turn skill-approval mismatch.');
+  expect(terminal?.nextAction).not.toBe('repair_request');
   expect(String(terminal?.error)).not.toContain('working-directory');
   expect(String(terminal?.error)).not.toContain('permission-policy');
   expect(String(terminal?.error)).not.toContain(skillDir);
@@ -1979,9 +2001,11 @@ test('a changed MCP server identity is recovery_state_invalid before that server
     type: 'turn.error',
     code: 'recovery_state_invalid',
     recoverable: false,
+    nextAction: 'continue_logical_turn',
     logicalTurnId,
   });
   expect(terminal?.error).toBe('Logical turn MCP mismatch.');
+  expect(terminal?.nextAction).not.toBe('repair_request');
   expect(String(terminal?.error)).not.toContain('working-directory');
   expect(String(terminal?.error)).not.toContain('permission-policy');
   expect(String(terminal?.error)).not.toContain('127.0.0.1');
@@ -2488,9 +2512,11 @@ test('a PreToolUse matcher change is recovery_state_invalid before hook spawn', 
     type: 'turn.error',
     code: 'recovery_state_invalid',
     recoverable: false,
+    nextAction: 'continue_logical_turn',
     logicalTurnId,
   });
   expect(terminal?.error).toBe('Logical turn hook-scope mismatch.');
+  expect(terminal?.nextAction).not.toBe('repair_request');
   expect(String(terminal?.error)).not.toContain(script);
   expect(String(terminal?.error)).not.toContain(marker);
   expect(calls).toBe(1);
@@ -2606,6 +2632,8 @@ test('a pre-pin row continues only when the current hooks cannot widen', async (
     ),
   ).toBe(3);
   expect(blocked.events.some((event) => event.type === 'session.started')).toBe(false);
+  expect(blocked.events.at(-1)?.nextAction).toBe('continue_logical_turn');
+  expect(blocked.events.at(-1)?.nextAction).not.toBe('repair_request');
   expect(blocked.events.at(-1)?.error).toBe('Logical turn hook-scope mismatch.');
   expect(String(blocked.events.at(-1)?.error)).not.toContain(command);
   expect(calls).toBe(1);
