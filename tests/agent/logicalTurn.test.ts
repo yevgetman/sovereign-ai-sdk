@@ -692,10 +692,10 @@ describe('logical-turn supervisor', () => {
     const stored = fixture.store.loadLogicalTurn(first.logicalTurnId);
     if (!stored) throw new Error('logical turn row missing');
     stored.status = 'running';
-    stored.finishReason = undefined;
     stored.deadlineAt = 1;
+    const { finishReason: _completedReason, ...running } = stored;
     fixture.store.loadLogicalTurn = (id) =>
-      id === stored.logicalTurnId ? structuredClone(stored) : null;
+      id === running.logicalTurnId ? structuredClone(running) : null;
     const resumed = await superviseLogicalTurn({
       ...fixture.options,
       logicalTurnId: first.logicalTurnId,
