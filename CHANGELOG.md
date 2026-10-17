@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased — logical-turn continuation
+
+**Harness:** `--continue-logical-turn <id>` with `--sdk --json` continues one
+stored logical turn. The continuation is prompt-free: do not pass `--stdin`.
+Exit 3 is a logical-turn stop and is no longer
+`needs_continuation`. A deadline, a lease conflict, a cancelled continuation,
+and a model-call cap all return 3, as do a stall, an unsafe receipt, and
+invalid recovery state. Do not start another prompt on exit 3. See
+[SDK routes](docs/03-cli-reference/sdk-routes.md).
+
+A skill allow-list still in force stays on that logical turn. The next
+segment, including an automatic `max_tokens` continuation and
+`--continue-logical-turn`, keeps the intersection in its tool schemas and
+permission gate. An empty `allowedTools` declaration does not widen it.
+Continuity guidance still grants no tool permissions. The next ordinary user
+turn starts from the host pool again.
+
+## Unreleased — skill catalog projections (#120)
+
+**SDK:** `skills_list` accepts `detail` (`names`, `summary`, or `activation`).
+A call with neither `detail` nor a cursor uses `names`. Pages report `returned`,
+`remaining`, and `detail` along with `total`, `truncated`, `nextCursor`, and
+`generation`. Cursors pin `detail`. A changed `detail` rejects the cursor.
+An omitted follow-up `detail` reuses the cursor's `detail`. Ordinary `names`
+entries contain only the skill name.
+
+Public exports `listSkillCatalog` and `SkillCatalogPage` carry the same
+projection and accounting fields. Pass `detail` when continuing a
+`listSkillCatalog` cursor. No release or installed-host upgrade is included.
+
 ## SDK 0.16.2 / SOV 0.6.82 — 2026-10-15 (verified public release)
 
 - Include the single reviewed layered Kernel skill settings repair from [PR97](https://github.com/yevgetman/sovereign-ai-sdk/pull/97), plus reviewed release preparation. All eight public downloads match the frozen cut; exact source and publication proof are archived under releases/history/sdk-0.16.2/.

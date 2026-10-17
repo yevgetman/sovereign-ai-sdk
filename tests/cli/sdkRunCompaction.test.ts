@@ -567,3 +567,258 @@ test.each(['system', 'schema', 'latest-input'] as const)(
     }
   },
 );
+
+test('native overflow charges both drives and the summary against the logical model-call budget', async () => {
+  const recordedBeforeOverflow = 2;
+  const retryCalls = 3;
+  let mains = 0;
+  let summaries = 0;
+  let overflowed = false;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(req) {
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 4, outputTokens: 1 } };
+      if (isSummary(req)) {
+        summaries++;
+        const message = answer('Keep the task.');
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'end_turn' };
+        return message;
+      }
+      mains++;
+      if (!overflowed) {
+        if (mains <= recordedBeforeOverflow) {
+          const message: AssistantMessage = {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: `before-${mains}`, name: 'probe', input: { n: mains } },
+            ],
+          };
+          yield { type: 'assistant_message', message };
+          yield { type: 'message_stop', stop_reason: 'tool_use' };
+          return message;
+        }
+        overflowed = true;
+        throw new ContextOverflowError('openai');
+      }
+      const retryIndex = mains - recordedBeforeOverflow - 2;
+      if (retryIndex >= 0 && retryIndex < retryCalls) {
+        if (retryIndex < retryCalls - 1) {
+          const message: AssistantMessage = {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool_use',
+                id: `after-${retryIndex}`,
+                name: 'probe',
+                input: { n: 100 + retryIndex },
+              },
+            ],
+          };
+          yield { type: 'assistant_message', message };
+          yield { type: 'message_stop', stop_reason: 'tool_use' };
+          return message;
+        }
+        const message = answer('done');
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'end_turn' };
+        return message;
+      }
+      throw new Error(`retry exceeded leftover budget at call ${retryIndex}`);
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.loop = { mode: 'off' };
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'probe',
+        description: () => 'probe',
+        inputSchema: z.unknown(),
+        renderResult: () => ({ content: 'ok' }),
+        async call() {
+          return { data: 'ok' };
+        },
+      }),
+    );
+  });
+  expect(
+    await runSdkRunCommand(
+      { ...opts, resume: f.parent, toolset: 'coding', permissionMode: 'bypass' },
+      f.io,
+      f.deps,
+    ),
+  ).toBe(0);
+  const streams = recordedBeforeOverflow + 1 + summaries + retryCalls;
+  expect(summaries).toBe(1);
+  expect(mains).toBe(recordedBeforeOverflow + 1 + retryCalls);
+  expect(f.events.at(-1)).toMatchObject({
+    type: 'turn.completed',
+    reply: 'done',
+    counters: {
+      segments: 1,
+      modelCalls: recordedBeforeOverflow + retryCalls + 1,
+      toolCalls: recordedBeforeOverflow + (retryCalls - 1),
+      inputTokens: 4 * streams,
+      outputTokens: streams,
+    },
+  });
+});
+
+test('coding overflow after the logical model-call cap does not start another 100-call segment', async () => {
+  const cap = 100;
+  let mains = 0;
+  let summaries = 0;
+  let retryCalls = 0;
+  let overflowed = false;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(req) {
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 1, outputTokens: 1 } };
+      if (isSummary(req)) {
+        summaries++;
+        const message = answer('Keep the task.');
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'end_turn' };
+        return message;
+      }
+      if (overflowed) {
+        retryCalls++;
+        const message: AssistantMessage = {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: `retry-${retryCalls}`,
+              name: 'probe',
+              input: { n: retryCalls },
+            },
+          ],
+        };
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'tool_use' };
+        return message;
+      }
+      mains++;
+      if (mains < cap) {
+        const message: AssistantMessage = {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: `cap-${mains}`, name: 'probe', input: { n: mains } }],
+        };
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'tool_use' };
+        return message;
+      }
+      overflowed = true;
+      yield { type: 'message_stop', stop_reason: 'end_turn' };
+      throw new ContextOverflowError('openai');
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.loop = { mode: 'off' };
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'probe',
+        description: () => 'probe',
+        inputSchema: z.unknown(),
+        renderResult: () => ({ content: 'ok' }),
+        async call() {
+          return { data: 'ok' };
+        },
+      }),
+    );
+  });
+  const code = await runSdkRunCommand(
+    { ...opts, resume: f.parent, toolset: 'coding', permissionMode: 'bypass' },
+    f.io,
+    f.deps,
+  );
+  expect(summaries).toBe(1);
+  expect(mains).toBe(cap);
+  expect(retryCalls).toBe(0);
+  expect(code).toBe(1);
+  const db = SessionDb.open({ path: f.dbPath });
+  try {
+    const rows = db.handle.query<{ record: string }, []>('SELECT record FROM logical_turns').all();
+    expect(rows).toHaveLength(1);
+    const record = JSON.parse(rows[0]?.record ?? '{}') as {
+      counters: { modelCalls: number; segments: number };
+      activeSessionId: string;
+    };
+    expect(record.counters).toMatchObject({ modelCalls: cap + 1, segments: 1 });
+    expect(record.activeSessionId).not.toBe(f.parent);
+  } finally {
+    db.close();
+  }
+});
+
+test('a later segment compacts before the next model call and charges the summary', async () => {
+  const order: string[] = [];
+  let mains = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(req) {
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 4, outputTokens: 1 } };
+      if (isSummary(req)) {
+        order.push('summary');
+        const message = answer('Keep the task.');
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'end_turn' };
+        return message;
+      }
+      mains++;
+      order.push('main');
+      // Web's segment limit is 6. Those tool rounds stay under the hard window
+      // and leave a head the next segment can summarize.
+      if (mains <= 6) {
+        const message: AssistantMessage = {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: `probe-${mains}`, name: 'WebSearch', input: {} }],
+        };
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'tool_use' };
+        return message;
+      }
+      const message = answer('done');
+      yield { type: 'assistant_message', message };
+      yield { type: 'message_stop', stop_reason: 'end_turn' };
+      return message;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.proactiveCompactThreshold = 0;
+    runtime.loop = { mode: 'off' };
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'WebSearch',
+        description: () => 'fixture',
+        inputSchema: z.unknown(),
+        async call() {
+          // Larger than the compaction tail budget, still under the hard window.
+          return { data: 'r'.repeat(6000) };
+        },
+      }),
+    );
+  });
+  expect(await runSdkRunCommand({ ...opts, toolset: 'web' }, f.io, f.deps)).toBe(0);
+  expect(order).toEqual(['main', 'main', 'main', 'main', 'main', 'main', 'summary', 'main']);
+  expect(f.events.at(-1)).toMatchObject({
+    type: 'turn.completed',
+    reply: 'done',
+    counters: {
+      segments: 2,
+      modelCalls: 8,
+      toolCalls: 6,
+      inputTokens: 32,
+      outputTokens: 8,
+    },
+  });
+});

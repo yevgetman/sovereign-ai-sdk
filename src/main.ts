@@ -362,7 +362,7 @@ async function main(argv: string[]): Promise<void> {
   program
     .command('run')
     .description(
-      'Headless one-shot machine contract — reads all stdin as one prompt, runs one turn through the same server/runtime path as the TUI, and emits JSONL events. Initial contract requires --json --stdin.',
+      'Headless one-shot machine contract — reads all stdin as one prompt, runs one turn through the same server/runtime path as the TUI, and emits JSONL events. Initial contract requires --json --stdin. Prompt-free continuation: sov run --sdk --json --continue-logical-turn <id>.',
     )
     .option('--sdk', 'run the selected route directly through the SDK, without a listener')
     .option(
@@ -373,6 +373,10 @@ async function main(argv: string[]): Promise<void> {
     .option('--input-format <format>', 'stdin format: text or strict JSON envelope', 'text')
     .option('--toolset <name>', 'native SDK toolset: chat, web, ops, coding', 'coding')
     .option('--deadline-ms <n>', 'native turn deadline in milliseconds', parsePositiveInt)
+    .option(
+      '--continue-logical-turn <id>',
+      'prompt-free continuation of one stored logical turn; requires --sdk --json',
+    )
     .option('--json', 'emit newline-delimited JSON machine events')
     .option('--stdin', 'read the prompt from all of stdin')
     .option('-b, --bundle <path>', 'path to the harness bundle (or HARNESS_BUNDLE env)')

@@ -52,7 +52,14 @@ export type ContentBlock =
       source: { type: 'base64'; media_type: string; data: string };
     };
 
-export type UserMessage = { role: 'user'; content: ContentBlock[] };
+export type UserMessage = {
+  role: 'user';
+  content: ContentBlock[];
+  /** Set on an internal continuation marker. Absent on a human turn. */
+  origin?: 'runtime';
+  /** Stable id of a runtime continuation marker. */
+  id?: string;
+};
 export type AssistantMessage = { role: 'assistant'; content: ContentBlock[] };
 export type Message = UserMessage | AssistantMessage;
 
@@ -163,6 +170,12 @@ export type QueryParams = {
   inputTokenAccounting?: import('../providers/tokenAccounting.js').InputTokenAccounting;
   /** Maximum turns for tool-use continuation. Default 10. */
   maxTurns?: number;
+  /** Internal segment after the original user turn was admitted. Skips
+   * user-message hooks, recall, and user conduct gates. */
+  continuation?: boolean;
+  /** The caller supervises segment boundaries and fires one Stop at the
+   * logical terminal. A segment must not run Stop hooks itself. */
+  logicalTurn?: boolean;
   /** When set, the turn loop pauses after this many cumulative tool calls
    *  and returns terminal reason 'checkin'. The caller (REPL) surfaces a
    *  prompt and resumes via a follow-up query() call. Default unset. */

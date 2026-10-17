@@ -55,7 +55,7 @@ describe('createSession + getSession', () => {
     expect(session?.title).toBe('pilot session');
     expect(session?.systemPrompt).toEqual(sysPrompt);
     expect(session?.metadata).toEqual({ bundleRoot: '/tmp/bundle', note: 42 });
-    expect(session?.schemaVersion).toBe(8);
+    expect(session?.schemaVersion).toBe(9);
     expect(session?.ownerId).toBeNull();
     expect(session?.parentSessionId).toBeNull();
     expect(session?.inputTokens).toBe(0);
@@ -299,10 +299,10 @@ describe('cost accounting', () => {
 });
 
 describe('schema versioning', () => {
-  test('new DB reports schema_version = 8 via sessions.schemaVersion', () => {
+  test('new DB reports schema_version = 9 via sessions.schemaVersion', () => {
     const db = openMem();
     const id = db.createSession({ model: 'm', provider: 'p' });
-    expect(db.getSession(id)?.schemaVersion).toBe(8);
+    expect(db.getSession(id)?.schemaVersion).toBe(9);
     db.close();
   });
 });
@@ -347,10 +347,10 @@ describe('schema v4 — tasks table', () => {
     db.close();
   });
 
-  test('newly created sessions report schema_version 8', () => {
+  test('newly created sessions report schema_version 9', () => {
     const db = openMem();
     const id = db.createSession({ model: 'm', provider: 'p' });
-    expect(db.getSession(id)?.schemaVersion).toBe(8);
+    expect(db.getSession(id)?.schemaVersion).toBe(9);
     db.close();
   });
 });

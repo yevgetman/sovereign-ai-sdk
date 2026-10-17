@@ -1,3 +1,501 @@
+## 2026-10-17 — Continuation cursor scan stops at the newest page
+
+Scope: `logicalTurnCursor` walks transcript order from the end and returns
+the first pagination cursor. A tool result still wins over its request.
+Tool-result bodies larger than `LOGICAL_TURN_CURSOR_PARSE_CAP` (65536) are
+not parsed. After a segment returns, the supervisor renews the logical-turn
+lease before the boundary read and again after the progress fingerprint.
+`src/cli/sdkRunCommand.ts` was not edited.
+
+Environment: `/tmp/fix-sov-160` on `review-fix/160` from `90b0b80c`, macOS,
+Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade, release,
+or deployment ran.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts -t 'newest cursor wins'` failed. The newest
+oversized tool result still supplied `hidden` instead of the earlier
+`page-9`.
+
+After the fix, that test passes. An older oversized body, grown again, does
+not replace a trailing `page-9`. A tool result still wins over the request
+ahead of it. An edit to an older body that leaves `nextCursor` alone still
+stalls. The boundary read observes a lease renew that happens after the
+segment returns and before `readBoundary`. `env -u FORCE_COLOR bun test
+--timeout 20000 tests/agent/logicalTurn.test.ts` is **53 pass / 0 fail**.
+
+`bun run lint` passed (Biome 1159 files; boundary 257 modules, 1055
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). After `bun run build`,
+`env -u FORCE_COLOR bun test --timeout 20000` is **6604 pass / 31 skip /
+0 fail**, 27132 assertions, 625 files, 174.93 seconds.
+
+## 2026-10-17 — Resumed work aborts at the stored deadline
+
+Scope: `--continue-logical-turn` of a still-running logical turn whose
+`deadlineAt` is a few seconds ahead. The resume omits `--deadline-ms`. A
+blocking tool must abort at that stored instant, and the row must stay the
+stored deadline. A new `--deadline-ms` is not treated as a replacement. The
+held-lease event and `packages/sdk/src/agent/logicalTurn.ts` were not changed.
+
+Environment: `/tmp/fix-sov-158` on `review-fix/158` from `c25f7679`, macOS,
+Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade, release,
+or deployment ran.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/cli/sdkRunRecovery.test.ts -t 'resumed work aborts a blocking tool'`
+failed. The tool started before `deadlineAt` and its signal reason stayed
+`undefined` through the 5s overrun cap (5.27s).
+
+After the fix, the same command passes inside `env -u FORCE_COLOR bun test
+--timeout 20000 tests/cli/sdkRunRecovery.test.ts -t 'deadline|resumed work
+aborts'`: **7 pass / 0 fail**. The tool aborts with reason `deadline` inside
+the stored window, the model is not called again, and the stored `deadlineAt`
+is unchanged. `tests/cli/sdkRunRecovery.test.ts tests/cli/sdkRunCommand.test.ts
+tests/cli/runCommand.test.ts` is **82 pass / 0 fail**, 636 assertions.
+
+`bun run lint` passed (Biome 1159 files; boundary 257 modules, 1054
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). None are in the deadline files.
+`env -u FORCE_COLOR bun test --timeout 20000` is **6598 pass / 31 skip / 0 fail**,
+27089 assertions, 625 files, 177.43 seconds, after `bun run build:sdk`. An
+earlier run without `packages/sdk/dist` failed 67 Node module tests; those
+passed once dist existed and are not part of this change.
+
+## 2026-10-17 — Failed logical turns resume only for a safe transient
+
+Scope: direct `superviseLogicalTurn` resume of a stored `failed` row. A
+non-transient `finishReason` or `lastCause` returns the stored failure and
+does not run prepare, the segment, the model, or tools. Resume is allowed
+only for `transient_provider`, `rate_limited`, `provider_unavailable`, or
+`provider_timeout`, and still requires safe recovery. Deadline Stop, the
+lease-loss abort, query policy-gate skips, and the held-lease CLI event were
+not changed. `src/cli/sdkRunCommand.ts` was not edited.
+
+Environment: `/tmp/fix-sov-156-supervisor` on `review-fix/156-supervisor` from
+`f9899617154073266f903cd45ab256f3e84622bd`, macOS, Bun 1.3.13 (`bf2e2cec`).
+No live provider, product install, upgrade, release, or deployment ran.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts -t "a failed logical turn resumes only when the stored cause is a safe transient"`
+failed. The segment runner was called again (`calls` 2, expected 1) for
+`finishReason: 'failed'`.
+
+After the fix, that test passes. A non-transient row does not run.
+`finishReason: 'transient_provider'` runs one segment when recovery is safe
+and does not when it is not. `lastCause: 'rate_limited'` is also accepted.
+The same CLI filter in `tests/cli/sdkRunRecovery.test.ts` still passes.
+`tests/agent/logicalTurn.test.ts` is 50 pass / 0 fail.
+
+`bun run lint` passed (Biome 1159 files; boundary 257 modules, 1055
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). After `bun run build`,
+`env -u FORCE_COLOR bun test --timeout 20000` is **6600 pass / 31 skip /
+0 fail**, 27105 assertions, 625 files, 176.90 seconds.
+
+## 2026-10-17 — Deadline Stop hook runs once
+
+Scope: logical-turn Stop when `--deadline-ms` aborts a segment. The deferred
+Stop closure no longer uses an already-aborted work signal. If the host drops
+the returned terminal on that abort, the lease binding still carries the
+closure and the deadline terminal runs it once. A non-terminal continuation
+still does not observe the segment as an ending.
+
+Environment: `/tmp/fix-sov-159` on `review-fix/159` from `f6d929ea`, macOS,
+Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade, release,
+or deployment ran.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts -t "runs the Stop command once"` failed. The
+deadline segment reached `continuation_exhausted` and the command Stop hook
+wrote nothing.
+
+After the fix, that test passes: a `max_turns` segment writes nothing, then a
+deadline abort writes `ran` once. `env -u FORCE_COLOR bun test --timeout 20000
+tests/cli/sdkRunRecovery.test.ts -t "deadline during a segment runs the Stop
+command once"` passes. One model call, exit 3, `continuation_exhausted`, and
+the command runs once. The logical-turn Stop hook cases still pass.
+
+`bun run lint` passed (Biome 1159 files; boundary 257 modules, 1055
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). After `bun run build`,
+`env -u FORCE_COLOR bun test --timeout 20000` is **6595 pass / 31 skip /
+0 fail**, 27031 assertions, 625 files, 171.89 seconds. A run before `dist`
+existed failed 67 Node tests with `ERR_MODULE_NOT_FOUND`; those are not this
+change.
+
+## 2026-10-17 — Held logical-turn lease is a timed retry
+
+Scope: `--continue-logical-turn` while another owner holds an unexpired
+lease. This launch still does not run tools or rewrite the stored row.
+The terminal is recoverable, `nextAction` is `continue_logical_turn`, and
+`retryAfterMs` is the time left on the lease. After `lease_expires_at`, the
+same id is still accepted when receipts are safe. The lease-loss abort in
+`logicalTurn.ts` was not changed.
+
+Environment: `/tmp/fix-sov-157` on `review-fix/157` from `f6d929ea`, macOS,
+Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade, release,
+or deployment ran.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/cli/sdkRunRecovery.test.ts -t 'held lease|expired lease'` failed the
+held-lease case. The terminal was `logical_turn_leased`, `recoverable: false`,
+`nextAction: "none"`, and the message was "Logical turn is owned elsewhere."
+The provider was not called. The expired-lease case already passed.
+
+After the fix, the same command is **2 pass / 0 fail**. The held lease exits 3
+with `recoverable: true`, `nextAction: "continue_logical_turn"`, and
+`retryAfterMs` inside the stored lease window. There is no tool start and no
+stored-row change. The expired lease exits 0 and completes the same id.
+`tests/cli/sdkRunRecovery.test.ts` and `tests/cli/sdkRunCommand.test.ts` were
+**66 pass / 0 fail**, 504 assertions.
+
+`bun run lint` passed (Biome 1159 files; boundary 257 modules, 1054
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). None are in the lease files.
+`env -u FORCE_COLOR bun test --timeout 20000` is **6594 pass / 31 skip / 0 fail**,
+27033 assertions, 625 files, 177.41 seconds. An earlier run without
+`bin/sov-tui` failed 21 launcher tests; those passed after a local TUI build
+and are not part of this change.
+
+## 2026-10-17 — Continuation help no longer requires stdin
+
+Scope: `sov run --help` and the legacy input check for
+`--continue-logical-turn`. The SDK host and logical-turn supervisor were not
+edited.
+
+Before the fix, `sov run --help` described only the `--json --stdin` contract,
+and `sov run --continue-logical-turn lt-test` printed that the initial machine
+contract requires `--json` and `--stdin`. `sov run --sdk
+--continue-logical-turn lt-test` emitted a generic invalid-input event.
+`env -u FORCE_COLOR -u NO_COLOR bun test --timeout 20000
+tests/cli/runCommand.test.ts -t 'help describes prompt-free|continuation names the one missing|prompt-free --sdk --json continuation'`
+failed those two new cases. The `--sdk --json` form already reached
+`logical turn does not exist`.
+
+After the fix, the same command passes, and with the existing contract tests
+it is **5 pass / 0 fail**. Help's continuation example is `sov run --sdk
+--json --continue-logical-turn <id>` and does not include `--stdin`. The two
+commands name `--sdk` and `--json` respectively, with no stdin or `--route`.
+`tests/cli/runCommand.test.ts tests/agent/sessionDb.logicalTurnRecord.test.ts
+tests/cli/sdkRunCommand.test.ts` is **49 pass / 0 fail**. `bun run lint`
+passed (Biome, 1158 files; dependency-cruiser, 256 modules, no violations).
+`bun run typecheck` reports 3 existing errors in
+`tests/cli/sdkSubscriptionImages.test.ts` and `tests/skills/catalog.test.ts`,
+none in the continuation files. `env -u FORCE_COLOR -u NO_COLOR bun test
+--timeout 20000` was **6499 pass / 31 skip / 88 fail / 5 errors**. Those
+failures are missing `packages/sdk/dist` modules and a missing `bin/sov-tui`
+after `bun install --ignore-scripts`. The continuation tests passed inside
+that run. No live provider, install, upgrade, release, or deployment ran.
+
+## 2026-10-17 — Skill allow-list survives a logical-turn segment
+
+Scope: skill `allowedTools` on a logical turn. A continuation segment,
+including an automatic `max_tokens` boundary and a resumed row, keeps the
+intersection of allow-lists still in force. An empty `allowedTools` declaration
+does not widen that ceiling. Host permission policy is unchanged. Continuity
+guidance still grants no tool permissions.
+
+Environment: `/tmp/fix-sov-155` on `review-fix/155` from `c7922076`, macOS,
+Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade, release,
+or deployment ran.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/server/skillCeilingContinuation.test.ts` failed 2 tests. The continuation
+segment offered `['SkillTool','Read','Bash']` after a read-only skill. A later
+skill with an empty allow-list composed `['Bash','Read','SkillTool']`.
+
+After the fix, the same file is **4 pass / 0 fail**. The next segment's schemas
+stay `['Read']`, `canUseTool` denies Bash, and Bash does not run. A later empty
+allow-list does not widen. Two lists intersect. A SessionDb round-trip restores
+the ceiling under a new activation id. A different turn id stays unrestricted.
+`tests/agent/effectiveToolInventory.test.ts`, `tests/agent/logicalTurn.test.ts`,
+`tests/cli/sdkRunRecovery.test.ts`, `tests/cli/sdkRunCompaction.test.ts`, and
+`tests/skills/activation.test.ts` passed inside the full suite.
+
+`bun run lint` passed (Biome 1159 files; boundary 256 modules, 1052
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). None are in the ceiling files. The
+first `bun run test` ran before `packages/sdk/dist` existed: **6521 pass / 31
+skip / 67 fail**. Those 67 were `ERR_MODULE_NOT_FOUND` for compiled SDK
+modules. After `bun run build`, `env -u FORCE_COLOR bun test --timeout 20000`
+is **6588 pass / 31 skip / 0 fail**, 26968 assertions, 625 files, 171.50
+seconds.
+
+A crash after activation and before the supervisor save can still resume
+without the ceiling. The ceiling is an extra `skillToolCeiling` field on the
+logical-turn row. Parsers that drop unknown keys would drop it.
+
+## 2026-10-17 — Lost logical-turn lease aborts the in-flight segment
+
+Scope: failed renewal aborts the segment signal that `createAgent` passes to
+the provider and tools. Transcript and tool-journal writes from that owner are
+rejected once the lease belongs to someone else. A caller stop still aborts
+the segment without marking the lease lost, so that transcript can persist.
+`sdkRunCommand`, `query`, and `turnComposition` were not changed.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts -t "aborts the blocked tool"` failed 2 tests.
+`expect(providerSignal?.aborted).toBe(true)` received `undefined`. The blocked
+tool was not aborted, and a late `saveMessage` from the dispossessed worker
+could still land.
+
+After the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts` is **48 pass / 0 fail**. A second supervisor,
+and a stolen sqlite lease, abort the blocked tool before its effect or late
+row. The dispossessed worker rejects with `LogicalTurnLeaseError`. The resumed
+reply stays `resumed`. `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/createAgent.test.ts tests/agent/toolExecutionJournal.test.ts
+tests/agent/durableToolReceipts.test.ts tests/cli/sdkRunRecovery.test.ts` passed
+in the same run as the lease file.
+
+`bun run lint` passed. `bun run typecheck` reports 3 existing errors in
+`tests/cli/sdkSubscriptionImages.test.ts` and `tests/skills/catalog.test.ts`,
+none in the lease files. A full `bun test` reported 6519 pass / 67 fail /
+31 skip. All 67 were `ERR_MODULE_NOT_FOUND` for `packages/sdk/dist` while the
+tarball test rebuilt that directory. Re-running `tests/skills` and
+`tests/providers/modelImportOrder.test.ts` after dist existed is **465 pass /
+0 fail**. No live provider, product install, upgrade, release, or deployment ran.
+
+## 2026-10-16 — Continuation boundary loads the transcript once
+
+Scope: one stored read per logical-turn segment boundary, shared by the safety
+check, the id-level progress fingerprint, and the next segment. Stall rules,
+cwd/policy errors, exhausted/stalled refusal, and deadlines were not changed.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts tests/cli/sdkRunRecovery.test.ts -t "reads the transcript once|tool-result byte|continuation marker|loads the transcript once"`
+failed 4 tests. The supervisor read safety, the fingerprint, and rehydrate as
+three loads. A max_tokens host boundary loaded messages five times. Changing a
+tool-result byte reloaded the transcript for the fingerprint.
+
+After the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts tests/cli/sdkRunRecovery.test.ts` is **77 pass /
+0 fail**. One boundary is one message load and one receipt load. An unchanged
+tool-result byte still stalls only on the second identical continuation.
+`bun run lint` passed. `bun run typecheck` reports 3 existing errors in
+`tests/cli/sdkSubscriptionImages.test.ts` and `tests/skills/catalog.test.ts`,
+none in the boundary files. No live provider, product install, upgrade,
+release, or deployment ran.
+
+## 2026-10-16 — Stall fingerprint includes durable progress facts
+
+Scope: logical-turn progress fingerprint in `packages/sdk/src/agent/logicalTurn.ts`.
+Connection-loss retry, abort-during-backoff, and `SubscriptionHttpError` segment
+policy were not changed. The host still refuses to resume a stalled row.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts -t "one unchanged continuation|two identical continuation|new cursor|new transcript row|new compaction child"`
+failed 5 tests. One unchanged continuation stalled at 2 segments. Two identical
+continuations stalled at 2 segments instead of 3. A new cursor, transcript row,
+or compaction child still stalled.
+
+After the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts` is **43 pass / 0 fail**. One unchanged
+continuation completes. The second identical continuation returns
+`continuation_stalled` with `finishReason` `repeated:max_turns`. A new cursor,
+transcript row, compaction child, or completed receipt does not stall.
+`env -u FORCE_COLOR bun test --timeout 60000 tests/cli/sdkRunRecovery.test.ts`
+is **28 pass / 0 fail**. Repeated host work that appends transcript rows runs
+to the model-call budget instead of stalling; a stored stalled row is still
+refused with no further provider call. `bun run lint` passed. `bun run
+typecheck` reports 3 existing errors in `tests/cli/sdkSubscriptionImages.test.ts`
+and `tests/skills/catalog.test.ts`, none in the fingerprint files. No live
+provider, product install, upgrade, release, or deployment ran.
+
+## 2026-10-16 — Overflow recovery stays inside the logical model-call budget
+
+Scope: native `runSegment` context-overflow retry in `src/cli/sdkRunCommand.ts`.
+The logical-turn lease, Stop hooks, and finish-reason mapping were not changed.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+./tests/cli/sdkRunCompaction.test.ts -t 'logical model-call'` failed. A drive
+that recorded 2 model calls, overflowed, then recorded 3 more left
+`counters.modelCalls` at 3 (the retry only). A coding segment that overflowed
+on its 100th call started another 100-call segment (`retryCalls` 100).
+
+After the fix, the same command passes. `counters.modelCalls` is 6 (2 + 3 +
+the summary). The capped coding segment makes no retry and stores
+`modelCalls` 101. `env -u FORCE_COLOR bun test --timeout 20000
+./tests/cli/sdkRunCompaction.test.ts ./tests/cli/sdkRunCommand.test.ts
+./tests/cli/sdkRunRecovery.test.ts` is **67 pass / 0 fail**. `bun run lint`
+and `bun run typecheck` pass. The full `bun test --timeout 20000` run was
+**6463 pass / 67 fail / 31 skip**. Those 67 are Node imports of
+`packages/sdk/dist` racing the tarball test's `rm -rf dist`; 
+`./tests/providers/modelImportOrder.test.ts` and `./tests/skills/store.test.ts`
+then pass **32 / 0** with dist present. Dependencies were installed in the
+checkout so the suite could run. No live provider, product install, upgrade,
+release, or deployment ran.
+
+## 2026-10-16 — Stop hooks follow the logical turn
+
+Scope: one Stop at a logical-turn terminal. A non-final segment defers
+the hook. Recall, user-turn hooks, and the continuation memory-fence
+reapply stay as they were. Lease, fingerprint, and retry behavior were
+not rewritten.
+
+Environment: macOS, Bun 1.3.13, checkout `review-fix/115`. Dependencies
+installed with `--ignore-scripts` (no `packages/sdk/dist`, no `bin/sov-tui`).
+
+Commands:
+- Before the fix, `env -u FORCE_COLOR bun test --timeout 20000 tests/agent/logicalTurn.test.ts` failed the new Stop cases. A 503 then success recorded `error` and `completed`. A stall, a check-in, model-call exhaustion, a deadline, and `recovery_unsafe` after `max_turns` each recorded no Stop. The existing supervisor and lease tests passed. A provider error outside a logical turn still recorded one Stop.
+- After the fix, `env -u FORCE_COLOR bun test --timeout 20000 tests/agent/logicalTurn.test.ts tests/core/query.test.ts tests/hooks/wiring.test.ts tests/agent/createAgent.test.ts tests/cli/sdkRunCommand.test.ts tests/cli/sdkRunRecovery.test.ts` was **153 pass / 0 fail**. The 503 path records only `completed` and runs recall and UserPromptSubmit once. Stall, check-in, model-call exhaustion, deadline, and unsafe recovery each record one Stop. The memory-fence continuation test still passes.
+- `bun run lint` passed (Biome, 1157 files; dependency-cruiser, 256 modules, no violations). `bun run typecheck` passed.
+- `env -u FORCE_COLOR bun test --timeout 20000` was **6447 pass / 31 skip / 88 fail**. The failures are missing `packages/sdk/dist` modules and a missing `bin/sov-tui`, not Stop-hook assertions.
+
+Result: Stop runs once when the logical turn reaches a terminal status, not once per segment. No live provider, install, upgrade, release, or deployment ran.## 2026-10-16 — Lease conflicts stay off the provider-failure wire
+
+Scope: host mapping of `LogicalTurnLeaseError` on `--continue-logical-turn`.
+The lease implementation was not changed. A second launch must not start a
+provider call or rewrite the stored logical-turn row.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/cli/sdkRunRecovery.test.ts -t 'held lease'` failed. The continuation
+exited 1 and the terminal code was `provider_failed`. Provider calls stayed
+at the original turn.
+
+After the fix, the same command passes. The terminal is `logical_turn_leased`,
+`recoverable: false`, `nextAction: "none"`, and the message says the turn is
+owned elsewhere. The logical-turn row and transcript are unchanged, and the
+provider is not called. `env -u FORCE_COLOR bun test --timeout 20000
+tests/cli/sdkRunRecovery.test.ts tests/cli/sdkRunCommand.test.ts` is **51 pass
+/ 0 fail**, 259 assertions. `bun run lint` and `bun run typecheck` pass. No
+live provider, install, upgrade, release, or deployment ran.
+## 2026-10-16 — Logical-turn leases stay with the working owner
+
+Scope: a short renewable logical-turn lease, owner-fenced record writes,
+reclaim only after receipt checks, and compaction only after the lease is
+held. Ordinary max_turns continuation, check-in outcomes, names pages, and
+the provider_failed host mapping were left unchanged.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts` was **10 pass / 5 fail**. Both stores let a
+second owner take a lease that supervisor time still held. A model call with
+no deadline accepted a second continuation before five minutes. A crashed
+owner with a one-hour deadline still held the lease 31 seconds later, so
+neither a safe resume nor an unsafe receipt check could proceed.
+
+After the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts tests/cli/sdkRunRecovery.test.ts
+tests/cli/sdkRunCompaction.test.ts tests/cli/sdkRunCommand.test.ts` is **79
+pass / 0 fail**, 448 assertions. The live five-minute call keeps every lease
+gap at or under 30 seconds and rejects the second worker with no segment
+dispatch. An expired lease is taken only when recovery is safe, and the
+displaced owner cannot overwrite the resumed reply. `bun run lint` and
+`bun run typecheck` pass. `bin/sov-tui` is absent here, so a missing TUI
+binary was not treated as a product failure. No live provider, install,
+upgrade, release, or deployment ran.
+## 2026-10-16 — Skill-list cursors keep their pinned detail
+
+Scope: `skills_list` continuation when `detail` is omitted. The omitted-detail
+default without a cursor stays `names`. No catalog continuation-check change,
+and no changelog or skill-catalog doc edit.
+
+Environment: macOS, Bun 1.3.13, isolated checkout `review-fix/116` at
+`a0c4102ab38dfab6a1b84199b54cdf56ca1d0f4b`. Dependencies installed with
+`--ignore-scripts` (no `packages/sdk/dist`, no `bin/sov-tui`).
+
+Commands:
+- Before the fix, `env -u FORCE_COLOR bun test --timeout 20000 tests/skills/catalog.test.ts -t 'skills_list cursor detail'` failed both new tests. The cursor description was `Keep the same query; changed catalogs require restart.` The follow-up that repeated the query but omitted detail threw `skill catalog changed or cursor query differs; restart enumeration without cursor`.
+- After the fix, `env -u FORCE_COLOR bun test --timeout 20000 tests/skills/catalog.test.ts tests/tools/skillsProgressiveTools.test.ts`: **16 pass / 0 fail**, 602 assertions. Related `tests/skills/kernelCompatibility.test.ts`, `tests/skills/catalogQuery.test.ts`, and `tests/skills/descriptor.test.ts` passed. `tests/skills/registry.test.ts` had one failure: the Node wrapper looks for `dist/skills/registry.js`, which this install did not build. That test does not call `skills_list`.
+- `bun run lint` passed (Biome, 1157 files; dependency-cruiser, 256 modules, no violations). `bun run typecheck` passed.
+
+Result: an activation or summary page continues from `nextCursor` alone, and from `nextCursor` plus the same query. A call with neither detail nor a cursor still returns names. An explicit conflicting detail still restarts. No live provider, install, upgrade, release, or deployment ran.
+
+## 2026-10-16 — Continuation segments keep the MEMORY.md fence
+
+Scope: `query()` memory fencing on `continuation: true` only. Recall,
+UserPromptSubmit, and user conduct gates stay skipped. No logical-turn
+supervisor or host command changes.
+
+Environment: macOS, Bun 1.3.13, isolated checkout `review-fix/127` at
+`e5fd228d2d36b8c0c63fd4792c3871d50060fddb`. Dependencies installed with
+`--ignore-scripts`.
+
+Commands:
+- Before the fix, `env -u FORCE_COLOR bun test --timeout 20000 tests/core/query.test.ts -t 'reapplies the memory fence'` failed: the post-`max_turns` provider request was `do the thing` with no `UNIQUE_MEMORY_FENCE_H8_127`.
+- After the fix, `env -u FORCE_COLOR bun test --timeout 20000 tests/core/query.test.ts tests/memory/injection.test.ts`: **44 pass / 0 fail**, 153 assertions.
+- `bun run lint` passed (Biome, 1157 files; dependency-cruiser, 256 modules, no violations). `bun run typecheck` passed.
+
+Result: the fence is in the first segment request and the rehydrated continuation request, once, without mutating the caller's messages. No live provider, install, upgrade, release, or deployment ran.
+## 2026-10-16 — Cancelled logical turns cannot continue
+
+Scope: logical-turn cancellation persistence and host refusal of
+`--continue-logical-turn` for a cancelled id. Deadline, lease, and
+exhausted/stalled recovery were not redesigned.
+
+Clean isolated macOS worktree, Bun 1.3.13. `bun run lint` and
+`bun run typecheck` pass. Focused `bun test tests/agent/logicalTurn.test.ts
+tests/cli/sdkRunRecovery.test.ts tests/cli/sdkRunCompaction.test.ts
+tests/cli/sdkRunCommand.test.ts --timeout 20000`: **74 pass / 0 fail**.
+Before the fix, the new supervisor test threw `interrupted` with the row
+left `running`, and the new host test stored `running` instead of
+`cancelled`. Complete `bun run test` after `bun run build`: **6507 pass /
+31 skip / 10 fail**, 26389 assertions, 623 files, 169.55s. All 10 failures
+are Node stderr checks under this runner's `FORCE_COLOR` plus `NO_COLOR`
+(empty-stderr and uncolored `COMMIT_RETAINED true` expectations). Unsetting
+`NO_COLOR` clears 9 of them; the remaining store-observer failure is ANSI
+coloring of `true`. None touch logical-turn continuation. No live provider,
+install, upgrade, release, or deployment ran.
+
+## 2026-10-16 — Reject legacy `--continue-logical-turn` without `--sdk`
+
+Scope: legacy `sov run` without `--sdk` must reject `--continue-logical-turn` with the existing native-only control error, before stdin, a listener, or a session. The SDK continuation path is unchanged.
+
+Environment: macOS, Bun 1.3.13, isolated checkout `review-fix/109` starting at `db64d31b8e2f25423b60119ae02f9876ddcc3ae7`. The first complete run inherited both `FORCE_COLOR=1` and `NO_COLOR=1`, and dependencies were installed with `--ignore-scripts` so `bin/sov-tui` was absent until a later TUI build.
+
+Commands:
+- Before the fix, a direct `runRunCommand({ json, stdin, continueLogicalTurn }, fake IO)` call exited 0, read stdin once, created a session database, and ended on `turn.completed` for a new unresumed session.
+- `bun test --timeout 20000 tests/cli/runCommand.test.ts -t 'rejects --continue-logical-turn'` failed before the edit (received exit 0) and passed after.
+- `bun test --timeout 20000 tests/cli/runCommand.test.ts tests/cli/sdkRunCommand.test.ts -t 'prompt-free continuation|rejects --continue-logical-turn|runRunCommand'`: **12 pass / 0 fail**, 73 assertions.
+- `bun run lint` passed (Biome, 1157 files; dependency-cruiser, 256 modules, no violations). `bun run typecheck` passed.
+- Source CLI `bun src/main.ts run --json --stdin --continue-logical-turn lt-existing` exited 2 with one `invalid_input` event and created no database. The same flag with `--sdk` still entered the SDK host.
+- Complete `bun run test`: **6485 pass / 31 skip / 31 fail**, 26310 assertions, 623 files, 239.76s. The 31 failures were environmental: Node `NO_COLOR`/`FORCE_COLOR` stderr, missing `bin/sov-tui`, and launcher smokes that timed out under full-suite load. After building the TUI and unsetting those color variables, the seven affected files passed **58 pass / 0 fail**, and `tests/cli/tuiLauncherIntegration.test.ts` passed **6 pass / 1 existing skip / 0 fail**.
+
+Result: the regression passes. No live provider, installed upgrade, release, or deployment.
+
+## 2026-10-16 — Names pages hold the current 33-skill catalog
+
+Scope: `skills_list` names projection only. Summary and activation keep the
+1024-byte rich-page cap. Cursor generation checks stay. No logical-turn,
+changelog, or `docs/04-extending/skill-catalog.md` edits.
+
+Before the fix, `listSkillCatalog` with
+`resolveSkillContextBudget({ contextWindowTokens: 200000, outputTokens: 8192 })`,
+`detail: names`, `limit: 100`, and 33 names of 40 characters returned 14 and a
+cursor. After the fix that call returns all 33 names and no cursor. One hundred
+64-character names fit on the first page; the 101st continues. Rich pages stay
+inside `pageTokens`. The tool description tells the model to use detail names
+and limit 100.
+
+Clean macOS checkout, Bun 1.3.13. `bun run build`, `bun run lint`, and
+`bun run typecheck` pass. `env -u FORCE_COLOR bun test --timeout 20000`:
+**6516 pass / 31 skip / 0 fail**, 26419 assertions, 623 files, 170.33 seconds.
+Twelve GrepTool skips are a missing `rg` in this environment. The other skips
+are existing live or provider gates. An earlier full run with both
+`FORCE_COLOR` and `NO_COLOR` set failed 10 Node-host stderr checks on Node's
+color warning only. Those tests pass with `FORCE_COLOR` unset. No live
+provider, install, upgrade, or release.
+## 2026-10-16 — Resilient logical turns and compact skill discovery
+
+Scope: SOV SDK logical-turn supervision, native headless recovery, durable
+SQLite/in-memory turn state and leases, receipt safety, cumulative limits,
+continuation wire events, skill catalog projections, migrations and current
+native recovery/compaction compatibility.
+
+Clean isolated macOS worktree with Bun 1.3.13. `bun run lint` and
+`bun run typecheck` pass. Complete `bun run test`: **6525 pass / 19 existing
+skips / 0 fail**, 28909 assertions across 623 files, 171.19 seconds. After the
+final task-progress fingerprint addition, lint and typecheck pass again. The
+focused final command covering 12 logical-turn, native CLI, persistence,
+migration, skill catalog and SDK surface files reports **155 pass / 0 fail**,
+1323 assertions. No live provider, install, upgrade, release or deployment ran.
+
 ## 2026-10-15 — Verify public SDK0.16.2/SOV0.6.82 and open successor
 
 All8 public files match frozen sizes/SHA256 and checksum sets. Exact source d1af49f5, SDK contents, all5 platform metadata and both downloaded Mac versions/strict signatures pass. Archived publication proof retains release timestamp, source, frozen snapshot/hash and live locations. Next empty draft SDK0.16.3/SOV0.6.83 resets every derived cut field. Record merge preserves published source ancestry. No npm publication or consumer deployment/restart. Consumer pins and safe public-binary update follow verified archive commit. Completion gate remains executable-source identical; source6516tests/19existing skips/0fail,28827assertions622files331.42s and lint/types pass.

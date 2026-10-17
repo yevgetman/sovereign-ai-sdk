@@ -85,6 +85,49 @@ function capture() {
   };
 }
 const opts = { json: true, stdin: true, route: 'openai-api', inputFormat: 'json', toolset: 'chat' };
+
+test('prompt-free continuation reuses a completed logical turn without provider work', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply: AssistantMessage = {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'durable answer' }],
+      };
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider);
+  const first = capture();
+  expect(await runSdkRunCommand(opts, first.io, f.deps)).toBe(0);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const second = capture();
+  let read = false;
+  expect(
+    await runSdkRunCommand(
+      { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+      {
+        ...second.io,
+        readStdin: async () => {
+          read = true;
+          return 'replacement';
+        },
+      },
+      f.deps,
+    ),
+  ).toBe(0);
+  expect(read).toBe(false);
+  expect(calls).toBe(1);
+  expect(second.events.at(-1)).toMatchObject({
+    type: 'turn.completed',
+    logicalTurnId,
+    reply: 'durable answer',
+  });
+});
+
 for (const requested of [undefined, 'default', 'ask', 'bypass'] as const) {
   test(`native configured bypass: ${requested ?? 'omitted'} has audited mode and tool rights`, async () => {
     let calls = 0;

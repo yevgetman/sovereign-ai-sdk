@@ -94,7 +94,7 @@ Body
         sessionId: 'session-multi',
         skills,
       };
-      const result = await SkillsListTool.call({}, ctx);
+      const result = await SkillsListTool.call({ detail: 'activation' }, ctx);
       const multi = result.data.skills.find((s) => s.name === 'multi');
       const single = result.data.skills.find((s) => s.name === 'single');
       expect(Array.isArray(multi?.whenToUse)).toBe(true);

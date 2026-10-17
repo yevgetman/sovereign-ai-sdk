@@ -6,17 +6,21 @@ import { splitWhenToUseTriggers } from './whenToUse.js';
 
 export type SkillCatalogEntry = {
   name: string;
-  description: string;
-  whenToUse: string | string[];
+  description?: string;
+  whenToUse?: string | string[];
   metadataTruncated?: boolean;
   /** Oversized identities are delivered as ordered fragments, never omitted. */
   nameFragment?: { offset: number; complete: boolean; totalBytes: number };
 };
+export type SkillCatalogDetail = 'names' | 'summary' | 'activation';
 export type SkillCatalogPage = {
   generation: string;
   skills: SkillCatalogEntry[];
   total: number;
+  returned: number;
+  remaining: number;
   truncated: boolean;
+  detail: SkillCatalogDetail;
   nextCursor?: string;
   query?: string;
   /** Explicit recovery when a host has exhausted the available context. */
@@ -49,8 +53,16 @@ export function skillCatalogGeneration(
     .slice(0, 24);
 }
 
-function entry(skill: Skill, bytes: number): SkillCatalogEntry {
+function entry(skill: Skill, bytes: number, detail: SkillCatalogDetail): SkillCatalogEntry {
+  if (detail === 'names') return { name: skill.name };
   const description = clipSkillText(skill.description, Math.max(0, Math.floor(bytes / 2)));
+  if (detail === 'summary') {
+    return {
+      name: skill.name,
+      description: description.text,
+      ...(description.clipped ? { metadataTruncated: true } : {}),
+    };
+  }
   const trigger = clipSkillText(skill.whenToUse, Math.max(0, Math.floor(bytes / 2)));
   const triggers = splitWhenToUseTriggers(trigger.text);
   return {
@@ -61,10 +73,58 @@ function entry(skill: Skill, bytes: number): SkillCatalogEntry {
   };
 }
 
-type Cursor = { v: 1; generation: string; query: string; offset: number; nameOffset?: number };
+type Cursor = {
+  v: 1;
+  generation: string;
+  query: string;
+  offset: number;
+  nameOffset?: number;
+  detail?: SkillCatalogDetail;
+};
 function encodeCursor(cursor: Cursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString('base64url');
 }
+const ORDINARY_NAME_BYTES = 64;
+const NAMES_PAGE_LIMIT = 100;
+
+// A names page has to carry the tool's maximum page of ordinary identities
+// plus its continuation cursor. Summary and activation stay on pageTokens.
+function ordinaryNamesPageBytes(): number {
+  const name = 'n'.repeat(ORDINARY_NAME_BYTES);
+  const skills = Array.from({ length: NAMES_PAGE_LIMIT }, () => ({ name }));
+  const generation = 'f'.repeat(24);
+  const nextCursor = encodeCursor({
+    v: 1,
+    generation,
+    query: '',
+    offset: NAMES_PAGE_LIMIT,
+    detail: 'names',
+  });
+  const pending = {
+    generation,
+    skills,
+    total: NAMES_PAGE_LIMIT + 1,
+    returned: 0,
+    remaining: NAMES_PAGE_LIMIT + 1,
+    truncated: true,
+    detail: 'names' as const,
+    nextCursor,
+  };
+  const issued = { ...pending, returned: NAMES_PAGE_LIMIT, remaining: 1 };
+  return Math.max(
+    skillTextTokenBound(JSON.stringify(pending)),
+    skillTextTokenBound(JSON.stringify(issued)),
+  );
+}
+
+const NAMES_PAGE_BYTES = ordinaryNamesPageBytes();
+
+function namesPageByteCap(budget: SkillContextBudget): number {
+  const available = budget.availableTokens;
+  if (!Number.isSafeInteger(available) || available < 0) return budget.pageTokens;
+  return Math.min(available, Math.max(budget.pageTokens, NAMES_PAGE_BYTES));
+}
+
 function decodeCursor(value: string): Cursor {
   if (value.length > 2_048) throw new Error('skill catalog cursor is invalid; restart enumeration');
   try {
@@ -73,6 +133,8 @@ function decodeCursor(value: string): Cursor {
       cursor.v !== 1 ||
       typeof cursor.generation !== 'string' ||
       typeof cursor.query !== 'string' ||
+      (cursor.detail !== undefined &&
+        !['names', 'summary', 'activation'].includes(cursor.detail)) ||
       !Number.isSafeInteger(cursor.offset) ||
       cursor.offset < 0 ||
       (cursor.nameOffset !== undefined &&
@@ -93,11 +155,13 @@ export function listSkillCatalog(
     cursor?: string;
     limit?: number;
     budget?: SkillContextBudget;
+    detail?: SkillCatalogDetail;
   } = {},
 ): SkillCatalogPage {
   if ((options.query?.length ?? 0) > 256)
     throw new Error('skill catalog query must not exceed 256 characters');
   const query = options.query?.trim().toLowerCase() ?? '';
+  const detail = options.detail ?? 'activation';
   if (query.length > 256) throw new Error('skill catalog query must not exceed 256 characters');
   const sorted = ordered(skills);
   const generation = skillCatalogGeneration(sorted, options.generation);
@@ -107,7 +171,12 @@ export function listSkillCatalog(
       [skill.name, skill.description, skill.whenToUse].join('\n').toLowerCase().includes(query),
   );
   const cursor = options.cursor ? decodeCursor(options.cursor) : undefined;
-  if (cursor && (cursor.generation !== generation || cursor.query !== query))
+  if (
+    cursor &&
+    (cursor.generation !== generation ||
+      cursor.query !== query ||
+      (cursor.detail ?? 'activation') !== detail)
+  )
     throw new Error(
       'skill catalog changed or cursor query differs; restart enumeration without cursor',
     );
@@ -117,14 +186,18 @@ export function listSkillCatalog(
   const limit = options.limit ?? 25;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
     throw new Error('skill catalog limit must be an integer from 1 to 100');
-  const byteCap = (options.budget ?? resolveSkillContextBudget()).pageTokens;
+  const budget = options.budget ?? resolveSkillContextBudget();
+  const byteCap = detail === 'names' ? namesPageByteCap(budget) : budget.pageTokens;
   if (!Number.isSafeInteger(byteCap) || byteCap < 0)
     throw new Error('skill page budget must be a nonnegative safe integer');
   const page: SkillCatalogPage = {
     generation,
     skills: [],
     total: candidates.length,
+    returned: 0,
+    remaining: candidates.length - start,
     truncated: false,
+    detail,
     ...(options.query !== undefined ? { query: options.query } : {}),
   };
   if (options.query !== undefined && skillTextTokenBound(JSON.stringify(page)) > byteCap)
@@ -144,6 +217,7 @@ export function listSkillCatalog(
                 generation,
                 query,
                 offset: next,
+                detail,
                 ...(nextNameOffset > 0 ? { nameOffset: nextNameOffset } : {}),
               }),
             }
@@ -155,24 +229,25 @@ export function listSkillCatalog(
     if (!skill) break;
     if (nameOffset > skill.name.length)
       throw new Error('skill catalog cursor identity offset is out of range');
-    let listed = entry(skill, 512);
+    let listed = entry(skill, 512, detail);
     while (
       withContinuation(listed, index + 1) > byteCap &&
-      (listed.description.length > 0 ||
+      ((listed.description?.length ?? 0) > 0 ||
         (Array.isArray(listed.whenToUse)
           ? listed.whenToUse.join('').length
-          : listed.whenToUse.length) > 0)
+          : (listed.whenToUse?.length ?? 0)) > 0)
     ) {
       listed = entry(
         skill,
         Math.max(
           0,
           Math.floor(
-            (skillTextTokenBound(listed.description) +
+            (skillTextTokenBound(listed.description ?? '') +
               skillTextTokenBound(JSON.stringify(listed.whenToUse))) /
               2,
           ) - 16,
         ),
+        detail,
       );
     }
     if (nameOffset > 0 || withContinuation(listed, index + 1) > byteCap) {
@@ -231,12 +306,15 @@ export function listSkillCatalog(
     nameOffset = 0;
   }
   page.truncated = index < candidates.length;
+  page.returned = page.skills.length;
+  page.remaining = Math.max(0, candidates.length - index);
   if (page.truncated && !page.budgetExhausted)
     page.nextCursor = encodeCursor({
       v: 1,
       generation,
       query,
       offset: index,
+      detail,
       ...(nameOffset > 0 ? { nameOffset } : {}),
     });
   return page;
@@ -267,7 +345,7 @@ export function buildSkillCatalogIndex(
   const lines: string[] = [];
   // A partial index can bias selection toward the first names. Large catalogs
   // therefore get a searchable fallback, never an arbitrary first-N default.
-  for (const skill of sorted) lines.push(JSON.stringify(entry(skill, 256)));
+  for (const skill of sorted) lines.push(JSON.stringify(entry(skill, 256, 'activation')));
   const status = `Generation ${generation}; ${sorted.length} enabled skills.`;
   const full = `${head}${status}\n${lines.join('\n')}${tail}`;
   const complete = skillTextTokenBound(full) <= budget.indexTokens;

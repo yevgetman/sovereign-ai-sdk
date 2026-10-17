@@ -1,3 +1,4 @@
+import { rememberLogicalSegmentStop } from '../agent/logicalTurn.js';
 import { isOwnerSubscriptionModel } from '../providers/models/ownerModelPolicy.js';
 // The turn loop — async generator yielding typed events. Phase 2: wraps
 // the Phase-1 single-turn body in a while-loop. When the assistant
@@ -29,7 +30,10 @@ import {
 } from '../compact/microcompact.js';
 import { LoopDetectorState } from '../loop/detector.js';
 import { toToolSchemas } from '../mcp/schemaSerialization.js';
-import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
+import {
+  injectMemoryIntoLatestUserMessage,
+  injectMemoryIntoUserText,
+} from '../memory/injection.js';
 import {
   PersistBeforeRunError,
   ToolStorageError,
@@ -73,9 +77,23 @@ import type {
   StreamEvent,
   Terminal,
   TokenUsage,
+  UserMessage,
 } from './types.js';
 
 const DEFAULT_MAX_TURNS = 100;
+
+type DeferredLogicalStop = { fire?: () => Promise<void> };
+
+const logicalStops = new WeakMap<Terminal, () => Promise<void>>();
+
+/** Stop hook deferred by one logical-turn segment. Absent when that segment fired nothing. */
+export function logicalSegmentStop(terminal: Terminal): (() => Promise<void>) | undefined {
+  return logicalStops.get(terminal);
+}
+
+function bindDeferredLogicalStop(terminal: Terminal, deferred: DeferredLogicalStop): void {
+  if (deferred.fire) logicalStops.set(terminal, deferred.fire);
+}
 
 // The TokenUsage fields carried by usage_delta events. Mirrors the
 // usageAccumulator's field list (kept local — the boundary forbids importing
@@ -142,8 +160,13 @@ function flattenContentBlock(block: unknown): string {
 
 /** Run one user turn, including provider streaming and tool-use continuation turns. */
 export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | Message, Terminal> {
+  const deferred: DeferredLogicalStop = {};
   const continuity = params.toolContext?.skillContinuity;
-  if (!continuity) return yield* queryInternal(params);
+  if (!continuity) {
+    const terminal = yield* queryInternal(params, deferred);
+    bindDeferredLogicalStop(terminal, deferred);
+    return terminal;
+  }
   const context = params.toolContext;
   if (
     !context ||
@@ -164,10 +187,14 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   let terminal: Terminal | undefined;
   let failed = false;
   try {
-    terminal = yield* queryInternal({
-      ...params,
-      toolContext: { ...context, skillActivation: state },
-    });
+    terminal = yield* queryInternal(
+      {
+        ...params,
+        toolContext: { ...context, skillActivation: state },
+      },
+      deferred,
+    );
+    bindDeferredLogicalStop(terminal, deferred);
     return terminal;
   } catch (error) {
     failed = true;
@@ -190,6 +217,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
 
 async function* queryInternal(
   params: QueryParams,
+  deferred: DeferredLogicalStop,
 ): AsyncGenerator<StreamEvent | Message, Terminal> {
   const modelMetadata = params.modelMetadata ? structuredClone(params.modelMetadata) : undefined;
   // Publisher limits are snapshotted once. Host caps never expand them.
@@ -331,14 +359,20 @@ async function* queryInternal(
   // Phase 13.3 — sliding window of TurnSummary records for stall detection.
   const recentTurnSummaries: TurnSummary[] = [];
   const originalUserText = latestUserText(messages);
-  let history: Message[] = params.memoryManager
-    ? await injectMemoryIntoLatestUserMessage(messages, params.memoryManager)
-    : [...messages];
+  // The host stores the original user message and rehydrates it on the next
+  // segment, so the fence has to be applied again in this copy. Recall and
+  // user-turn hooks stay skipped. An existing fence is not copied again.
+  let history = [...messages];
+  if (params.memoryManager) {
+    history = params.continuation
+      ? await reinjectMemoryFence(history, params.memoryManager)
+      : await injectMemoryIntoLatestUserMessage(history, params.memoryManager);
+  }
 
   // Learning loop (Recall): after memory injection, prepend recalled lessons to
   // the latest user message. Optional thunk bound by the host; query() stays
   // project-agnostic. Empty injectionText leaves history unchanged (same ref).
-  if (params.recall) {
+  if (!params.continuation && params.recall) {
     const recalled = await params.recall(originalUserText);
     history = injectRecallIntoLatestUserMessage(history, recalled.injectionText);
   }
@@ -354,7 +388,7 @@ async function* queryInternal(
 
   // UserPromptSubmit: runs once before turn 0. A hook can deny (terminating
   // immediately) or rewrite the prompt text in the latest user message.
-  if (hookRunner && sessionId && cwd && originalUserText !== undefined) {
+  if (!params.continuation && hookRunner && sessionId && cwd && originalUserText !== undefined) {
     const result = await hookRunner(
       'UserPromptSubmit',
       {
@@ -366,11 +400,13 @@ async function* queryInternal(
       signal,
     );
     if (result.block) {
+      const error = new Error(result.reason ?? 'prompt rejected by UserPromptSubmit hook');
+      error.name = 'UserTurnPolicyError';
       const terminal: Terminal = {
         reason: 'error',
-        error: new Error(result.reason ?? 'prompt rejected by UserPromptSubmit hook'),
+        error,
       };
-      await fireStopHook(hookRunner, sessionId, cwd, terminal.reason, signal);
+      await maybeFireStop(terminal.reason);
       return terminal;
     }
     if (typeof result.rewrittenPrompt === 'string') {
@@ -409,7 +445,7 @@ async function* queryInternal(
   const conduct = params.conduct;
   const conductCtx = params.conductCtx;
   const emitConductAudit = wrapConductAuditSink(conduct?.auditSink?.bind(conduct));
-  if (conduct?.preGate && conductCtx && conductCtx.surface === 'user') {
+  if (!params.continuation && conduct?.preGate && conductCtx && conductCtx.surface === 'user') {
     const gateText = latestUserText(history);
     if (gateText !== undefined) {
       // Gate-input capture (attestation evidence §3.4): hand the EXACT text the
@@ -444,9 +480,11 @@ async function* queryInternal(
             await maybeFireStop('completed');
             return refusal;
           }
+          const error = new Error('prompt rejected by conduct preGate');
+          error.name = 'UserTurnPolicyError';
           const terminal: Terminal = {
             reason: 'error',
-            error: new Error('prompt rejected by conduct preGate'),
+            error,
           };
           await maybeFireStop(terminal.reason);
           return terminal;
@@ -471,7 +509,7 @@ async function* queryInternal(
   // posture-shaping, FAIL-OPEN by design; 'refuse' short-circuits pre-model
   // into a refusal reply. Non-refuse postures are advisory in 1b (audited;
   // the engine consumes them when it arrives).
-  if (conduct?.triage && conductCtx && conductCtx.surface === 'user') {
+  if (!params.continuation && conduct?.triage && conductCtx && conductCtx.surface === 'user') {
     const triageText = latestUserText(history);
     if (triageText !== undefined) {
       const startedAt = Date.now();
@@ -508,9 +546,22 @@ async function* queryInternal(
   }
 
   async function maybeFireStop(reason: Terminal['reason']): Promise<void> {
-    if (hookRunner && sessionId && cwd) {
-      await fireStopHook(hookRunner, sessionId, cwd, reason, signal);
+    if (!hookRunner || !sessionId || !cwd) return;
+    if (params.logicalTurn) {
+      // The supervisor fires one Stop at the logical terminal. A retry or
+      // continuation must not observe this segment as an ending. The work
+      // signal is often already aborted (deadline) when that closure runs;
+      // binding Stop to it skips the command. The host may also drop the
+      // returned terminal on that abort, so the lease binding keeps the closure.
+      deferred.fire = () => {
+        if (signal && !signal.aborted)
+          return fireStopHook(hookRunner, sessionId, cwd, reason, signal);
+        return fireStopHook(hookRunner, sessionId, cwd, reason);
+      };
+      rememberLogicalSegmentStop(deferred.fire);
+      return;
     }
+    await fireStopHook(hookRunner, sessionId, cwd, reason, signal);
   }
 
   const accountingPort = params.inputTokenAccounting ?? modelInputTokenAccounting(provider.name);
@@ -598,7 +649,7 @@ async function* queryInternal(
   const requestHistory = (): Message[] => {
     if (!retainedSkillGuidance) return history;
     const copy = history.slice();
-    let index = copy.findLastIndex((message) => message.role === 'user');
+    let index = copy.findLastIndex((message) => isHumanUserMessage(message));
     if (index < 0) {
       copy.unshift({ role: 'user', content: [] });
       index = 0;
@@ -981,10 +1032,7 @@ async function* queryInternal(
     if (stopReason === 'max_tokens') {
       if (toolUseBlocks.length > 0) {
         const msg = consumeGuidance(
-          synthesizeToolResultMessage(
-            toolUseBlocks,
-            'tool call was not executed because the assistant response hit max_tokens before completing the turn',
-          ),
+          synthesizeToolResultMessage(toolUseBlocks, AMBIGUOUS_MAX_TOKENS_TOOL_NOTE),
         );
         history.push(msg);
         yield msg;
@@ -1269,6 +1317,9 @@ async function* queryInternal(
         params.maxToolCallsBeforeCheckin !== undefined &&
         totalToolCallCount >= params.maxToolCallsBeforeCheckin
       ) {
+        // A supervised check-in is waiting_user, so Stop waits for that
+        // terminal. An unsupervised pause stays a segment boundary.
+        if (params.logicalTurn) await maybeFireStop('checkin');
         return { reason: 'checkin', toolCallCount: totalToolCallCount };
       }
     } catch (err) {
@@ -1336,10 +1387,46 @@ async function fireStopHook(
   }
 }
 
+/** Reapply the memory fence to the original user message after rehydration.
+ *  Tool-result tails have no user text, so they are skipped. The caller's
+ *  messages are not mutated, and a fence that is already present is left as-is. */
+async function reinjectMemoryFence(
+  messages: Message[],
+  memory: { prefetchSnapshot(userMsg: string): Promise<string> },
+): Promise<Message[]> {
+  const history = [...messages];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    if (!isHumanUserMessage(msg)) continue;
+    if (msg.content.some((block) => block.type === 'tool_result')) continue;
+    const textIndex = msg.content.findIndex((block) => block.type === 'text');
+    const block = msg.content[textIndex];
+    if (!block || block.type !== 'text') continue;
+    const snapshot = await memory.prefetchSnapshot(block.text);
+    const trimmed = snapshot.trim();
+    // A changed snapshot must not stack a second fence onto user text that
+    // already has one. The caller's stored message stays untouched.
+    if (
+      !trimmed ||
+      block.text.includes(trimmed) ||
+      (trimmed.includes('<memory-context>') && block.text.includes('<memory-context>'))
+    ) {
+      return history;
+    }
+    const next = injectMemoryIntoUserText(block.text, snapshot);
+    if (next === block.text) return history;
+    const content = [...msg.content];
+    content[textIndex] = { type: 'text', text: next };
+    history[i] = { ...msg, content };
+    return history;
+  }
+  return history;
+}
+
 function rewriteLatestUserText(messages: Message[], next: string): Message[] {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (!message || message.role !== 'user') continue;
+    if (!isHumanUserMessage(message)) continue;
     const idx = message.content.findIndex((block) => block.type === 'text');
     if (idx === -1) continue;
     const updatedContent = message.content.slice();
@@ -1359,7 +1446,7 @@ function rewriteLatestUserText(messages: Message[], next: string): Message[] {
 function extractInjectedPrefix(messages: Message[], originalUserText: string): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (!message || message.role !== 'user') continue;
+    if (!isHumanUserMessage(message)) continue;
     const block = message.content.find((b) => b.type === 'text');
     if (!block || block.type !== 'text') return '';
     if (block.text === originalUserText) return '';
@@ -1371,10 +1458,18 @@ function extractInjectedPrefix(messages: Message[], originalUserText: string): s
   return '';
 }
 
+/** A truncated tool call is not a request to guess. The note is the synthetic result. */
+export const AMBIGUOUS_MAX_TOKENS_TOOL_NOTE =
+  'tool call was not executed because the assistant response hit max_tokens before completing the turn';
+
+function isHumanUserMessage(message: Message | undefined): message is UserMessage {
+  return message?.role === 'user' && message.origin !== 'runtime';
+}
+
 function latestUserText(messages: Message[]): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (!message || message.role !== 'user') continue;
+    if (!isHumanUserMessage(message)) continue;
     const text = message.content.find((block) => block.type === 'text');
     return text?.type === 'text' ? text.text : undefined;
   }

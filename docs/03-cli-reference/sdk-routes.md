@@ -243,9 +243,12 @@ provider and tools and emit a typed terminal failure. Cleanup has a bounded wait
 The native host uses the selected model's frozen context/output limits, scoped
 tool schemas and effective system prompt to check the configured proactive
 threshold. It compacts before a drive when reducible history reaches that limit.
-A provider overflow may then cause one independent compact-and-retry. A second
-overflow is a typed `context_overflow` failure. A no-op compaction does not retry
-an unchanged request. If the fixed system/tool schemas or mandatory retained
+A provider overflow may then cause one compact-and-retry, independent of an
+earlier proactive compaction. The abandoned drive and the summary call are
+charged before that retry, and the retry's max turns are the logical model
+calls still remaining. No retry starts when none remain. A second overflow is
+a typed `context_overflow` failure. A no-op compaction does not retry an
+unchanged request. If the fixed system/tool schemas or mandatory retained
 tail cannot fit, the host refuses before paid summary work or a child pivot.
 Capability refusal precedes paid summarization. The summary request carries the
 same selected effort and frozen model evidence, and must fit that model's actual
@@ -282,21 +285,46 @@ layered settings and user configuration cascade. Headless permission requests
 are denied because this surface has no interactive approver.
 
 Each recognized request ends with exactly one `turn.completed` or `turn.error`.
-Completion contains `reply`, `sessionId`, `activeSessionId`, `finishReason` and route metadata.
-Only the SDK's `completed` reason emits `turn.completed` and exits zero. A
-`max_tokens`, `max_turns`, or `checkin` stop emits `turn.error` with
-`outcome: "needs_continuation"`, `code: "needs_continuation"`, `continuationCause`,
-a safe `nextAction`, and exit3. A partial `reply` can be present. It is not a
-finished answer. Cancellation emits `outcome: "interrupted"` and reason
-`cancelled` or `deadline`; other errors emit `outcome: "failed"`.
+Completion contains `reply`, `sessionId`, `activeSessionId`, `logicalTurnId`,
+`finishReason`, cumulative counters and route metadata. `session.started`
+advertises `capabilities.logicalTurnRecovery`. A bounded segment that ends at
+`max_tokens` or `max_turns` emits `turn.continuing`, reloads durable state and
+continues without replaying the original prompt. The toolset segment defaults
+are chat 1, web 6, ops 8 and coding 100 model calls. The logical-turn default is
+100 model calls. `--deadline-ms` covers the complete logical turn, and
+`--continue-logical-turn` aborts at the stored deadline when this invocation
+omits `--deadline-ms`, including a tool that is still blocked.
+
+A deliberate `checkin` emits `turn.completed` with `outcome: "waiting_user"`.
+Exhaustion, two unchanged progress fingerprints, unsafe receipts and invalid
+recovery state emit `turn.error` with `continuation_exhausted`,
+`continuation_stalled`, `recovery_unsafe` or `recovery_state_invalid`. Use
+`--continue-logical-turn <id>` with `--sdk --json` to continue stored work
+without a replacement prompt. A live owner keeps a short lease, so a second
+continuation does not run tools or start another worker. While that lease is
+unexpired the event is `logical_turn_leased` with `recoverable: true`,
+`nextAction: "continue_logical_turn"`, and `retryAfterMs` set to the time left
+on the lease. It is not `nextAction: "none"`. The message says a live owner is
+busy and a crashed owner can be continued after the lease expires. After a
+crash the lease expires in about 30 seconds, and the same id is accepted only
+when receipt recovery is safe.
+Route, model, effort, toolset, permissions, working directory and bundle
+identity stay bound to the stored record.
+Cancellation emits `outcome: "interrupted"`. Exhaustion and a deadline emit
+`outcome: "exhausted"`. A repeated no-progress fingerprint emits
+`outcome: "stalled"`. `finishReason` is `repeated:<action>`, naming the
+terminal cause or the single repeated tool. One unchanged continuation is
+not a stall. A new transcript row, pagination cursor, or compaction child
+is progress. Other errors emit `outcome: "failed"`.
 
 Native runs opt in to committing approved completed assistant messages before
 exposing them. A cooperative cancelled drive gets at most one second to settle
 its messages, tool receipts and usage before its terminal result. Stream teardown
 then keeps its existing bounded wait. Automatic recovery requires an existing
-session with a durable user message and coherent tool receipts. Unknown or
-in-flight tool effects, an unsettled drive, missing session, or storage failure
-set `recoverable: false`. Failed final storage verification also refuses completed
+session with a durable user message and coherent tool receipts. Completed
+receipts are reused. `started` or `unknown` effects stop recovery before paid
+work. An unsettled drive, missing session, or storage failure sets
+`recoverable: false`. Failed final storage verification also refuses completed
 success and keeps the completed canonical rows and observed usage for inspection.
 Safe pre-session interruptions, rate limits and transient token-service failures
 report `nextAction: "retry"`. A malformed token-service response reports
@@ -352,9 +380,37 @@ keep their existing typed errors and do not retry. Native `turn.error` events re
 the fixed `deliveryPhase` and `deliveryReason` fields; incomplete delivery reports
 `recoverable: false`.
 
-Exit codes are 0 for completion, 1 for turn failure, 2 for invalid input/options,
-130 for SIGINT and 143 for SIGTERM. A Grok 403 reports `tier_blocked` and never
-switches to a paid API key.
+Exit codes are 0 for completion (including `waiting_user` and a completed
+continuation), 1 for a turn failure that is not a logical-turn stop, 2 for
+invalid input or options, 3 for a logical-turn stop, 130 for SIGINT and 143
+for SIGTERM. Exit 3 is no longer `needs_continuation`. A `max_tokens` or
+`max_turns` segment emits `turn.continuing` and stays in the same process. A
+`checkin` completes with `waiting_user` and exits 0. Do not start another
+prompt on exit 3. That code used to mean the partial answer needed another
+turn. It now means the logical turn has stopped.
+
+These logical-turn stops all return 3. A deadline returns 3
+(`continuation_exhausted`, reason `deadline`), including a deadline that
+aborts the launch and a later `--continue-logical-turn` of that exhausted
+record. A model-call cap returns 3 (`continuation_exhausted`, reason
+`model_call_limit`), both when the running turn reaches the cap and when a
+continuation is asked to resume it. A lease conflict returns 3
+(`logical_turn_leased`) while another owner holds the turn. That stop is
+recoverable: wait `retryAfterMs`, then continue the same id. It does not use
+`nextAction: "none"`. A cancelled continuation
+returns 3: `--continue-logical-turn` of a stored cancelled id is
+`recovery_state_invalid` and does not call the model. An in-process cancel
+is still SIGINT 130 or SIGTERM 143, not 3. A stall returns 3
+(`continuation_stalled`), including resume of a stored stall. Invalid
+recovery state returns 3 (`recovery_state_invalid`) for a skill-approval
+mismatch, an MCP identity mismatch, a working-directory or permission-policy
+mismatch, any other bound route, provider, auth, model, effort, toolset,
+permission mode, or bundle mismatch, and a corrupt logical-turn record.
+Unsafe recovery returns 3 (`recovery_unsafe`) when the stored session has no
+usable receipt target. Any other failed logical result returns the same 3
+when its status is not `completed` or `waiting_user` and it is not rethrown
+as an interrupt or a provider failure. A Grok 403 reports `tier_blocked`
+and never switches to a paid API key.
 
 ## Verification limits
 

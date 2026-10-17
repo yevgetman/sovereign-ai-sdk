@@ -25,6 +25,12 @@ import { Database, SQLiteError } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import {
+  LogicalTurnLeaseError,
+  type LogicalTurnRecord,
+  type LogicalTurnStore,
+  assertLogicalTurnWriteLease,
+} from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import type {
   CreateSessionInput,
@@ -38,6 +44,16 @@ import type { ContentBlock, SystemSegment, TokenUsage } from '@yevgetman/sov-sdk
 import type { SessionStore, ToolExecution } from '@yevgetman/sov-sdk/persistence/sessionStore';
 import { type CostEstimate, estimateUsageCost } from '@yevgetman/sov-sdk/providers/pricing';
 
+/** The row exists, but its JSON is not a logical-turn record. */
+export class LogicalTurnRecordError extends Error {
+  readonly code = 'recovery_state_invalid' as const;
+
+  constructor() {
+    super('logical turn recovery state is invalid');
+    this.name = 'LogicalTurnRecordError';
+  }
+}
+
 /** Default DB path. Resolved at call time so a profile-aware
  *  HARNESS_HOME (set by `sov -p name` before imports) lands the DB
  *  under the right profile root. Phase 10.7 — Invariant #11. */
@@ -50,11 +66,21 @@ export function getDefaultDbPath(): string {
  *  back-compat shim for tests that reference it directly. */
 export const DEFAULT_DB_PATH = join(resolveHarnessHome(), 'sessions.db');
 
-const CURRENT_SCHEMA_VERSION = 8;
+const CURRENT_SCHEMA_VERSION = 9;
 
 type Migration = { from: number; to: number; sql: string };
 
 const MIGRATIONS: Migration[] = [
+  {
+    from: 8,
+    to: 9,
+    sql: `CREATE TABLE IF NOT EXISTS logical_turns (
+      logical_turn_id TEXT PRIMARY KEY,
+      record TEXT NOT NULL,
+      lease_owner TEXT,
+      lease_expires_at REAL
+    );`,
+  },
   {
     from: 7,
     to: 8,
@@ -265,7 +291,7 @@ export type SearchOpts = {
 // The admin/search/routing/cleanup surface and the raw `handle` getter stay on
 // the concrete class, off the port. The `implements` clause makes a future drift
 // (a port method's signature changing on SessionDb) a typecheck failure.
-export class SessionDb implements SessionStore {
+export class SessionDb implements SessionStore, LogicalTurnStore {
   private writeCount = 0;
 
   constructor(private readonly db: Database) {}
@@ -297,6 +323,89 @@ export class SessionDb implements SessionStore {
 
   close(): void {
     this.db.close();
+  }
+
+  createLogicalTurn(record: LogicalTurnRecord): void {
+    this.writeWithRetry(() =>
+      this.db.run('INSERT INTO logical_turns (logical_turn_id, record) VALUES (?, ?)', [
+        record.logicalTurnId,
+        JSON.stringify(record),
+      ]),
+    );
+  }
+
+  loadLogicalTurn(logicalTurnId: string): LogicalTurnRecord | null {
+    const row = this.db
+      .query<{ record: string }, [string]>(
+        'SELECT record FROM logical_turns WHERE logical_turn_id = ?',
+      )
+      .get(logicalTurnId);
+    // A missing row stays null. Corrupt JSON is invalid recovery state, not a provider failure.
+    if (!row) return null;
+    return parseLogicalTurnRecord(row.record, logicalTurnId);
+  }
+
+  saveLogicalTurn(record: LogicalTurnRecord, owner: string): void {
+    const changes = this.writeWithRetry(
+      () =>
+        this.db.run(
+          'UPDATE logical_turns SET record = ? WHERE logical_turn_id = ? AND lease_owner = ?',
+          [JSON.stringify(record), record.logicalTurnId, owner],
+        ).changes ?? 0,
+    );
+    if (changes === 1) return;
+    const existing = this.db
+      .query<{ logical_turn_id: string }, [string]>(
+        'SELECT logical_turn_id FROM logical_turns WHERE logical_turn_id = ?',
+      )
+      .get(record.logicalTurnId);
+    if (!existing) throw new Error('logical turn does not exist');
+    throw new LogicalTurnLeaseError();
+  }
+
+  readLogicalTurnLease(id: string): { owner: string | null; expiresAt: number | null } | null {
+    const row = this.db
+      .query<{ lease_owner: string | null; lease_expires_at: number | null }, [string]>(
+        'SELECT lease_owner, lease_expires_at FROM logical_turns WHERE logical_turn_id = ?',
+      )
+      .get(id);
+    if (!row) return null;
+    return { owner: row.lease_owner, expiresAt: row.lease_expires_at };
+  }
+
+  acquireLogicalTurnLease(id: string, owner: string, expiresAt: number, now: number): boolean {
+    const changes = this.writeWithRetry(
+      () =>
+        this.db.run(
+          `UPDATE logical_turns SET lease_owner = ?, lease_expires_at = ?
+           WHERE logical_turn_id = ? AND
+             (lease_owner IS NULL OR lease_owner = ? OR lease_expires_at <= ?)`,
+          [owner, expiresAt, id, owner, now],
+        ).changes ?? 0,
+    );
+    return changes === 1;
+  }
+
+  renewLogicalTurnLease(id: string, owner: string, expiresAt: number): boolean {
+    const changes = this.writeWithRetry(
+      () =>
+        this.db.run(
+          `UPDATE logical_turns SET lease_owner = ?, lease_expires_at = ?
+           WHERE logical_turn_id = ? AND lease_owner = ?`,
+          [owner, expiresAt, id, owner],
+        ).changes ?? 0,
+    );
+    return changes === 1;
+  }
+
+  releaseLogicalTurnLease(id: string, owner: string): void {
+    this.writeWithRetry(() =>
+      this.db.run(
+        `UPDATE logical_turns SET lease_owner = NULL, lease_expires_at = NULL
+         WHERE logical_turn_id = ? AND lease_owner = ?`,
+        [id, owner],
+      ),
+    );
   }
 
   /** Phase 13.3 follow-up — delete phantom review-fork session rows.
@@ -644,6 +753,7 @@ export class SessionDb implements SessionStore {
   }
 
   saveMessage(sessionId: string, msg: SaveMessageInput): number {
+    assertLogicalTurnWriteLease();
     const now = Date.now() / 1000;
     const contentJson = JSON.stringify(msg.content);
     const toolCallsJson = msg.toolCalls !== undefined ? JSON.stringify(msg.toolCalls) : null;
@@ -682,6 +792,7 @@ export class SessionDb implements SessionStore {
   /** Keep the first `keep` messages and drop the rest. The messages DELETE
    *  trigger keeps the search index in step. */
   saveToolExecution(sessionId: string, execution: ToolExecution): void {
+    assertLogicalTurnWriteLease();
     this.writeWithRetry(() => {
       this.db.run(
         `INSERT INTO tool_executions (session_id, assistant_message_id, tool_use_id, state, receipt)
@@ -709,6 +820,7 @@ export class SessionDb implements SessionStore {
   }
 
   truncateMessages(sessionId: string, keep: number): void {
+    assertLogicalTurnWriteLease();
     const retain = keep > 0 ? Math.floor(keep) : 0;
     this.writeWithRetry(() => {
       this.db.run(
@@ -1115,6 +1227,115 @@ export class SessionDb implements SessionStore {
     }
     throw new Error('unreachable');
   }
+}
+
+const LOGICAL_TURN_STATUSES = new Set<string>([
+  'admitted',
+  'running',
+  'continuing',
+  'completed',
+  'waiting_user',
+  'cancelled',
+  'failed',
+  'exhausted',
+  'stalled',
+]);
+
+const LOGICAL_TURN_COUNTERS = [
+  'segments',
+  'modelCalls',
+  'toolCalls',
+  'providerRetries',
+  'contextRecoveries',
+  'inputTokens',
+  'outputTokens',
+  'cacheCreationInputTokens',
+  'cacheReadInputTokens',
+  'estimatedCostUsd',
+] as const;
+
+function parseLogicalTurnRecord(serialized: string, logicalTurnId: string): LogicalTurnRecord {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch {
+    throw new LogicalTurnRecordError();
+  }
+  if (!isLogicalTurnRecord(parsed, logicalTurnId)) throw new LogicalTurnRecordError();
+  return parsed;
+}
+
+function isLogicalTurnRecord(value: unknown, logicalTurnId: string): value is LogicalTurnRecord {
+  if (!isPlainRecord(value)) return false;
+  if (value.version !== 1 || value.logicalTurnId !== logicalTurnId) return false;
+  if (typeof value.sessionId !== 'string' || typeof value.activeSessionId !== 'string')
+    return false;
+  if (!isStringArray(value.compactedSessionIds) || !isPlainRecord(value.binding)) return false;
+  const binding = value.binding;
+  if (
+    typeof binding.provider !== 'string' ||
+    typeof binding.model !== 'string' ||
+    typeof binding.cwd !== 'string'
+  ) {
+    return false;
+  }
+  if (
+    !optionalString(binding, 'route') ||
+    !optionalString(binding, 'authKind') ||
+    !optionalString(binding, 'effort') ||
+    !optionalString(binding, 'toolset') ||
+    !optionalString(binding, 'permissionMode') ||
+    !optionalString(binding, 'policyDigest') ||
+    !optionalString(binding, 'skillApprovalDigest') ||
+    !optionalString(binding, 'mcpIdentityDigest') ||
+    !optionalString(binding, 'hookScopeDigest') ||
+    !optionalString(binding, 'bundleIdentity')
+  ) {
+    return false;
+  }
+  if (typeof value.bindingDigest !== 'string') return false;
+  if (!isFiniteNumber(value.segmentLimit) || !isFiniteNumber(value.logicalModelCallLimit)) {
+    return false;
+  }
+  if (value.deadlineAt !== undefined && !isFiniteNumber(value.deadlineAt)) return false;
+  if (!isLogicalTurnStatus(value.status)) return false;
+  if (value.lastCause !== undefined && typeof value.lastCause !== 'string') return false;
+  if (value.progressFingerprint !== undefined && typeof value.progressFingerprint !== 'string') {
+    return false;
+  }
+  if (!isFiniteNumber(value.repeatedNoProgress) || !isStringArray(value.runtimeContinuationIds)) {
+    return false;
+  }
+  if (value.finalReply !== undefined && typeof value.finalReply !== 'string') return false;
+  if (value.finishReason !== undefined && typeof value.finishReason !== 'string') return false;
+  if (value.originalUserMessageId !== undefined && !isFiniteNumber(value.originalUserMessageId)) {
+    return false;
+  }
+  if (!isPlainRecord(value.counters)) return false;
+  const counters = value.counters;
+  if (!LOGICAL_TURN_COUNTERS.every((key) => isFiniteNumber(counters[key]))) return false;
+  return isFiniteNumber(value.createdAt) && isFiniteNumber(value.updatedAt);
+}
+
+function isLogicalTurnStatus(value: unknown): value is LogicalTurnRecord['status'] {
+  return typeof value === 'string' && LOGICAL_TURN_STATUSES.has(value);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function optionalString(record: Record<string, unknown>, key: string): boolean {
+  const value = record[key];
+  return value === undefined || typeof value === 'string';
 }
 
 function nonTurnSkillContinuitySnapshot(serialized: string): string {
