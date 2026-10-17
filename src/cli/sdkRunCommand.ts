@@ -110,14 +110,29 @@ const ERRORS: Record<string, string> = {
   recovery_state_invalid: 'Logical turn recovery state is invalid.',
   logical_turn_leased: 'Logical turn is owned elsewhere.',
 };
+const UNKNOWN_LOGICAL_TURN = 'logical turn does not exist';
+const MISSING_LOGICAL_TURN_ROUTE = 'logical turn route is missing';
+const STDIN_CONTINUE_CLASH = '--stdin cannot be combined with --continue-logical-turn';
+const CONTINUATION_INPUT_ERRORS = new Set([
+  UNKNOWN_LOGICAL_TURN,
+  MISSING_LOGICAL_TURN_ROUTE,
+  STDIN_CONTINUE_CLASH,
+]);
 function string(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 /** A rejected `routes.<id>.defaultModel` names the setting; other model errors stay generic.
  *  Explicit `off` is a route refusal (reasoning cannot be disabled), not a model with no effort.
+ *  Continuation input failures keep their safe sentence. Other invalid input stays generic.
  */
 function turnErrorText(code: string, err: unknown): string {
   if (code === 'configuration_invalid' && err instanceof ConfigurationError) return err.message;
+  if (
+    code === 'invalid_input' &&
+    err instanceof SdkInputError &&
+    CONTINUATION_INPUT_ERRORS.has(err.message)
+  )
+    return err.message;
   if (err instanceof RouteError) {
     if (code === 'model_unsupported' && /routes\.[A-Za-z0-9-]+\.defaultModel/.test(err.message)) {
       return err.message;
@@ -219,10 +234,11 @@ export async function runSdkRunCommand(
   const canceled = interrupted(controller.signal);
   canceled.catch(() => {});
   try {
+    if (continuationId && opts.stdin === true)
+      throw new SdkInputError('invalid_input', STDIN_CONTINUE_CLASH);
     if (
       opts.json !== true ||
       (!continuationId && opts.stdin !== true) ||
-      (continuationId && opts.stdin === true) ||
       (!continuationId && !routeId) ||
       opts.provider !== undefined ||
       (opts.permissionMode !== undefined &&
@@ -240,10 +256,10 @@ export async function runSdkRunCommand(
       const probe = SessionDb.open(string(opts.db) ? { path: String(opts.db) } : {});
       try {
         const record = probe.loadLogicalTurn(continuationId);
-        if (!record) throw new SdkInputError('invalid_input', 'logical turn does not exist');
+        if (!record) throw new SdkInputError('invalid_input', UNKNOWN_LOGICAL_TURN);
         continuationRecord = record;
         routeId = record.binding.route;
-        if (!routeId) throw new SdkInputError('invalid_input', 'logical turn route is missing');
+        if (!routeId) throw new SdkInputError('invalid_input', MISSING_LOGICAL_TURN_ROUTE);
         opts.model = record.binding.model;
         opts.effort = record.binding.effort;
         opts.toolset = record.binding.toolset;
