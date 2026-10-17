@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AssistantMessage, Message } from '@yevgetman/sov-sdk/core/types';
@@ -63,7 +63,7 @@ function fixture(provider: LLMProvider, mutate?: (runtime: Runtime) => void) {
       return runtime;
     },
   };
-  return { db, deps };
+  return { home, db, deps };
 }
 function capture(onEvent?: (event: Record<string, unknown>) => void) {
   const events: Record<string, unknown>[] = [];
@@ -1137,4 +1137,109 @@ test('max_tokens on tool_use stops instead of guessing a second user row', async
   } finally {
     db.close();
   }
+});
+
+function answerProvider(): LLMProvider {
+  return {
+    name: 'openai',
+    async *stream() {
+      const reply = message('durable answer');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+}
+
+async function inDirectory<T>(cwd: string, run: () => Promise<T>): Promise<T> {
+  const previous = process.cwd();
+  process.chdir(cwd);
+  try {
+    return await run();
+  } finally {
+    process.chdir(previous);
+  }
+}
+
+function logicalTurnRecord(path: string, id: string): string {
+  const db = SessionDb.open({ path });
+  try {
+    const row = db.handle
+      .query<{ record: string }, [string]>(
+        'SELECT record FROM logical_turns WHERE logical_turn_id = ?',
+      )
+      .get(id);
+    expect(db.loadLogicalTurn(id)?.logicalTurnId).toBe(id);
+    if (!row?.record) throw new Error('logical turn row missing');
+    return row.record;
+  } finally {
+    db.close();
+  }
+}
+
+test('continuing the same id from another cwd names the working-directory mismatch', async () => {
+  const f = fixture(answerProvider());
+  const origin = join(f.home, 'origin');
+  const elsewhere = join(f.home, 'elsewhere');
+  mkdirSync(origin);
+  mkdirSync(elsewhere);
+  const first = capture();
+  expect(await inDirectory(origin, () => runSdkRunCommand(opts, first.io, f.deps))).toBe(0);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const stored = logicalTurnRecord(f.db, logicalTurnId);
+  const second = capture();
+  expect(
+    await inDirectory(elsewhere, () =>
+      runSdkRunCommand(
+        { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+        second.io,
+        f.deps,
+      ),
+    ),
+  ).toBe(3);
+  const terminal = second.events.at(-1);
+  expect(terminal).toMatchObject({
+    type: 'turn.error',
+    code: 'recovery_state_invalid',
+    recoverable: false,
+    logicalTurnId,
+  });
+  expect(terminal?.error).toBe('Logical turn working-directory mismatch.');
+  expect(String(terminal?.error)).not.toContain(origin);
+  expect(String(terminal?.error)).not.toContain(elsewhere);
+  expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
+});
+
+test('a changed permission policy names the policy mismatch and keeps the row', async () => {
+  const f = fixture(answerProvider());
+  const origin = join(f.home, 'origin');
+  mkdirSync(origin);
+  const first = capture();
+  expect(await inDirectory(origin, () => runSdkRunCommand(opts, first.io, f.deps))).toBe(0);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const stored = logicalTurnRecord(f.db, logicalTurnId);
+  mkdirSync(join(origin, '.harness'));
+  writeFileSync(
+    join(origin, '.harness', 'settings.local.json'),
+    JSON.stringify({ permissions: { allow: [], deny: ['Bash'], ask: [] } }),
+  );
+  const second = capture();
+  expect(
+    await inDirectory(origin, () =>
+      runSdkRunCommand(
+        { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+        second.io,
+        f.deps,
+      ),
+    ),
+  ).toBe(3);
+  const terminal = second.events.at(-1);
+  expect(terminal).toMatchObject({
+    type: 'turn.error',
+    code: 'recovery_state_invalid',
+    recoverable: false,
+    logicalTurnId,
+  });
+  expect(terminal?.error).toBe('Logical turn permission-policy mismatch.');
+  expect(String(terminal?.error)).not.toContain(origin);
+  expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
 });
