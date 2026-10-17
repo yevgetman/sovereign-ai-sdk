@@ -80,6 +80,19 @@ import type {
 
 const DEFAULT_MAX_TURNS = 100;
 
+type DeferredLogicalStop = { fire?: () => Promise<void> };
+
+const logicalStops = new WeakMap<Terminal, () => Promise<void>>();
+
+/** Stop hook deferred by one logical-turn segment. Absent when that segment fired nothing. */
+export function logicalSegmentStop(terminal: Terminal): (() => Promise<void>) | undefined {
+  return logicalStops.get(terminal);
+}
+
+function bindDeferredLogicalStop(terminal: Terminal, deferred: DeferredLogicalStop): void {
+  if (deferred.fire) logicalStops.set(terminal, deferred.fire);
+}
+
 // The TokenUsage fields carried by usage_delta events. Mirrors the
 // usageAccumulator's field list (kept local — the boundary forbids importing
 // its internals). `reasoningTokens` (T1) is an informational subset of
@@ -145,8 +158,13 @@ function flattenContentBlock(block: unknown): string {
 
 /** Run one user turn, including provider streaming and tool-use continuation turns. */
 export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | Message, Terminal> {
+  const deferred: DeferredLogicalStop = {};
   const continuity = params.toolContext?.skillContinuity;
-  if (!continuity) return yield* queryInternal(params);
+  if (!continuity) {
+    const terminal = yield* queryInternal(params, deferred);
+    bindDeferredLogicalStop(terminal, deferred);
+    return terminal;
+  }
   const context = params.toolContext;
   if (
     !context ||
@@ -167,10 +185,14 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   let terminal: Terminal | undefined;
   let failed = false;
   try {
-    terminal = yield* queryInternal({
-      ...params,
-      toolContext: { ...context, skillActivation: state },
-    });
+    terminal = yield* queryInternal(
+      {
+        ...params,
+        toolContext: { ...context, skillActivation: state },
+      },
+      deferred,
+    );
+    bindDeferredLogicalStop(terminal, deferred);
     return terminal;
   } catch (error) {
     failed = true;
@@ -193,6 +215,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
 
 async function* queryInternal(
   params: QueryParams,
+  deferred: DeferredLogicalStop,
 ): AsyncGenerator<StreamEvent | Message, Terminal> {
   const modelMetadata = params.modelMetadata ? structuredClone(params.modelMetadata) : undefined;
   // Publisher limits are snapshotted once. Host caps never expand them.
@@ -379,7 +402,7 @@ async function* queryInternal(
         reason: 'error',
         error: new Error(result.reason ?? 'prompt rejected by UserPromptSubmit hook'),
       };
-      await fireStopHook(hookRunner, sessionId, cwd, terminal.reason, signal);
+      await maybeFireStop(terminal.reason);
       return terminal;
     }
     if (typeof result.rewrittenPrompt === 'string') {
@@ -517,10 +540,14 @@ async function* queryInternal(
   }
 
   async function maybeFireStop(reason: Terminal['reason']): Promise<void> {
-    if (params.logicalTurn && (reason === 'max_turns' || reason === 'max_tokens')) return;
-    if (hookRunner && sessionId && cwd) {
-      await fireStopHook(hookRunner, sessionId, cwd, reason, signal);
+    if (!hookRunner || !sessionId || !cwd) return;
+    if (params.logicalTurn) {
+      // The supervisor fires one Stop at the logical terminal. A retry or
+      // continuation must not observe this segment as an ending.
+      deferred.fire = () => fireStopHook(hookRunner, sessionId, cwd, reason, signal);
+      return;
     }
+    await fireStopHook(hookRunner, sessionId, cwd, reason, signal);
   }
 
   const accountingPort = params.inputTokenAccounting ?? modelInputTokenAccounting(provider.name);
@@ -1279,6 +1306,9 @@ async function* queryInternal(
         params.maxToolCallsBeforeCheckin !== undefined &&
         totalToolCallCount >= params.maxToolCallsBeforeCheckin
       ) {
+        // A supervised check-in is waiting_user, so Stop waits for that
+        // terminal. An unsupervised pause stays a segment boundary.
+        if (params.logicalTurn) await maybeFireStop('checkin');
         return { reason: 'checkin', toolCallCount: totalToolCallCount };
       }
     } catch (err) {

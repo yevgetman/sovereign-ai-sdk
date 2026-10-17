@@ -1,3 +1,20 @@
+## 2026-10-16 — Stop hooks follow the logical turn
+
+Scope: one Stop at a logical-turn terminal. A non-final segment defers
+the hook. Recall, user-turn hooks, and the continuation memory-fence
+reapply stay as they were. Lease, fingerprint, and retry behavior were
+not rewritten.
+
+Environment: macOS, Bun 1.3.13, checkout `review-fix/115`. Dependencies
+installed with `--ignore-scripts` (no `packages/sdk/dist`, no `bin/sov-tui`).
+
+Commands:
+- Before the fix, `env -u FORCE_COLOR bun test --timeout 20000 tests/agent/logicalTurn.test.ts` failed the new Stop cases. A 503 then success recorded `error` and `completed`. A stall, a check-in, model-call exhaustion, a deadline, and `recovery_unsafe` after `max_turns` each recorded no Stop. The existing supervisor and lease tests passed. A provider error outside a logical turn still recorded one Stop.
+- After the fix, `env -u FORCE_COLOR bun test --timeout 20000 tests/agent/logicalTurn.test.ts tests/core/query.test.ts tests/hooks/wiring.test.ts tests/agent/createAgent.test.ts tests/cli/sdkRunCommand.test.ts tests/cli/sdkRunRecovery.test.ts` was **153 pass / 0 fail**. The 503 path records only `completed` and runs recall and UserPromptSubmit once. Stall, check-in, model-call exhaustion, deadline, and unsafe recovery each record one Stop. The memory-fence continuation test still passes.
+- `bun run lint` passed (Biome, 1157 files; dependency-cruiser, 256 modules, no violations). `bun run typecheck` passed.
+- `env -u FORCE_COLOR bun test --timeout 20000` was **6447 pass / 31 skip / 88 fail**. The failures are missing `packages/sdk/dist` modules and a missing `bin/sov-tui`, not Stop-hook assertions.
+
+Result: Stop runs once when the logical turn reaches a terminal status, not once per segment. No live provider, install, upgrade, release, or deployment ran.
 ## 2026-10-16 — Lease conflicts stay off the provider-failure wire
 
 Scope: host mapping of `LogicalTurnLeaseError` on `--continue-logical-turn`.
@@ -16,7 +33,6 @@ provider is not called. `env -u FORCE_COLOR bun test --timeout 20000
 tests/cli/sdkRunRecovery.test.ts tests/cli/sdkRunCommand.test.ts` is **51 pass
 / 0 fail**, 259 assertions. `bun run lint` and `bun run typecheck` pass. No
 live provider, install, upgrade, release, or deployment ran.
-
 ## 2026-10-16 — Logical-turn leases stay with the working owner
 
 Scope: a short renewable logical-turn lease, owner-fenced record writes,
