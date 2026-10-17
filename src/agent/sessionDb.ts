@@ -636,6 +636,7 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
   }
 
   createSession(input: CreateSessionInput): string {
+    assertLogicalTurnWriteLease();
     const sessionId = input.sessionId ?? randomUUID();
     const now = Date.now() / 1000;
     const systemPromptJson =
@@ -933,6 +934,7 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
   }
 
   recordUsageEstimate(sessionId: string, usage: TokenUsage, estimate: CostEstimate): void {
+    assertLogicalTurnWriteLease();
     const known =
       estimate.complete &&
       estimate.amountUsd !== undefined &&
@@ -992,6 +994,7 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
     estimatedCostUsd: number | undefined,
     receipt?: CostEstimate,
   ): void {
+    assertLogicalTurnWriteLease();
     const session = this.getSession(sessionId);
     const supplied =
       estimatedCostUsd !== undefined && Number.isFinite(estimatedCostUsd) && estimatedCostUsd >= 0;
@@ -1043,6 +1046,7 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
   }
 
   recordCompactionLineage(parentSessionId: string, childSessionId: string): void {
+    assertLogicalTurnWriteLease();
     const now = Date.now() / 1000;
     this.writeWithRetry(() => {
       this.db.run(

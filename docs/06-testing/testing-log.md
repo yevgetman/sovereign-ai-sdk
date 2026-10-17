@@ -1,3 +1,36 @@
+## 2026-10-17 — Compaction writes stop when the logical-turn lease is lost
+
+Scope: a dispossessed `compact()` must not insert a child `sessions` row or a
+`usage_estimates` row after `renewLogicalTurnLease` fails. The summary request
+uses the lease work signal. `createSession`, `recordUsageEstimate`,
+`recordCompactionUsage`, and `recordCompactionLineage` call
+`assertLogicalTurnWriteLease` before writing. The in-memory store fences
+`createSession` and `recordUsageEstimate` the same way.
+`packages/sdk/src/agent/logicalTurn.ts` and `tests/agent/logicalTurn.test.ts`
+were not edited.
+
+Environment: `/private/tmp/fix-sov-192` on `review-fix/192` from `71736fa4`,
+macOS, Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade,
+release, or deployment ran.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/cli/sdkRunCompaction.test.ts -t 'stolen lease skips'` failed: usage,
+compaction, and lineage writes were not refused after renew failed. The native
+compaction test reached `createSession` for a child (`childCreates` 1) and
+left a `usage_estimates` row; the summary signal was not aborted.
+
+After the fix, both new tests pass. The second owner is the only writer. A
+held lease still compacts and still records a cancelled summary's partial
+usage. `env -u FORCE_COLOR bun test --timeout 20000
+tests/cli/sdkRunCompaction.test.ts tests/compact/compactor.test.ts
+tests/agent/sessionDb.test.ts tests/agent/logicalTurn.test.ts` passed.
+`bun run lint` passed. `bun run typecheck` reports the same 3 existing errors
+in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). A full `bun test --timeout 20000`
+showed 67 failures, all `ERR_MODULE_NOT_FOUND` for `packages/sdk/dist` while
+the tarball test deleted that build; rerunning `tests/providers/modelImportOrder.test.ts`
+and `tests/skills` with `dist` present was **465 pass / 0 fail**.
+
 ## 2026-10-17 — User abort does not run the previous Stop reason
 
 Scope: a logical turn whose first segment ends `max_turns`, then the caller
@@ -23,6 +56,7 @@ errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
 --timeout 20000` before `dist` existed failed 67 Node tests with
 `ERR_MODULE_NOT_FOUND`. After `bun run build`, the same command is **6613
 pass / 31 skip / 0 fail**, 27227 assertions, 625 files, 177.21 seconds.
+
 
 ## 2026-10-17 — Continuation cursor scan stops at the newest page
 
