@@ -42,7 +42,7 @@ type Output = import('../skills/catalog.js').SkillCatalogPage;
 export const SkillsListTool = buildTool<Input, Output>({
   name: 'skills_list',
   description: () =>
-    'Search or page every enabled skill. Use detail: names to list all skill names compactly. Use summary for discovery and activation before selecting a skill. Follow nextCursor with the same query and detail. metadataTruncated means inspect with skill_view; nameFragment segments reconstruct an oversized name. budgetExhausted requires more context headroom.',
+    'Search or page every enabled skill. To list all skill names, use detail names and limit 100. Use summary for discovery and activation before selecting a skill. Follow nextCursor with the same query and detail. metadataTruncated means inspect with skill_view; nameFragment segments reconstruct an oversized name. budgetExhausted requires more context headroom.',
   inputSchema,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
