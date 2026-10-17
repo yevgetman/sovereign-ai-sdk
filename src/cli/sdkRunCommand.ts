@@ -4,6 +4,7 @@ import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
 import {
   LOGICAL_TURN_RECOVERY_CAPABILITY,
   LogicalTurnLeaseError,
+  logicalTurnCursor,
   superviseLogicalTurn,
 } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import type { LogicalTurnRecord } from '@yevgetman/sov-sdk/agent/logicalTurn';
@@ -954,16 +955,18 @@ export async function runSdkRunCommand(
         const receipts = new Map<string, string>();
         for (const receipt of hostRuntime.sessionDb.loadToolExecutions(id))
           receipts.set(receipt.toolUseId, receipt.state);
+        const rows = hostRuntime.sessionDb.loadMessages(id);
         return {
-          assistant: hostRuntime.sessionDb
-            .loadMessages(id)
-            .filter((row) => row.role === 'assistant')
-            .at(-1)?.content,
+          assistant: rows.filter((row) => row.role === 'assistant').at(-1)?.content,
           receipts: [...receipts].sort(([left], [right]) => left.localeCompare(right)),
           tasks: hostRuntime.taskManager.list(id).map((task) => ({
             id: task.id,
             state: task.state,
           })),
+          transcriptIds: rows.map((row) => row.id),
+          transcriptCount: rows.length,
+          cursor: logicalTurnCursor(rows) ?? null,
+          compactionChildId: id,
         };
       },
       persistRuntimeContinuation: ({ activeSessionId, id, text }) => {

@@ -153,6 +153,10 @@ export type LogicalTurnSupervisorOptions = {
   rehydrate: (activeSessionId: string) => Message[];
   /** Returns false for started/unknown effects or an invalid transcript. */
   recoverySafe: (activeSessionId: string) => boolean;
+  /**
+   * Durable progress facts. See `LogicalTurnProgressSnapshot`.
+   * Fields outside that shape are not progress.
+   */
   progressSnapshot?: (activeSessionId: string) => unknown;
   persistRuntimeContinuation?: (input: {
     activeSessionId: string;
@@ -169,6 +173,21 @@ export type LogicalTurnSupervisorOptions = {
   deadlineAt?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+};
+
+/**
+ * Spec 5.8 facts. A new transcript row, completed receipt, cursor, compaction
+ * child, saved assistant-text length, or terminal cause changes the fingerprint.
+ * Task id and state are included when the host already reports them.
+ */
+export type LogicalTurnProgressSnapshot = {
+  transcriptIds?: readonly (string | number)[];
+  transcriptCount?: number;
+  /** Tool receipts. Only `completed` entries are durable progress. */
+  receipts?: readonly unknown[];
+  cursor?: string | null;
+  compactionChildId?: string;
+  tasks?: readonly unknown[];
 };
 
 export type LogicalTurnTraceEvent = {
@@ -539,19 +558,33 @@ export async function superviseLogicalTurn(
       transientAttempts = 0;
       if (!options.recoverySafe(record.activeSessionId))
         return await finish('failed', 'unsafe_effect', result, 'recovery_unsafe');
-      const snapshot = options.progressSnapshot?.(record.activeSessionId) ?? messages;
-      const fingerprint = digest({
-        snapshot,
+      const supplied = options.progressSnapshot?.(record.activeSessionId);
+      const facts = progressFacts(supplied);
+      const hydrated =
+        (facts.transcriptIds === undefined && facts.transcriptCount === undefined) ||
+        !facts.hasCursor
+          ? options.rehydrate(record.activeSessionId)
+          : undefined;
+      const fingerprint = progressFingerprint({
+        facts,
+        hydrated,
         cause: result.terminal.reason,
         assistantTextLength: assistantTextLength(result),
+        activeSessionId: record.activeSessionId,
       });
       record.repeatedNoProgress =
         record.progressFingerprint === fingerprint && previousCause === result.terminal.reason
           ? record.repeatedNoProgress + 1
           : 0;
       record.progressFingerprint = fingerprint;
-      if (record.repeatedNoProgress >= 1)
-        return await finish('stalled', 'no_progress', result, 'continuation_stalled');
+      // The first unchanged continuation is one recovery. Stall on the second.
+      if (record.repeatedNoProgress >= 2)
+        return await finish(
+          'stalled',
+          `repeated:${repeatedAction(result)}`,
+          result,
+          'continuation_stalled',
+        );
 
       if (result.terminal.reason === 'max_tokens') {
         const id = `${record.logicalTurnId}:output:${segment}`;
@@ -624,6 +657,156 @@ function assistantTextLength(result: RunResult): number {
       0,
     ) ?? 0
   );
+}
+
+function repeatedAction(result: RunResult): string {
+  if (result.distinctToolNames.length === 1) {
+    const name = result.distinctToolNames[0];
+    if (name) return name;
+  }
+  return result.terminal.reason;
+}
+
+type ProgressFacts = {
+  transcriptIds?: readonly (string | number)[];
+  transcriptCount?: number;
+  receipts: readonly unknown[];
+  cursor?: unknown;
+  hasCursor: boolean;
+  compactionChildId?: string;
+  tasks?: unknown;
+};
+
+function progressFacts(snapshot: unknown): ProgressFacts {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    return { receipts: [], hasCursor: false };
+  }
+  const record = snapshot as Record<string, unknown>;
+  const facts: ProgressFacts = {
+    receipts: completedReceipts(record.receipts),
+    hasCursor: Object.hasOwn(record, 'cursor'),
+  };
+  const ids = idList(record.transcriptIds);
+  if (ids) facts.transcriptIds = ids;
+  if (typeof record.transcriptCount === 'number' && Number.isFinite(record.transcriptCount)) {
+    facts.transcriptCount = record.transcriptCount;
+  }
+  if (facts.hasCursor) facts.cursor = record.cursor;
+  if (typeof record.compactionChildId === 'string' && record.compactionChildId.length > 0) {
+    facts.compactionChildId = record.compactionChildId;
+  }
+  if (record.tasks !== undefined) facts.tasks = record.tasks;
+  return facts;
+}
+
+function progressFingerprint(input: {
+  facts: ProgressFacts;
+  hydrated: readonly Message[] | undefined;
+  cause: string;
+  assistantTextLength: number;
+  activeSessionId: string;
+}): string {
+  const derived =
+    input.facts.transcriptIds === undefined && input.facts.transcriptCount === undefined
+      ? transcriptIdentity(input.hydrated ?? [])
+      : undefined;
+  const cursor = input.facts.hasCursor
+    ? input.facts.cursor
+    : logicalTurnCursor(input.hydrated ?? []);
+  return digest({
+    transcriptIds: input.facts.transcriptIds ?? derived?.transcriptIds ?? [],
+    transcriptCount:
+      input.facts.transcriptCount ?? derived?.transcriptCount ?? input.hydrated?.length ?? 0,
+    receipts: input.facts.receipts,
+    cursor: cursor ?? null,
+    compactionChildId: input.facts.compactionChildId ?? input.activeSessionId,
+    activeSessionId: input.activeSessionId,
+    ...(input.facts.tasks !== undefined ? { tasks: input.facts.tasks } : {}),
+    assistantTextLength: input.assistantTextLength,
+    cause: input.cause,
+  });
+}
+
+function transcriptIdentity(messages: readonly Message[]): {
+  transcriptIds: string[];
+  transcriptCount: number;
+} {
+  const transcriptIds: string[] = [];
+  for (const message of messages) {
+    if (message.role === 'user' && message.id) transcriptIds.push(`user:${message.id}`);
+    for (const block of message.content) {
+      if (block.type === 'tool_use') transcriptIds.push(`use:${block.id}`);
+      else if (block.type === 'tool_result') transcriptIds.push(`result:${block.tool_use_id}`);
+    }
+  }
+  return { transcriptIds, transcriptCount: messages.length };
+}
+
+/** Latest pagination cursor in transcript order. A tool result wins over its request. */
+export function logicalTurnCursor(
+  messages: readonly {
+    content: readonly { type: string; content?: string; input?: unknown }[];
+  }[],
+): string | undefined {
+  let cursor: string | undefined;
+  for (const message of messages) {
+    for (const block of message.content) {
+      if (block.type === 'tool_result' && typeof block.content === 'string') {
+        const found = cursorInJson(block.content);
+        if (found !== undefined) cursor = found;
+      } else if (block.type === 'tool_use') {
+        const found = cursorOnInput(block.input);
+        if (found !== undefined) cursor = found;
+      }
+    }
+  }
+  return cursor;
+}
+
+function cursorOnInput(input: unknown): string | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  const cursor = (input as { cursor?: unknown }).cursor;
+  return typeof cursor === 'string' ? cursor : undefined;
+}
+
+function cursorInJson(content: string): string | undefined {
+  try {
+    return cursorInValue(JSON.parse(content) as unknown);
+  } catch {
+    return undefined;
+  }
+}
+
+function cursorInValue(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as { nextCursor?: unknown; data?: unknown };
+  if (typeof record.nextCursor === 'string') return record.nextCursor;
+  if (record.data && typeof record.data === 'object') {
+    const nested = (record.data as { nextCursor?: unknown }).nextCursor;
+    if (typeof nested === 'string') return nested;
+  }
+  return undefined;
+}
+
+function idList(value: unknown): (string | number)[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const ids: (string | number)[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string' && typeof entry !== 'number') return undefined;
+    ids.push(entry);
+  }
+  return ids;
+}
+
+function completedReceipts(value: unknown): unknown[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry) => {
+    if (Array.isArray(entry)) return entry[1] === 'completed';
+    if (entry && typeof entry === 'object' && 'state' in entry) {
+      return (entry as { state?: unknown }).state === 'completed';
+    }
+    return false;
+  });
 }
 
 function transientDelay(

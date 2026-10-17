@@ -129,7 +129,7 @@ test('pre-session deadline is continuation_exhausted and not an interrupt', asyn
   expect(c.events[0]?.nextAction).not.toBe('continue_logical_turn');
 });
 for (const exhausted of ['max_tokens', 'max_turns'] as const) {
-  test(`${exhausted} continues internally then stops repeated no-progress work`, async () => {
+  test(`${exhausted} treats new transcript rows as progress until the model-call budget`, async () => {
     let calls = 0;
     let toolRuns = 0;
     const provider: LLMProvider = {
@@ -180,10 +180,10 @@ for (const exhausted of ['max_tokens', 'max_turns'] as const) {
     const terminal = c.events.at(-1);
     expect(terminal).toMatchObject({
       type: 'turn.error',
-      outcome: 'stalled',
-      reason: 'no_progress',
-      code: 'continuation_stalled',
-      finishReason: 'no_progress',
+      outcome: 'exhausted',
+      reason: 'model_call_limit',
+      code: 'continuation_exhausted',
+      finishReason: 'model_call_limit',
       recoverable: false,
       nextAction: 'none',
     });
@@ -191,7 +191,7 @@ for (const exhausted of ['max_tokens', 'max_turns'] as const) {
     expect(terminal?.finishReason).not.toBe('max_tokens');
     expect(terminal?.nextAction).not.toBe('continue_logical_turn');
     expect(terminal?.nextAction).not.toBe('resume');
-    expect(c.events.filter((event) => event.type === 'turn.continuing')).toHaveLength(1);
+    expect(c.events.filter((event) => event.type === 'turn.continuing').length).toBeGreaterThan(1);
     expect(c.events.some((event) => event.type === 'turn.completed')).toBe(false);
     const db = SessionDb.open({ path: f.db });
     try {
@@ -215,9 +215,9 @@ for (const exhausted of ['max_tokens', 'max_turns'] as const) {
     expect(toolRuns).toBe(toolsAfterStop);
     expect(continued.events.at(-1)).toMatchObject({
       type: 'turn.error',
-      outcome: 'stalled',
-      code: 'continuation_stalled',
-      finishReason: 'no_progress',
+      outcome: 'exhausted',
+      code: 'continuation_exhausted',
+      finishReason: 'model_call_limit',
       recoverable: false,
       nextAction: 'none',
       logicalTurnId,
@@ -227,10 +227,38 @@ for (const exhausted of ['max_tokens', 'max_turns'] as const) {
     expect(continued.events.at(-1)?.outcome).not.toBe('interrupted');
     const after = SessionDb.open({ path: f.db });
     try {
-      expect(after.loadLogicalTurn(logicalTurnId)?.status).toBe('stalled');
+      const stored = after.loadLogicalTurn(logicalTurnId);
+      expect(stored?.status).toBe('exhausted');
+      if (!stored) throw new Error('missing logical turn');
+      stored.status = 'stalled';
+      stored.finishReason = 'repeated:max_turns';
+      after.handle.run('UPDATE logical_turns SET record = ? WHERE logical_turn_id = ?', [
+        JSON.stringify(stored),
+        logicalTurnId,
+      ]);
     } finally {
       after.close();
     }
+    const refused = capture();
+    expect(
+      await runSdkRunCommand(
+        { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+        refused.io,
+        f.deps,
+      ),
+    ).toBe(3);
+    expect(calls).toBe(callsAfterStop);
+    expect(toolRuns).toBe(toolsAfterStop);
+    expect(refused.events.at(-1)).toMatchObject({
+      type: 'turn.error',
+      outcome: 'stalled',
+      code: 'continuation_stalled',
+      finishReason: 'repeated:max_turns',
+      recoverable: false,
+      nextAction: 'none',
+      logicalTurnId,
+    });
+    expect(refused.events.at(-1)?.nextAction).not.toBe('continue_logical_turn');
   });
 }
 

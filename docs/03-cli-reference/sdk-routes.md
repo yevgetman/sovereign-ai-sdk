@@ -305,7 +305,10 @@ Route, model, effort, toolset, permissions, working directory and bundle
 identity stay bound to the stored record.
 Cancellation emits `outcome: "interrupted"`. Exhaustion and a deadline emit
 `outcome: "exhausted"`. A repeated no-progress fingerprint emits
-`outcome: "stalled"`. Other errors emit `outcome: "failed"`.
+`outcome: "stalled"`. `finishReason` is `repeated:<action>`, naming the
+terminal cause or the single repeated tool. One unchanged continuation is
+not a stall. A new transcript row, pagination cursor, or compaction child
+is progress. Other errors emit `outcome: "failed"`.
 
 Native runs opt in to committing approved completed assistant messages before
 exposing them. A cooperative cancelled drive gets at most one second to settle
