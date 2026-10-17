@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { type RunResult, createAgent } from '@yevgetman/sov-sdk/agent/createAgent';
 import {
   LOGICAL_TURN_LEASE_MS,
@@ -15,6 +18,7 @@ import type {
   StreamEvent,
   Terminal,
 } from '@yevgetman/sov-sdk/core/types';
+import { buildHookRunner } from '@yevgetman/sov-sdk/hooks/runner';
 import type { HookRunner } from '@yevgetman/sov-sdk/hooks/types';
 import {
   type InMemorySessionStore,
@@ -1159,6 +1163,128 @@ describe('logical turn Stop hooks', () => {
     expect(outcome.finishReason).toBe('model_call_limit');
     expect(outcome.counters.segments).toBe(1);
     expect(observed.stops).toEqual(['max_turns']);
+  });
+
+  test('a deadline abort during a segment runs the Stop command once', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'logical-stop-'));
+    const marker = join(dir, 'stops.txt');
+    const script = join(dir, 'stop.sh');
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf 'ran\\n' >> ${JSON.stringify(marker)}\n`);
+    chmodSync(script, 0o755);
+    const hookRunner = buildHookRunner({
+      hooksByEvent: {
+        PreToolUse: [],
+        PostToolUse: [],
+        UserPromptSubmit: [],
+        Stop: [{ hooks: [{ type: 'command', command: script }] }],
+      },
+      consent: async () => 'allow',
+      logStderr: () => {},
+    });
+    const stopLines = (): string[] => {
+      try {
+        return readFileSync(marker, 'utf8')
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+      } catch {
+        return [];
+      }
+    };
+    const controller = new AbortController();
+    let nowMs = 0;
+    let segments = 0;
+    const deadlineProvider: LLMProvider = {
+      name: 'deadline',
+      async *stream(request): AsyncGenerator<StreamEvent, AssistantMessage> {
+        yield { type: 'message_start' };
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(() => {
+            nowMs = 100;
+            controller.abort('deadline');
+            resolve();
+          }, 20);
+          const done = (): void => {
+            clearTimeout(timer);
+            resolve();
+          };
+          if (request.signal?.aborted) done();
+          else request.signal?.addEventListener('abort', done, { once: true });
+        });
+        throw new Error('deadline');
+      },
+    };
+    const { options } = setup(
+      async (segment) => {
+        segments += 1;
+        if (segments === 1) {
+          const terminal = await drainQuery(
+            query({
+              provider: toolUseProvider(),
+              model: 'fixture-model',
+              messages: segment.messages,
+              systemPrompt: [{ text: 'system', cacheable: true }],
+              maxTokens: 32,
+              maxTurns: 1,
+              continuation: segment.continuation,
+              logicalTurn: true,
+              hookRunner,
+              sessionId: 'session-1',
+              cwd: dir,
+              tools: [echoTool],
+              toolContext: stopToolContext,
+              signal: segment.signal,
+            }),
+          );
+          expect(terminal.reason).toBe('max_turns');
+          return {
+            sessionId: 'session-1',
+            terminal,
+            iterationsUsed: 1,
+            toolCallCount: 1,
+            distinctToolNames: ['Echo'],
+            messages: segment.messages,
+          };
+        }
+        // The first segment is not the logical terminal. Its Stop must not run.
+        expect(stopLines()).toEqual([]);
+        const terminal = await drainQuery(
+          query({
+            provider: deadlineProvider,
+            model: 'fixture-model',
+            messages: segment.messages,
+            systemPrompt: [{ text: 'system', cacheable: true }],
+            maxTokens: 32,
+            maxTurns: segment.remainingModelCalls,
+            continuation: segment.continuation,
+            logicalTurn: true,
+            hookRunner,
+            sessionId: 'session-1',
+            cwd: dir,
+            signal: segment.signal,
+          }),
+        );
+        return {
+          sessionId: 'session-1',
+          terminal,
+          iterationsUsed: 1,
+          toolCallCount: 0,
+          distinctToolNames: [],
+          messages: segment.messages,
+        };
+      },
+      { signal: controller.signal, deadlineAt: 100, now: () => nowMs },
+    );
+    try {
+      const outcome = await superviseLogicalTurn(options);
+      expect(segments).toBe(2);
+      expect(outcome.status).toBe('exhausted');
+      expect(outcome.finishReason).toBe('deadline');
+      expect(outcome.code).toBe('continuation_exhausted');
+      expect(stopLines()).toEqual(['ran']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('a deadline after max_turns records one Stop', async () => {

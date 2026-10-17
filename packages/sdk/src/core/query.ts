@@ -1,3 +1,4 @@
+import { rememberLogicalSegmentStop } from '../agent/logicalTurn.js';
 import { isOwnerSubscriptionModel } from '../providers/models/ownerModelPolicy.js';
 // The turn loop — async generator yielding typed events. Phase 2: wraps
 // the Phase-1 single-turn body in a while-loop. When the assistant
@@ -548,8 +549,16 @@ async function* queryInternal(
     if (!hookRunner || !sessionId || !cwd) return;
     if (params.logicalTurn) {
       // The supervisor fires one Stop at the logical terminal. A retry or
-      // continuation must not observe this segment as an ending.
-      deferred.fire = () => fireStopHook(hookRunner, sessionId, cwd, reason, signal);
+      // continuation must not observe this segment as an ending. The work
+      // signal is often already aborted (deadline) when that closure runs;
+      // binding Stop to it skips the command. The host may also drop the
+      // returned terminal on that abort, so the lease binding keeps the closure.
+      deferred.fire = () => {
+        if (signal && !signal.aborted)
+          return fireStopHook(hookRunner, sessionId, cwd, reason, signal);
+        return fireStopHook(hookRunner, sessionId, cwd, reason);
+      };
+      rememberLogicalSegmentStop(deferred.fire);
       return;
     }
     await fireStopHook(hookRunner, sessionId, cwd, reason, signal);
