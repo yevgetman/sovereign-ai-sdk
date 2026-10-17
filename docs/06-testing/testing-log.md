@@ -1,3 +1,35 @@
+## 2026-10-17 — Failed logical turns resume only for a safe transient
+
+Scope: direct `superviseLogicalTurn` resume of a stored `failed` row. A
+non-transient `finishReason` or `lastCause` returns the stored failure and
+does not run prepare, the segment, the model, or tools. Resume is allowed
+only for `transient_provider`, `rate_limited`, `provider_unavailable`, or
+`provider_timeout`, and still requires safe recovery. Deadline Stop, the
+lease-loss abort, query policy-gate skips, and the held-lease CLI event were
+not changed. `src/cli/sdkRunCommand.ts` was not edited.
+
+Environment: `/tmp/fix-sov-156-supervisor` on `review-fix/156-supervisor` from
+`f9899617154073266f903cd45ab256f3e84622bd`, macOS, Bun 1.3.13 (`bf2e2cec`).
+No live provider, product install, upgrade, release, or deployment ran.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts -t "a failed logical turn resumes only when the stored cause is a safe transient"`
+failed. The segment runner was called again (`calls` 2, expected 1) for
+`finishReason: 'failed'`.
+
+After the fix, that test passes. A non-transient row does not run.
+`finishReason: 'transient_provider'` runs one segment when recovery is safe
+and does not when it is not. `lastCause: 'rate_limited'` is also accepted.
+The same CLI filter in `tests/cli/sdkRunRecovery.test.ts` still passes.
+`tests/agent/logicalTurn.test.ts` is 50 pass / 0 fail.
+
+`bun run lint` passed (Biome 1159 files; boundary 257 modules, 1055
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). After `bun run build`,
+`env -u FORCE_COLOR bun test --timeout 20000` is **6600 pass / 31 skip /
+0 fail**, 27105 assertions, 625 files, 176.90 seconds.
+
 ## 2026-10-17 — Deadline Stop hook runs once
 
 Scope: logical-turn Stop when `--deadline-ms` aborts a segment. The deferred

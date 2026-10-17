@@ -57,6 +57,10 @@ headless hosts. It persists the original user-message reference, active and
 compacted session ids, fixed execution binding, deadline, cumulative budgets,
 progress fingerprint and final outcome. Continuation segments skip user-turn
 hooks, recall and conduct pre-gates. Stop hooks run once at the logical terminal.
+A stored `failed` row resumes only when `finishReason` or `lastCause` is
+`transient_provider`, `rate_limited`, `provider_unavailable`, or
+`provider_timeout`. Any other failed cause is returned as stored and does not
+start another segment.
 The SQLite host keeps one short lease, about 30 seconds, so only one worker
 continues a logical turn. The supervisor refreshes it after each segment,
 during a model call, and before a provider retry wait. Record writes are

@@ -581,6 +581,94 @@ describe('logical-turn supervisor', () => {
     expect(reused).toMatchObject({ status: 'completed', reply: 'durable answer' });
   });
 
+  test('a failed logical turn resumes only when the stored cause is a safe transient', async () => {
+    let calls = 0;
+    let prepared = 0;
+    const fixture = setup(
+      async () => {
+        calls++;
+        return result('completed', calls === 1 ? 'durable answer' : 'retried answer');
+      },
+      {
+        prepare: () => {
+          prepared++;
+        },
+      },
+    );
+    const first = await superviseLogicalTurn(fixture.options);
+    expect(calls).toBe(1);
+    expect(prepared).toBe(1);
+    const stored = fixture.store.loadLogicalTurn(first.logicalTurnId);
+    if (!stored) throw new Error('logical turn row missing');
+    stored.status = 'failed';
+    stored.finishReason = 'failed';
+    stored.lastCause = 'error';
+    fixture.store.loadLogicalTurn = (id) =>
+      id === stored.logicalTurnId ? structuredClone(stored) : null;
+    const blocked = await superviseLogicalTurn({
+      ...fixture.options,
+      logicalTurnId: first.logicalTurnId,
+    });
+    expect(calls).toBe(1);
+    expect(prepared).toBe(1);
+    expect(blocked).toMatchObject({
+      status: 'failed',
+      finishReason: 'failed',
+      reply: 'durable answer',
+      logicalTurnId: first.logicalTurnId,
+    });
+    expect(blocked.code).toBeUndefined();
+    expect(blocked.finalSegment).toBeUndefined();
+
+    stored.finishReason = 'transient_provider';
+    const unsafe = await superviseLogicalTurn({
+      ...fixture.options,
+      logicalTurnId: first.logicalTurnId,
+      recoverySafe: () => false,
+    });
+    expect(calls).toBe(1);
+    expect(prepared).toBe(1);
+    expect(unsafe).toMatchObject({ status: 'failed', code: 'recovery_unsafe' });
+
+    const resumed = await superviseLogicalTurn({
+      ...fixture.options,
+      logicalTurnId: first.logicalTurnId,
+    });
+    expect(calls).toBe(2);
+    expect(prepared).toBe(2);
+    expect(resumed).toMatchObject({ status: 'completed', reply: 'retried answer' });
+
+    for (const cause of ['rate_limited', 'provider_unavailable', 'provider_timeout'] as const) {
+      stored.finishReason = cause;
+      stored.lastCause = 'error';
+      const outcome = await superviseLogicalTurn({
+        ...fixture.options,
+        logicalTurnId: first.logicalTurnId,
+      });
+      expect(outcome.status).toBe('completed');
+    }
+    expect(calls).toBe(5);
+
+    stored.finishReason = 'failed';
+    (stored as { lastCause: string }).lastCause = 'rate_limited';
+    const fromCause = await superviseLogicalTurn({
+      ...fixture.options,
+      logicalTurnId: first.logicalTurnId,
+    });
+    expect(calls).toBe(6);
+    expect(fromCause.status).toBe('completed');
+
+    stored.finishReason = 'provider_response_invalid';
+    stored.lastCause = 'error';
+    const denied = await superviseLogicalTurn({
+      ...fixture.options,
+      logicalTurnId: first.logicalTurnId,
+    });
+    expect(calls).toBe(6);
+    expect(prepared).toBe(6);
+    expect(denied).toMatchObject({ status: 'failed', finishReason: 'provider_response_invalid' });
+  });
+
   test('checks recovery receipts before a resumed model call', async () => {
     let calls = 0;
     const fixture = setup(
