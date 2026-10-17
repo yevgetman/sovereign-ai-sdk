@@ -1385,6 +1385,52 @@ async function drainQuery(gen: AsyncGenerator<StreamEvent | Message, Terminal>):
   }
 }
 
+function commandStopProbe(label: string): {
+  dir: string;
+  hookRunner: HookRunner;
+  stopLines: () => string[];
+  cleanup: () => void;
+} {
+  const dir = mkdtempSync(join(tmpdir(), `logical-stop-${label}-`));
+  const marker = join(dir, 'stops.txt');
+  const script = join(dir, 'stop.cjs');
+  writeFileSync(
+    script,
+    `#!/usr/bin/env node
+const { appendFileSync, readFileSync } = require('node:fs');
+const payload = JSON.parse(readFileSync(0, 'utf8'));
+appendFileSync(${JSON.stringify(marker)}, String(payload.reason) + '\\n');
+`,
+  );
+  chmodSync(script, 0o755);
+  const hookRunner = buildHookRunner({
+    hooksByEvent: {
+      PreToolUse: [],
+      PostToolUse: [],
+      UserPromptSubmit: [],
+      Stop: [{ hooks: [{ type: 'command', command: script }] }],
+    },
+    consent: async () => 'allow',
+    logStderr: () => {},
+  });
+  const stopLines = (): string[] => {
+    try {
+      return readFileSync(marker, 'utf8')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+    } catch {
+      return [];
+    }
+  };
+  return {
+    dir,
+    hookRunner,
+    stopLines,
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
 function stopRecorder(): { hookRunner: HookRunner; stops: string[]; prompts: number } {
   const stops: string[] = [];
   let prompts = 0;
@@ -1736,6 +1782,130 @@ appendFileSync(${JSON.stringify(marker)}, String(payload.reason) + '\\n');
       expect(stopLines()).toEqual(['interrupted']);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('a user abort during rehydrate does not run the previous Stop reason', async () => {
+    const probe = commandStopProbe('rehydrate');
+    const controller = new AbortController();
+    let segments = 0;
+    const { store, options } = setup(
+      async (segment) => {
+        segments += 1;
+        const terminal = await drainQuery(
+          query({
+            provider: toolUseProvider(),
+            model: 'fixture-model',
+            messages: segment.messages,
+            systemPrompt: [{ text: 'system', cacheable: true }],
+            maxTokens: 32,
+            maxTurns: 1,
+            continuation: segment.continuation,
+            logicalTurn: true,
+            hookRunner: probe.hookRunner,
+            sessionId: 'session-1',
+            cwd: probe.dir,
+            tools: [echoTool],
+            toolContext: stopToolContext,
+            signal: segment.signal,
+          }),
+        );
+        expect(terminal.reason).toBe('max_turns');
+        // The segment is not a logical ending. Cancel lands in rehydrate.
+        expect(probe.stopLines()).toEqual([]);
+        return {
+          sessionId: 'session-1',
+          terminal,
+          iterationsUsed: 1,
+          toolCallCount: 1,
+          distinctToolNames: ['Echo'],
+          messages: segment.messages,
+        };
+      },
+      {
+        signal: controller.signal,
+        rehydrate: () => {
+          controller.abort();
+          return [
+            { role: 'user' as const, content: [{ type: 'text' as const, text: 'do the work' }] },
+          ];
+        },
+      },
+    );
+    try {
+      const outcome = await superviseLogicalTurn(options);
+      expect(segments).toBe(1);
+      expect(outcome.status).toBe('cancelled');
+      expect(outcome.finishReason).toBe('cancelled');
+      const stored = store.loadLogicalTurn(outcome.logicalTurnId);
+      expect(stored?.status).toBe('cancelled');
+      expect(stored?.finishReason).toBe('cancelled');
+      expect(probe.stopLines()).toEqual(['interrupted']);
+    } finally {
+      probe.cleanup();
+    }
+  });
+
+  test('a user abort during backoff does not run the previous Stop reason', async () => {
+    const probe = commandStopProbe('backoff');
+    const controller = new AbortController();
+    let segments = 0;
+    const provider: LLMProvider = {
+      name: 'down',
+      async *stream(): AsyncGenerator<StreamEvent, AssistantMessage> {
+        yield { type: 'message_start' };
+        throw new ProviderHttpError('down', 503, 'unavailable');
+      },
+    };
+    const { store, options } = setup(
+      async (segment) => {
+        segments += 1;
+        const terminal = await drainQuery(
+          query({
+            provider,
+            model: 'fixture-model',
+            messages: segment.messages,
+            systemPrompt: [{ text: 'system', cacheable: true }],
+            maxTokens: 32,
+            continuation: segment.continuation,
+            logicalTurn: true,
+            hookRunner: probe.hookRunner,
+            sessionId: 'session-1',
+            cwd: probe.dir,
+            signal: segment.signal,
+          }),
+        );
+        expect(terminal.reason).toBe('error');
+        expect(probe.stopLines()).toEqual([]);
+        return {
+          sessionId: 'session-1',
+          terminal,
+          iterationsUsed: 1,
+          toolCallCount: 0,
+          distinctToolNames: [],
+          messages: segment.messages,
+        };
+      },
+      {
+        signal: controller.signal,
+        sleep: (ms) => {
+          if (ms === 10_000) return new Promise((resolve) => setTimeout(resolve, 0));
+          controller.abort();
+          return new Promise(() => {});
+        },
+      },
+    );
+    try {
+      const outcome = await superviseLogicalTurn(options);
+      expect(segments).toBe(1);
+      expect(outcome.status).toBe('cancelled');
+      expect(outcome.finishReason).toBe('cancelled');
+      const stored = store.loadLogicalTurn(outcome.logicalTurnId);
+      expect(stored?.status).toBe('cancelled');
+      expect(stored?.finishReason).toBe('cancelled');
+      expect(probe.stopLines()).toEqual(['interrupted']);
+    } finally {
+      probe.cleanup();
     }
   });
 
