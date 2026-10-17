@@ -1673,3 +1673,176 @@ test('a continuation with an unreadable session store still reports storage_fail
   expect(second.events.at(-1)?.code).not.toBe('recovery_unsafe');
   expect(JSON.stringify(second.events)).not.toContain('private continuation store failure');
 });
+
+test('segment 2 rehydrates a UserPromptSubmit rewrite instead of the original prompt', async () => {
+  const seen: string[] = [];
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(request) {
+      calls++;
+      const prompt = request.messages
+        .filter((message) => message.role === 'user' && message.origin !== 'runtime')
+        .flatMap((message) => message.content)
+        .filter((block) => block.type === 'text')
+        .map((block) => (block.type === 'text' ? block.text : ''))
+        .join('\n');
+      seen.push(prompt);
+      if (calls <= 6) {
+        const reply: AssistantMessage = {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: `rewrite-${calls}`, name: 'WebSearch', input: { n: calls } },
+          ],
+        };
+        yield { type: 'message_start' };
+        yield { type: 'usage_delta', usage: { inputTokens: 1, outputTokens: 1 } };
+        yield { type: 'message_stop', stop_reason: 'tool_use' };
+        yield { type: 'assistant_message', message: reply };
+        return reply;
+      }
+      const reply = message('done');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.loop = { mode: 'off' };
+    runtime.hookRunner = async (event) => {
+      if (event === 'UserPromptSubmit')
+        return { block: false, rewrittenPrompt: 'rewritten-by-hook' };
+      return { block: false };
+    };
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'WebSearch',
+        description: () => 'fixture',
+        inputSchema: z.unknown(),
+        async call() {
+          return { data: 'receipt' };
+        },
+      }),
+    );
+  });
+  const c = capture();
+  expect(await runSdkRunCommand({ ...opts, toolset: 'web' }, c.io, f.deps)).toBe(0);
+  // Web segments stop at 6 model calls. Call 7 is the first call of segment 2.
+  expect(calls).toBe(7);
+  expect(seen).toHaveLength(7);
+  for (const prompt of seen) {
+    expect(prompt).toContain('rewritten-by-hook');
+    expect(prompt).not.toContain('question');
+  }
+});
+
+test('a blocked prompt is not sent when the failed logical turn is continued', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('should not run');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.hookRunner = async (event) => {
+      if (event === 'UserPromptSubmit') return { block: true, reason: 'forbidden prompt' };
+      return { block: false };
+    };
+  });
+  const first = capture();
+  expect(await runSdkRunCommand(opts, first.io, f.deps)).not.toBe(0);
+  expect(calls).toBe(0);
+  const db = SessionDb.open({ path: f.db });
+  let logicalTurnId = '';
+  try {
+    const rows = db.handle.query<{ record: string }, []>('SELECT record FROM logical_turns').all();
+    expect(rows).toHaveLength(1);
+    const record = JSON.parse(rows[0]?.record ?? '{}') as {
+      logicalTurnId: string;
+      status: string;
+      finishReason?: string;
+    };
+    logicalTurnId = record.logicalTurnId;
+    expect(record.status).toBe('failed');
+    expect(record.finishReason).not.toBe('transient_provider');
+    const session = db.handle
+      .query<{ session_id: string }, []>('SELECT session_id FROM sessions')
+      .get();
+    const stored = db.loadMessages(session?.session_id ?? '');
+    expect(stored.find((row) => row.role === 'user')?.content).toEqual([
+      { type: 'text', text: 'forbidden prompt' },
+    ]);
+  } finally {
+    db.close();
+  }
+  const second = capture();
+  expect(
+    await runSdkRunCommand(
+      { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+      second.io,
+      f.deps,
+    ),
+  ).toBe(3);
+  expect(calls).toBe(0);
+  expect(second.events.at(-1)).toMatchObject({
+    type: 'turn.error',
+    outcome: 'failed',
+    code: 'continuation_failed',
+    recoverable: false,
+    nextAction: 'none',
+    logicalTurnId,
+  });
+  expect(second.events.at(-1)?.nextAction).not.toBe('continue_logical_turn');
+  expect(second.events.at(-1)?.nextAction).not.toBe('resume');
+});
+
+test('a failed logical turn resumes only when the stored cause is a safe transient', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message(calls === 1 ? 'durable answer' : 'retried answer');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider);
+  const first = capture();
+  expect(await runSdkRunCommand(opts, first.io, f.deps)).toBe(0);
+  expect(calls).toBe(1);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const db = SessionDb.open({ path: f.db });
+  try {
+    const record = db.loadLogicalTurn(logicalTurnId);
+    if (!record) throw new Error('logical turn row missing');
+    record.status = 'failed';
+    record.finishReason = 'transient_provider';
+    record.lastCause = 'error';
+    db.handle.run('UPDATE logical_turns SET record = ? WHERE logical_turn_id = ?', [
+      JSON.stringify(record),
+      logicalTurnId,
+    ]);
+  } finally {
+    db.close();
+  }
+  const second = capture();
+  expect(
+    await runSdkRunCommand(
+      { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+      second.io,
+      f.deps,
+    ),
+  ).toBe(0);
+  expect(calls).toBe(2);
+  expect(second.events.at(-1)).toMatchObject({
+    type: 'turn.completed',
+    logicalTurnId,
+    reply: 'retried answer',
+  });
+});
