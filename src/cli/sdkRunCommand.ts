@@ -14,7 +14,7 @@ import {
   ConfigurationError,
   loadRuntimeSettingsSnapshot,
 } from '@yevgetman/sov-sdk/config/settings';
-import type { Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type { Message, StreamEvent, TokenUsage } from '@yevgetman/sov-sdk/core/types';
 import { toToolSchemas } from '@yevgetman/sov-sdk/mcp/schemaSerialization';
 import type { SessionStore } from '@yevgetman/sov-sdk/persistence/sessionStore';
 import {
@@ -669,7 +669,9 @@ export async function runSdkRunCommand(
       return 3;
     }
     stage = 'provider';
-    const compact = async (): Promise<boolean> => {
+    const compact = async (): Promise<
+      { usage?: TokenUsage; estimatedCostUsd?: number } | undefined
+    > => {
       const id = sessionId as string;
       const meter = nativeUsageMeter(
         routeSelection.provider.name,
@@ -691,7 +693,7 @@ export async function runSdkRunCommand(
           canceled,
         ]);
         noOp = result.noOp === true || result.newSessionId === id;
-        if (noOp) return false;
+        if (noOp) return undefined;
         receipt = result.costEstimate ? result : meter.partial();
         sessionId = result.newSessionId;
         // Report the durable child before rebuilding anything that may fail.
@@ -704,7 +706,12 @@ export async function runSdkRunCommand(
           estimatedAfterTokens: result.estimatedAfterTokens,
         });
         messages = hydrate();
-        return true;
+        return {
+          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.estimatedCostUsd !== undefined
+            ? { estimatedCostUsd: result.estimatedCostUsd }
+            : {}),
+        };
       } finally {
         if (!noOp) {
           const measured = receipt ?? meter.partial();
@@ -926,9 +933,23 @@ export async function runSdkRunCommand(
         if (overflow(result)) {
           messages = hydrate();
           const recoveryHop = makeHop();
-          if (canReduce(recoveryHop, messages) && (await compact())) {
-            hop = makeHop();
-            result = await runOnce({ ...segment, continuation: true });
+          if (canReduce(recoveryHop, messages)) {
+            const compaction = await compact();
+            if (compaction) {
+              // The abandoned drive and the summary are already spent. A retry
+              // only gets the logical model-call budget that remains.
+              const leftover = segment.remainingModelCalls - result.iterationsUsed - 1;
+              if (leftover <= 0) {
+                result = chargeRecoveredAttempt(result, compaction, sessionId as string);
+              } else {
+                hop = makeHop();
+                const retry = await runOnce({
+                  continuation: true,
+                  remainingModelCalls: leftover,
+                });
+                result = mergeRecoveredAttempts(result, retry, compaction);
+              }
+            }
           }
         }
         return result;
@@ -1201,6 +1222,102 @@ function isStorageFault(error: unknown): boolean {
     error instanceof ToolStorageError
   );
 }
+type AttemptCharge = { usage?: TokenUsage; estimatedCostUsd?: number };
+
+/** One logical segment pays for every drive it started and for the summary between them. */
+function mergeRecoveredAttempts(
+  abandoned: RunResult,
+  retry: RunResult,
+  compaction: AttemptCharge,
+): RunResult {
+  const usage = sumTokenUsage(abandoned.usage, compaction.usage, retry.usage);
+  const estimatedCostUsd = pricedTotal(attemptCharge(abandoned), compaction, attemptCharge(retry));
+  const {
+    usage: _retryUsage,
+    estimatedCostUsd: _retryCost,
+    costEstimate: _retryEstimate,
+    usageComplete: _retryComplete,
+    ...rest
+  } = retry;
+  const names = new Set([...abandoned.distinctToolNames, ...retry.distinctToolNames]);
+  return {
+    ...rest,
+    iterationsUsed: abandoned.iterationsUsed + 1 + retry.iterationsUsed,
+    toolCallCount: abandoned.toolCallCount + retry.toolCallCount,
+    distinctToolNames: [...names].sort(),
+    ...(usage !== undefined ? { usage } : {}),
+    ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
+  };
+}
+
+function chargeRecoveredAttempt(
+  abandoned: RunResult,
+  compaction: AttemptCharge,
+  activeSessionId: string,
+): RunResult {
+  const usage = sumTokenUsage(abandoned.usage, compaction.usage);
+  const estimatedCostUsd = pricedTotal(attemptCharge(abandoned), compaction);
+  const {
+    usage: _usage,
+    estimatedCostUsd: _cost,
+    costEstimate: _estimate,
+    usageComplete: _complete,
+    ...rest
+  } = abandoned;
+  return {
+    ...rest,
+    sessionId: activeSessionId,
+    iterationsUsed: abandoned.iterationsUsed + 1,
+    ...(usage !== undefined ? { usage } : {}),
+    ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
+  };
+}
+
+function attemptCharge(result: Pick<RunResult, 'usage' | 'estimatedCostUsd'>): AttemptCharge {
+  return {
+    ...(result.usage !== undefined ? { usage: result.usage } : {}),
+    ...(result.estimatedCostUsd !== undefined ? { estimatedCostUsd: result.estimatedCostUsd } : {}),
+  };
+}
+
+function sumTokenUsage(...parts: Array<TokenUsage | undefined>): TokenUsage | undefined {
+  const present = parts.filter((part): part is TokenUsage => part !== undefined);
+  if (present.length === 0) return undefined;
+  const total: TokenUsage = {};
+  for (const field of [
+    'inputTokens',
+    'outputTokens',
+    'cacheCreationInputTokens',
+    'cacheReadInputTokens',
+    'reasoningTokens',
+  ] as const) {
+    let seen = false;
+    let sum = 0;
+    for (const usage of present) {
+      const value = usage[field];
+      if (value === undefined) continue;
+      seen = true;
+      sum += value;
+    }
+    if (seen) total[field] = sum;
+  }
+  return total;
+}
+
+function pricedTotal(...parts: AttemptCharge[]): number | undefined {
+  let total = 0;
+  let seen = false;
+  for (const part of parts) {
+    if (part.estimatedCostUsd !== undefined) {
+      seen = true;
+      total += part.estimatedCostUsd;
+      continue;
+    }
+    if (part.usage !== undefined) return undefined;
+  }
+  return seen ? total : undefined;
+}
+
 async function settleWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {

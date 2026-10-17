@@ -1,3 +1,27 @@
+## 2026-10-16 — Overflow recovery stays inside the logical model-call budget
+
+Scope: native `runSegment` context-overflow retry in `src/cli/sdkRunCommand.ts`.
+The logical-turn lease, Stop hooks, and finish-reason mapping were not changed.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+./tests/cli/sdkRunCompaction.test.ts -t 'logical model-call'` failed. A drive
+that recorded 2 model calls, overflowed, then recorded 3 more left
+`counters.modelCalls` at 3 (the retry only). A coding segment that overflowed
+on its 100th call started another 100-call segment (`retryCalls` 100).
+
+After the fix, the same command passes. `counters.modelCalls` is 6 (2 + 3 +
+the summary). The capped coding segment makes no retry and stores
+`modelCalls` 101. `env -u FORCE_COLOR bun test --timeout 20000
+./tests/cli/sdkRunCompaction.test.ts ./tests/cli/sdkRunCommand.test.ts
+./tests/cli/sdkRunRecovery.test.ts` is **67 pass / 0 fail**. `bun run lint`
+and `bun run typecheck` pass. The full `bun test --timeout 20000` run was
+**6463 pass / 67 fail / 31 skip**. Those 67 are Node imports of
+`packages/sdk/dist` racing the tarball test's `rm -rf dist`; 
+`./tests/providers/modelImportOrder.test.ts` and `./tests/skills/store.test.ts`
+then pass **32 / 0** with dist present. Dependencies were installed in the
+checkout so the suite could run. No live provider, product install, upgrade,
+release, or deployment ran.
+
 ## 2026-10-16 — Stop hooks follow the logical turn
 
 Scope: one Stop at a logical-turn terminal. A non-final segment defers
@@ -14,8 +38,7 @@ Commands:
 - `bun run lint` passed (Biome, 1157 files; dependency-cruiser, 256 modules, no violations). `bun run typecheck` passed.
 - `env -u FORCE_COLOR bun test --timeout 20000` was **6447 pass / 31 skip / 88 fail**. The failures are missing `packages/sdk/dist` modules and a missing `bin/sov-tui`, not Stop-hook assertions.
 
-Result: Stop runs once when the logical turn reaches a terminal status, not once per segment. No live provider, install, upgrade, release, or deployment ran.
-## 2026-10-16 — Lease conflicts stay off the provider-failure wire
+Result: Stop runs once when the logical turn reaches a terminal status, not once per segment. No live provider, install, upgrade, release, or deployment ran.## 2026-10-16 — Lease conflicts stay off the provider-failure wire
 
 Scope: host mapping of `LogicalTurnLeaseError` on `--continue-logical-turn`.
 The lease implementation was not changed. A second launch must not start a
