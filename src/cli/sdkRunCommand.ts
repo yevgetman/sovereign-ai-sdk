@@ -932,6 +932,16 @@ export async function runSdkRunCommand(
     if (!failed && !durable)
       throw new SessionPersistenceError(new Error('completed session could not be verified'));
     continuityOutcome = failed ? 'failed' : 'succeeded';
+    // A segment limit is not the logical outcome. Stall, exhaustion, an unsafe
+    // receipt, and a deadline keep logical.finishReason instead of max_turns/max_tokens.
+    const finishReason =
+      !result ||
+      logical.status === 'stalled' ||
+      logical.status === 'exhausted' ||
+      logical.code === 'recovery_unsafe' ||
+      logical.finishReason === 'deadline'
+        ? logical.finishReason
+        : mapTerminalReason(result.terminal);
     finish({
       type: failed ? 'turn.error' : 'turn.completed',
       outcome,
@@ -953,7 +963,7 @@ export async function runSdkRunCommand(
           .filter((b) => b.type === 'text')
           .map((b) => (b.type === 'text' ? b.text : ''))
           .join('') ?? logical.reply,
-      finishReason: result ? mapTerminalReason(result.terminal) : logical.finishReason,
+      finishReason,
       counters: logical.counters,
       ...nativeTurnMetrics(receipts),
     });
