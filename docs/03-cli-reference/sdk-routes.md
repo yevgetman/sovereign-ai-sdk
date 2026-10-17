@@ -243,9 +243,12 @@ provider and tools and emit a typed terminal failure. Cleanup has a bounded wait
 The native host uses the selected model's frozen context/output limits, scoped
 tool schemas and effective system prompt to check the configured proactive
 threshold. It compacts before a drive when reducible history reaches that limit.
-A provider overflow may then cause one independent compact-and-retry. A second
-overflow is a typed `context_overflow` failure. A no-op compaction does not retry
-an unchanged request. If the fixed system/tool schemas or mandatory retained
+A provider overflow may then cause one compact-and-retry, independent of an
+earlier proactive compaction. The abandoned drive and the summary call are
+charged before that retry, and the retry's max turns are the logical model
+calls still remaining. No retry starts when none remain. A second overflow is
+a typed `context_overflow` failure. A no-op compaction does not retry an
+unchanged request. If the fixed system/tool schemas or mandatory retained
 tail cannot fit, the host refuses before paid summary work or a child pivot.
 Capability refusal precedes paid summarization. The summary request carries the
 same selected effort and frozen model evidence, and must fit that model's actual
