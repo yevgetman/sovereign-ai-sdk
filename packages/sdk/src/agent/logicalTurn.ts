@@ -147,6 +147,8 @@ type LeaseBinding = {
   /** Aborted when this owner loses the lease. Independent of the caller's stop signal. */
   signal: AbortSignal;
   lost: boolean;
+  /** Stop deferred by the segment in flight. Kept if the host drops the terminal. */
+  stop?: (() => Promise<void>) | undefined;
 };
 
 const leaseBindings = new AsyncLocalStorage<LeaseBinding>();
@@ -160,6 +162,12 @@ function displaceSegment(logicalTurnId: string, owner: string, lose: () => void)
 
 function clearSegment(logicalTurnId: string, owner: string): void {
   if (activeSegments.get(logicalTurnId)?.owner === owner) activeSegments.delete(logicalTurnId);
+}
+
+/** Remember the Stop closure for the segment on this async stack. */
+export function rememberLogicalSegmentStop(fire: () => Promise<void>): void {
+  const binding = leaseBindings.getStore();
+  if (binding) binding.stop = fire;
 }
 
 /** Signal for the segment running on this async stack. Lease loss aborts it. */
@@ -569,6 +577,7 @@ export async function superviseLogicalTurn(
       let result: RunResult;
       try {
         const activeSessionId = record.activeSessionId;
+        binding.stop = undefined;
         result = await withHeartbeat(() =>
           options.runSegment({
             messages,
@@ -583,9 +592,13 @@ export async function superviseLogicalTurn(
         // Persist the deadline terminal. A real abort is stored cancelled.
         // Storage faults stay untouched so the host reports them. A lost lease
         // must not overwrite the worker that now owns the record.
+        // A host can drop the returned terminal when the deadline abort wins
+        // the race. The segment still left its Stop on the lease binding.
         if (!(error instanceof LogicalTurnLeaseError) && !storageFault(error)) {
-          if (isDeadlineTerminal(options.signal, record.deadlineAt, now()))
+          if (isDeadlineTerminal(options.signal, record.deadlineAt, now())) {
+            if (binding.stop) pendingStop = binding.stop;
             return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
+          }
           if (options.signal?.aborted) await finish('cancelled', 'cancelled', undefined);
         }
         throw error;

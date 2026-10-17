@@ -1,8 +1,17 @@
 import { afterAll, afterEach, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AssistantMessage, Message } from '@yevgetman/sov-sdk/core/types';
+import { buildHookRunner } from '@yevgetman/sov-sdk/hooks/runner';
 import { RouteError, getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
 import type { LLMProvider, Transport } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
@@ -847,6 +856,54 @@ for (const stage of [
     }
   });
 }
+
+test('deadline during a segment runs the Stop command once', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(request) {
+      calls += 1;
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 3, outputTokens: 2 } };
+      await waitForAbort(request.signal);
+      throw new Error('fixture timeout');
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    const marker = join(f.home, 'stops.txt');
+    const script = join(f.home, 'stop.sh');
+    writeFileSync(script, `#!/usr/bin/env bash\nprintf 'ran\\n' >> ${JSON.stringify(marker)}\n`);
+    chmodSync(script, 0o755);
+    runtime.hookRunner = buildHookRunner({
+      hooksByEvent: {
+        PreToolUse: [],
+        PostToolUse: [],
+        UserPromptSubmit: [],
+        Stop: [{ hooks: [{ type: 'command', command: script }] }],
+      },
+      consent: async () => 'allow',
+      logStderr: () => {},
+    });
+  });
+  const marker = join(f.home, 'stops.txt');
+  const c = capture();
+  expect(await runSdkRunCommand({ ...opts, toolset: 'chat', deadlineMs: 1500 }, c.io, f.deps)).toBe(
+    3,
+  );
+  expect(calls).toBe(1);
+  expect(c.events.at(-1)).toMatchObject({
+    type: 'turn.error',
+    outcome: 'exhausted',
+    reason: 'deadline',
+    code: 'continuation_exhausted',
+  });
+  expect(
+    readFileSync(marker, 'utf8')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0),
+  ).toEqual(['ran']);
+});
 
 test('a usage storage failure during cancellation disables recovery and keeps errors secret-safe', async () => {
   const controller = new AbortController();

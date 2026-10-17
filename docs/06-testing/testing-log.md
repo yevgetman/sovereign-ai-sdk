@@ -1,3 +1,35 @@
+## 2026-10-17 — Deadline Stop hook runs once
+
+Scope: logical-turn Stop when `--deadline-ms` aborts a segment. The deferred
+Stop closure no longer uses an already-aborted work signal. If the host drops
+the returned terminal on that abort, the lease binding still carries the
+closure and the deadline terminal runs it once. A non-terminal continuation
+still does not observe the segment as an ending.
+
+Environment: `/tmp/fix-sov-159` on `review-fix/159` from `f6d929ea`, macOS,
+Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade, release,
+or deployment ran.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts -t "runs the Stop command once"` failed. The
+deadline segment reached `continuation_exhausted` and the command Stop hook
+wrote nothing.
+
+After the fix, that test passes: a `max_turns` segment writes nothing, then a
+deadline abort writes `ran` once. `env -u FORCE_COLOR bun test --timeout 20000
+tests/cli/sdkRunRecovery.test.ts -t "deadline during a segment runs the Stop
+command once"` passes. One model call, exit 3, `continuation_exhausted`, and
+the command runs once. The logical-turn Stop hook cases still pass.
+
+`bun run lint` passed (Biome 1159 files; boundary 257 modules, 1055
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). After `bun run build`,
+`env -u FORCE_COLOR bun test --timeout 20000` is **6595 pass / 31 skip /
+0 fail**, 27031 assertions, 625 files, 171.89 seconds. A run before `dist`
+existed failed 67 Node tests with `ERR_MODULE_NOT_FOUND`; those are not this
+change.
+
 ## 2026-10-17 — Held logical-turn lease is a timed retry
 
 Scope: `--continue-logical-turn` while another owner holds an unexpired
