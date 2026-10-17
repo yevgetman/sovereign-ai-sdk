@@ -140,7 +140,9 @@ for (const [id, record] of [
   });
 }
 
-test('continuing a missing logical turn stays invalid_input', async () => {
+const GENERIC_INVALID_INPUT = 'Invalid native SDK input or options.';
+
+test('continuing a missing logical turn names the unknown id', async () => {
   const path = fileDb();
   const db = SessionDb.open({ path });
   db.close();
@@ -149,5 +151,77 @@ test('continuing a missing logical turn stays invalid_input', async () => {
   expect(terminal).toMatchObject({
     type: 'turn.error',
     code: 'invalid_input',
+    recoverable: false,
+    error: 'logical turn does not exist',
   });
+  expect(terminal?.error).not.toBe(GENERIC_INVALID_INPUT);
+});
+
+test('stdin combined with --continue-logical-turn names the flag clash', async () => {
+  const path = fileDb();
+  const events: Record<string, unknown>[] = [];
+  let reads = 0;
+  const exitCode = await runSdkRunCommand(
+    { json: true, sdk: true, db: path, stdin: true, continueLogicalTurn: 'lt-missing' },
+    {
+      readStdin: async () => {
+        reads += 1;
+        return 'replacement prompt';
+      },
+      writeStdout: (line) => {
+        events.push(JSON.parse(line) as Record<string, unknown>);
+      },
+    },
+  );
+  expect(exitCode).toBe(2);
+  expect(reads).toBe(0);
+  expect(events).toHaveLength(1);
+  expect(events[0]).toMatchObject({
+    type: 'turn.error',
+    code: 'invalid_input',
+    recoverable: false,
+    error: '--stdin cannot be combined with --continue-logical-turn',
+  });
+  expect(events[0]?.error).not.toBe(GENERIC_INVALID_INPUT);
+});
+
+test('unrelated invalid native input stays the generic sentence', async () => {
+  const events: Record<string, unknown>[] = [];
+  const exitCode = await runSdkRunCommand(
+    { json: true, stdin: true, provider: 'openai' },
+    {
+      readStdin: async () => 'unused',
+      writeStdout: (line) => {
+        events.push(JSON.parse(line) as Record<string, unknown>);
+      },
+    },
+  );
+  expect(exitCode).toBe(2);
+  expect(events).toHaveLength(1);
+  expect(events[0]).toMatchObject({
+    type: 'turn.error',
+    code: 'invalid_input',
+    recoverable: false,
+    error: GENERIC_INVALID_INPUT,
+  });
+});
+
+test('a logical turn with no stored route names the route failure', async () => {
+  const path = fileDb();
+  const record = stored('lt-no-route');
+  const binding = {
+    provider: record.binding.provider,
+    model: record.binding.model,
+    cwd: record.binding.cwd,
+  };
+  insert(path, 'lt-no-route', JSON.stringify({ ...record, binding }));
+  const { exitCode, terminal } = await continueTurn(path, 'lt-no-route');
+  expect(exitCode).toBe(2);
+  expect(terminal).toMatchObject({
+    type: 'turn.error',
+    code: 'invalid_input',
+    recoverable: false,
+    error: 'logical turn route is missing',
+  });
+  expect(terminal?.error).not.toBe(GENERIC_INVALID_INPUT);
 });
