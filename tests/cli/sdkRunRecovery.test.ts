@@ -279,6 +279,92 @@ test('continuing a cancelled logical turn does not call the model', async () => 
   expect(nextAction).not.toBe('continue_logical_turn');
 });
 
+test('a held lease refuses continuation without a provider call or stored-row change', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('durable answer');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider);
+  const first = capture();
+  expect(await runSdkRunCommand(opts, first.io, f.deps)).toBe(0);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const sessionId = String(first.events.at(-1)?.sessionId);
+  const db = SessionDb.open({ path: f.db });
+  let storedBefore = '';
+  let messagesBefore = '';
+  try {
+    const row = db.handle
+      .query<{ record: string }, [string]>(
+        'SELECT record FROM logical_turns WHERE logical_turn_id = ?',
+      )
+      .get(logicalTurnId);
+    const record = JSON.parse(row?.record ?? '{}') as { status: string };
+    record.status = 'running';
+    db.handle.run(
+      `UPDATE logical_turns SET record = ?, lease_owner = ?, lease_expires_at = ?
+       WHERE logical_turn_id = ?`,
+      [JSON.stringify(record), 'other-owner', Date.now() + 30_000, logicalTurnId],
+    );
+    storedBefore = JSON.stringify(
+      db.handle
+        .query<
+          { record: string; lease_owner: string | null; lease_expires_at: number | null },
+          [string]
+        >(
+          'SELECT record, lease_owner, lease_expires_at FROM logical_turns WHERE logical_turn_id = ?',
+        )
+        .get(logicalTurnId),
+    );
+    messagesBefore = JSON.stringify(db.loadMessages(sessionId));
+  } finally {
+    db.close();
+  }
+  const second = capture();
+  const exitCode = await runSdkRunCommand(
+    { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+    second.io,
+    f.deps,
+  );
+  expect(calls).toBe(1);
+  const terminal = second.events.at(-1);
+  expect(terminal?.code).not.toBe('provider_failed');
+  expect(terminal).toMatchObject({
+    type: 'turn.error',
+    code: 'logical_turn_leased',
+    recoverable: false,
+    logicalTurnId,
+    nextAction: 'none',
+  });
+  expect(String(terminal?.error)).toContain('owned elsewhere');
+  expect(String(terminal?.error)).not.toContain('provider failed');
+  expect(terminal?.nextAction).not.toBe('repair_request');
+  expect(exitCode).toBe(3);
+  const after = SessionDb.open({ path: f.db });
+  try {
+    expect(
+      JSON.stringify(
+        after.handle
+          .query<
+            { record: string; lease_owner: string | null; lease_expires_at: number | null },
+            [string]
+          >(
+            'SELECT record, lease_owner, lease_expires_at FROM logical_turns WHERE logical_turn_id = ?',
+          )
+          .get(logicalTurnId),
+      ),
+    ).toBe(storedBefore);
+    expect(JSON.stringify(after.loadMessages(sessionId))).toBe(messagesBefore);
+  } finally {
+    after.close();
+  }
+});
+
 test('an uncooperative cancelled provider never advertises recovery', async () => {
   const controller = new AbortController();
   const provider: LLMProvider = {
