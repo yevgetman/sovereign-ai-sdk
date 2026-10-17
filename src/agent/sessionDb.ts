@@ -1266,7 +1266,15 @@ function parseLogicalTurnRecord(serialized: string, logicalTurnId: string): Logi
     throw new LogicalTurnRecordError();
   }
   if (!isLogicalTurnRecord(parsed, logicalTurnId)) throw new LogicalTurnRecordError();
-  return parsed;
+  return omitLegacySegmentLimit(parsed);
+}
+
+function omitLegacySegmentLimit(record: LogicalTurnRecord): LogicalTurnRecord {
+  if (!Object.hasOwn(record, 'segmentLimit')) return record;
+  const { segmentLimit: _segmentLimit, ...rest } = record as LogicalTurnRecord & {
+    segmentLimit?: unknown;
+  };
+  return rest;
 }
 
 function isLogicalTurnRecord(value: unknown, logicalTurnId: string): value is LogicalTurnRecord {
@@ -1298,9 +1306,9 @@ function isLogicalTurnRecord(value: unknown, logicalTurnId: string): value is Lo
     return false;
   }
   if (typeof value.bindingDigest !== 'string') return false;
-  if (!isFiniteNumber(value.segmentLimit) || !isFiniteNumber(value.logicalModelCallLimit)) {
-    return false;
-  }
+  if (!isFiniteNumber(value.logicalModelCallLimit)) return false;
+  // Legacy rows may still carry segmentLimit. A non-number is corrupt; a number is ignored.
+  if (value.segmentLimit !== undefined && !isFiniteNumber(value.segmentLimit)) return false;
   if (value.deadlineAt !== undefined && !isFiniteNumber(value.deadlineAt)) return false;
   if (!isLogicalTurnStatus(value.status)) return false;
   if (value.lastCause !== undefined && typeof value.lastCause !== 'string') return false;

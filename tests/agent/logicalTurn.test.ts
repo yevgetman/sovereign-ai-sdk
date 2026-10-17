@@ -115,6 +115,38 @@ describe('logical-turn supervisor', () => {
     expect(store.loadLogicalTurn(outcome.logicalTurnId)?.status).toBe('completed');
   });
 
+  test('a stored segmentLimit does not cap max_tokens continuation', async () => {
+    let calls = 0;
+    const fixture = setup(
+      async () => {
+        calls += 1;
+        return calls < 4 ? result('max_tokens', `part-${calls}`) : result('completed', 'done');
+      },
+      {
+        logicalModelCallLimit: 100,
+        progressSnapshot: () => ({
+          transcriptIds: [calls],
+          transcriptCount: calls,
+          receipts: [],
+          cursor: null,
+          compactionChildId: 'session-1',
+        }),
+      },
+    );
+    const create = fixture.store.createLogicalTurn.bind(fixture.store);
+    fixture.store.createLogicalTurn = (record) => {
+      create({ ...record, segmentLimit: 1 } as LogicalTurnRecord);
+    };
+    const outcome = await superviseLogicalTurn(fixture.options);
+    expect(calls).toBe(4);
+    expect(outcome.status).toBe('completed');
+    expect(outcome.counters.segments).toBe(4);
+    expect(outcome.counters.modelCalls).toBe(4);
+    const stored = fixture.store.loadLogicalTurn(outcome.logicalTurnId);
+    expect(stored?.logicalModelCallLimit).toBe(100);
+    expect(stored).not.toHaveProperty('segmentLimit');
+  });
+
   test('stops after two identical continuation attempts', async () => {
     const { options } = setup(async () => result('max_turns'));
     const outcome = await superviseLogicalTurn({
@@ -1731,7 +1763,6 @@ function storedTurn(id: string): LogicalTurnRecord {
     compactedSessionIds: [],
     binding,
     bindingDigest: 'digest',
-    segmentLimit: 10,
     logicalModelCallLimit: 100,
     status: 'running',
     repeatedNoProgress: 0,

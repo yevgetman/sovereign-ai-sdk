@@ -1254,7 +1254,7 @@ export async function runSdkRunCommand(
       sessionId,
       ...(originalUserMessageId !== undefined ? { originalUserMessageId } : {}),
       initialMessages: messages,
-      segmentLimit: defaultMaxTurns(toolset),
+      // Toolset maxTurns bounds one segment inside runSegment. It is not a segment count.
       logicalModelCallLimit: 100,
       ...(deadlineAt !== undefined ? { deadlineAt } : {}),
       ...(continuationId ? { logicalTurnId: continuationId } : {}),

@@ -1678,6 +1678,21 @@ async function withHarness<T>(home: string, run: () => Promise<T>): Promise<T> {
   }
 }
 
+test('a chat logical turn does not store a segment-count limit', async () => {
+  const f = fixture(answerProvider());
+  const c = capture();
+  expect(await runSdkRunCommand(opts, c.io, f.deps)).toBe(0);
+  const logicalTurnId = String(c.events.at(-1)?.logicalTurnId);
+  const raw = JSON.parse(logicalTurnRecord(f.db, logicalTurnId)) as {
+    segmentLimit?: unknown;
+    logicalModelCallLimit?: unknown;
+    counters?: { segments?: number };
+  };
+  expect(raw.logicalModelCallLimit).toBe(100);
+  expect(raw.segmentLimit).toBeUndefined();
+  expect(raw.counters?.segments).toBe(1);
+});
+
 function logicalTurnRecord(path: string, id: string): string {
   const db = SessionDb.open({ path });
   try {

@@ -1,3 +1,35 @@
+## 2026-10-17 — Logical turns do not store an unenforced segment limit
+
+Scope: `segmentLimit` was written on the logical-turn row (host toolset turn
+cap, or supervisor default 10) and never compared to `counters.segments`.
+New rows omit it. A legacy numeric value still loads and is dropped; a
+non-number is invalid. Continuation stays on the logical model-call budget
+(default 100), the deadline, and the stall fingerprint. Chat is not capped
+at one segment.
+
+Environment: `/private/tmp/fix-sov-190` on `review-fix/190`, macOS, Bun 1.3.13
+(`bf2e2cec`). No live provider, product install, upgrade, release, or deployment.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts -t 'a stored segmentLimit does not cap'`
+failed. A segment that kept returning `max_tokens` with a new transcript id
+ran 4 segments under `logicalModelCallLimit: 100` even though the stored row
+had `segmentLimit: 1`. The failing assertion was
+`not.toHaveProperty('segmentLimit')` (received 1).
+
+After the fix that test passes, as do the legacy-row load test and the chat
+host row test. `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts tests/agent/sessionDb.logicalTurnRecord.test.ts
+tests/server/skillCeilingContinuation.test.ts tests/cli/sdkRunRecovery.test.ts
+tests/cli/sdkRunCompaction.test.ts` was 137 pass / 0 fail. `bun run lint`
+passed. `bun run typecheck` reports the same 3 existing errors in
+`tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). A full `bun test --timeout 20000`
+was 6551 pass / 31 skip / 67 fail, all `ERR_MODULE_NOT_FOUND` for
+`packages/sdk/dist` while the tarball test deleted that build. Rerunning
+`tests/providers/modelImportOrder.test.ts` and `tests/skills` with `dist`
+present was 465 pass / 0 fail.
+
 ## 2026-10-17 — Compaction writes stop when the logical-turn lease is lost
 
 Scope: a dispossessed `compact()` must not insert a child `sessions` row or a
