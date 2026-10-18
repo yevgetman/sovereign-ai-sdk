@@ -764,6 +764,80 @@ test('coding overflow after the logical model-call cap does not start another 10
   }
 });
 
+test('the opening proactive summary counts against the logical model-call cap', async () => {
+  const cap = 100;
+  const order: string[] = [];
+  let mains = 0;
+  let summaries = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(req) {
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 4, outputTokens: 1 } };
+      if (isSummary(req)) {
+        summaries++;
+        order.push('summary');
+        const message = answer('Keep the task.');
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'end_turn' };
+        return message;
+      }
+      mains++;
+      order.push('main');
+      const message: AssistantMessage = {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: `open-${mains}`, name: 'probe', input: { n: mains } }],
+      };
+      yield { type: 'assistant_message', message };
+      yield { type: 'message_stop', stop_reason: 'tool_use' };
+      return message;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.proactiveCompactThreshold = 0.005;
+    runtime.loop = { mode: 'off' };
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'probe',
+        description: () => 'probe',
+        inputSchema: z.unknown(),
+        renderResult: () => ({ content: 'ok' }),
+        async call() {
+          return { data: 'ok' };
+        },
+      }),
+    );
+  });
+  const code = await runSdkRunCommand(
+    { ...opts, resume: f.parent, toolset: 'coding', permissionMode: 'bypass' },
+    f.io,
+    f.deps,
+  );
+  expect(order[0]).toBe('summary');
+  expect(summaries).toBe(1);
+  expect(mains + summaries).toBe(cap);
+  expect(mains).toBe(cap - 1);
+  expect(code).toBe(3);
+  const terminal = f.events.at(-1);
+  expect(terminal).toMatchObject({
+    type: 'turn.error',
+    outcome: 'exhausted',
+    reason: 'model_call_limit',
+    code: 'continuation_exhausted',
+    finishReason: 'model_call_limit',
+    counters: {
+      segments: 1,
+      modelCalls: mains + summaries,
+      inputTokens: (mains + summaries) * 4,
+      outputTokens: mains + summaries,
+    },
+  });
+  expect(terminal?.counters).toMatchObject({ modelCalls: cap });
+  expect(order.filter((kind) => kind === 'summary')).toHaveLength(1);
+});
+
 test('a later segment compacts before the next model call and charges the summary', async () => {
   const order: string[] = [];
   let mains = 0;
