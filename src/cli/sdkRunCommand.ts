@@ -96,6 +96,9 @@ export type SdkRunDependencies = {
   signal?: AbortSignal;
 };
 const POLICY_DENIED_ERROR = 'Prompt was rejected by policy.';
+/** A stored hook verdict stays a short reason. Longer text is not persisted. */
+const POLICY_REASON_CAP = 160;
+const USER_PROMPT_HOOK_FALLBACK = 'prompt rejected by UserPromptSubmit hook';
 const ERRORS: Record<string, string> = {
   invalid_input: 'Invalid native SDK input or options.',
   route_unavailable: 'Selected authentication route is unavailable.',
@@ -330,6 +333,57 @@ function string(value: unknown): string | undefined {
 function isUserTurnPolicyError(err: unknown): err is Error {
   return err instanceof Error && err.name === 'UserTurnPolicyError';
 }
+
+function storedTextBlock(db: SessionDb, messageId: number): string | undefined {
+  const row = db.handle
+    .query<{ content: string }, [number]>('SELECT content FROM messages WHERE id = ?')
+    .get(messageId);
+  if (!row) return undefined;
+  let content: unknown;
+  try {
+    content = JSON.parse(row.content) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(content)) return undefined;
+  for (const block of content) {
+    if (
+      block !== null &&
+      typeof block === 'object' &&
+      (block as { type?: unknown }).type === 'text' &&
+      typeof (block as { text?: unknown }).text === 'string'
+    ) {
+      return (block as { text: string }).text;
+    }
+  }
+  return undefined;
+}
+
+/** Verdict written to the user row and turn.error. A hook-authored reason is
+ * kept, capped, and dropped when it contains the prompt. Command and stderr
+ * fallbacks use the fixed policy sentence. */
+function persistedPolicyText(message: string, storedPrompt: string | undefined): string {
+  const trimmed = message.trim();
+  if (!isPersistablePolicyReason(trimmed, storedPrompt)) return POLICY_DENIED_ERROR;
+  if (trimmed.length <= POLICY_REASON_CAP) return trimmed;
+  const capped = trimmed.slice(0, POLICY_REASON_CAP).trim();
+  return capped.length > 0 ? capped : POLICY_DENIED_ERROR;
+}
+
+function isPersistablePolicyReason(message: string, storedPrompt: string | undefined): boolean {
+  if (message.length === 0) return false;
+  if (message === USER_PROMPT_HOOK_FALLBACK) return false;
+  if (message.startsWith('hook exit 2:')) return false;
+  if (message.startsWith('prompt rejected by hook:')) return false;
+  const prompt = storedPrompt?.trim() ?? '';
+  if (prompt.length > 0 && message === prompt) return false;
+  // Not a hook dump. A short prompt may be a word inside this fixed sentence.
+  if (message === 'prompt rejected by conduct preGate') return true;
+  // A longer prompt echoed into the verdict is the leak.
+  if (prompt.length >= 8 && message.includes(prompt)) return false;
+  return true;
+}
+
 /** A rejected `routes.<id>.defaultModel` names the setting; other model errors stay generic.
  *  Explicit `off` is a route refusal (reasoning cannot be disabled), not a model with no effort.
  *  Continuation input failures keep their safe sentence. Other invalid input stays generic.
@@ -366,8 +420,7 @@ function turnErrorText(code: string, err: unknown): string {
     return `${ERRORS[code]} HTTP ${err.status}.${safe ? ` ${safe.code ? `${safe.code}: ` : ''}${safe.message}` : ''}`;
   }
   if (code === 'policy_denied') {
-    const message = isUserTurnPolicyError(err) ? err.message.trim() : '';
-    return message.length > 0 ? message : POLICY_DENIED_ERROR;
+    return persistedPolicyText(isUserTurnPolicyError(err) ? err.message : '', undefined);
   }
   return ERRORS[code] ?? 'Selected provider failed. No route fallback was performed.';
 }
@@ -1579,10 +1632,16 @@ export async function runSdkRunCommand(
       deadlineTerminal || logical.status === 'exhausted' || logical.status === 'stalled';
     if (logical.status === 'failed' && !logical.code && result?.terminal.reason === 'error') {
       const error = result.terminal.error;
-      // The gate returned before any provider call. Keep its verdict, not the
-      // rejected prompt, in the row a later resume would rehydrate.
-      if (error?.name === 'UserTurnPolicyError' && sessionId !== null) {
-        const messageId = currentHumanUserMessageId(hostRuntime.sessionDb, sessionId);
+      // The gate returned before any provider call. Keep a capped hook reason,
+      // or the fixed policy sentence — not the command, stderr, or prompt.
+      if (isUserTurnPolicyError(error)) {
+        const messageId =
+          sessionId !== null
+            ? currentHumanUserMessageId(hostRuntime.sessionDb, sessionId)
+            : undefined;
+        const stored =
+          messageId !== undefined ? storedTextBlock(hostRuntime.sessionDb, messageId) : undefined;
+        error.message = persistedPolicyText(error.message, stored);
         if (messageId !== undefined)
           replaceStoredUserText(
             hostRuntime.sessionDb,

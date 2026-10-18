@@ -2671,6 +2671,170 @@ test('a blocked prompt is not sent when the failed logical turn is continued', a
   expect(second.events.at(-1)?.nextAction).not.toBe('resume');
 });
 
+const POLICY_SENTENCE = 'Prompt was rejected by policy.';
+/** Matches the cap in sdkRunCommand. A longer hook reason must not be stored whole. */
+const POLICY_REASON_CAP = 160;
+
+function policyHookCommand(home: string, name: string, body: string): string {
+  const script = join(home, `${name}.sh`);
+  writeFileSync(script, body);
+  chmodSync(script, 0o755);
+  return `/bin/sh ${script}`;
+}
+
+function storedUserText(dbPath: string): string {
+  const db = SessionDb.open({ path: dbPath });
+  try {
+    const session = db.handle
+      .query<{ session_id: string }, []>('SELECT session_id FROM sessions')
+      .get();
+    const stored = db.loadMessages(session?.session_id ?? '');
+    const human = stored.find(
+      (row) => row.role === 'user' && !row.content.some((block) => block.type === 'tool_result'),
+    );
+    const text = human?.content.find((block) => block.type === 'text');
+    return text?.type === 'text' ? text.text : '';
+  } finally {
+    db.close();
+  }
+}
+
+test('a UserPromptSubmit denial does not store the command, stderr, or prompt', async () => {
+  const prompt = 'UNIQUEPROMPTTOKEN';
+  const hooks = [
+    {
+      name: 'policydenycmdtoken-exit2',
+      body: "#!/bin/sh\nprintf 'STDERRMARKER\\n' >&2\ncat >&2\nexit 2\n",
+    },
+    {
+      name: 'policydenycmdtoken-json',
+      body: '#!/bin/sh\nprintf \'%s\\n\' \'{"permissionDecision":"deny"}\'\n',
+    },
+    {
+      name: 'policydenycmdtoken-stderr',
+      body: "#!/bin/sh\nprintf 'STDERRMARKER\\n' >&2\nexit 2\n",
+    },
+  ];
+  for (const hook of hooks) {
+    let calls = 0;
+    const provider: LLMProvider = {
+      name: 'openai',
+      async *stream() {
+        calls++;
+        const reply = message('should not run');
+        yield { type: 'assistant_message', message: reply };
+        return reply;
+      },
+    };
+    const f = fixture(provider, (runtime) => {
+      const command = policyHookCommand(f.home, hook.name, hook.body);
+      runtime.hookRunner = buildHookRunner({
+        hooksByEvent: {
+          PreToolUse: [],
+          PostToolUse: [],
+          Stop: [],
+          UserPromptSubmit: [{ hooks: [{ type: 'command', command }] }],
+        },
+        consent: async () => 'allow',
+        logStderr: () => {},
+      });
+    });
+    const command = `/bin/sh ${join(f.home, `${hook.name}.sh`)}`;
+    const c = capture();
+    c.io.readStdin = async () => JSON.stringify({ inputVersion: 1, text: prompt });
+    expect(await runSdkRunCommand(opts, c.io, f.deps)).toBe(1);
+    expect(calls).toBe(0);
+    const denied = c.events.find((event) => event.type === 'turn.error');
+    expect(denied?.code).toBe('policy_denied');
+    const error = String(denied?.error);
+    const row = storedUserText(f.db);
+    expect(error).toBe(POLICY_SENTENCE);
+    expect(row).toBe(POLICY_SENTENCE);
+    const leaked = JSON.stringify(denied);
+    for (const secret of [prompt, 'STDERRMARKER', 'policydenycmdtoken', command]) {
+      expect(error).not.toContain(secret);
+      expect(row).not.toContain(secret);
+      expect(leaked).not.toContain(secret);
+    }
+    const db = SessionDb.open({ path: f.db });
+    try {
+      expect(db.search(prompt)).toEqual([]);
+      expect(db.search('STDERRMARKER')).toEqual([]);
+      expect(db.search('policydenycmdtoken')).toEqual([]);
+    } finally {
+      db.close();
+    }
+  }
+});
+
+test('a UserPromptSubmit denial keeps a short reason and caps one that embeds the prompt', async () => {
+  const prompt = 'UNIQUEPROMPTTOKEN';
+  const long = `kept ${'y'.repeat(500)}`;
+  const cases = [
+    { name: 'policydenycmdtoken-short', reason: 'desk policy', expected: 'desk policy' },
+    {
+      name: 'policydenycmdtoken-long',
+      reason: long,
+      expected: long.slice(0, POLICY_REASON_CAP),
+    },
+    {
+      name: 'policydenycmdtoken-embed',
+      reason: `stop ${prompt} now`,
+      expected: POLICY_SENTENCE,
+    },
+  ];
+  for (const hook of cases) {
+    let calls = 0;
+    const provider: LLMProvider = {
+      name: 'openai',
+      async *stream() {
+        calls++;
+        const reply = message('should not run');
+        yield { type: 'assistant_message', message: reply };
+        return reply;
+      },
+    };
+    const payload = JSON.stringify({ permissionDecision: 'deny', reason: hook.reason });
+    const f = fixture(provider, (runtime) => {
+      const command = policyHookCommand(
+        f.home,
+        hook.name,
+        `#!/bin/sh\nprintf '%s\\n' '${payload}'\n`,
+      );
+      runtime.hookRunner = buildHookRunner({
+        hooksByEvent: {
+          PreToolUse: [],
+          PostToolUse: [],
+          Stop: [],
+          UserPromptSubmit: [{ hooks: [{ type: 'command', command }] }],
+        },
+        consent: async () => 'allow',
+        logStderr: () => {},
+      });
+    });
+    const command = `/bin/sh ${join(f.home, `${hook.name}.sh`)}`;
+    const c = capture();
+    c.io.readStdin = async () => JSON.stringify({ inputVersion: 1, text: prompt });
+    expect(await runSdkRunCommand(opts, c.io, f.deps)).toBe(1);
+    expect(calls).toBe(0);
+    const denied = c.events.find((event) => event.type === 'turn.error');
+    const error = String(denied?.error);
+    const row = storedUserText(f.db);
+    expect(error).toBe(hook.expected);
+    expect(row).toBe(hook.expected);
+    expect(error).not.toContain(command);
+    expect(row).not.toContain(command);
+    expect(error).not.toContain('policydenycmdtoken');
+    expect(row).not.toContain('policydenycmdtoken');
+    if (hook.expected === POLICY_SENTENCE) {
+      expect(error).not.toContain(prompt);
+      expect(row).not.toContain(prompt);
+    }
+    expect(error.length).toBeLessThanOrEqual(POLICY_REASON_CAP);
+    expect(row.length).toBeLessThanOrEqual(POLICY_REASON_CAP);
+  }
+});
+
 test('a stolen lease blocks the gated prompt write and the provider stream', async () => {
   let calls = 0;
   const provider: LLMProvider = {

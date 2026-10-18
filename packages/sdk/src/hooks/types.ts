@@ -90,7 +90,8 @@ export type HookConfig = {
 export type HookResult = {
   /** True if any hook exited with code 2 or returned `permissionDecision: 'deny'`. */
   block: boolean;
-  /** Combined human-readable explanation for a block. Includes captured stderr. */
+  /** Combined human-readable explanation for a block. Includes captured stderr,
+   * except UserPromptSubmit, which keeps only a parsed reason. */
   reason?: string;
   /** Final input to use when proceeding (PreToolUse only). Undefined = no rewrite. */
   updatedInput?: unknown;

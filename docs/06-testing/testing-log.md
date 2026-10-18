@@ -1,3 +1,27 @@
+## 2026-10-18 — Policy denial does not store the hook command or stderr
+
+Scope: `UserPromptSubmit` denials in `packages/sdk/src/hooks/runner.ts` and
+`src/cli/sdkRunCommand.ts`. A parsed hook reason is stored, capped at 160
+characters. Exit 2 stderr and a JSON deny with no reason store
+`Prompt was rejected by policy.` PreToolUse still uses stderr and the command.
+`logicalTurn.ts`, cwd pin order, and `latestUserText` were not edited.
+
+Environment: `/private/tmp/fix-sov-255` on `review-fix/255` from `680dc767`,
+macOS, Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade,
+release, or push.
+
+Before the fix, exit 2 with stderr that included the prompt stored that stderr
+on `turn.error` (`STDERRMARKER` plus the prompt JSON). A JSON deny with no
+reason stored `prompt rejected by hook:` plus `/bin/sh` and the script path.
+A 505-character reason was stored whole.
+
+After the fix, those fallbacks store `Prompt was rejected by policy.` on
+`turn.error` and the user row. FTS does not contain the command, stderr
+marker, or prompt. A short reason `desk policy` is kept. A long reason is cut
+to 160 characters. A reason that contains the prompt becomes the fixed sentence.
+
+`env -u FORCE_COLOR bun test --timeout 20000 ./tests/hooks/runner.test.ts ./tests/cli/sdkRunRecovery.test.ts -t 'UserPromptSubmit exit 2|UserPromptSubmit JSON deny|UserPromptSubmit denial|blocked prompt is not sent|policy denial'` passed after the fix and failed before it. `bun run lint` passed (Biome 1162 files; boundary 257 modules, 1057 dependencies, no violations). `bun run typecheck` passed. Full `env -u FORCE_COLOR bun test --timeout 20000` after `bun run build:sdk` is **6674 pass / 31 skip / 0 fail**. An earlier full run before `packages/sdk/dist` existed was 6607 pass / 67 fail; every failure was a missing dist module, and those Node consumer tests passed after the build.
+
 ## 2026-10-17 — Opening proactive summary counts in the model-call budget
 
 Scope: the summary `prepare()` makes before the first segment in
