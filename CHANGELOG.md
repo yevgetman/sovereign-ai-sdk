@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — skills_list names observation (#233)
+
+**SDK:** A `skills_list` names success says descriptions and triggers are not
+in the page. A no-match action names `detail: "summary"` or `"activation"`
+instead of a full index. `skills_list` with neither `detail` nor a cursor
+still uses `names`. An omitted `detail` on `listSkillCatalog` still defaults
+to `activation`.
+
 ## Unreleased — logical-turn continuation
 
 **Harness:** `--continue-logical-turn <id>` with `--sdk --json` continues one

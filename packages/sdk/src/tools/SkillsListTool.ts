@@ -89,7 +89,17 @@ export const SkillsListTool = buildTool<Input, Output>({
       },
     );
     const needle = input.query?.trim();
-    const { skills, truncated } = data;
+    const { skills, truncated, detail } = data;
+    const namesOnly = detail === 'names';
+    const namesGap = namesOnly ? '; descriptions and triggers are not in this page' : '';
+    const pageActions = [
+      ...(truncated ? ['call skills_list with nextCursor and the same query and detail'] : []),
+      ...(namesOnly
+        ? [
+            'call skills_list with detail: "summary" or "activation" to load descriptions and triggers',
+          ]
+        : []),
+    ];
     return {
       data,
       observation: data.budgetExhausted
@@ -108,21 +118,15 @@ export const SkillsListTool = buildTool<Input, Output>({
                 : 'no visible skills configured',
               next_actions: needle
                 ? [
-                    'try a broader query, or call without `query` to see the full index',
+                    'try a broader query, or call without `query` and detail: "summary" or "activation"',
                     'check that the skill is loaded (look for skill files under .harness/skills/)',
                   ]
                 : ['add skills under .harness/skills/ or ~/.harness/skills/ to populate the index'],
             }
           : {
               status: 'success',
-              summary: `${skills.length} of ${data.total} matching skills${truncated ? ' (continue with nextCursor)' : ''}`,
-              ...(truncated
-                ? {
-                    next_actions: [
-                      'call skills_list with nextCursor and the same query and detail',
-                    ],
-                  }
-                : {}),
+              summary: `${skills.length} of ${data.total} matching skills${namesGap}${truncated ? ' (continue with nextCursor)' : ''}`,
+              ...(pageActions.length > 0 ? { next_actions: pageActions } : {}),
             },
     };
   },
