@@ -1,0 +1,368 @@
+{
+  "architecture": "linux-arm64",
+  "artifact_sha256": "d254208219c21c9e67b1e103a72650c6c9d0aafb54f0c06e40d474ec74fed67b",
+  "coverage": {
+    "archive_members": 42,
+    "bytes": 254804203,
+    "files": 34,
+    "links": 0,
+    "metadata": 169
+  },
+  "errors": [],
+  "errors_count": 0,
+  "exclusions": [],
+  "exit_code": 0,
+  "findings": [],
+  "findings_count": 0,
+  "findings_count_unit": "file/rule pairs",
+  "input_kind": "artifact",
+  "inventory": [
+    {
+      "kind": "tar",
+      "mode": null,
+      "path": "sov-linux-arm64.tar",
+      "path_sha256": "16522950880ce9dd058735b27ca7ee67389f45c410b74e72aa5dffee0ee8be52",
+      "sha256": "ce30e041b47f4c64a037231893dc4061199b8a07113c20ed52ab90049f9a5c6e",
+      "size": 104970240
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!LICENSE.txt",
+      "path_sha256": "6f58403acbeb4bf17d64f6c839a6c9cc0a2c88ffb2d4765168cf6f6a3a7159b6",
+      "sha256": "043effdda1399ae47d7bde10e059f9ffa3ad1afd9ec2af667c1d5355215975bd",
+      "size": 816
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!README.md",
+      "path_sha256": "fb743b8221a6f7716513f7ab7490c2d6dae247b446dde34f421b19849a6dd944",
+      "sha256": "7d4c8a54bb87b3662f51e2e95d5f50e774dccd6841e8850a1775fab58d43149b",
+      "size": 1077
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-arm64.tar!bin",
+      "path_sha256": "86d0dca40325650b5f4d36aae712b75265edff4e6bb1330992fc25a8ca279018"
+    },
+    {
+      "kind": "file",
+      "mode": 493,
+      "path": "sov-linux-arm64.tar!bin/sov",
+      "path_sha256": "8613444fa9913fc856661c982efba17992bc4b8eadb3155c296a4500422484e6",
+      "sha256": "8b7c9d2310fa23e791f51f9c9174b182ab8d4eeebd538811f4624c321b92cf8a",
+      "size": 89770280
+    },
+    {
+      "kind": "file",
+      "mode": 493,
+      "path": "sov-linux-arm64.tar!bin/sov-tui",
+      "path_sha256": "101142084ffa6e1bab7552cec0a276520e54517f3664817d0455ba78c64c1de1",
+      "sha256": "71e0dec2d0bf6b3482de445c56d2528393883b6e1604bfb5276bdabb1d5c4aec",
+      "size": 15073442
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!build-inputs.json",
+      "path_sha256": "52ec8e08149027216cd33153e6b83d230e680d1b06f7107fd0fe352295be66e8",
+      "sha256": "e4fa3364a707ca0ffbb4d3efaa0744e9bfc5011e13d54a324d99a5eb4579badc",
+      "size": 28050
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-arm64.tar!bundle-default",
+      "path_sha256": "53e530827e55831923d70be6ed8ee53eec80bcc0c0addcb0e00c2760897da313"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/BUNDLE-CONTRACT.md",
+      "path_sha256": "fbc22351588bdaf4206a6a48a17e52704cd8221429d86dc1791efbef1167e965",
+      "sha256": "925cb873e625373643f7f509b005f0c576d14d0a267da55dde50bb17af59dbbd",
+      "size": 1062
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-arm64.tar!bundle-default/agents",
+      "path_sha256": "cf5029d2f6abe2f1a1cda9bcabb9a496eaa7079dffcad79d96796e25002cc09a"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/agents/cheap-task.md",
+      "path_sha256": "77c026bb9537db568f85c9cdaab1288c97158919316519a1bdbd6e73cb674acc",
+      "sha256": "d5193db09d3cce2aaf7d049c3aa63dc2b0ef8f260f409439b0aa2a7aef6559a3",
+      "size": 861
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/agents/delegator.md",
+      "path_sha256": "540ad39a08ff7ec7f6de1fe7d742d650c7e92aa3d333c2af3b8980cccf129f69",
+      "sha256": "33db7dfb6cd7d1d86170e0248e0bf87ac4804eab01323d9c234efe675ff388d7",
+      "size": 3117
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/agents/explore.md",
+      "path_sha256": "d6d9e01e38a08d4af6140a6e37f383e2774ec9ace3ce07bebbb748f3d431d7af",
+      "sha256": "f076fe66bd0941ef6d51da8ff32990e02464fac37e31a32eb3d3d95598cc538a",
+      "size": 2124
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/agents/frontier-task.md",
+      "path_sha256": "b191e2ab566cc95441df0f9503276aad18df10432ebd6d302585aa1a2c021a7f",
+      "sha256": "e5f2f90e8e8d5bc09c0a27a1e538554d05a95cbbd3b1bec70bfd6c13e58bb245",
+      "size": 1049
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/agents/instinct-synthesizer.md",
+      "path_sha256": "98bb0ad32c3a95eb77c5d0c6d5d68e29a84882f0fa40c33d2e93301d0c1d58a2",
+      "sha256": "49bd3abacd485b87af5c15bc40f9fa95961ab0783d64dc6cf2b4bd71018b2508",
+      "size": 4447
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/agents/moderate-task.md",
+      "path_sha256": "edee775a685164afdef69989dbe885cb3f3f1e572e24d3ba56ea573a01733d5d",
+      "sha256": "fc8d8b01b12a278fc8236518d30c57b14ff128cfb7748bc745605b5945d8593d",
+      "size": 829
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/agents/plan.md",
+      "path_sha256": "ad85d0fc5537ce6efcac586ca303082f6fb2370e039918684098a989215c577f",
+      "sha256": "4d7f514a6e13cee1632ccf28143d2e209526c52b5dae0644c86aaa5cbb078187",
+      "size": 2335
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/agents/review-consolidate.md",
+      "path_sha256": "c247ef23ffa9e288afb95f2f25aa50bc9a77ca0c3109e192106d7a90ca374bac",
+      "sha256": "8e1372ef6f0d29228153cee6f2c31dedf48527cb657f6131961cb4154bf865f6",
+      "size": 1161
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/agents/review-memory.md",
+      "path_sha256": "ab46595be4738eab562a753f67adef5509edcefcedbdcbb615b2164b49eb53c8",
+      "sha256": "c2442bcb0f07b210238057bbc11965c4dd19144ac3a457852696c3d502573a96",
+      "size": 2806
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/agents/review-skill.md",
+      "path_sha256": "ee37ee1360089d053022946c73d7292833c1bfb60c93a4231f40a26d04973110",
+      "sha256": "2c4e08eda0302b6eef6f5a6483f61c44f6d4c31d66469c9e20347b02a9f404ba",
+      "size": 1859
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/agents/scheduled-mission.md",
+      "path_sha256": "79e9bc5a175f992c7a4225a8f0c25e981bbf5e3b56c35ebd2a81a137a8d983b5",
+      "sha256": "46196f1ef69fd2f924d136e6621f95dc3624eeb70cd6a2d818dcada00bb4a5ad",
+      "size": 2493
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/agents/subscription-executor.md",
+      "path_sha256": "37f1f75fce198b6c4be68823312ea9c45c9ca87333ae04a1c9f73471954c8012",
+      "sha256": "e80e25bca42f53d7363bdbc3ecd93b30e3d0bf7303538e90bfd081e215eef4ce",
+      "size": 1706
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/agents/verify.md",
+      "path_sha256": "8cec05798cc876a0a73824d5b9d971784956b0172b3dccd78c6735ec1df1cac5",
+      "sha256": "a9be9c7cd0d53ac25caa043aa1d0d9b0763350b94f9768ce079317767755fed5",
+      "size": 1850
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-arm64.tar!bundle-default/business",
+      "path_sha256": "bcf047a0eb249d4c594e570b3dacfa93a5ac75072d565f973d0ea298ff0afbfd"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/business/README.md",
+      "path_sha256": "93b0ed9b8b22eb81f49a1ff972347603b6c8d99ec89c338bc2e8e603414130c6",
+      "sha256": "11ab79fcc432794c1be5ba6c47ae0d24d1fb76ebe643f5e34312b0dcfe8e4a21",
+      "size": 2367
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/business/system-prompt.md",
+      "path_sha256": "6fbc855f0025050ae8ba94be1667fc0baa94b407c21f7e666cb79736c7be2e5c",
+      "sha256": "612dd3fe14d00f2aadff9f195f6de9f6c2b9ccaed45e1639fdc23d28fa34cda7",
+      "size": 2265
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-arm64.tar!bundle-default/harness",
+      "path_sha256": "554bca9968cc08c0fe074fd82f83c001077a0a068e31575dfd3da3bbb23671a2"
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-arm64.tar!bundle-default/harness/schemas",
+      "path_sha256": "247f9b77e96cfe6a7e2a6c8f926f09e7c5a0e648b52a5c9741928aa48caa256b"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/harness/schemas/.gitkeep",
+      "path_sha256": "2c092823f72c3e442cd7cd224086080b9b8e7acd70bca0e282d4528e73d55d50",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/index.yaml",
+      "path_sha256": "602562f4c7c751212b3e7860f9da0a6bad96e3f458d5ee0799690dd9887a5767",
+      "sha256": "f742f6a687480270bad36ac0da4c3c75f622f440ade72c796bd853dc6a7e6e87",
+      "size": 1045
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-arm64.tar!bundle-default/prompts",
+      "path_sha256": "600d0eba2887f3d631466ec8d4d97662ef0c1bd5feaabcbb5e029899445c482e"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/prompts/smart-router-trivial-fast-path.md",
+      "path_sha256": "da281e30eabec34773c5136a2809246646dcbe25f92a4aebd0a491dd0e9350e9",
+      "sha256": "2661f45ad1b59a174ac59d50f6b1a7ec9b00532864e8d51b675eb0726ff30e1f",
+      "size": 1067
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/prompts/smart-router.md",
+      "path_sha256": "7629eb2f9658352671a612d3176d7d243262a05bc18a1ba0722e852bac8e1646",
+      "sha256": "c50a8607d94a7e2c07b76f46c249c9a0abc481c924310001439e76a8567a9fea",
+      "size": 1287
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/prompts/subscription-executor.md",
+      "path_sha256": "48575a02df14c6418e23d3259ed002bd3444c8761a8d8be79b1e7e32c5e97d3b",
+      "sha256": "89dd3a4590124cccf39091a956bf12692d3290e8c0170a2e84a8591ff46242e6",
+      "size": 1314
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-arm64.tar!bundle-default/skills",
+      "path_sha256": "f860e1d6ce842c2868676eae9aef064d39ca54e7a4919d25a9b981458f643923"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/skills/review.md",
+      "path_sha256": "05a8e396a2397a39a49d11ce69f92d99162d9122283a5c2cf7439cbcfccd9104",
+      "sha256": "3f3bbb326492bd2e3b4b3dff6f3f0f0b5049a2a39c05f2cac627af8b82ba855f",
+      "size": 2083
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/skills/security-audit.md",
+      "path_sha256": "ec92fd53827d94b37fd1168fb52e9d23c87cdc1ebdd0381e9632860d21e99306",
+      "sha256": "38d786fb478b0c5979e17bf1800946177d7efcf1d33d924182f9996a484a2125",
+      "size": 11875
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/skills/summarize.md",
+      "path_sha256": "c600a5fa4c79c944f362c43cc4b2b33883a8e7449dfb077ad06a177dbbd3be49",
+      "sha256": "e13d15cc4cf66daf5b54e98f789bdea106056398b8a201ea8322496d8d292e36",
+      "size": 1822
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-arm64.tar!bundle-default/state",
+      "path_sha256": "eccab7a0aa6192ee62f26cf32c32b5cbc3e03dc95162df4101a6904a788429d1"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/state/.gitkeep",
+      "path_sha256": "4af2a9a6660f4c503f00c2152816db6e9e7b2ba868f47760c85c18fc83e8465b",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "kind": "directory",
+      "path": "sov-linux-arm64.tar!bundle-default/workflows",
+      "path_sha256": "fce20b1933a8f21b4e3de215440e4b0540b72090797bfa898fc2db024b29816c"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!bundle-default/workflows/review.yaml",
+      "path_sha256": "4809346139742413cc8bcb8eb34ab78f48a5e55bd7dc25e9a76c52020d5c6ea6",
+      "sha256": "fc46179ea37b0fba0171b2259651dad780f580df2ffef8ba1fd7f6a7125240d5",
+      "size": 4025
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "sov-linux-arm64.tar!version",
+      "path_sha256": "b678a07aaec4b6c6cd45247bcc0f5172f03bf2c143642a088d102b4f497b7a62",
+      "sha256": "6257b47fa0e84024ca32b11f9e3868b376020bb7a3e413e816795a1a401dd287",
+      "size": 8
+    },
+    {
+      "kind": "gzip",
+      "mode": null,
+      "path": "sov-linux-arm64.tar.gz",
+      "path_sha256": "c9a06e8f31bdfb5af8a63881ddc3291f34737e9579ef7c124ebf94074a382e9f",
+      "sha256": "d254208219c21c9e67b1e103a72650c6c9d0aafb54f0c06e40d474ec74fed67b",
+      "size": 44903441
+    }
+  ],
+  "inventory_sha256": "53db91e0e323f5dc9216eb9d15b9b3ce9713e7f6c8c349e9863333f74e913fea",
+  "limits": {
+    "chunk_size": 1048576,
+    "max_depth": 12,
+    "max_diagnostics": 200,
+    "max_expanded_bytes": 34359738368,
+    "max_members": 200000,
+    "max_metadata_bytes": 16777216,
+    "max_temporary_bytes": 34359738368
+  },
+  "policy_sha256": "8e04fd1980cd9a1a534eaa51e993f632a79f62b603efabaf99cbf6c65a95e1c2",
+  "policy_version": "2026-10-01.2",
+  "required_paths": [
+    "bin/sov",
+    "bin/sov-tui",
+    "bundle-default/index.yaml",
+    "bundle-default/BUNDLE-CONTRACT.md",
+    "README.md",
+    "LICENSE.txt",
+    "version",
+    "build-inputs.json"
+  ],
+  "result": "clean",
+  "scanner_version": "1.0.1",
+  "schema_version": 1
+}
