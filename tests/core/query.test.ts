@@ -284,11 +284,11 @@ describe('query() — Phase 2 turn loop', () => {
 
   test('reapplies the memory fence after a max_turns continuation boundary', async () => {
     // The host persists the original user message and rehydrates that row on
-    // the next segment. Segment 2 must see the same fence in the provider
-    // request, without a second copy of the user text and without recall or
-    // UserPromptSubmit running again.
+    // the next segment. Segment 2 must see the memory fence and one recall
+    // fence, without a second copy of the user text. UserPromptSubmit does
+    // not run again.
     const FENCE = 'UNIQUE_MEMORY_FENCE_H8_127';
-    const RECALL = 'UNIQUE_RECALL_SKIP_H8_127';
+    const RECALL = 'UNIQUE_RECALL_REAPPLY_H8_127';
     const prompt = 'do the thing';
     const seen: ProviderRequest[] = [];
     let recalls = 0;
@@ -383,9 +383,11 @@ describe('query() — Phase 2 turn loop', () => {
       expect(continuedBlock.text.split(prompt)).toHaveLength(2);
     }
     const continuedText = userTextOf(seen[1]);
-    expect(continuedText).not.toContain(RECALL);
+    expect(continuedText).toContain(RECALL);
+    expect(continuedText.split('</recall-context>').length - 1).toBe(1);
+    expect(continuedText.split(RECALL)).toHaveLength(2);
     expect(JSON.stringify(rehydrated)).toBe(rehydratedBefore);
-    expect(recalls).toBe(1);
+    expect(recalls).toBe(2);
     expect(userPromptSubmits).toBe(1);
 
     const snapshot = `<memory-context>${FENCE}</memory-context>`;
@@ -414,9 +416,11 @@ describe('query() — Phase 2 turn loop', () => {
     const once = userTextOf(seen[2]);
     expect(once.split(FENCE)).toHaveLength(2);
     expect(once.split(prompt)).toHaveLength(2);
+    expect(once).toContain(RECALL);
+    expect(once.split('</recall-context>').length - 1).toBe(1);
     expect(seen[2]?.messages).toHaveLength(alreadyFenced.length);
     expect(JSON.stringify(alreadyFenced)).toBe(alreadyBefore);
-    expect(recalls).toBe(1);
+    expect(recalls).toBe(3);
     expect(userPromptSubmits).toBe(1);
   });
 

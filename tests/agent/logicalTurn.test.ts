@@ -1883,7 +1883,9 @@ describe('logical turn Stop hooks', () => {
     expect(outcome.counters.providerRetries).toBe(1);
     expect(observed.stops).toEqual(['completed']);
     expect(observed.prompts).toBe(1);
-    expect(recalls).toBe(1);
+    // The retry is a new segment. Its stored prompt has no recall fence, so
+    // recall runs again. UserPromptSubmit still runs only on the first segment.
+    expect(recalls).toBe(2);
   });
 
   test('a stall after max_turns records one Stop', async () => {

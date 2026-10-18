@@ -13,12 +13,18 @@
 import { neutralizeFenceBody } from '../context/fenceGuard.js';
 import type { Message } from './types.js';
 
+/** One recall fence. Empty injection stays empty so a continuation does not invent a block. */
+export function prependRecall(text: string, injectionText: string): string {
+  if (!injectionText) return text;
+  const fenced = `<recall-context>\n${neutralizeFenceBody('recall-context', injectionText)}\n</recall-context>`;
+  return `${fenced}\n\n${text}`;
+}
+
 export function injectRecallIntoLatestUserMessage(
   history: Message[],
   injectionText: string,
 ): Message[] {
   if (!injectionText) return history;
-  const fenced = `<recall-context>\n${neutralizeFenceBody('recall-context', injectionText)}\n</recall-context>`;
   for (let i = history.length - 1; i >= 0; i--) {
     const msg = history[i];
     if (!msg || msg.role !== 'user') continue;
@@ -26,7 +32,7 @@ export function injectRecallIntoLatestUserMessage(
     const block = msg.content[textIndex];
     if (!block || block.type !== 'text') return history;
     const content = [...msg.content];
-    content[textIndex] = { type: 'text', text: `${fenced}\n\n${block.text}` };
+    content[textIndex] = { type: 'text', text: prependRecall(block.text, injectionText) };
     const out = [...history];
     out[i] = { ...msg, content };
     return out;

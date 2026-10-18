@@ -179,6 +179,19 @@ function reportBindingMismatch(
 }
 
 const UNKNOWN_LOGICAL_TURN = 'logical turn does not exist';
+const DEADLINE_NOT_APPLIED =
+  '--deadline-ms was not applied. The stored logical-turn deadline stays absolute.';
+
+/** A check-in is not finished work. The answer is a prompted --resume, not another continue. */
+function userInputFields(sessionId: string | null): {
+  nextAction: 'user_input';
+  answerWith: string;
+} {
+  return {
+    nextAction: 'user_input',
+    answerWith: sessionId ? `--resume ${sessionId}` : '--resume',
+  };
+}
 const MISSING_LOGICAL_TURN_ROUTE = 'logical turn route is missing';
 const STDIN_CONTINUE_CLASH = '--stdin cannot be combined with --continue-logical-turn';
 /** A failed row may resume only when its stored cause is one of these. */
@@ -307,6 +320,7 @@ const CONTINUATION_INPUT_ERRORS = new Set([
   UNKNOWN_LOGICAL_TURN,
   MISSING_LOGICAL_TURN_ROUTE,
   STDIN_CONTINUE_CLASH,
+  DEADLINE_NOT_APPLIED,
 ]);
 function string(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
@@ -414,8 +428,8 @@ export async function runSdkRunCommand(
   if (deps.signal?.aborted) controller.abort();
   let deadlineAt: number | undefined;
   const deadlineTimers: ReturnType<typeof setTimeout>[] = [];
-  // A stored deadlineAt stays absolute. --deadline-ms on continue adds its own
-  // timer and does not replace that instant.
+  // A stored deadlineAt stays absolute. --deadline-ms on continue is rejected
+  // before any timer is armed, so it cannot move or shadow that instant.
   let storedDeadlineArmed = false;
   // Node and Bun collapse a delay above this to 1ms.
   const MAX_TIMER_MS = 2_147_483_647;
@@ -548,6 +562,8 @@ export async function runSdkRunCommand(
     const toolset = opts.toolset ?? 'coding';
     if (typeof toolset !== 'string' || !isToolsetName(toolset))
       throw new UnknownToolsetError(String(toolset));
+    if (continuationId && opts.deadlineMs !== undefined)
+      throw new SdkInputError('invalid_input', DEADLINE_NOT_APPLIED);
     if (opts.deadlineMs !== undefined) {
       if (
         typeof opts.deadlineMs !== 'number' ||
@@ -1125,7 +1141,9 @@ export async function runSdkRunCommand(
         type: 'turn.completed',
         outcome: continuationRecord.status,
         reason: continuationRecord.finishReason ?? continuationRecord.status,
-        nextAction: continuationRecord.status === 'waiting_user' ? 'user_input' : 'none',
+        ...(continuationRecord.status === 'waiting_user'
+          ? userInputFields(sessionId)
+          : { nextAction: 'none' as const }),
         sessionId,
         activeSessionId: sessionId,
         logicalTurnId: continuationRecord.logicalTurnId,
@@ -1617,7 +1635,9 @@ export async function runSdkRunCommand(
                   ? 'continue_logical_turn'
                   : 'inspect_session',
           }
-        : { nextAction: logical.status === 'waiting_user' ? 'user_input' : 'none' }),
+        : logical.status === 'waiting_user'
+          ? userInputFields(sessionId)
+          : { nextAction: 'none' }),
       sessionId: failed && !durable ? null : sessionId,
       ...(!(failed && !durable) ? { activeSessionId: sessionId } : {}),
       logicalTurnId: logical.logicalTurnId,
