@@ -15,6 +15,7 @@ import type {
   Message,
   SystemSegment,
   TokenUsage,
+  UserMessage,
 } from '@yevgetman/sov-sdk/core/types';
 import {
   accumulateUsage,
@@ -31,7 +32,7 @@ import { type CostEstimate, estimateUsageCost } from '@yevgetman/sov-sdk/provide
 import { RouteError } from '@yevgetman/sov-sdk/providers/routes/errors';
 import type { FileTranscriptStore } from '@yevgetman/sov-sdk/transcript/store';
 import { persistMessage } from '../agent/persistMessage.js';
-import type { SessionDb } from '../agent/sessionDb.js';
+import type { SaveMessageInput, SessionDb } from '../agent/sessionDb.js';
 
 const TOOL_RESULT_PRUNE_CHARS = 800;
 const DEFAULT_TAIL_TOKEN_BUDGET = 4_000;
@@ -212,11 +213,7 @@ export async function compactSession(options: CompactOptions): Promise<CompactRe
     tokenCount: estimateMessageTokens(summaryMessage),
   });
   for (const message of guardedTail) {
-    persistMessage(persistHost, newSessionId, {
-      role: message.role,
-      content: message.content,
-      tokenCount: estimateMessageTokens(message),
-    });
+    persistMessage(persistHost, newSessionId, saveTailMessage(message));
   }
   options.db.recordCompactionLineage(options.sessionId, newSessionId);
   if (summaryResult.usage || summaryResult.usedAuxiliary || summaryResult.costEstimate) {
@@ -558,7 +555,33 @@ function extractLatestHandoffSummary(messages: readonly Message[]): string | nul
 }
 
 function cloneMessage(message: Message): Message {
-  return { role: message.role, content: message.content.map(cloneBlock) } as Message;
+  const content = message.content.map(cloneBlock);
+  if (!isRuntimeMarker(message)) return { role: message.role, content } as Message;
+  // origin and id are not content blocks. Dropping them makes the hidden
+  // max_tokens marker look like the next human prompt.
+  const id = markerId(message);
+  return { role: 'user', content, origin: 'runtime', ...(id !== undefined ? { id } : {}) };
+}
+
+function saveTailMessage(message: Message): SaveMessageInput {
+  const saved: SaveMessageInput = {
+    role: message.role,
+    content: message.content,
+    tokenCount: estimateMessageTokens(message),
+  };
+  if (!isRuntimeMarker(message)) return saved;
+  const id = markerId(message);
+  saved.toolCalls = { origin: 'runtime', ...(id !== undefined ? { id } : {}) };
+  if (id !== undefined) saved.toolCallId = id;
+  return saved;
+}
+
+function isRuntimeMarker(message: Message): message is UserMessage & { origin: 'runtime' } {
+  return message.role === 'user' && message.origin === 'runtime';
+}
+
+function markerId(message: UserMessage): string | undefined {
+  return typeof message.id === 'string' && message.id.length > 0 ? message.id : undefined;
 }
 
 function cloneBlock(block: ContentBlock): ContentBlock {
