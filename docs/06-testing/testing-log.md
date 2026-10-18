@@ -1,3 +1,31 @@
+## 2026-10-17 — Opening proactive summary counts in the model-call budget
+
+Scope: the summary `prepare()` makes before the first segment in
+`src/cli/sdkRunCommand.ts`. Continuation summaries, overflow recovery, and the
+logical-turn supervisor were not changed. `logicalTurn.ts`, `sessionDb.ts`,
+and the compactor were not edited.
+
+Environment: `/Users/julie/code/sdk-review-fix-231` on `review-fix/231` from
+`eeeab355`, macOS, Bun 1.3.13 (`bf2e2cec`). No live provider, product install,
+upgrade, release, or push. Package version stays 0.16.2.
+
+Before the fix, resuming a history that compacts once before the first main
+call let the coding segment spend the full limit of 100. The provider made
+101 calls (1 summary + 100 mains). `counters.modelCalls` stayed 100 because
+`prepare()` dropped the charge. `env -u FORCE_COLOR bun test --timeout 20000
+./tests/cli/sdkRunCompaction.test.ts -t 'opening proactive summary'` failed
+with `mains + summaries` expected 100 and received 101.
+
+After the fix, that command passes. The same history makes 1 summary and 99
+main calls. `counters.modelCalls` is 100 and includes the summary tokens.
+`env -u FORCE_COLOR bun test --timeout 20000 ./tests/cli/sdkRunCompaction.test.ts
+./tests/cli/sdkRunCommand.test.ts ./tests/cli/sdkRunRecovery.test.ts` is
+**110 pass / 0 fail**. `bun run lint` passed (Biome 1161 files; boundary 257
+modules, 1057 dependencies, no violations). `bun run typecheck` reports the
+same 3 existing errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212
+and 366) and `tests/skills/catalog.test.ts` (line 370). Full `bun test` was
+not run.
+
 ## 2026-10-17 — Expired logical-turn lease is not renewed after a long boundary read
 
 Scope: a logical-turn boundary read that runs past the 30 second lease.
