@@ -690,10 +690,14 @@ export async function superviseLogicalTurn(
     }
     record.status = 'running';
     save();
-    // Compaction inside prepare is paid work. The loop check below is too late.
+    // Compaction inside prepare is paid work. The loop check below is too late
+    // for a deadline or a model-call budget that is already spent.
     if (isDeadlineTerminal(options.signal, record.deadlineAt, now())) {
       armDeadlineStop();
       return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
+    }
+    if (record.counters.modelCalls >= record.logicalModelCallLimit) {
+      return await finish('exhausted', 'model_call_limit', undefined, 'continuation_exhausted');
     }
     const prepare = options.prepare;
     if (prepare) {
@@ -823,6 +827,10 @@ export async function superviseLogicalTurn(
         );
         if (transient === undefined || transientAttempts >= 2)
           return await finish('failed', 'failed', result);
+        // A retry is another segment. The cap must be stored before that read.
+        if (record.counters.modelCalls >= record.logicalModelCallLimit) {
+          return await finish('exhausted', 'model_call_limit', undefined, 'continuation_exhausted');
+        }
         let retryMessages: Message[] | undefined;
         if (options.readBoundary) {
           const boundary = await readSharedBoundary(true);
@@ -854,6 +862,12 @@ export async function superviseLogicalTurn(
         }
         messages = retryMessages ?? options.rehydrate(record.activeSessionId);
         continue;
+      }
+
+      // The next segment cannot start. Finish before continuing or rehydrate
+      // so a throw cannot leave this row resumable at the cap.
+      if (record.counters.modelCalls >= record.logicalModelCallLimit) {
+        return await finish('exhausted', 'model_call_limit', undefined, 'continuation_exhausted');
       }
 
       transientAttempts = 0;
