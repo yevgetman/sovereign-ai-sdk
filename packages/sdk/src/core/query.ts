@@ -68,7 +68,7 @@ import type { TraceEvent } from '../trace/types.js';
 import { type TurnSummary, detectStall } from '../util/stall.js';
 import { DEFAULT_CONDUCT_REFUSAL, wrapConductAuditSink } from './conductPort.js';
 import { runTools } from './orchestrator.js';
-import { injectRecallIntoLatestUserMessage } from './recallInjection.js';
+import { injectRecallIntoLatestUserMessage, prependRecall } from './recallInjection.js';
 import type {
   AssistantMessage,
   ContentBlock,
@@ -364,8 +364,8 @@ async function* queryInternal(
   const recentTurnSummaries: TurnSummary[] = [];
   const originalUserText = latestUserText(messages);
   // The host stores the original user message and rehydrates it on the next
-  // segment, so the fence has to be applied again in this copy. Recall and
-  // user-turn hooks stay skipped. An existing fence is not copied again.
+  // segment, so memory and recall fences have to be applied again in this copy.
+  // User-turn hooks stay skipped. A fence that is already present is not copied again.
   let history = [...messages];
   if (params.memoryManager) {
     history = params.continuation
@@ -374,11 +374,13 @@ async function* queryInternal(
   }
 
   // Learning loop (Recall): after memory injection, prepend recalled lessons to
-  // the latest user message. Optional thunk bound by the host; query() stays
-  // project-agnostic. Empty injectionText leaves history unchanged (same ref).
-  if (!params.continuation && params.recall) {
-    const recalled = await params.recall(originalUserText);
-    history = injectRecallIntoLatestUserMessage(history, recalled.injectionText);
+  // the latest human user message. Optional thunk bound by the host; query() stays
+  // project-agnostic. Empty injectionText leaves history unchanged. A continuation
+  // reapplies the fence once; it does not stack a closed recall block.
+  if (params.recall) {
+    history = params.continuation
+      ? await reinjectRecallFence(history, params.recall, originalUserText)
+      : await injectRecallOnce(history, params.recall, originalUserText);
   }
 
   // Both memory + recall injection PREPEND their blocks to the latest user
@@ -1430,6 +1432,49 @@ async function reinjectMemoryFence(
     if (next === block.text) return history;
     const content = [...msg.content];
     content[textIndex] = { type: 'text', text: next };
+    history[i] = { ...msg, content };
+    return history;
+  }
+  return history;
+}
+
+function hasClosedRecallFence(text: string): boolean {
+  const open = '<recall-context>';
+  const close = '</recall-context>';
+  const start = text.indexOf(open);
+  if (start < 0) return false;
+  return text.indexOf(close, start + open.length) >= 0;
+}
+
+async function injectRecallOnce(
+  messages: Message[],
+  recall: NonNullable<QueryParams['recall']>,
+  userText: string | undefined,
+): Promise<Message[]> {
+  const recalled = await recall(userText);
+  return injectRecallIntoLatestUserMessage(messages, recalled.injectionText);
+}
+
+/** Reapply recall to the stored human prompt. Tool-result tails and runtime
+ *  markers are not the lesson target. A closed recall fence is left as-is. */
+async function reinjectRecallFence(
+  messages: Message[],
+  recall: NonNullable<QueryParams['recall']>,
+  userText: string | undefined,
+): Promise<Message[]> {
+  const history = [...messages];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    if (!isHumanUserMessage(msg)) continue;
+    if (msg.content.some((block) => block.type === 'tool_result')) continue;
+    const textIndex = msg.content.findIndex((block) => block.type === 'text');
+    const block = msg.content[textIndex];
+    if (!block || block.type !== 'text') continue;
+    if (hasClosedRecallFence(block.text)) return history;
+    const recalled = await recall(userText);
+    if (!recalled.injectionText) return history;
+    const content = [...msg.content];
+    content[textIndex] = { type: 'text', text: prependRecall(block.text, recalled.injectionText) };
     history[i] = { ...msg, content };
     return history;
   }

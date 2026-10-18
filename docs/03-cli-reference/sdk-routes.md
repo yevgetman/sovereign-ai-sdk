@@ -301,9 +301,16 @@ calls inside one segment. They are not a count of segments, and the durable row
 does not store a segment-count limit. The logical-turn default is 100 model
 calls. `--deadline-ms` covers the complete logical turn, and
 `--continue-logical-turn` aborts at the stored deadline when this invocation
-omits `--deadline-ms`, including a tool that is still blocked.
+omits `--deadline-ms`, including a tool that is still blocked. Passing
+`--deadline-ms` together with `--continue-logical-turn` is invalid input.
+The stored deadline stays absolute, and the error says the flag was not applied.
 
-A deliberate `checkin` emits `turn.completed` with `outcome: "waiting_user"`.
+A deliberate `checkin` emits `turn.completed` with `outcome: "waiting_user"`
+and `nextAction: "user_input"`. `answerWith` names `--resume <activeSessionId>`.
+That prompted resume is how to send the answer. `--continue-logical-turn`
+replays the stored check-in and does not call the model, with or without a
+piped prompt.
+
 If the supervisor has already stored `completed`, `waiting_user`, or another
 terminal, a later abort does not replace that event. The stdout terminal keeps
 the stored outcome and the reply, and the row stays as stored. A Stop hook
@@ -412,9 +419,11 @@ continuation), 1 for a turn failure that is not a logical-turn stop, 2 for
 invalid input or options, 3 for a logical-turn stop, 130 for SIGINT and 143
 for SIGTERM. Exit 3 is no longer `needs_continuation`. A `max_tokens` or
 `max_turns` segment emits `turn.continuing` and stays in the same process. A
-`checkin` completes with `waiting_user` and exits 0. Do not start another
-prompt on exit 3. That code used to mean the partial answer needed another
-turn. It now means the logical turn has stopped.
+`checkin` completes with `waiting_user`, `nextAction: "user_input"`, and
+`answerWith` set to `--resume <activeSessionId>`. It exits 0. Send the answer
+with that `--resume`. `--continue-logical-turn` does not deliver it. Do not
+start another prompt on exit 3. That code used to mean the partial answer
+needed another turn. It now means the logical turn has stopped.
 
 These logical-turn stops all return 3. A deadline returns 3
 (`continuation_exhausted`, reason `deadline`), including a deadline that

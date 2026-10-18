@@ -372,7 +372,11 @@ async function main(argv: string[]): Promise<void> {
     .option('--route <id>', 'explicit authentication route (required with --sdk)')
     .option('--input-format <format>', 'stdin format: text or strict JSON envelope', 'text')
     .option('--toolset <name>', 'native SDK toolset: chat, web, ops, coding', 'coding')
-    .option('--deadline-ms <n>', 'native turn deadline in milliseconds', parsePositiveInt)
+    .option(
+      '--deadline-ms <n>',
+      'deadline in milliseconds for a new logical turn; --continue-logical-turn keeps the stored deadline and rejects this flag',
+      parsePositiveInt,
+    )
     .option(
       '--continue-logical-turn <id>',
       'prompt-free continuation of one stored logical turn; requires --sdk --json',

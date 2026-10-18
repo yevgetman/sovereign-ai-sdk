@@ -26,6 +26,13 @@ and a model-call cap all return 3, as do a stall, an unsafe receipt, and
 invalid recovery state. Do not start another prompt on exit 3. See
 [SDK routes](docs/03-cli-reference/sdk-routes.md).
 
+Passing `--deadline-ms` with `--continue-logical-turn` is invalid input and
+exits 2. The stored deadline stays absolute. A `checkin` completes with
+`waiting_user`, `nextAction` of `user_input`, and `answerWith` naming
+`--resume <activeSessionId>`. That prompted resume sends the answer as a new
+logical turn. A continuation reapplies one recall fence to the stored human
+prompt and does not write that fence into the stored row.
+
 An unsafe resume records `failed` with finish reason `unsafe_effect`. That
 covers a `started` or `unknown` tool receipt and an ambiguous truncated tool
 call. A later `--continue-logical-turn` reads that terminal row and does not

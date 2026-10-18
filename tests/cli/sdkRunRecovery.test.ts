@@ -1396,6 +1396,13 @@ test('actual native checkin wire completes as waiting_user', async () => {
     reason: 'checkin',
     nextAction: 'user_input',
   });
+  expect(String(result.events.at(-1)?.answerWith)).toContain('--resume');
+  expect(result.calls).toBe(1);
+  expect(result.continueExit).toBe(0);
+  expect(result.continueCalls).toBe(1);
+  expect(String(result.continued.at(-1)?.answerWith)).toContain('--resume');
+  expect(result.pipedExit).not.toBe(0);
+  expect(result.continueCallsAfterPiped).toBe(1);
   expect(result.effects).toBe(1);
   expect(result.rows).toEqual(['user', 'assistant', 'user']);
 });
@@ -2559,8 +2566,8 @@ test('a rewritten prompt is stored without memory or recall fences', async () =>
   expect(next).toContain('MemorySnapTwo');
   expect(next).toContain(FENCE_PREAMBLE);
   expect(next).not.toContain('MemorySnapOne');
-  expect(next).not.toContain('RecallLessonMarker');
-  expect(next).not.toContain('<recall-context>');
+  expect(next).toContain('RecallLessonMarker');
+  expect(next.split('</recall-context>').length - 1).toBe(1);
   expect(next).not.toContain('question');
   const db = SessionDb.open({ path: f.db });
   try {
@@ -3146,7 +3153,6 @@ test('a long deadline does not abort on the first timer tick', async () => {
           sdk: true,
           db: f.db,
           continueLogicalTurn: logicalTurnId,
-          deadlineMs: MAX_TIMER_MS + 1,
         },
         continued.io,
         f.deps,
@@ -3156,6 +3162,62 @@ test('a long deadline does not abort on the first timer tick', async () => {
     expect(continued.events.at(-1)?.reason).not.toBe('deadline');
     expect(delays.some((delay) => delay > MAX_TIMER_MS)).toBe(false);
   });
+});
+
+test('a longer continue deadline is rejected and does not move the stored instant', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('durable answer');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider);
+  const first = capture();
+  expect(await runSdkRunCommand({ ...opts, deadlineMs: 60_000 }, first.io, f.deps)).toBe(0);
+  expect(calls).toBe(1);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const soon = Date.now() + 1_000;
+  const db = SessionDb.open({ path: f.db });
+  try {
+    const record = db.loadLogicalTurn(logicalTurnId);
+    expect(record?.status).toBe('completed');
+    expect(record?.deadlineAt).toBeGreaterThan(Date.now());
+    db.handle.run('UPDATE logical_turns SET record = ? WHERE logical_turn_id = ?', [
+      JSON.stringify({ ...record, status: 'running', deadlineAt: soon }),
+      logicalTurnId,
+    ]);
+  } finally {
+    db.close();
+  }
+  const continued = capture();
+  expect(
+    await runSdkRunCommand(
+      {
+        json: true,
+        sdk: true,
+        db: f.db,
+        continueLogicalTurn: logicalTurnId,
+        deadlineMs: 600_000,
+      },
+      continued.io,
+      f.deps,
+    ),
+  ).toBe(2);
+  expect(calls).toBe(1);
+  expect(String(continued.events.at(-1)?.error)).toContain('was not applied');
+  expect(String(continued.events.at(-1)?.error)).toContain('stored logical-turn deadline');
+  const after = SessionDb.open({ path: f.db });
+  try {
+    const record = after.loadLogicalTurn(logicalTurnId);
+    expect(record?.status).toBe('running');
+    expect(record?.deadlineAt).toBe(soon);
+  } finally {
+    after.close();
+  }
 });
 
 test('a short deadline still aborts while long timers are chunked', async () => {
