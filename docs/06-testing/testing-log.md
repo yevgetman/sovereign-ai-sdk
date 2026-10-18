@@ -1,3 +1,31 @@
+## 2026-10-17 — Binding mismatch names the pinned environment
+
+Scope: `--continue-logical-turn` from another directory, and a drifted
+skill, MCP, hook, policy, provider, model, effort, toolset, permission mode,
+bundle, or auth pin. The `turn.error` event keeps `nextAction`
+`continue_logical_turn` and now carries the stored cwd, session id, and the
+drifted field's stored value. The sentence says the continue will not proceed
+until the process is in the pinned environment. Provider, model, effort,
+toolset, permission mode, and bundle drift no longer use the corrupt-row
+sentence. A corrupt row stays `repair_request`.
+
+Environment: `/Users/julie/code/sdk-review-fix-203` on `review-fix/203` from
+`12a11c4e`, macOS, Bun 1.3.13 (`bf2e2cec`). No live provider, product install,
+upgrade, release, or push. Package version stays 0.16.2.
+
+Before the fix, a directory change emitted `Logical turn working-directory
+mismatch.` with `sessionId: null` and no cwd. A provider pin of `anthropic`
+emitted `Logical turn recovery state is invalid.` with the same null session
+id. Both already used `nextAction: continue_logical_turn`.
+
+After the fix those events include the stored directory and session id. The
+provider event's `pinned.provider` is `anthropic` and its error is the
+provider mismatch sentence, not the corrupt-row sentence. Continuing again
+from the original directory completes. Corrupt JSON still uses
+`repair_request`.
+
+Commands: `env -u FORCE_COLOR bun test --timeout 20000 tests/cli/sdkRunRecovery.test.ts tests/agent/sessionDb.logicalTurnRecord.test.ts` — 71 pass, 0 fail, 748 assertions. `bun run lint` passed (Biome 1161 files; boundary 257 modules, 1057 dependencies, no violations). `bun run typecheck` reports the same 3 existing errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and `tests/skills/catalog.test.ts` (line 370). Full `bun test` was not run.
+
 ## 2026-10-17 — Compaction keeps the hidden max_tokens marker
 
 Scope: a text `max_tokens` continuation is a user message with `origin: 'runtime'`
