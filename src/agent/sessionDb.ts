@@ -26,10 +26,13 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
+  LOGICAL_TURN_LEASE_MS,
+  LOGICAL_TURN_READ_PAGE,
   LogicalTurnLeaseError,
   type LogicalTurnRecord,
   type LogicalTurnStore,
   assertLogicalTurnWriteLease,
+  renewHeldLogicalTurnLease,
 } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import type {
@@ -412,12 +415,15 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
   }
 
   renewLogicalTurnLease(id: string, owner: string, expiresAt: number): boolean {
+    // The caller's clock is one lease length before the new expiry. A row
+    // whose lease_expires_at is already due is lost, even if lease_owner matches.
+    const now = expiresAt - LOGICAL_TURN_LEASE_MS;
     const changes = this.writeWithRetry(
       () =>
         this.db.run(
           `UPDATE logical_turns SET lease_owner = ?, lease_expires_at = ?
-           WHERE logical_turn_id = ? AND lease_owner = ?`,
-          [owner, expiresAt, id, owner],
+           WHERE logical_turn_id = ? AND lease_owner = ? AND lease_expires_at > ?`,
+          [owner, expiresAt, id, owner, now],
         ).changes ?? 0,
     );
     return changes === 1;
@@ -861,15 +867,24 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
   }
 
   loadMessages(sessionId: string): StoredMessage[] {
-    const rows = this.db
-      .query<StoredRow, [string]>(
-        `SELECT id, session_id, role, content, tool_call_id, tool_calls, token_count, created_at
-         FROM messages
-         WHERE session_id = ?
-         ORDER BY id ASC`,
-      )
-      .all(sessionId);
-    return rows.map(rowToMessage);
+    // One page is synchronous, so the heartbeat cannot run during it. Renew
+    // between pages. An already-expired lease does not return a partial scan.
+    const page = this.db.query<StoredRow, [string, number, number]>(
+      `SELECT id, session_id, role, content, tool_call_id, tool_calls, token_count, created_at
+       FROM messages
+       WHERE session_id = ?
+       ORDER BY id ASC
+       LIMIT ? OFFSET ?`,
+    );
+    const messages: StoredMessage[] = [];
+    let offset = 0;
+    for (;;) {
+      const rows = page.all(sessionId, LOGICAL_TURN_READ_PAGE, offset);
+      for (const row of rows) messages.push(rowToMessage(row));
+      if (rows.length < LOGICAL_TURN_READ_PAGE) return messages;
+      offset += rows.length;
+      if (!renewHeldLogicalTurnLease()) throw new LogicalTurnLeaseError();
+    }
   }
 
   /** Keep the first `keep` messages and drop the rest. The messages DELETE
@@ -894,12 +909,21 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
   }
 
   loadToolExecutions(sessionId: string): ToolExecution[] {
-    return this.db
-      .query<{ receipt: string }, [string]>(
-        'SELECT receipt FROM tool_executions WHERE session_id = ? ORDER BY assistant_message_id, rowid',
-      )
-      .all(sessionId)
-      .map((row) => JSON.parse(row.receipt) as ToolExecution);
+    const page = this.db.query<{ receipt: string }, [string, number, number]>(
+      `SELECT receipt FROM tool_executions
+       WHERE session_id = ?
+       ORDER BY assistant_message_id, rowid
+       LIMIT ? OFFSET ?`,
+    );
+    const executions: ToolExecution[] = [];
+    let offset = 0;
+    for (;;) {
+      const rows = page.all(sessionId, LOGICAL_TURN_READ_PAGE, offset);
+      for (const row of rows) executions.push(JSON.parse(row.receipt) as ToolExecution);
+      if (rows.length < LOGICAL_TURN_READ_PAGE) return executions;
+      offset += rows.length;
+      if (!renewHeldLogicalTurnLease()) throw new LogicalTurnLeaseError();
+    }
   }
 
   truncateMessages(sessionId: string, keep: number): void {

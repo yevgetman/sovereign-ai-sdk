@@ -6,6 +6,7 @@ import { type RunResult, createAgent } from '@yevgetman/sov-sdk/agent/createAgen
 import {
   LOGICAL_TURN_CURSOR_PARSE_CAP,
   LOGICAL_TURN_LEASE_MS,
+  LOGICAL_TURN_READ_PAGE,
   LogicalTurnLeaseError,
   type LogicalTurnRecord,
   type LogicalTurnStore,
@@ -737,6 +738,120 @@ describe('logical-turn supervisor', () => {
     expect(outcome.status).toBe('completed');
     expect(renewedAfterReturnBeforeBoundary).toBe(true);
     expect(calls).toBe(2);
+  });
+
+  test('a boundary read longer than the lease does not renew it', async () => {
+    let nowMs = 1_000_000;
+    let logicalTurnId = '';
+    let calls = 0;
+    let sawExpiryDuringRead = false;
+    let postScanRenew: boolean | undefined;
+    const fixture = setup(
+      async () => {
+        calls += 1;
+        return calls < 2 ? result('max_turns') : result('completed', 'done');
+      },
+      {
+        now: () => nowMs,
+        readBoundary: () => {
+          nowMs += LOGICAL_TURN_LEASE_MS + 1;
+          const lease = fixture.store.readLogicalTurnLease(logicalTurnId);
+          sawExpiryDuringRead =
+            lease?.expiresAt !== null && lease?.expiresAt !== undefined && lease.expiresAt <= nowMs;
+          return {
+            safe: true,
+            progress: {
+              transcriptIds: [1],
+              transcriptCount: 1,
+              receipts: [],
+              cursor: null,
+              compactionChildId: 'session-1',
+            },
+            messages: () => [{ role: 'user', content: [{ type: 'text', text: 'do the work' }] }],
+          };
+        },
+      },
+    );
+    const create = fixture.store.createLogicalTurn.bind(fixture.store);
+    fixture.store.createLogicalTurn = (record) => {
+      logicalTurnId = record.logicalTurnId;
+      create(record);
+    };
+    const renew = fixture.store.renewLogicalTurnLease.bind(fixture.store);
+    fixture.store.renewLogicalTurnLease = (id, owner, expiresAt) => {
+      const ok = renew(id, owner, expiresAt);
+      if (sawExpiryDuringRead && postScanRenew === undefined) postScanRenew = ok;
+      return ok;
+    };
+    await expect(superviseLogicalTurn(fixture.options)).rejects.toBeInstanceOf(
+      LogicalTurnLeaseError,
+    );
+    expect(sawExpiryDuringRead).toBe(true);
+    expect(postScanRenew).toBe(false);
+    expect(calls).toBe(1);
+  });
+
+  test('a multi-page boundary scan renews between pages and keeps the lease', async () => {
+    const db = SessionDb.open({ path: ':memory:' });
+    try {
+      const sessionId = db.createSession({ model: 'fixture-model', provider: 'fixture' });
+      for (let i = 0; i < LOGICAL_TURN_READ_PAGE + 1; i += 1) {
+        db.saveMessage(sessionId, {
+          role: 'user',
+          content: [{ type: 'text', text: `row-${i}` }],
+        });
+      }
+      let calls = 0;
+      let renewsDuringRead = 0;
+      let reading = false;
+      const renew = db.renewLogicalTurnLease.bind(db);
+      db.renewLogicalTurnLease = (id, owner, expiresAt) => {
+        if (reading) renewsDuringRead += 1;
+        return renew(id, owner, expiresAt);
+      };
+      const outcome = await superviseLogicalTurn({
+        store: db,
+        binding,
+        sessionId,
+        initialMessages: [{ role: 'user', content: [{ type: 'text', text: 'do the work' }] }],
+        rehydrate: () => [{ role: 'user', content: [{ type: 'text', text: 'do the work' }] }],
+        recoverySafe: () => true,
+        runSegment: async () => {
+          calls += 1;
+          const terminal = calls < 2 ? result('max_turns') : result('completed', 'done');
+          return { ...terminal, sessionId };
+        },
+        readBoundary: () => {
+          reading = true;
+          const rows = db.loadMessages(sessionId);
+          logicalTurnCursor(rows);
+          reading = false;
+          expect(rows).toHaveLength(LOGICAL_TURN_READ_PAGE + 1);
+          return {
+            safe: true,
+            progress: {
+              transcriptIds: rows.map((row) => row.id),
+              transcriptCount: rows.length,
+              receipts: [],
+              cursor: null,
+              compactionChildId: sessionId,
+            },
+            messages: () =>
+              rows.map((row) => ({
+                role: 'user' as const,
+                content: row.content,
+              })),
+          };
+        },
+      });
+      expect(renewsDuringRead).toBeGreaterThan(0);
+      expect(outcome.status).toBe('completed');
+      expect(calls).toBe(2);
+      const held = db.readLogicalTurnLease(outcome.logicalTurnId);
+      expect(held).toEqual({ owner: null, expiresAt: null });
+    } finally {
+      db.close();
+    }
   });
 
   test('a new transcript row changes the fingerprint', async () => {
@@ -2416,6 +2531,15 @@ function expectShortFencedLease(store: LogicalTurnStore): void {
     LogicalTurnLeaseError,
   );
   expect(store.loadLogicalTurn(record.logicalTurnId)?.finalReply).toBe('kept');
+  expect(store.readLogicalTurnLease(record.logicalTurnId)?.expiresAt).toBe(now + 30_000);
+  expect(
+    store.renewLogicalTurnLease(record.logicalTurnId, 'owner-b', now + 30_000 - 1 + 30_000),
+  ).toBe(true);
+  expect(store.readLogicalTurnLease(record.logicalTurnId)?.expiresAt).toBe(now + 59_999);
+  expect(store.renewLogicalTurnLease(record.logicalTurnId, 'owner-b', now + 59_999 + 30_000)).toBe(
+    false,
+  );
+  expect(store.readLogicalTurnLease(record.logicalTurnId)?.expiresAt).toBe(now + 59_999);
   expect(store.renewLogicalTurnLease(record.logicalTurnId, 'owner-a', now + 90_000)).toBe(false);
   store.releaseLogicalTurnLease(record.logicalTurnId, 'owner-b');
   expect(store.renewLogicalTurnLease(record.logicalTurnId, 'owner-b', now + 120_000)).toBe(false);

@@ -1,3 +1,34 @@
+## 2026-10-17 — Expired logical-turn lease is not renewed after a long boundary read
+
+Scope: a logical-turn boundary read that runs past the 30 second lease.
+`renewLogicalTurnLease` must not extend a row whose `lease_expires_at` is
+already due, even when `lease_owner` still matches. Transcript and tool-receipt
+scans renew between pages of 64. The lease length stays 30 seconds. Receipt
+checks before reclaim were not changed. `src/cli/sdkRunCommand.ts` was not
+edited.
+
+Environment: `/Users/julie/code/sdk-review-fix-105` on `review-fix/105` from
+`12a11c4e`, macOS, Bun 1.3.13 (`bf2e2cec`). No live provider, product install,
+upgrade, release, or push. Package version stays 0.16.2.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 20000
+tests/agent/logicalTurn.test.ts -t 'a boundary read longer than the lease|sqlite leases follow|in-memory leases follow'`
+failed all 3 tests. The boundary read resolved the turn instead of rejecting,
+and both stores returned true from renew after `lease_expires_at`.
+
+After the fix, that boundary read rejects with `LogicalTurnLeaseError`, the
+post-scan renew is false, and the expired store renew leaves `lease_expires_at`
+unchanged. A 65-row scan renews between pages and still completes.
+`env -u FORCE_COLOR bun test --timeout 20000 tests/agent/logicalTurn.test.ts
+tests/agent/sessionDb.test.ts` is **108 pass / 0 fail**, 472 assertions.
+`tests/cli/sdkRunCompaction.test.ts -t 'stolen lease|dispossessed compaction'`
+is **2 pass / 0 fail**. `tests/cli/sdkRunRecovery.test.ts -t 'lease'` is **5
+pass / 0 fail**, including reclaim of an expired lease when receipts are safe.
+
+`bun run lint` passed (Biome 1161 files; boundary 257 modules, 1057
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). Full `bun test` was not run.
 ## 2026-10-17 — Binding mismatch names the pinned environment
 
 Scope: `--continue-logical-turn` from another directory, and a drifted
