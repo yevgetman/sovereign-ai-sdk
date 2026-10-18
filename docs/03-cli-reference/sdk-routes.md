@@ -304,6 +304,11 @@ calls. `--deadline-ms` covers the complete logical turn, and
 omits `--deadline-ms`, including a tool that is still blocked.
 
 A deliberate `checkin` emits `turn.completed` with `outcome: "waiting_user"`.
+If the supervisor has already stored `completed`, `waiting_user`, or another
+terminal, a later abort does not replace that event. The stdout terminal keeps
+the stored outcome and the reply, and the row stays as stored. A Stop hook
+that aborts with `deadline`, or a user abort after that commit, does not
+reclassify the outcome as `continuation_exhausted` or `interrupted`.
 Exhaustion, two unchanged progress fingerprints, unsafe receipts and invalid
 recovery state emit `turn.error` with `continuation_exhausted`,
 `continuation_stalled`, `recovery_unsafe` or `recovery_state_invalid`. Use

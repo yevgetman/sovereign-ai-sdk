@@ -1,3 +1,48 @@
+## 2026-10-17 — A committed logical turn survives a late abort
+
+Scope: `src/cli/sdkRunCommand.ts` threw `interrupted` when the work signal was
+already aborted and the finish reason was not `deadline`, even after the
+supervisor had stored `completed`, `waiting_user`, `exhausted`, `stalled`, or
+`failed`. The catch then emitted `turn.error` with no reply. A Stop hook
+`abort('deadline')` became `continuation_exhausted`; a user abort became
+`interrupted`. The row stayed `completed` or `waiting_user`. The CLI now emits
+the stored terminal and its reply. A provider or policy error rethrown from a
+stored failure is not reclassified by that late abort. Skill continuity stays
+`succeeded` when the stored outcome was success.
+
+Environment: `/Users/julie/code/sdk-review-fix-229` on `review-fix/229` from
+`fa7c7dc`, macOS, Bun 1.3.13 (`bf2e2cec`). No live provider, product install,
+upgrade, release, or deployment.
+
+Before the fix, `env -u FORCE_COLOR bun test --timeout 30000
+tests/cli/sdkRunCommittedAbort.test.ts` failed all three original cases.
+Direct fixture runs:
+
+- `completed`: exit 3, `turn.error` `continuation_exhausted` / `deadline`,
+  no reply; row `completed` / `completed` / reply `kept answer`.
+- `completed-user`: exit 130, `turn.error` `interrupted`; same completed row.
+- `checkin`: exit 3, `turn.error` `continuation_exhausted`; row
+  `waiting_user` / `checkin`.
+
+After the fix those cases pass, plus a provider-failure Stop abort that stays
+`provider_failed` with row `failed`. Completed stdout is `turn.completed`,
+outcome `completed`, reply `kept answer`, exit 0. Check-in stdout is
+`turn.completed`, outcome `waiting_user`, reason `checkin`, exit 0.
+`env -u FORCE_COLOR bun test --timeout 30000 tests/cli/sdkRunCommittedAbort.test.ts
+tests/cli/sdkRunRecovery.test.ts tests/cli/sdkRunCompaction.test.ts
+tests/cli/nativeRunOutcome.test.ts tests/cli/sdkRunCommand.test.ts
+tests/cli/runCommand.test.ts` was 97 pass / 0 fail on the first affected set,
+then 93 pass / 0 fail after the provider-failure guard (the second command
+omitted `sdkRunCommand.test.ts` and `runCommand.test.ts`). `bun run lint`
+passed (Biome 1161 files; boundary 257 modules, 1055 dependencies, no
+violations). `bun run typecheck` reports the same 3 existing errors in
+`tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). A full `bun test --timeout 20000`
+was 6576 pass / 31 skip / 67 fail, all `ERR_MODULE_NOT_FOUND` for
+`packages/sdk/dist` after the tarball test deleted that build. Rebuilding the
+SDK and rerunning `tests/providers/modelImportOrder.test.ts` and
+`tests/skills` was 465 pass / 0 fail.
+
 ## 2026-10-17 — Logical-turn id is named when prepare fails after the row exists
 
 Scope: `session.started` included `logicalTurnId` only for
