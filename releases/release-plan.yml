@@ -1,7 +1,7 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: '2026-10-18T20:02:02Z'
+updated_at: '2026-10-18T20:03:30Z'
 checkout: .
 last_release: &a1
   version: 0.16.2
@@ -38,7 +38,7 @@ release:
         the baseline release-candidate wording.
       review: releases/history/sdk-0.16.3/qa.json
   build_commit: 296955080ada445c83441b7d2b9207833b443fef
-  frozen_manifest_commit: null
+  frozen_manifest_commit: d67f27a8865616e0548cc701de3058ff7730dfd2
   authorization:
     kind: owner-approval
     reference: "Authenticated Owner Telegram request on 2026-10-18: cut the new
