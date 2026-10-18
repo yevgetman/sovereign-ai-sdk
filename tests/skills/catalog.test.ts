@@ -385,4 +385,50 @@ describe('skills_list cursor detail', () => {
     expect(activation.data.detail).toBe('activation');
     expect(activation.data.skills[0]?.whenToUse).toBeDefined();
   });
+
+  test('names success does not claim the catalog is complete', async () => {
+    const fit = await SkillsListTool.call({}, ctx);
+    expect(fit.data).toMatchObject({
+      detail: 'names',
+      truncated: false,
+      remaining: 0,
+      returned: input.length,
+      total: input.length,
+    });
+    expect(
+      fit.data.skills.every(
+        (entry) => entry.description === undefined && entry.whenToUse === undefined,
+      ),
+    ).toBe(true);
+    const fitText = [fit.observation?.summary, ...(fit.observation?.next_actions ?? [])].join('\n');
+    expect(fitText.toLowerCase()).not.toContain('full index');
+    expect(fit.observation?.summary).toContain('descriptions and triggers are not in this page');
+    expect(fit.observation?.next_actions?.join('\n')).toContain('detail: "summary"');
+    expect(fit.observation?.next_actions?.join('\n')).toContain('"activation"');
+
+    const paged = await SkillsListTool.call({ limit: 1 }, ctx);
+    expect(paged.data.detail).toBe('names');
+    expect(paged.data.truncated).toBe(true);
+    expect(paged.observation?.summary).toContain('descriptions and triggers are not in this page');
+    expect(paged.observation?.next_actions?.[0]).toBe(
+      'call skills_list with nextCursor and the same query and detail',
+    );
+
+    const miss = await SkillsListTool.call({ query: 'zzzz-no-match' }, ctx);
+    expect(miss.data.skills).toEqual([]);
+    expect(miss.data.remaining).toBe(0);
+    const missText = [miss.observation?.summary, ...(miss.observation?.next_actions ?? [])].join(
+      '\n',
+    );
+    expect(missText.toLowerCase()).not.toContain('full index');
+    expect(miss.observation?.next_actions?.[0]).toContain('detail: "summary"');
+    expect(miss.observation?.next_actions?.[0]).toContain('"activation"');
+
+    const described = await SkillsListTool.call({ detail: 'activation' }, ctx);
+    expect(described.data.detail).toBe('activation');
+    expect(described.observation?.summary ?? '').not.toContain(
+      'descriptions and triggers are not in this page',
+    );
+    expect(listSkillCatalog(input, {}).detail).toBe('activation');
+  });
 });
