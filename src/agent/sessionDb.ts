@@ -66,11 +66,27 @@ export function getDefaultDbPath(): string {
  *  back-compat shim for tests that reference it directly. */
 export const DEFAULT_DB_PATH = join(resolveHarnessHome(), 'sessions.db');
 
-const CURRENT_SCHEMA_VERSION = 9;
+const CURRENT_SCHEMA_VERSION = 10;
 
 type Migration = { from: number; to: number; sql: string };
 
 const MIGRATIONS: Migration[] = [
+  {
+    // session_id / active_session_id are indexed so session delete does not
+    // parse every logical-turn blob. Nulls stay null for unreadable records.
+    from: 9,
+    to: 10,
+    sql: `
+      ALTER TABLE logical_turns ADD COLUMN session_id TEXT;
+      ALTER TABLE logical_turns ADD COLUMN active_session_id TEXT;
+      UPDATE logical_turns
+      SET session_id = json_extract(record, '$.sessionId'),
+          active_session_id = json_extract(record, '$.activeSessionId')
+      WHERE json_valid(record);
+      CREATE INDEX idx_logical_turns_session_id ON logical_turns(session_id);
+      CREATE INDEX idx_logical_turns_active_session_id ON logical_turns(active_session_id);
+    `,
+  },
   {
     from: 8,
     to: 9,
@@ -327,10 +343,11 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
 
   createLogicalTurn(record: LogicalTurnRecord): void {
     this.writeWithRetry(() =>
-      this.db.run('INSERT INTO logical_turns (logical_turn_id, record) VALUES (?, ?)', [
-        record.logicalTurnId,
-        JSON.stringify(record),
-      ]),
+      this.db.run(
+        `INSERT INTO logical_turns (logical_turn_id, record, session_id, active_session_id)
+         VALUES (?, ?, ?, ?)`,
+        [record.logicalTurnId, JSON.stringify(record), record.sessionId, record.activeSessionId],
+      ),
     );
   }
 
@@ -349,8 +366,16 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
     const changes = this.writeWithRetry(
       () =>
         this.db.run(
-          'UPDATE logical_turns SET record = ? WHERE logical_turn_id = ? AND lease_owner = ?',
-          [JSON.stringify(record), record.logicalTurnId, owner],
+          `UPDATE logical_turns
+           SET record = ?, session_id = ?, active_session_id = ?
+           WHERE logical_turn_id = ? AND lease_owner = ?`,
+          [
+            JSON.stringify(record),
+            record.sessionId,
+            record.activeSessionId,
+            record.logicalTurnId,
+            owner,
+          ],
         ).changes ?? 0,
     );
     if (changes === 1) return;
@@ -526,13 +551,14 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
 
   /** logical_turns has no session FK. `finish()` stores `finalReply` and the
    *  binding stores absolute `cwd` in the JSON record. Drop rows whose
-   *  sessionId or activeSessionId is a session from `sessionSelect`, or a
-   *  direct compacted child of one (`session_compactions`). `sessionSelect`
+   *  indexed session_id or active_session_id is a session from `sessionSelect`,
+   *  or a direct compacted child of one (`session_compactions`). `sessionSelect`
    *  is a fixed internal fragment with exactly one bound parameter — never a
    *  per-id placeholder list. Must run before those compaction rows are
-   *  deleted. Malformed JSON is skipped so a corrupt row cannot abort the
-   *  session delete. Ordinary parent_session_id children are not compacted
-   *  children and are left alone. */
+   *  deleted. Rows with null session columns (records the migration could not
+   *  read) are left in place so a corrupt row cannot abort the delete.
+   *  Ordinary parent_session_id children are not compacted children and are
+   *  left alone. Does not parse `record`. */
   private deleteLogicalTurnsForSessions(sessionSelect: string, binding: string | number): void {
     const targets = `${sessionSelect}
       UNION
@@ -540,9 +566,8 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
       WHERE parent_session_id IN (${sessionSelect})`;
     this.db.run(
       `DELETE FROM logical_turns
-       WHERE json_valid(record)
-         AND (json_extract(record, '$.sessionId') IN (${targets})
-           OR json_extract(record, '$.activeSessionId') IN (${targets}))`,
+       WHERE session_id IN (${targets})
+          OR active_session_id IN (${targets})`,
       [binding, binding, binding, binding],
     );
   }

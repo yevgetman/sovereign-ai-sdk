@@ -3,6 +3,7 @@
 // eviction (which only reclaims memory and keeps the row). Backs the new
 // DELETE /sessions/:id gateway route.
 
+import type { Database, Statement } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import type { LogicalTurnRecord } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { SessionDb } from '../../src/agent/sessionDb.js';
@@ -88,6 +89,34 @@ function logicalTurnIds(db: SessionDb): string[] {
     .query<{ logical_turn_id: string }, []>('SELECT logical_turn_id FROM logical_turns')
     .all()
     .map((row) => row.logical_turn_id);
+}
+
+type SqlSpy = { sql: string[]; restore: () => void };
+
+function spyOnSql(handle: Database): SqlSpy {
+  const sql: string[] = [];
+  const origRun = handle.run.bind(handle);
+  // biome-ignore lint/suspicious/noExplicitAny: test shim mirrors bun:sqlite signatures.
+  (handle as any).run = (text: string, ...rest: any[]) => {
+    sql.push(text);
+    return origRun(text, ...(rest as []));
+  };
+  return {
+    sql,
+    restore: () => {
+      // biome-ignore lint/suspicious/noExplicitAny: undo the shim.
+      (handle as any).run = origRun;
+    },
+  };
+}
+
+function explain(db: SessionDb, sql: string): string[] {
+  const stmt: Statement<{ detail: string }, []> = db.handle.query(`EXPLAIN QUERY PLAN ${sql}`);
+  try {
+    return stmt.all().map((row) => row.detail);
+  } finally {
+    stmt.finalize();
+  }
 }
 
 function logicalTurnBlob(db: SessionDb): string {
@@ -316,6 +345,132 @@ describe('SessionDb.deleteSession', () => {
     expect(blob).toContain('parent reply');
     expect(blob).toContain('/tmp/parent-cwd');
     expect(db.getSession(parent)).not.toBeNull();
+    db.close();
+  });
+
+  test('delete uses indexed session columns and keeps an unrelated logical turn', () => {
+    const db = open();
+    const filler = 'x'.repeat(8_000);
+    for (let i = 0; i < 300; i++) {
+      db.createLogicalTurn(
+        finishedTurn(`bulk-${i}`, `bulk-session-${i}`, {
+          finalReply: filler,
+          cwd: `/tmp/bulk-${i}`,
+        }),
+      );
+    }
+    const target = db.createSession({ model: 'm', provider: 'p' });
+    const keeper = db.createSession({ model: 'm', provider: 'p' });
+    db.createLogicalTurn(
+      finishedTurn('turn-target', target, { finalReply: 'target reply', cwd: '/tmp/target-cwd' }),
+    );
+    db.createLogicalTurn(
+      finishedTurn('turn-keeper', keeper, { finalReply: 'keeper reply', cwd: '/tmp/keeper-cwd' }),
+    );
+    const columns = db.handle
+      .query<{ session_id: string; active_session_id: string }, [string]>(
+        'SELECT session_id, active_session_id FROM logical_turns WHERE logical_turn_id = ?',
+      )
+      .get('turn-target');
+    expect(columns).toEqual({ session_id: target, active_session_id: target });
+
+    const spy = spyOnSql(db.handle);
+    let deleted = false;
+    try {
+      deleted = db.deleteSession(target);
+    } finally {
+      spy.restore();
+    }
+    expect(deleted).toBe(true);
+    expect(logicalTurnIds(db)).toContain('turn-keeper');
+    expect(logicalTurnIds(db)).not.toContain('turn-target');
+    const blob = logicalTurnBlob(db);
+    expect(blob).not.toContain('target reply');
+    expect(blob).toContain('keeper reply');
+
+    const deleteSql = spy.sql.filter((sql) => sql.includes('DELETE FROM logical_turns'));
+    expect(deleteSql).toHaveLength(1);
+    expect(deleteSql[0]).not.toContain('json_extract');
+    expect(deleteSql[0]).not.toContain('json_valid');
+    const plan = explain(db, deleteSql[0] ?? '');
+    expect(plan.some((line) => line.includes('SCAN logical_turns'))).toBe(false);
+    expect(plan.some((line) => line.includes('idx_logical_turns_session_id'))).toBe(true);
+    expect(plan.some((line) => line.includes('idx_logical_turns_active_session_id'))).toBe(true);
+    db.close();
+  });
+
+  test('cleanup delete looks up logical turns by session index', () => {
+    const db = open();
+    const filler = 'y'.repeat(4_000);
+    for (let i = 0; i < 40; i++) {
+      db.createLogicalTurn(
+        finishedTurn(`bulk-${i}`, `bulk-session-${i}`, {
+          finalReply: filler,
+          cwd: `/tmp/bulk-${i}`,
+        }),
+      );
+    }
+    const stale = db.createSession({ model: 'm', provider: 'p', metadata: { kind: 'cron' } });
+    const fresh = db.createSession({ model: 'm', provider: 'p', metadata: { kind: 'cron' } });
+    db.createLogicalTurn(
+      finishedTurn('turn-stale', stale, { finalReply: 'stale reply', cwd: '/tmp/stale-cwd' }),
+    );
+    db.createLogicalTurn(
+      finishedTurn('turn-fresh', fresh, { finalReply: 'fresh reply', cwd: '/tmp/fresh-cwd' }),
+    );
+    const staleSec = (Date.now() - 31 * 24 * 3_600_000) / 1000;
+    db.handle
+      .prepare('UPDATE sessions SET created_at = ? WHERE session_id = ?')
+      .run(staleSec, stale);
+
+    const spy = spyOnSql(db.handle);
+    try {
+      expect(db.cleanupOldCronSessions()).toBe(1);
+    } finally {
+      spy.restore();
+    }
+    expect(logicalTurnIds(db)).toContain('turn-fresh');
+    expect(logicalTurnIds(db)).not.toContain('turn-stale');
+    const deleteSql = spy.sql.filter((sql) => sql.includes('DELETE FROM logical_turns'));
+    expect(deleteSql).toHaveLength(1);
+    expect(deleteSql[0]).not.toContain('json_extract(record');
+    expect(deleteSql[0]).not.toContain('json_valid');
+    const plan = explain(db, deleteSql[0] ?? '');
+    expect(plan.some((line) => line.includes('SCAN logical_turns'))).toBe(false);
+    expect(plan.some((line) => line.includes('idx_logical_turns_session_id'))).toBe(true);
+    expect(plan.some((line) => line.includes('idx_logical_turns_active_session_id'))).toBe(true);
+    db.close();
+  });
+
+  test('saveLogicalTurn updates indexed session columns used by delete', () => {
+    const db = open();
+    const parent = db.createSession({ model: 'm', provider: 'p' });
+    const child = db.createSession({ model: 'm', provider: 'p', parentSessionId: parent });
+    const keeper = db.createSession({ model: 'm', provider: 'p' });
+    db.recordCompactionLineage(parent, child);
+    const record = finishedTurn('turn-moved', parent, {
+      finalReply: 'moved reply',
+      cwd: '/tmp/moved-cwd',
+    });
+    db.createLogicalTurn(record);
+    db.createLogicalTurn(
+      finishedTurn('turn-keeper', keeper, { finalReply: 'keeper reply', cwd: '/tmp/keeper-cwd' }),
+    );
+    const now = Date.now() / 1000;
+    expect(db.acquireLogicalTurnLease('turn-moved', 'owner', now + 60, now)).toBe(true);
+    record.activeSessionId = child;
+    db.saveLogicalTurn(record, 'owner');
+    const columns = db.handle
+      .query<{ session_id: string; active_session_id: string }, [string]>(
+        'SELECT session_id, active_session_id FROM logical_turns WHERE logical_turn_id = ?',
+      )
+      .get('turn-moved');
+    expect(columns).toEqual({ session_id: parent, active_session_id: child });
+
+    expect(db.deleteSession(child)).toBe(true);
+    expect(logicalTurnIds(db)).toEqual(['turn-keeper']);
+    expect(logicalTurnBlob(db)).not.toContain('moved reply');
+    expect(logicalTurnBlob(db)).toContain('keeper reply');
     db.close();
   });
 });

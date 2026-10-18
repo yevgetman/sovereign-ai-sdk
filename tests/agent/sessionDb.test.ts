@@ -1,8 +1,12 @@
-// sessionDb tests — everything runs in-memory (`path: ':memory:'`) so we
-// never touch the filesystem. Each test opens its own DB to keep state
-// isolated.
+// sessionDb tests — almost everything runs in-memory (`path: ':memory:'`) so
+// we never touch the filesystem. The v9→v10 reopen test uses a temp file
+// because an in-memory database cannot be reopened. Each test opens its own
+// DB to keep state isolated.
 
 import { describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ContentBlock, SystemSegment } from '@yevgetman/sov-sdk/core/types';
 import { SessionDb } from '../../src/agent/sessionDb.js';
 
@@ -55,7 +59,7 @@ describe('createSession + getSession', () => {
     expect(session?.title).toBe('pilot session');
     expect(session?.systemPrompt).toEqual(sysPrompt);
     expect(session?.metadata).toEqual({ bundleRoot: '/tmp/bundle', note: 42 });
-    expect(session?.schemaVersion).toBe(9);
+    expect(session?.schemaVersion).toBe(10);
     expect(session?.ownerId).toBeNull();
     expect(session?.parentSessionId).toBeNull();
     expect(session?.inputTokens).toBe(0);
@@ -299,11 +303,74 @@ describe('cost accounting', () => {
 });
 
 describe('schema versioning', () => {
-  test('new DB reports schema_version = 9 via sessions.schemaVersion', () => {
+  test('new DB reports schema_version = 10 via sessions.schemaVersion', () => {
     const db = openMem();
     const id = db.createSession({ model: 'm', provider: 'p' });
-    expect(db.getSession(id)?.schemaVersion).toBe(9);
+    expect(db.getSession(id)?.schemaVersion).toBe(10);
     db.close();
+  });
+
+  test('migration 9→10 backfills logical-turn session columns and indexes them', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sov-logical-turn-idx-'));
+    const path = join(root, 'sessions.db');
+    try {
+      const created = SessionDb.open({ path });
+      created.handle.exec(`
+        CREATE TABLE logical_turns_v9 (
+          logical_turn_id TEXT PRIMARY KEY,
+          record TEXT NOT NULL,
+          lease_owner TEXT,
+          lease_expires_at REAL
+        );
+        DROP TABLE logical_turns;
+        ALTER TABLE logical_turns_v9 RENAME TO logical_turns;
+        UPDATE state_meta SET schema_version = 9;
+      `);
+      created.handle.run('INSERT INTO logical_turns (logical_turn_id, record) VALUES (?, ?)', [
+        'lt-ok',
+        JSON.stringify({ sessionId: 'sess-a', activeSessionId: 'sess-b', finalReply: 'kept' }),
+      ]);
+      created.handle.run('INSERT INTO logical_turns (logical_turn_id, record) VALUES (?, ?)', [
+        'lt-bad',
+        'not-json',
+      ]);
+      created.close();
+
+      const db = SessionDb.open({ path });
+      const version = db.handle
+        .query<{ schema_version: number }, []>('SELECT schema_version FROM state_meta')
+        .get()?.schema_version;
+      expect(version).toBe(10);
+      const columns = db.handle
+        .query<{ name: string }, []>('PRAGMA table_info(logical_turns)')
+        .all()
+        .map((row) => row.name);
+      expect(columns).toContain('session_id');
+      expect(columns).toContain('active_session_id');
+      const indexes = db.handle
+        .query<{ name: string }, []>(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'logical_turns'",
+        )
+        .all()
+        .map((row) => row.name);
+      expect(indexes).toContain('idx_logical_turns_session_id');
+      expect(indexes).toContain('idx_logical_turns_active_session_id');
+      const ok = db.handle
+        .query<{ session_id: string | null; active_session_id: string | null }, [string]>(
+          'SELECT session_id, active_session_id FROM logical_turns WHERE logical_turn_id = ?',
+        )
+        .get('lt-ok');
+      expect(ok).toEqual({ session_id: 'sess-a', active_session_id: 'sess-b' });
+      const bad = db.handle
+        .query<{ session_id: string | null; active_session_id: string | null }, [string]>(
+          'SELECT session_id, active_session_id FROM logical_turns WHERE logical_turn_id = ?',
+        )
+        .get('lt-bad');
+      expect(bad).toEqual({ session_id: null, active_session_id: null });
+      db.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -347,10 +414,10 @@ describe('schema v4 — tasks table', () => {
     db.close();
   });
 
-  test('newly created sessions report schema_version 9', () => {
+  test('newly created sessions report schema_version 10', () => {
     const db = openMem();
     const id = db.createSession({ model: 'm', provider: 'p' });
-    expect(db.getSession(id)?.schemaVersion).toBe(9);
+    expect(db.getSession(id)?.schemaVersion).toBe(10);
     db.close();
   });
 });

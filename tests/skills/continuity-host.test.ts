@@ -134,7 +134,7 @@ describe('SOV private skill continuity adapter', () => {
     expect(saved[0]).not.toHaveProperty('allowedTools');
     expect(saved[0]).not.toHaveProperty('allowedResourceRoots');
     expect(saved[0]?.arguments).toEqual({ provided: true, bytes: 24 });
-    expect(db.getSession(id)?.schemaVersion).toBe(9);
+    expect(db.getSession(id)?.schemaVersion).toBe(10);
   });
 
   test('forced compaction preserves revision and workflow while permission state starts fresh', async () => {
@@ -423,7 +423,7 @@ describe('SOV private skill continuity adapter', () => {
     let db = SessionDb.open({ path });
     const id = session(db, 'alice');
     db.handle.exec(
-      'DROP TABLE tool_executions; DROP TABLE skill_continuity; UPDATE state_meta SET schema_version = 6; UPDATE sessions SET schema_version = 6;',
+      'DROP TABLE tool_executions; DROP TABLE skill_continuity; DROP TABLE logical_turns; UPDATE state_meta SET schema_version = 6; UPDATE sessions SET schema_version = 6;',
     );
     db.close();
     db = SessionDb.open({ path });
@@ -432,7 +432,7 @@ describe('SOV private skill continuity adapter', () => {
     expect(
       db.handle.query<{ schema_version: number }, []>('SELECT schema_version FROM state_meta').get()
         ?.schema_version,
-    ).toBe(9);
+    ).toBe(10);
     const port = buildSovSkillContinuity({ db, harnessHome: home, sessionId: id });
     await activate(port);
     expect((await port.exportRecords())[0]?.guidance).toBe(workflow);
