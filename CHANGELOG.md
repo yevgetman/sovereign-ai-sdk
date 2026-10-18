@@ -8,6 +8,14 @@ instead of a full index. `skills_list` with neither `detail` nor a cursor
 still uses `names`. An omitted `detail` on `listSkillCatalog` still defaults
 to `activation`.
 
+## Unreleased — logical-turn SDK surface
+
+**SDK:** The package exports `superviseLogicalTurn`, `LogicalTurnLeaseError`,
+and `LOGICAL_TURN_RECOVERY_CAPABILITY`, plus the logical-turn types.
+`origin` and `id` are optional on `UserMessage`. `maxTurns`, `continuation`,
+and `logicalTurn` are optional on `PerTurn` and `QueryParams`. No release or
+installed-host upgrade is included.
+
 ## Unreleased — logical-turn continuation
 
 **Harness:** `--continue-logical-turn <id>` with `--sdk --json` continues one
