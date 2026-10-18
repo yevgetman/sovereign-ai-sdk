@@ -425,6 +425,9 @@ export async function runSdkRunCommand(
   const skillActivationTurnId = randomUUID();
   const continuityPorts = new Set<SkillContinuityPort>();
   let continuityOutcome: 'succeeded' | 'failed' | 'cancelled' = 'failed';
+  // Set when the supervisor already stored a terminal and this catch is only
+  // the provider/policy rethrow. A later abort must not replace that outcome.
+  let preserveCommittedTerminal = false;
   const mintedTurnIds: string[] = [];
   const wire = { block: 0, seq: 0 };
 
@@ -1408,7 +1411,20 @@ export async function runSdkRunCommand(
     const result = logical.finalSegment;
     const deadlineTerminal = logical.finishReason === 'deadline';
     // A deadline shares the work signal so the model stops. It is not /stop.
-    if (!deadlineTerminal && (logical.status === 'cancelled' || controller.signal.aborted))
+    // Completed, check-in, and the other stored terminals are already final.
+    // Stop can abort this signal after that commit. Only a cancel the
+    // supervisor did not classify is an interrupt.
+    const storedTerminal =
+      logical.status === 'completed' ||
+      logical.status === 'waiting_user' ||
+      logical.status === 'exhausted' ||
+      logical.status === 'stalled' ||
+      logical.status === 'failed';
+    if (
+      !deadlineTerminal &&
+      !storedTerminal &&
+      (logical.status === 'cancelled' || controller.signal.aborted)
+    )
       throw new Error('interrupted');
     // Model-call cap and a repeated fingerprint are terminal, same as a deadline.
     const nonResumableStop =
@@ -1422,6 +1438,7 @@ export async function runSdkRunCommand(
         if (messageId !== undefined)
           replaceStoredUserText(hostRuntime.sessionDb, messageId, error.message);
       }
+      preserveCommittedTerminal = true;
       throw error ?? new Error('provider failed');
     }
     const outcome = deadlineTerminal
@@ -1519,7 +1536,7 @@ export async function runSdkRunCommand(
       return 3;
     }
     storageFault ||= isStorageFault(err);
-    if (!storageFault && controller.signal.reason === 'deadline') {
+    if (!preserveCommittedTerminal && !storageFault && controller.signal.reason === 'deadline') {
       const durable = cleanupCoherent && hasNativeRecoveryTarget(runtime?.sessionDb, sessionId);
       finish({
         type: 'turn.error',
@@ -1542,7 +1559,7 @@ export async function runSdkRunCommand(
       ? 'policy_denied'
       : storageFault
         ? 'storage_failed'
-        : controller.signal.aborted
+        : !preserveCommittedTerminal && controller.signal.aborted
           ? 'interrupted'
           : err instanceof SdkInputError
             ? err.code
@@ -1630,7 +1647,10 @@ export async function runSdkRunCommand(
         ? 2
         : 1;
   } finally {
-    if (controller.signal.aborted) continuityOutcome = 'cancelled';
+    // Cleanup aborts the controller below. A terminal the supervisor already
+    // stored as success stays succeeded when Stop aborts after that commit.
+    if (controller.signal.aborted && continuityOutcome !== 'succeeded')
+      continuityOutcome = 'cancelled';
     controller.abort();
     for (const id of mintedTurnIds) runtime?.attestationEvidence?.endTurn(id);
     for (const port of continuityPorts)
