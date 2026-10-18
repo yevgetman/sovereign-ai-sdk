@@ -15,15 +15,15 @@ entitlement or transport image support. See [SDK routes](https://github.com/yevg
 
 ## Install
 
-SDK **0.16.2** uses the version-specific tarball and `SDK-SHA256SUMS` in [SOV v0.6.82](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.82). Download both assets, verify the checksum, then install the local tarball:
+SDK **0.16.3** uses the version-specific tarball and `SDK-SHA256SUMS` in [SOV v0.6.83](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.83). Download both assets, verify the checksum, then install the local tarball:
 
 ```sh
-curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.82/yevgetman-sov-sdk-0.16.2.tgz
-curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.82/SDK-SHA256SUMS
+curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.83/yevgetman-sov-sdk-0.16.3.tgz
+curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.83/SDK-SHA256SUMS
 shasum -a 256 -c SDK-SHA256SUMS
-npm install ./yevgetman-sov-sdk-0.16.2.tgz   # Node
+npm install ./yevgetman-sov-sdk-0.16.3.tgz   # Node
 # Or:
-bun add ./yevgetman-sov-sdk-0.16.2.tgz       # Bun
+bun add ./yevgetman-sov-sdk-0.16.3.tgz       # Bun
 ```
 
 For repeatable builds, vendor the verified file and commit the dependency lockfile.
@@ -606,6 +606,14 @@ reasoning adapter that requires a larger minimum reservation still refuses an
 insufficient cap before contacting the provider.
 
 ## Skills runtime APIs
+
+SDK 0.16.3 adds `superviseLogicalTurn` for one durable logical turn across
+bounded segments. Callers keep the original user message, route, model, effort,
+toolset, permissions, and bundle identity on that turn. A check-in waits for the
+user. Completed tool receipts can be reused. A started or unknown effect stops
+before another paid continuation. `skills_list` can request `names`, `summary`,
+or `activation` pages. These are new `.` exports. Existing frozen export names
+stay. Hosts that only call `createAgent()` keep the previous turn behavior.
 
 SDK 0.16.2 resolves layered skill settings from one bounded snapshot. Host approval
 options take precedence over node-local and profile settings; an explicit empty

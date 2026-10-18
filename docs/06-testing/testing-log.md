@@ -1,3 +1,9 @@
+## 2026-10-18 — SDK 0.16.3 / SOV 0.6.83 source preparation
+
+Scope: reviewed version, lockfile, packed install URLs, changelog and migration notes for selected PR103. Protocol 0.1.0 and debug-console 0.3.0 remain unchanged. No functional source change. The assigned patch stays 0.16.3. STABILITY.md would call the new logical-turn `.` exports a minor. That tension is recorded and the assigned version is left in place.
+
+macOS arm64, Bun 1.3.13, Go 1.26.1. `bun install --linker hoisted` refreshed only the SDK workspace version in `bun.lock`. `bun run build`, `bun run lint`, `bun run typecheck`, `bun run release:validate`, and `go test ./...` in `packages/tui` pass. First complete `env -u FORCE_COLOR bun run test`: 6679 pass / 31 skip / 1 fail. The failure was `tests/mcp/remoteClient.test.ts` mixed stdio and http pool, where the remote server was absent. An unchanged retry of that file passed 15/0. Unchanged complete retry: 6680 pass / 31 existing skips / 0 fail, 28060 assertions, 628 files, 192.72s. No defect is inferred from the one-run miss. Logs: `/tmp/sov-prep0163-build.log`, `/tmp/sov-prep0163-lint.log`, `/tmp/sov-prep0163-types.log`, `/tmp/sov-prep0163-validate.log`, `/tmp/sov-prep0163-test.log`, `/tmp/sov-prep0163-mcp-retry.log`, `/tmp/sov-prep0163-test2.log`, `/tmp/sov-prep0163-go.log`. Final assembled-cut checks remain separate. No live provider, publication, consumer pin, installed upgrade, or restart in this preparation. npm remains Owner-operated.
+
 ## 2026-10-18 — Logical-turn segments reuse one recall corpus read
 
 Scope: continuation segments inside `superviseLogicalTurn`. `query()` caches

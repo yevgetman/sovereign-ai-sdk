@@ -23,20 +23,32 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
 
 ---
 
-## Candidate SDK 0.16.2 / SOV 0.6.82
+## Candidate SDK 0.16.3 / SOV 0.6.83
 
-The planned patch selects the single reviewed layered Kernel skill settings repair
-from [PR97](https://github.com/yevgetman/sovereign-ai-sdk/pull/97), plus reviewed
+The planned patch selects the reviewed resilient logical-turn work from
+[PR103](https://github.com/yevgetman/sovereign-ai-sdk/pull/103), plus reviewed
 version and notes preparation. The SDK tarball is
-`yevgetman-sov-sdk-0.16.2.tgz`, with companion SOV tag `v0.6.82` and separate
-`SDK-SHA256SUMS`. The packed SDK README names those same assets. Publication
+`yevgetman-sov-sdk-0.16.3.tgz`, with companion SOV tag `v0.6.83` and separate
+`SDK-SHA256SUMS`. The packed SDK README names those same assets. The package
+entry adds logical-turn exports. [STABILITY.md](STABILITY.md) would call that
+addition a minor. The assigned manifest version stays 0.16.3. Publication
 requires exact assembled-source gates, a frozen cut and public-download proof;
-this preparation does not establish publication. Approval replacement precedence,
-host-file isolation and typed startup errors are described in
-[compatibility and migration](docs/04-extending/skill-compatibility.md#migrating-to-sdk-0162).
-Protocol stays 0.1.0 and debug console stays 0.3.0. npm publication stays Owner-only.
+this preparation does not establish publication. Protocol stays 0.1.0 and debug
+console stays 0.3.0. npm publication stays Owner-only.
 
 ## Current public cut — verified 2026-10-15
+
+SDK **0.16.2** and SOV **0.6.82** are published in the combined
+[SOV v0.6.82](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.82) release. PR97 settings repair and reviewed preparation
+PR100 are the two mapped application units from SDK0.16.1. Exact source is
+d1af49f5f4640ac0525f5cb61fb1a81c73c09684; both source tags name that build.
+All eight public files match frozen bytes. [Immutable proof](https://github.com/yevgetman/sovereign-ai-sdk/blob/8de2118d63599eee90696082b9424daa8e432012/releases/history/sdk-0.16.2/publication.json)
+records hashes, metadata, SDK contents and both native Mac strict ad-hoc signatures.
+The planned successor is SDK 0.16.3 / SOV 0.6.83, described above. Protocol0.1.0 and debug-console0.3.0 stay unchanged.
+Linuxarm64 is cross-compiled; matching Kernel producer integration remains unverified.
+Consumer source pins and local installation have separate records. npm remains Owner-only.
+
+## Previous public cut — verified 2026-10-15
 
 SDK **0.16.1** and SOV **0.6.81** are published in the combined public
 [SOV v0.6.81](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.81) release.
@@ -197,9 +209,9 @@ scratch `npm install` of each from the registry resolves.
 
 ```sh
 git tag protocol-v0.1.0
-git tag sdk-v0.16.2
+git tag sdk-v0.16.3
 git tag debug-console-v0.3.0
-git push origin protocol-v0.1.0 sdk-v0.16.2 debug-console-v0.3.0
+git push origin protocol-v0.1.0 sdk-v0.16.3 debug-console-v0.3.0
 ```
 
 (Adjust versions per release; the tags move independently, matching the
