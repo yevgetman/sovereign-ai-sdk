@@ -21,13 +21,15 @@ release when the selected work also changes the wrapper. A library-only cut may
 retain the published CLI version. Protocol/debug-console versions remain unchanged
 unless explicitly selected work requires their own release preparation.
 
-The verified cut released SDK **0.16.2** and CLI **0.6.82**. The active empty
-draft plans SDK **0.16.3** and CLI **0.6.83** from that published baseline.
-PR97 provides the layered settings repair; PR100 provides reviewed version/notes
-preparation. Each merge maps once into the exact assembled build. Immutable
+The verified cut released SDK **0.16.2** and CLI **0.6.82**. The active draft
+plans SDK **0.16.3** and CLI **0.6.83** from that published baseline.
+PR103 is the resilient logical-turn item. Version and notes preparation is
+selected only after its reviewed merge. Immutable
 releases/history/sdk-0.16.2/ retains frozen manifest/schema/source/review/QA and
-all-eight-file publication proof. Kernel producer integration remains unverified.
-No new frozen SDK root exports changed. Consumer pins and local binary state are separate records.
+all-eight-file publication proof. The 0.16.3 package entry adds logical-turn
+exports. STABILITY.md classifies that addition as a minor, and the assigned
+version stays 0.16.3 until the Owner changes it. Kernel producer integration
+remains unverified. Consumer pins and local binary state are separate records.
 
 ## Adding work
 
