@@ -5,7 +5,9 @@
 //
 // Failure model:
 //   exit code 0: read stdout JSON; missing/invalid → soft-fail, no block
-//   exit code 2: block (regardless of stdout); stderr → user-visible reason
+//   exit code 2: block (regardless of stdout). Other events use stderr as the
+//     reason. UserPromptSubmit uses only a parsed reason — the host stores it,
+//     and stderr or the command would copy the prompt into the transcript.
 //   exit other:  soft-fail (log stderr, do not block)
 //   spawn error / timeout: soft-fail
 //   denied by consent allowlist: hook is inert (this is intentional, not a fail)
@@ -111,13 +113,20 @@ export function buildHookRunner(opts: BuildHookRunnerOpts): HookRunner {
 
       if (result.exitCode === 2) {
         aggregate.block = true;
-        aggregate.reason = combineReasons(
-          aggregate.reason,
-          // `result.stderr` is always a string (defaulted ''), so a `??` chain
-          // would never reach the final fallback. Use `||` so an empty stderr
-          // still surfaces a reason that names the command.
-          result.parsed?.reason ?? (result.stderr || `hook exit 2: ${spec.command}`),
-        );
+        if (event === 'UserPromptSubmit') {
+          // The host persists this reason. Stderr often echoes the prompt, and
+          // the command is not a verdict. Only a parsed reason is hook-authored.
+          const authored = hookAuthoredReason(result.parsed?.reason);
+          if (authored !== undefined) aggregate.reason = combineReasons(aggregate.reason, authored);
+        } else {
+          aggregate.reason = combineReasons(
+            aggregate.reason,
+            // `result.stderr` is always a string (defaulted ''), so a `??` chain
+            // would never reach the final fallback. Use `||` so an empty stderr
+            // still surfaces a reason that names the command.
+            result.parsed?.reason ?? (result.stderr || `hook exit 2: ${spec.command}`),
+          );
+        }
         // Block short-circuits remaining hooks for this event.
         return aggregate;
       }
@@ -153,10 +162,10 @@ export function buildHookRunner(opts: BuildHookRunnerOpts): HookRunner {
       } else if (event === 'UserPromptSubmit') {
         if (parsed.permissionDecision === 'deny') {
           aggregate.block = true;
-          aggregate.reason = combineReasons(
-            aggregate.reason,
-            parsed.reason ?? `prompt rejected by hook: ${spec.command}`,
-          );
+          // No parsed reason: leave `reason` unset. The host stores its fixed
+          // policy sentence instead of the command.
+          const authored = hookAuthoredReason(parsed.reason);
+          if (authored !== undefined) aggregate.reason = combineReasons(aggregate.reason, authored);
           return aggregate;
         }
         if (typeof parsed.rewrittenPrompt === 'string') {
@@ -315,4 +324,11 @@ async function readCapped(stream: ReadableStream<Uint8Array>): Promise<string> {
 
 function combineReasons(prev: string | undefined, next: string): string {
   return prev ? `${prev}\n${next}` : next;
+}
+
+/** A non-empty parsed `reason`. Blank text is not hook-authored. */
+function hookAuthoredReason(reason: unknown): string | undefined {
+  if (typeof reason !== 'string') return undefined;
+  const trimmed = reason.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
