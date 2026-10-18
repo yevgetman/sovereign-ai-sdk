@@ -1,0 +1,48 @@
+schema_version: 4
+product: sovereign-ai-sdk
+version: 0.16.3
+items:
+  - id: sdk-pr-103
+    product: sovereign-ai-sdk
+    title: Add resilient logical turns to native SOV runs
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/103
+    merged_at: '2026-10-18T18:43:37Z'
+    commits:
+      - sha: 2a0c43e15ca8d2e4781f2c932404c46e2dde4a7c
+        mainline: 1
+    requires: []
+    reason: The merge is one application unit and covers the feature branch once.
+      Its first parent is master 6635d413529f926c71bd13e8e5d3912683ca2431.
+      Its second parent is 883360bd83a738f0d5bab83f12f2bf6817ad32ee. This
+      schedules SDK 0.16.3. It does not publish the SDK or the harness.
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/pull/103
+      - "GitHub CI at 883360bd83a738f0d5bab83f12f2bf6817ad32ee: all six checks
+        passed, including full runtime and Go on Linux and macOS and both
+        package compatibility pairs."
+      - "Code review of the feature: 0 critical, 2 high, 6 medium, 9 low. The
+        high and medium findings were fixed on the feature branch before this
+        merge. The lows were recorded and left."
+      - docs/06-testing/testing-log.md
+  - id: sdk-pr-269-preparation
+    product: sovereign-ai-sdk
+    title: Prepare SDK 0.16.3 and SOV 0.6.83 versions, lockfile and release notes
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/269
+    merged_at: '2026-10-18T19:58:31Z'
+    commits:
+      - sha: 48b6fa761185fcdd865f66dafebf08a8179eee44
+        mainline: 1
+    requires:
+      - sdk-pr-103
+    reason: The merge is one application unit for reviewed version, lockfile and
+      notes preparation. Its first parent is master
+      8817ffac38c68fc2a732f6985b9d3e74163be7dd. Its second parent is
+      cd896ebc2170093a051c115e35a32a2ce43f113d. STABILITY.md would call the new
+      logical-turn exports a minor. The assigned version stays 0.16.3. This
+      does not publish.
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/pull/269
+      - "Local preparation gate: build, lint, typecheck, Go tests, and a
+        complete retry of 6680 pass / 31 skip / 0 fail. The first run had one
+        MCP pool miss that passed unchanged on retry."
+      - "GitHub CI run 39160648156: all six checks passed."

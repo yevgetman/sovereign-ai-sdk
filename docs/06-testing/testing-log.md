@@ -1,3 +1,7 @@
+## 2026-10-18 — SDK 0.16.3 / SOV 0.6.83 public bytes
+
+Scope: downloaded every file from the public SOV v0.6.83 release and compared it with the frozen cut at 296955080ada445c83441b7d2b9207833b443fef. All eight files match SHA-256 and size. Checksum files match the frozen two-space records. Five archives report version v0.6.83 and that source revision. Both downloaded Mac binaries print 0.6.83 and pass `codesign --verify --strict` with an ad hoc signature. The x64 binary ran under Rosetta. Packed SDK version is 0.16.3. Linux arm64 was not executed natively. Windows was not executed natively. No npm publish. Proof: releases/history/sdk-0.16.3/publication.json.
+
 ## 2026-10-18 — SDK 0.16.3 / SOV 0.6.83 source preparation
 
 Scope: reviewed version, lockfile, packed install URLs, changelog and migration notes for selected PR103. Protocol 0.1.0 and debug-console 0.3.0 remain unchanged. No functional source change. The assigned patch stays 0.16.3. STABILITY.md would call the new logical-turn `.` exports a minor. That tension is recorded and the assigned version is left in place.
