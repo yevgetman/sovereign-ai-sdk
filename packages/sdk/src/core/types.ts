@@ -11,8 +11,13 @@ import type { RecallResult } from './recallPort.js';
 export type Role = 'user' | 'assistant';
 
 /** Per-turn recall thunk: bound by the host (sessionContext) to its learning
- *  layer + project id; `query()` stays project-agnostic and only invokes it. */
-export type RecallTurn = (latestUserText: string | undefined) => Promise<RecallResult>;
+ *  layer + project id; `query()` stays project-agnostic and only invokes it.
+ *  `corpusStamp` is a cheap identity of the instinct files. The logical-turn
+ *  cache reuses the injection while that stamp is unchanged. */
+export interface RecallTurn {
+  (latestUserText: string | undefined): Promise<RecallResult>;
+  corpusStamp?: () => Promise<string>;
+}
 
 /** Nonsecret binding for opaque state. A login lineage is narrower than an account:
  * refresh retains it; each new login/replacement gets a new value. */

@@ -1,3 +1,33 @@
+## 2026-10-18 — Logical-turn segments reuse one recall corpus read
+
+Scope: continuation segments inside `superviseLogicalTurn`. `query()` caches
+the recall injection and the memory snapshot on the logical-turn lease
+(`reinjectRecallFence`, `reinjectMemoryFence`). `src/cli/sdkRunCommand.ts` was
+not edited. `latestUserText` still skips tool-result rows.
+
+Environment: `/private/tmp/fix-sov-257` on `review-fix/257` from `219c1876`,
+macOS, Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade,
+release, or push.
+
+Before the fix, four continuation segments with recall enabled listed and read
+the corpus on every segment. The first two tests in
+`tests/agent/logicalTurnRecallCache.test.ts` failed: `scans` expected 2 and
+received 4, and a segment copy that already held a closed memory fence still
+prefetched (`prefetches` expected 1, received 2). The recall closed-fence
+guard already skipped a second recall. The 503 logical-turn retry called
+recall on every segment.
+
+After the fix, the first successful recall injection and memory snapshot stay
+on the lease. Later segments prepend that text. A closed fence already in the
+segment copy is not stacked and is not reread. The cache drops when
+`corpusStamp` or `snapshotStamp` changes. Instinct list and read for one
+project plus `_global` run once until a file changes, and each later model
+request still contains one recall fence. Direct `query()` continuations
+outside the supervisor still reread. A fail-open empty recall stays cached
+until the stamp changes. A fence already present is not refreshed.
+
+`env -u FORCE_COLOR bun test --timeout 20000 tests/agent/logicalTurnRecallCache.test.ts tests/agent/logicalTurn.test.ts tests/core/query.test.ts tests/memory/provider.test.ts tests/memory/injection.test.ts tests/learning-layer/readInstincts.test.ts tests/server/turns.recall.test.ts` is **135 pass / 0 fail**. The cache file passes 4 tests after the fix. `bun run lint` passed (Biome 1163 files; boundary 257 modules, 1058 dependencies, no violations). `bun run typecheck` passed. Full `env -u FORCE_COLOR bun test --timeout 20000` after `bun run build:sdk` is **6679 pass / 31 skip / 0 fail**. An earlier full run before `packages/sdk/dist` existed was 6612 pass / 67 fail; every failure was a missing dist module.
+
 ## 2026-10-18 — Continuation pins are compared before runtime boot
 
 Scope: `src/cli/sdkRunCommand.ts`. A continuation compares cwd, permission

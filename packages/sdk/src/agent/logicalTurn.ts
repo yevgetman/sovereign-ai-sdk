@@ -173,9 +173,19 @@ type LeaseBinding = {
   stop?: ((reason?: StopHookReason) => Promise<void>) | undefined;
   /** Last observed expiry. A read renews only after the heartbeat gap. */
   leaseExpiresAt?: number;
+  /** Recall and memory text reused by later segments. Keyed by the host thunk and the prompt. */
+  prelude: {
+    recall: WeakMap<object, Map<string, { text: string; fingerprint: string }>>;
+    memory: WeakMap<object, Map<string, { text: string; fingerprint: string }>>;
+  };
 };
 
 const leaseBindings = new AsyncLocalStorage<LeaseBinding>();
+
+/** Prelude cache for the logical turn on this async stack. Absent outside the supervisor. */
+export function logicalTurnPreludeCache(): LeaseBinding['prelude'] | undefined {
+  return leaseBindings.getStore()?.prelude;
+}
 const activeSegments = new Map<string, { owner: string; lose: () => void }>();
 
 function displaceSegment(logicalTurnId: string, owner: string, lose: () => void): void {
@@ -438,6 +448,7 @@ export async function superviseLogicalTurn(
     now,
     signal: segmentAbort.signal,
     lost: false,
+    prelude: { recall: new WeakMap(), memory: new WeakMap() },
   };
   let rejectInFlight: ((error: Error) => void) | undefined;
   const loseLease = (): void => {
