@@ -731,7 +731,7 @@ export function createAgent(config: AgentConfig): Agent {
                     savedThrough,
                   });
                 if (savedThrough !== undefined) savedThrough = messages.length;
-                const intent = journal?.loadMessages(sessionId).at(-1);
+                const intent = journal ? latestStoredMessage(journal, sessionId) : undefined;
                 if (
                   intent?.role !== 'assistant' ||
                   JSON.stringify(intent.content) !== JSON.stringify(assistant.content)
@@ -1006,9 +1006,11 @@ export function createAgent(config: AgentConfig): Agent {
                   // cancellation cannot bypass its post-loop persistence.
                   // A discarded regeneration never reaches this seam.
                   try {
-                    const stored = config.sessionStore.loadMessages(sessionId);
-                    const boundary =
-                      savedThrough ?? (isRehydratedPrefix(stored, messages) ? stored.length : 0);
+                    let boundary = savedThrough;
+                    if (boundary === undefined) {
+                      const stored = config.sessionStore.loadMessages(sessionId);
+                      boundary = isRehydratedPrefix(stored, messages) ? stored.length : 0;
+                    }
                     let committedThrough = boundary;
                     attemptTranscriptWrites += saveBeforeTools({
                       store: config.sessionStore,
@@ -1373,6 +1375,20 @@ function persistTurn(opts: {
   }
 }
 
+/** Tail row when the store can read it without walking the transcript. */
+function latestStoredMessage(
+  store: { loadMessages(sessionId: string): StoredMessage[] },
+  sessionId: string,
+): StoredMessage | undefined {
+  const tailed = store as {
+    loadLatestMessage?: (sessionId: string) => StoredMessage | null;
+  };
+  if (typeof tailed.loadLatestMessage === 'function') {
+    return tailed.loadLatestMessage(sessionId) ?? undefined;
+  }
+  return store.loadMessages(sessionId).at(-1);
+}
+
 /** True when every stored row matches the message at the same index.
  *  The list may be longer than the original seed: a tool call is saved
  *  before it runs, so the stored prefix includes that assistant row. */
@@ -1412,7 +1428,6 @@ function saveBeforeTools(opts: {
     provider: opts.providerName,
     ...(opts.systemPrompt.length > 0 ? { systemPrompt: opts.systemPrompt } : {}),
   });
-  const stored = store.loadMessages(sessionId);
   const write = (msg: Message): void => {
     const toolCalls =
       msg.role === 'assistant' ? msg.content.filter((block) => block.type === 'tool_use') : [];
@@ -1431,6 +1446,7 @@ function saveBeforeTools(opts: {
     for (const msg of snapshot.slice(savedThrough)) write(msg);
     return transcriptWrites;
   }
+  const stored = store.loadMessages(sessionId);
   if (isRehydratedPrefix(stored, snapshot)) {
     for (const msg of snapshot.slice(stored.length)) write(msg);
     return transcriptWrites;

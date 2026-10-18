@@ -24,7 +24,7 @@ export const LOGICAL_TURN_RECOVERY_CAPABILITY = {
 /** Short enough that a crashed owner can be resumed, long enough to cover one refresh gap. */
 export const LOGICAL_TURN_LEASE_MS = 30_000;
 export const LOGICAL_TURN_LEASE_RENEW_MS = 10_000;
-/** Transcript rows read or scanned between lease renewals. */
+/** Transcript rows fetched in one synchronous page. */
 export const LOGICAL_TURN_READ_PAGE = 64;
 /** Tool-result bodies above this are not parsed for a pagination cursor. */
 export const LOGICAL_TURN_CURSOR_PARSE_CAP = 65_536;
@@ -171,6 +171,8 @@ type LeaseBinding = {
   lost: boolean;
   /** Stop deferred by the segment in flight. Kept if the host drops the terminal. */
   stop?: ((reason?: StopHookReason) => Promise<void>) | undefined;
+  /** Last observed expiry. A read renews only after the heartbeat gap. */
+  leaseExpiresAt?: number;
 };
 
 const leaseBindings = new AsyncLocalStorage<LeaseBinding>();
@@ -202,21 +204,50 @@ export function logicalTurnWorkSignal(external?: AbortSignal): AbortSignal | und
 
 /**
  * Renew the lease bound on this async stack. True when no logical turn is
- * bound. A synchronous page cannot wait for the heartbeat; callers renew
- * between pages instead. An already-expired lease is lost.
+ * bound. A synchronous read cannot wait for the heartbeat, so this refreshes
+ * on the heartbeat gap rather than once per page. An already-expired lease is
+ * lost and is not extended. The renewal does not count toward a WAL truncate.
  */
 export function renewHeldLogicalTurnLease(): boolean {
   const binding = leaseBindings.getStore();
   if (!binding) return true;
   if (binding.lost) return false;
   const at = binding.now();
-  const ok = binding.store.renewLogicalTurnLease(
-    binding.logicalTurnId,
-    binding.owner,
-    at + LOGICAL_TURN_LEASE_MS,
-  );
-  if (!ok) binding.lost = true;
-  return ok;
+  const known = binding.leaseExpiresAt;
+  const freshFor = LOGICAL_TURN_LEASE_MS - LOGICAL_TURN_LEASE_RENEW_MS;
+  if (known !== undefined) {
+    if (known <= at) {
+      binding.lost = true;
+      return false;
+    }
+    if (known - at > freshFor) return true;
+  }
+  const lease = binding.store.readLogicalTurnLease(binding.logicalTurnId);
+  if (
+    !lease ||
+    lease.owner !== binding.owner ||
+    lease.expiresAt === null ||
+    lease.expiresAt <= at
+  ) {
+    binding.lost = true;
+    return false;
+  }
+  binding.leaseExpiresAt = lease.expiresAt;
+  if (lease.expiresAt - at > freshFor) return true;
+  const renew = binding.store.renewLogicalTurnLease as (
+    logicalTurnId: string,
+    owner: string,
+    expiresAt: number,
+    countCheckpoint?: boolean,
+  ) => boolean;
+  const expiresAt = at + LOGICAL_TURN_LEASE_MS;
+  const ok = renew(binding.logicalTurnId, binding.owner, expiresAt, false);
+  if (!ok) {
+    binding.lost = true;
+    return false;
+  }
+  binding.leaseExpiresAt = expiresAt;
+  return true;
 }
 
 /** Transcript and tool-journal writes from a dispossessed segment must fail closed. */
@@ -422,8 +453,16 @@ export async function superviseLogicalTurn(
     else options.signal.addEventListener('abort', onExternalAbort);
   }
   const leaseExpiresAt = (): number => now() + LOGICAL_TURN_LEASE_MS;
-  const renewLease = (): boolean =>
-    options.store.renewLogicalTurnLease(held.record.logicalTurnId, leaseOwner, leaseExpiresAt());
+  const renewLease = (): boolean => {
+    const expiresAt = leaseExpiresAt();
+    const ok = options.store.renewLogicalTurnLease(
+      held.record.logicalTurnId,
+      leaseOwner,
+      expiresAt,
+    );
+    if (ok) binding.leaseExpiresAt = expiresAt;
+    return ok;
+  };
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const pause = (ms: number): Promise<void> => {
     if (options.sleep) return options.sleep(ms);
@@ -483,9 +522,9 @@ export async function superviseLogicalTurn(
     }
   };
   // The boundary read is synchronous, so the heartbeat cannot run while it
-  // holds the thread. Renew after the read. A scan that already passed
-  // lease_expires_at is lost even when lease_owner still matches. Longer
-  // message lists yield and renew between pages.
+  // holds the thread. Renew once around that read. A scan that already passed
+  // lease_expires_at is lost even when lease_owner still matches. The message
+  // list is the snapshot already loaded; it is not paged into more renewals.
   const readOwnedBoundary = () => {
     const read = options.readBoundary;
     if (!read) throw new LogicalTurnLeaseError();
@@ -494,21 +533,8 @@ export async function superviseLogicalTurn(
     if (!renewLease()) throw new LogicalTurnLeaseError();
     return snapshot;
   };
-  const messagesInPages = async (load: () => Message[]): Promise<Message[]> => {
-    const loaded = leaseBindings.run(binding, load);
-    if (loaded.length <= LOGICAL_TURN_READ_PAGE) return loaded;
-    const paged: Message[] = [];
-    for (let index = 0; index < loaded.length; index += LOGICAL_TURN_READ_PAGE) {
-      if (index > 0) {
-        await new Promise<void>((resolve) => {
-          setTimeout(resolve, 0);
-        });
-        if (!renewLease()) throw new LogicalTurnLeaseError();
-      }
-      paged.push(...loaded.slice(index, index + LOGICAL_TURN_READ_PAGE));
-    }
-    return paged;
-  };
+  const readSnapshotMessages = (load: () => Message[]): Message[] =>
+    leaseBindings.run(binding, load);
   const readSharedBoundary = async (
     includeMessages: boolean,
   ): Promise<{ safe: boolean; messages?: Message[] }> => {
@@ -516,7 +542,7 @@ export async function superviseLogicalTurn(
     if (!includeMessages) return { safe: snapshot.safe };
     return {
       safe: snapshot.safe,
-      messages: await messagesInPages(() => snapshot.messages()),
+      messages: readSnapshotMessages(() => snapshot.messages()),
     };
   };
 
@@ -610,16 +636,18 @@ export async function superviseLogicalTurn(
       resuming &&
       options.readBoundary === undefined &&
       !options.recoverySafe(record.activeSessionId);
+    const acquiredExpiresAt = leaseExpiresAt();
     if (
       !options.store.acquireLogicalTurnLease(
         record.logicalTurnId,
         leaseOwner,
-        leaseExpiresAt(),
+        acquiredExpiresAt,
         now(),
       )
     ) {
       throw new LogicalTurnLeaseError();
     }
+    binding.leaseExpiresAt = acquiredExpiresAt;
     leased = true;
     binding.logicalTurnId = record.logicalTurnId;
     displaceSegment(record.logicalTurnId, leaseOwner, loseLease);
@@ -830,8 +858,8 @@ export async function superviseLogicalTurn(
 
       transientAttempts = 0;
       // The segment heartbeat has stopped. It cannot refresh a synchronous
-      // boundary read. Renew after that read, and between later message pages.
-      // An already-expired lease is not extended.
+      // boundary read. Renew after that read. An already-expired lease is not
+      // extended. Later segments reuse the snapshot this read already loaded.
       const boundary = options.readBoundary ? readOwnedBoundary() : undefined;
       if (!boundary && !renewLease()) throw new LogicalTurnLeaseError();
       const safe = boundary ? boundary.safe : options.recoverySafe(record.activeSessionId);
@@ -842,7 +870,7 @@ export async function superviseLogicalTurn(
       const facts = progressFacts(supplied);
       const hydrated = needsHydratedFacts(facts)
         ? boundary
-          ? await messagesInPages(() => boundary.messages())
+          ? readSnapshotMessages(() => boundary.messages())
           : options.rehydrate(record.activeSessionId)
         : undefined;
       const fingerprint = progressFingerprint({
@@ -903,7 +931,7 @@ export async function superviseLogicalTurn(
       };
       options.onContinuing?.(continuation);
       messages = boundary
-        ? await messagesInPages(() => boundary.messages())
+        ? readSnapshotMessages(() => boundary.messages())
         : options.rehydrate(record.activeSessionId);
       record.status = 'running';
       save();
@@ -1039,12 +1067,9 @@ export function logicalTurnCursor(
     content: readonly { type: string; content?: string; input?: unknown }[];
   }[],
 ): string | undefined {
-  let scanned = 0;
+  // One check for the scan. The rows are already loaded; do not renew per page.
+  if (!renewHeldLogicalTurnLease()) throw new LogicalTurnLeaseError();
   for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
-    if (scanned > 0 && scanned % LOGICAL_TURN_READ_PAGE === 0) {
-      if (!renewHeldLogicalTurnLease()) throw new LogicalTurnLeaseError();
-    }
-    scanned += 1;
     const content = messages[messageIndex]?.content ?? [];
     for (let blockIndex = content.length - 1; blockIndex >= 0; blockIndex -= 1) {
       const block = content[blockIndex];

@@ -791,7 +791,7 @@ describe('logical-turn supervisor', () => {
     expect(calls).toBe(1);
   });
 
-  test('a multi-page boundary scan renews between pages and keeps the lease', async () => {
+  test('a multi-page boundary scan keeps a fresh lease without a renew per page', async () => {
     const db = SessionDb.open({ path: ':memory:' });
     try {
       const sessionId = db.createSession({ model: 'fixture-model', provider: 'fixture' });
@@ -844,7 +844,7 @@ describe('logical-turn supervisor', () => {
           };
         },
       });
-      expect(renewsDuringRead).toBeGreaterThan(0);
+      expect(renewsDuringRead).toBe(0);
       expect(outcome.status).toBe('completed');
       expect(calls).toBe(2);
       const held = db.readLogicalTurnLease(outcome.logicalTurnId);
