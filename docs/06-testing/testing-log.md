@@ -1,3 +1,32 @@
+## 2026-10-18 — Continuation pins are compared before runtime boot
+
+Scope: `src/cli/sdkRunCommand.ts`. A continuation compares cwd, permission
+policy, route, provider, auth, model, effort, toolset, permission mode, and
+bundle before `buildRuntime`, credential resolution, MCP connect, and any
+session write. A mismatch still emits `recovery_state_invalid` and returns 3.
+`logicalTurn.ts`, `query.ts`, the policy-verdict path, the model-call cap,
+and `latestHumanUserText` were not edited.
+
+Environment: `/private/tmp/fix-sov-256` on `review-fix/256` from `219c1876`,
+macOS, Bun 1.3.13 (`bf2e2cec`). No live provider, product install, upgrade,
+release, or push.
+
+Before the fix, continuing a pinned turn from another directory booted the
+runtime. A stdio MCP server whose command was `./pinned-mcp.sh` and which had
+no configured cwd was spawned in both directories. The spawn log contained the
+origin path and then the other directory. `sessions.metadata.sdkTurns` grew
+from 1 to 2, `session.started` was emitted, and the process still exited 3.
+`env -u FORCE_COLOR bun test --timeout 30000 ./tests/cli/sdkRunRecovery.test.ts -t 'does not spawn a relative stdio'` failed on `session.started` (expected false, received true). Evidence: `SPAWN-EVIDENCE` `started: true`, `turns: 2`, log lines for both directories, and two `[mcp] pinned: connection failed` lines.
+
+After the fix, that continuation does not spawn the command. The spawn log
+stays the origin line, `sdkTurns` stays length 1, `session.started` is absent,
+`boots` and provider calls stay 1, the logical-turn row is unchanged, and the
+process exits 3 with `pinned.cwd` and event `cwd` set to the stored directory.
+The same test passed in the recovery file (269.67ms) with one MCP connect
+failure from the original directory only.
+
+`env -u FORCE_COLOR bun test --timeout 30000 ./tests/cli/sdkRunRecovery.test.ts` passed after the fix: 66 pass / 0 fail. `bun run lint` passed (Biome 1162 files; boundary 257 modules, 1057 dependencies, no violations). `bun run typecheck` passed. `bun run build:sdk` passed. Full `env -u FORCE_COLOR bun test --timeout 20000` is **6676 pass / 31 skip / 0 fail**.
+
 ## 2026-10-18 — Policy denial does not store the hook command or stderr
 
 Scope: `UserPromptSubmit` denials in `packages/sdk/src/hooks/runner.ts` and
