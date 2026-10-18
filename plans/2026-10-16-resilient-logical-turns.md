@@ -2,7 +2,7 @@
 
 Date: 2026-10-16
 
-Approved specification: `/Users/julie/.kernel/dev-delivery/sov-resilient-turns-20261016/approved-spec.md`
+Approved specification: `specs/2026-10-16-resilient-logical-turns-design.md`
 
 ## Goal
 
