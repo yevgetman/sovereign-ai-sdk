@@ -1524,12 +1524,17 @@ function isHumanUserMessage(message: Message | undefined): message is UserMessag
   return message?.role === 'user' && message.origin !== 'runtime';
 }
 
+/** Latest human prompt. A tool-result row is still role user, and it may carry
+ *  steer text or no text at all. Neither is the prompt: keep scanning past
+ *  runtime markers, tool results, and rows with no text block. */
 function latestUserText(messages: Message[]): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (!isHumanUserMessage(message)) continue;
+    if (message.content.some((block) => block.type === 'tool_result')) continue;
     const text = message.content.find((block) => block.type === 'text');
-    return text?.type === 'text' ? text.text : undefined;
+    if (text?.type !== 'text') continue;
+    return text.text;
   }
   return undefined;
 }
