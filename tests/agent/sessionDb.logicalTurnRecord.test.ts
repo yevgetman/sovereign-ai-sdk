@@ -186,9 +186,11 @@ for (const [id, record] of [
       outcome: 'failed',
       code: 'recovery_state_invalid',
       recoverable: false,
+      nextAction: 'repair_request',
       logicalTurnId: id,
     });
     expect(terminal?.code).not.toBe('provider_failed');
+    expect(terminal?.nextAction).not.toBe('continue_logical_turn');
     expect(terminal?.error).toBe('Logical turn recovery state is invalid.');
     expect(String(terminal?.error)).not.toContain('working-directory');
     expect(String(terminal?.error)).not.toContain('policy');

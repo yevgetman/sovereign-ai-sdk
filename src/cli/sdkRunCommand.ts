@@ -132,6 +132,52 @@ const ERRORS: Record<string, string> = {
 };
 /** Same code as the model-call cap. The sentence names the deadline, not that cap. */
 const DEADLINE_EXHAUSTED_ERROR = 'Logical turn reached its deadline.';
+const PINNED_ENVIRONMENT_ERROR =
+  'The continue will not proceed until the process is in the pinned environment.';
+
+function bindingMismatchError(kinds: readonly string[]): string {
+  return `Logical turn ${kinds.join(' and ')}. ${PINNED_ENVIRONMENT_ERROR}`;
+}
+
+/** Name the drifted pin and keep its stored value. Absent pins stay null. */
+function rememberPin(
+  pinned: Record<string, string | null>,
+  kinds: string[],
+  drifted: boolean,
+  kind: string,
+  field: string,
+  stored: string | undefined,
+): void {
+  if (!drifted) return;
+  kinds.push(kind);
+  pinned[field] = stored ?? null;
+}
+
+function reportBindingMismatch(
+  finish: (event: Record<string, unknown>) => void,
+  record: LogicalTurnRecord,
+  kinds: readonly string[],
+  pinned: Record<string, string | null>,
+  extra: Record<string, unknown>,
+): void {
+  finish({
+    type: 'turn.error',
+    outcome: 'failed',
+    reason: 'recovery_state_invalid',
+    code: 'recovery_state_invalid',
+    error: bindingMismatchError(kinds),
+    recoverable: false,
+    // The stored pin is unchanged. Continue this id only from that environment.
+    nextAction: 'continue_logical_turn',
+    logicalTurnId: record.logicalTurnId,
+    ...extra,
+    sessionId: record.sessionId,
+    activeSessionId: record.activeSessionId,
+    cwd: record.binding.cwd,
+    pinned,
+  });
+}
+
 const UNKNOWN_LOGICAL_TURN = 'logical turn does not exist';
 const MISSING_LOGICAL_TURN_ROUTE = 'logical turn route is missing';
 const STDIN_CONTINUE_CLASH = '--stdin cannot be combined with --continue-logical-turn';
@@ -543,25 +589,37 @@ export async function runSdkRunCommand(
         ? hookIdentity.length > 0
         : storedHookDigest !== hookScopeDigest);
     if (continuationRecord) {
-      const skillMismatch = continuationRecord.binding.skillApprovalDigest !== skillApprovalDigest;
-      const mcpMismatch = continuationRecord.binding.mcpIdentityDigest !== mcpIdentityDigest;
+      const binding = continuationRecord.binding;
+      const skillMismatch = binding.skillApprovalDigest !== skillApprovalDigest;
+      const mcpMismatch = binding.mcpIdentityDigest !== mcpIdentityDigest;
       if (skillMismatch || mcpMismatch || hookMismatch) {
-        const named = [
-          skillMismatch ? 'skill-approval mismatch' : undefined,
-          mcpMismatch ? 'MCP mismatch' : undefined,
-          hookMismatch ? 'hook-scope mismatch' : undefined,
-        ].filter((item) => item !== undefined);
-        finish({
-          type: 'turn.error',
-          outcome: 'failed',
-          reason: 'recovery_state_invalid',
-          code: 'recovery_state_invalid',
-          error: `Logical turn ${named.join(' and ')}.`,
-          recoverable: false,
-          // The pin is unchanged. Restore that binding and continue this id.
-          nextAction: 'continue_logical_turn',
-          sessionId: null,
-          logicalTurnId: continuationRecord.logicalTurnId,
+        const kinds: string[] = [];
+        const pinned: Record<string, string | null> = {};
+        rememberPin(
+          pinned,
+          kinds,
+          skillMismatch,
+          'skill-approval mismatch',
+          'skillApprovalDigest',
+          binding.skillApprovalDigest,
+        );
+        rememberPin(
+          pinned,
+          kinds,
+          mcpMismatch,
+          'MCP mismatch',
+          'mcpIdentityDigest',
+          binding.mcpIdentityDigest,
+        );
+        rememberPin(
+          pinned,
+          kinds,
+          hookMismatch,
+          'hook-scope mismatch',
+          'hookScopeDigest',
+          binding.hookScopeDigest,
+        );
+        reportBindingMismatch(finish, continuationRecord, kinds, pinned, {
           ...metadata(),
           counters: continuationRecord.counters,
           ...nativeTurnMetrics(receipts),
@@ -903,37 +961,90 @@ export async function runSdkRunCommand(
       const binding = continuationRecord.binding;
       // A moved directory or a changed permission policy is an intact row.
       // Corrupt JSON stays on the LogicalTurnRecordError path.
-      const cwdMismatch = binding.cwd !== process.cwd();
-      const policyMismatch = binding.policyDigest !== policyDigest;
-      const otherMismatch =
-        binding.route !== resolvedRouteId ||
-        binding.provider !== routeSelection.route.provider ||
-        binding.authKind !== routeSelection.route.auth ||
-        binding.model !== routeSelection.model ||
-        binding.effort !== routeSelection.effort ||
-        binding.toolset !== toolset ||
-        binding.permissionMode !== hostRuntime.permissionMode ||
-        binding.bundleIdentity !== string(opts.bundle);
-      if (cwdMismatch || policyMismatch || otherMismatch) {
-        const named = [
-          cwdMismatch ? 'working-directory mismatch' : undefined,
-          policyMismatch ? 'permission-policy mismatch' : undefined,
-        ].filter((item) => item !== undefined);
-        finish({
-          type: 'turn.error',
-          outcome: 'failed',
-          reason: 'recovery_state_invalid',
-          code: 'recovery_state_invalid',
-          error:
-            named.length > 0
-              ? `Logical turn ${named.join(' and ')}.`
-              : ERRORS.recovery_state_invalid,
-          recoverable: false,
-          // Route, model, and toolset flags are overwritten from the row.
-          // Restore the pinned binding and continue this id.
-          nextAction: 'continue_logical_turn',
-          sessionId: null,
-          logicalTurnId: continuationRecord.logicalTurnId,
+      const kinds: string[] = [];
+      const pinned: Record<string, string | null> = {};
+      rememberPin(
+        pinned,
+        kinds,
+        binding.cwd !== process.cwd(),
+        'working-directory mismatch',
+        'cwd',
+        binding.cwd,
+      );
+      rememberPin(
+        pinned,
+        kinds,
+        binding.policyDigest !== policyDigest,
+        'permission-policy mismatch',
+        'policyDigest',
+        binding.policyDigest,
+      );
+      rememberPin(
+        pinned,
+        kinds,
+        binding.route !== resolvedRouteId,
+        'route mismatch',
+        'route',
+        binding.route,
+      );
+      rememberPin(
+        pinned,
+        kinds,
+        binding.provider !== routeSelection.route.provider,
+        'provider mismatch',
+        'provider',
+        binding.provider,
+      );
+      rememberPin(
+        pinned,
+        kinds,
+        binding.authKind !== routeSelection.route.auth,
+        'auth mismatch',
+        'authKind',
+        binding.authKind,
+      );
+      rememberPin(
+        pinned,
+        kinds,
+        binding.model !== routeSelection.model,
+        'model mismatch',
+        'model',
+        binding.model,
+      );
+      rememberPin(
+        pinned,
+        kinds,
+        binding.effort !== routeSelection.effort,
+        'effort mismatch',
+        'effort',
+        binding.effort,
+      );
+      rememberPin(
+        pinned,
+        kinds,
+        binding.toolset !== toolset,
+        'toolset mismatch',
+        'toolset',
+        binding.toolset,
+      );
+      rememberPin(
+        pinned,
+        kinds,
+        binding.permissionMode !== hostRuntime.permissionMode,
+        'permission-mode mismatch',
+        'permissionMode',
+        binding.permissionMode,
+      );
+      rememberPin(
+        pinned,
+        kinds,
+        binding.bundleIdentity !== string(opts.bundle),
+        'bundle mismatch',
+        'bundleIdentity',
+        binding.bundleIdentity,
+      );
+      if (kinds.length > 0) {
+        reportBindingMismatch(finish, continuationRecord, kinds, pinned, {
           ...metadata(),
           counters: continuationRecord.counters,
           ...nativeTurnMetrics(receipts),
