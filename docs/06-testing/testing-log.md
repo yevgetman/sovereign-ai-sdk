@@ -1,3 +1,32 @@
+## 2026-10-17 — Compaction keeps the hidden max_tokens marker
+
+Scope: a text `max_tokens` continuation is a user message with `origin: 'runtime'`
+and an id beside role and content. Proactive compaction copies that tail into
+the child. The child row must keep `toolCalls.origin` and the same id so the
+next segment does not treat the marker as the human prompt.
+
+Environment: `/Users/julie/code/sdk-review-fix-235` on `review-fix/235` from
+`ab919cab`, macOS, Bun 1.3.13 (`bf2e2cec`). No live provider, product install,
+upgrade, release, or push. Package version stays 0.16.2.
+
+Before the fix, `cloneMessage` and the child persist path kept only role and
+content. `bun test --timeout 20000 tests/compact/compactor.test.ts -t 'keeps a text max_tokens runtime marker'`
+failed: the tail marker was null (`expected a non-null object` for
+`origin: 'runtime'` and id `turn-235:output:1`).
+
+After the fix that test passes. The child row stores
+`toolCalls: { origin: 'runtime', id: 'turn-235:output:1' }` and the same
+`toolCallId`. The original prompt in the same tail stays a normal user row
+(`toolCalls` and `toolCallId` null).
+
+Commands: `env -u FORCE_COLOR bun test --timeout 20000` on
+`tests/compact/compactor.test.ts`, `tests/compact/compactOwner.test.ts`,
+`tests/server/compactor.test.ts`, and `tests/server/compact.test.ts`
+(28 pass, 0 fail). `bun run lint` passed (Biome 1161 files; boundary 257
+modules, 1057 dependencies, no violations). `bun run typecheck` reports the
+same 3 existing errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212
+and 366) and `tests/skills/catalog.test.ts` (line 370). Full `bun test` was
+not run.
 ## 2026-10-17 — Route summary does not continue stopped logical turns
 
 Scope: docs-only correction in `docs/03-cli-reference/sdk-routes.md`. The
