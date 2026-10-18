@@ -1,4 +1,4 @@
-import { rememberLogicalSegmentStop } from '../agent/logicalTurn.js';
+import { logicalTurnPreludeCache, rememberLogicalSegmentStop } from '../agent/logicalTurn.js';
 import { isOwnerSubscriptionModel } from '../providers/models/ownerModelPolicy.js';
 // The turn loop — async generator yielding typed events. Phase 2: wraps
 // the Phase-1 single-turn body in a while-loop. When the assistant
@@ -368,15 +368,16 @@ async function* queryInternal(
   // User-turn hooks stay skipped. A fence that is already present is not copied again.
   let history = [...messages];
   if (params.memoryManager) {
+    const memory = withLogicalTurnMemoryCache(params.memoryManager);
     history = params.continuation
-      ? await reinjectMemoryFence(history, params.memoryManager)
-      : await injectMemoryIntoLatestUserMessage(history, params.memoryManager);
+      ? await reinjectMemoryFence(history, memory)
+      : await injectMemoryIntoLatestUserMessage(history, memory);
   }
 
   // Learning loop (Recall): after memory injection, prepend recalled lessons to
   // the latest human user message. Optional thunk bound by the host; query() stays
   // project-agnostic. Empty injectionText leaves history unchanged. A continuation
-  // reapplies the fence once; it does not stack a closed recall block.
+  // reapplies the cached fence once; it does not stack a closed recall block.
   if (params.recall) {
     history = params.continuation
       ? await reinjectRecallFence(history, params.recall, originalUserText)
@@ -1394,6 +1395,108 @@ async function fireStopHook(
   }
 }
 
+type PreludeBucket = WeakMap<object, Map<string, { text: string; fingerprint: string }>>;
+
+function preludeKey(userText: string | undefined): string {
+  return userText ?? '';
+}
+
+/** '' means the host did not report a file identity, so the turn cache stands.
+ *  undefined means the stamp failed and the text must not be reused. */
+async function sourceFingerprint(
+  read: (() => Promise<string>) | undefined,
+): Promise<string | undefined> {
+  if (!read) return '';
+  try {
+    return await read();
+  } catch {
+    return undefined;
+  }
+}
+
+function cachedPrelude(
+  bucket: PreludeBucket,
+  source: object,
+  key: string,
+  fingerprint: string | undefined,
+): string | undefined {
+  if (fingerprint === undefined) return undefined;
+  const hit = bucket.get(source)?.get(key);
+  if (!hit || hit.fingerprint !== fingerprint) return undefined;
+  return hit.text;
+}
+
+function storePrelude(
+  bucket: PreludeBucket,
+  source: object,
+  key: string,
+  text: string,
+  fingerprint: string,
+): void {
+  let entries = bucket.get(source);
+  if (!entries) {
+    entries = new Map();
+    bucket.set(source, entries);
+  }
+  entries.set(key, { text, fingerprint });
+}
+
+function withLogicalTurnMemoryCache(
+  memory: NonNullable<QueryParams['memoryManager']>,
+): NonNullable<QueryParams['memoryManager']> {
+  const cache = logicalTurnPreludeCache();
+  if (!cache) return memory;
+  const snapshotStamp = memory.snapshotStamp;
+  return {
+    prefetchSnapshot: (userText) => cachedMemorySnapshot(cache.memory, memory, userText),
+    ...(snapshotStamp ? { snapshotStamp: () => snapshotStamp() } : {}),
+    syncTurn: (user, assistant) => memory.syncTurn(user, assistant),
+    onMemoryWrite: (change) => memory.onMemoryWrite(change),
+    onDelegation: (task, result) => memory.onDelegation(task, result),
+  };
+}
+
+async function cachedMemorySnapshot(
+  bucket: PreludeBucket,
+  memory: NonNullable<QueryParams['memoryManager']>,
+  userText: string,
+): Promise<string> {
+  const snapshotStamp = memory.snapshotStamp;
+  const readStamp = snapshotStamp ? () => snapshotStamp() : undefined;
+  const before = await sourceFingerprint(readStamp);
+  const hit = cachedPrelude(bucket, memory, userText, before);
+  if (hit !== undefined) return hit;
+  const snapshot = await memory.prefetchSnapshot(userText);
+  if (before !== undefined) {
+    const after = await sourceFingerprint(readStamp);
+    if (after !== undefined) storePrelude(bucket, memory, userText, snapshot, after);
+  }
+  return snapshot;
+}
+
+async function cachedRecallText(
+  recall: NonNullable<QueryParams['recall']>,
+  userText: string | undefined,
+): Promise<string> {
+  const cache = logicalTurnPreludeCache();
+  if (!cache) {
+    const recalled = await recall(userText);
+    return recalled.injectionText;
+  }
+  const corpusStamp = recall.corpusStamp;
+  const readStamp = corpusStamp ? () => corpusStamp() : undefined;
+  const before = await sourceFingerprint(readStamp);
+  const key = preludeKey(userText);
+  const hit = cachedPrelude(cache.recall, recall, key, before);
+  if (hit !== undefined) return hit;
+  const recalled = await recall(userText);
+  if (before !== undefined) {
+    const after = await sourceFingerprint(readStamp);
+    if (after !== undefined) storePrelude(cache.recall, recall, key, recalled.injectionText, after);
+  }
+  return recalled.injectionText;
+}
+
 /** True when stored text already opens with the preamble and a closed block.
  *  Mentioning `<memory-context>` is not itself a fence. */
 function hasLeadingClosedMemoryFence(text: string): boolean {
@@ -1420,14 +1523,13 @@ async function reinjectMemoryFence(
     const textIndex = msg.content.findIndex((block) => block.type === 'text');
     const block = msg.content[textIndex];
     if (!block || block.type !== 'text') continue;
+    // A fence already in this segment copy is left as-is. Do not read again.
+    if (hasLeadingClosedMemoryFence(block.text)) return history;
     const snapshot = await memory.prefetchSnapshot(block.text);
     const trimmed = snapshot.trim();
-    // Already present only when this snapshot is stored, or the text starts
-    // with the preamble and a closed <memory-context> block. A bare tag
-    // mention still receives the current snapshot once.
-    if (!trimmed || block.text.includes(trimmed) || hasLeadingClosedMemoryFence(block.text)) {
-      return history;
-    }
+    // A stored copy of this snapshot is already present. A bare tag mention
+    // still receives the snapshot once.
+    if (!trimmed || block.text.includes(trimmed)) return history;
     const next = injectMemoryIntoUserText(block.text, snapshot);
     if (next === block.text) return history;
     const content = [...msg.content];
@@ -1451,8 +1553,8 @@ async function injectRecallOnce(
   recall: NonNullable<QueryParams['recall']>,
   userText: string | undefined,
 ): Promise<Message[]> {
-  const recalled = await recall(userText);
-  return injectRecallIntoLatestUserMessage(messages, recalled.injectionText);
+  const injectionText = await cachedRecallText(recall, userText);
+  return injectRecallIntoLatestUserMessage(messages, injectionText);
 }
 
 /** Reapply recall to the stored human prompt. Tool-result tails and runtime
@@ -1471,10 +1573,10 @@ async function reinjectRecallFence(
     const block = msg.content[textIndex];
     if (!block || block.type !== 'text') continue;
     if (hasClosedRecallFence(block.text)) return history;
-    const recalled = await recall(userText);
-    if (!recalled.injectionText) return history;
+    const injectionText = await cachedRecallText(recall, userText);
+    if (!injectionText) return history;
     const content = [...msg.content];
-    content[textIndex] = { type: 'text', text: prependRecall(block.text, recalled.injectionText) };
+    content[textIndex] = { type: 'text', text: prependRecall(block.text, injectionText) };
     history[i] = { ...msg, content };
     return history;
   }

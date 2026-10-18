@@ -19,6 +19,7 @@ import { query } from '@yevgetman/sov-sdk/core/query';
 import type {
   AssistantMessage,
   Message,
+  RecallTurn,
   StreamEvent,
   Terminal,
 } from '@yevgetman/sov-sdk/core/types';
@@ -1909,7 +1910,7 @@ async function runObservedSegment(
   },
   observed: {
     hookRunner: HookRunner;
-    recall?: () => Promise<{ injectionText: string; lessons: [] }>;
+    recall?: RecallTurn;
   },
   mode: 'max_turns' | 'checkin' | 'text' | 'error-then-text',
   provider: LLMProvider,
@@ -1949,17 +1950,28 @@ describe('logical turn Stop hooks', () => {
   test('a 503 then success records one Stop and does not rerun user-turn hooks', async () => {
     const observed = stopRecorder();
     let recalls = 0;
-    const provider = flakyThenOkProvider();
+    const seen: string[] = [];
+    const recall: RecallTurn = async () => {
+      recalls += 1;
+      return { injectionText: 'RECALL_MARKER', lessons: [] };
+    };
+    const flaky = flakyThenOkProvider();
+    const provider: LLMProvider = {
+      name: 'flaky-record',
+      async *stream(request) {
+        const message = request.messages.find((entry) => entry.role === 'user');
+        const block = message?.content.find((part) => part.type === 'text');
+        if (block?.type === 'text') seen.push(block.text);
+        return yield* flaky.stream(request);
+      },
+    };
     const { options } = setup(
       (segment) =>
         runObservedSegment(
           segment,
           {
             hookRunner: observed.hookRunner,
-            recall: async () => {
-              recalls += 1;
-              return { injectionText: 'RECALL_MARKER', lessons: [] };
-            },
+            recall,
           },
           'error-then-text',
           provider,
@@ -1971,9 +1983,14 @@ describe('logical turn Stop hooks', () => {
     expect(outcome.counters.providerRetries).toBe(1);
     expect(observed.stops).toEqual(['completed']);
     expect(observed.prompts).toBe(1);
-    // The retry is a new segment. Its stored prompt has no recall fence, so
-    // recall runs again. UserPromptSubmit still runs only on the first segment.
-    expect(recalls).toBe(2);
+    // The retry is another segment. The stored prompt has no fence, but the
+    // logical turn reuses the first recall. UserPromptSubmit stays on segment 1.
+    expect(recalls).toBe(1);
+    expect(seen).toHaveLength(2);
+    for (const text of seen) {
+      expect(text).toContain('RECALL_MARKER');
+      expect(text.split('</recall-context>').length - 1).toBe(1);
+    }
   });
 
   test('a stall after max_turns records one Stop', async () => {
