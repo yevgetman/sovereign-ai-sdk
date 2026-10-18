@@ -1368,6 +1368,9 @@ export async function runSdkRunCommand(
       };
     };
     // Same threshold check as the pre-loop prepare. Later segments do not call prepare.
+    // prepare() runs before the supervisor reads counters, so its charge is kept
+    // here and reported on the first segment's iterationsUsed.
+    let openingSummary: AttemptCharge | undefined;
     const compactIfProactive = async (): Promise<AttemptCharge | undefined> => {
       // A deadline that already aborted the work signal must not start a summary.
       if (controller.signal.aborted) return undefined;
@@ -1426,7 +1429,7 @@ export async function runSdkRunCommand(
         : { allocatedLogicalTurnId: admittedLogicalTurnId }),
       signal: controller.signal,
       prepare: async () => {
-        await compactIfProactive();
+        openingSummary = await compactIfProactive();
       },
       rehydrate: () => hydrate(),
       recoverySafe: (id) =>
@@ -1478,12 +1481,17 @@ export async function runSdkRunCommand(
         }
         // The supervisor calls prepare once. Continuation segments still need
         // the proactive check, inside this lease and the remaining model budget.
+        // The opening summary is that same kind of call. Count it before the
+        // next segment reads counters.modelCalls, and do not compact twice.
         let summary: AttemptCharge | undefined;
         let remainingModelCalls = segment.remainingModelCalls;
-        if (segment.continuation) {
+        if (segment.continuation && !openingSummary) {
           summary = await compactIfProactive();
-          if (summary) remainingModelCalls -= 1;
+        } else if (openingSummary) {
+          summary = openingSummary;
+          openingSummary = undefined;
         }
+        if (summary) remainingModelCalls -= 1;
         if (remainingModelCalls <= 0) {
           const activeSessionId = sessionId as string;
           return {
