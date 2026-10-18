@@ -18,7 +18,7 @@ const inputSchema = z.object({
     .max(2048)
     .optional()
     .describe(
-      'Continuation from the previous page. Keep the same query; changed catalogs require restart.',
+      'Continuation from the previous page. Keep the same query and detail; changed catalogs require restart.',
     ),
   limit: z
     .number()
@@ -27,16 +27,49 @@ const inputSchema = z.object({
     .max(100)
     .optional()
     .describe('Maximum entries per page (default 25; byte budget may return fewer).'),
+  detail: z
+    .enum(['names', 'summary', 'activation'])
+    .optional()
+    .describe(
+      'Projection: names for enumeration, summary for discovery, activation before selection.',
+    ),
 });
 
 type Input = z.infer<typeof inputSchema>;
 
 type Output = import('../skills/catalog.js').SkillCatalogPage;
 
+type CatalogDetail = NonNullable<Input['detail']>;
+
+// Cursors pin detail. An omitted follow-up detail must reuse that pin;
+// only a call with neither detail nor a cursor defaults to names.
+function detailPinnedByCursor(cursor: string): CatalogDetail | undefined {
+  if (cursor.length > 2_048) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      detail?: unknown;
+    };
+    const detail = parsed.detail;
+    if (detail === 'names' || detail === 'summary' || detail === 'activation') return detail;
+  } catch {
+    // The catalog rejects an invalid cursor. Do not invent a detail here.
+  }
+  return undefined;
+}
+
+function requestedDetail(input: Input): CatalogDetail {
+  if (input.detail !== undefined) return input.detail;
+  if (input.cursor !== undefined) {
+    const pinned = detailPinnedByCursor(input.cursor);
+    if (pinned !== undefined) return pinned;
+  }
+  return 'names';
+}
+
 export const SkillsListTool = buildTool<Input, Output>({
   name: 'skills_list',
   description: () =>
-    'Search or page every enabled skill. Follow nextCursor with the same query to enumerate the catalog. metadataTruncated means inspect with skill_view; nameFragment segments reconstruct an oversized name. budgetExhausted requires more context headroom.',
+    'Search or page every enabled skill. To list all skill names, use detail names and limit 100. Use names to enumerate, summary to discover, and activation before selection. Follow nextCursor with the same query and detail. metadataTruncated means inspect with skill_view; nameFragment segments reconstruct an oversized name. budgetExhausted requires more context headroom.',
   inputSchema,
   isReadOnly: () => true,
   isConcurrencySafe: () => true,
@@ -51,11 +84,22 @@ export const SkillsListTool = buildTool<Input, Output>({
         ...(input.query !== undefined ? { query: input.query } : {}),
         ...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
         ...(input.limit !== undefined ? { limit: input.limit } : {}),
+        detail: requestedDetail(input),
         ...(ctx.skillContextBudget !== undefined ? { budget: ctx.skillContextBudget } : {}),
       },
     );
     const needle = input.query?.trim();
-    const { skills, truncated } = data;
+    const { skills, truncated, detail } = data;
+    const namesOnly = detail === 'names';
+    const namesGap = namesOnly ? '; descriptions and triggers are not in this page' : '';
+    const pageActions = [
+      ...(truncated ? ['call skills_list with nextCursor and the same query and detail'] : []),
+      ...(namesOnly
+        ? [
+            'call skills_list with detail: "summary" or "activation" to load descriptions and triggers',
+          ]
+        : []),
+    ];
     return {
       data,
       observation: data.budgetExhausted
@@ -74,17 +118,15 @@ export const SkillsListTool = buildTool<Input, Output>({
                 : 'no visible skills configured',
               next_actions: needle
                 ? [
-                    'try a broader query, or call without `query` to see the full index',
+                    'try a broader query, or call without `query` and detail: "summary" or "activation"',
                     'check that the skill is loaded (look for skill files under .harness/skills/)',
                   ]
                 : ['add skills under .harness/skills/ or ~/.harness/skills/ to populate the index'],
             }
           : {
               status: 'success',
-              summary: `${skills.length} of ${data.total} matching skills${truncated ? ' (continue with nextCursor)' : ''}`,
-              ...(truncated
-                ? { next_actions: ['call skills_list with nextCursor and the same query'] }
-                : {}),
+              summary: `${skills.length} of ${data.total} matching skills${namesGap}${truncated ? ' (continue with nextCursor)' : ''}`,
+              ...(pageActions.length > 0 ? { next_actions: pageActions } : {}),
             },
     };
   },

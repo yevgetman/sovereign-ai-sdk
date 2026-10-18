@@ -2,14 +2,21 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import {
+  LOGICAL_TURN_LEASE_MS,
+  LogicalTurnLeaseError,
+  superviseLogicalTurn,
+} from '@yevgetman/sov-sdk/agent/logicalTurn';
+import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import { ContextOverflowError } from '@yevgetman/sov-sdk/providers/errors';
+import type { CostEstimate } from '@yevgetman/sov-sdk/providers/pricing';
 import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
 import type { LLMProvider, ProviderRequest, Transport } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import { z } from 'zod';
 import { SessionDb } from '../../src/agent/sessionDb.js';
 import { type SdkRunDependencies, runSdkRunCommand } from '../../src/cli/sdkRunCommand.js';
+import { compactSession } from '../../src/compact/compactor.js';
 import { type Runtime, buildRuntime } from '../../src/server/runtime.js';
 
 const dirs: string[] = [];
@@ -567,3 +574,730 @@ test.each(['system', 'schema', 'latest-input'] as const)(
     }
   },
 );
+
+test('native overflow charges both drives and the summary against the logical model-call budget', async () => {
+  const recordedBeforeOverflow = 2;
+  const retryCalls = 3;
+  let mains = 0;
+  let summaries = 0;
+  let overflowed = false;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(req) {
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 4, outputTokens: 1 } };
+      if (isSummary(req)) {
+        summaries++;
+        const message = answer('Keep the task.');
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'end_turn' };
+        return message;
+      }
+      mains++;
+      if (!overflowed) {
+        if (mains <= recordedBeforeOverflow) {
+          const message: AssistantMessage = {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: `before-${mains}`, name: 'probe', input: { n: mains } },
+            ],
+          };
+          yield { type: 'assistant_message', message };
+          yield { type: 'message_stop', stop_reason: 'tool_use' };
+          return message;
+        }
+        overflowed = true;
+        throw new ContextOverflowError('openai');
+      }
+      const retryIndex = mains - recordedBeforeOverflow - 2;
+      if (retryIndex >= 0 && retryIndex < retryCalls) {
+        if (retryIndex < retryCalls - 1) {
+          const message: AssistantMessage = {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool_use',
+                id: `after-${retryIndex}`,
+                name: 'probe',
+                input: { n: 100 + retryIndex },
+              },
+            ],
+          };
+          yield { type: 'assistant_message', message };
+          yield { type: 'message_stop', stop_reason: 'tool_use' };
+          return message;
+        }
+        const message = answer('done');
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'end_turn' };
+        return message;
+      }
+      throw new Error(`retry exceeded leftover budget at call ${retryIndex}`);
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.loop = { mode: 'off' };
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'probe',
+        description: () => 'probe',
+        inputSchema: z.unknown(),
+        renderResult: () => ({ content: 'ok' }),
+        async call() {
+          return { data: 'ok' };
+        },
+      }),
+    );
+  });
+  expect(
+    await runSdkRunCommand(
+      { ...opts, resume: f.parent, toolset: 'coding', permissionMode: 'bypass' },
+      f.io,
+      f.deps,
+    ),
+  ).toBe(0);
+  const streams = recordedBeforeOverflow + 1 + summaries + retryCalls;
+  expect(summaries).toBe(1);
+  expect(mains).toBe(recordedBeforeOverflow + 1 + retryCalls);
+  expect(f.events.at(-1)).toMatchObject({
+    type: 'turn.completed',
+    reply: 'done',
+    counters: {
+      segments: 1,
+      modelCalls: recordedBeforeOverflow + retryCalls + 1,
+      toolCalls: recordedBeforeOverflow + (retryCalls - 1),
+      inputTokens: 4 * streams,
+      outputTokens: streams,
+    },
+  });
+});
+
+test('coding overflow after the logical model-call cap does not start another 100-call segment', async () => {
+  const cap = 100;
+  let mains = 0;
+  let summaries = 0;
+  let retryCalls = 0;
+  let overflowed = false;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(req) {
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 1, outputTokens: 1 } };
+      if (isSummary(req)) {
+        summaries++;
+        const message = answer('Keep the task.');
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'end_turn' };
+        return message;
+      }
+      if (overflowed) {
+        retryCalls++;
+        const message: AssistantMessage = {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: `retry-${retryCalls}`,
+              name: 'probe',
+              input: { n: retryCalls },
+            },
+          ],
+        };
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'tool_use' };
+        return message;
+      }
+      mains++;
+      if (mains < cap) {
+        const message: AssistantMessage = {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: `cap-${mains}`, name: 'probe', input: { n: mains } }],
+        };
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'tool_use' };
+        return message;
+      }
+      overflowed = true;
+      yield { type: 'message_stop', stop_reason: 'end_turn' };
+      throw new ContextOverflowError('openai');
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.loop = { mode: 'off' };
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'probe',
+        description: () => 'probe',
+        inputSchema: z.unknown(),
+        renderResult: () => ({ content: 'ok' }),
+        async call() {
+          return { data: 'ok' };
+        },
+      }),
+    );
+  });
+  const code = await runSdkRunCommand(
+    { ...opts, resume: f.parent, toolset: 'coding', permissionMode: 'bypass' },
+    f.io,
+    f.deps,
+  );
+  expect(summaries).toBe(1);
+  expect(mains).toBe(cap);
+  expect(retryCalls).toBe(0);
+  expect(code).toBe(1);
+  const db = SessionDb.open({ path: f.dbPath });
+  try {
+    const rows = db.handle.query<{ record: string }, []>('SELECT record FROM logical_turns').all();
+    expect(rows).toHaveLength(1);
+    const record = JSON.parse(rows[0]?.record ?? '{}') as {
+      counters: { modelCalls: number; segments: number };
+      activeSessionId: string;
+    };
+    expect(record.counters).toMatchObject({ modelCalls: cap + 1, segments: 1 });
+    expect(record.activeSessionId).not.toBe(f.parent);
+  } finally {
+    db.close();
+  }
+});
+
+test('the opening proactive summary counts against the logical model-call cap', async () => {
+  const cap = 100;
+  const order: string[] = [];
+  let mains = 0;
+  let summaries = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(req) {
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 4, outputTokens: 1 } };
+      if (isSummary(req)) {
+        summaries++;
+        order.push('summary');
+        const message = answer('Keep the task.');
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'end_turn' };
+        return message;
+      }
+      mains++;
+      order.push('main');
+      const message: AssistantMessage = {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: `open-${mains}`, name: 'probe', input: { n: mains } }],
+      };
+      yield { type: 'assistant_message', message };
+      yield { type: 'message_stop', stop_reason: 'tool_use' };
+      return message;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.proactiveCompactThreshold = 0.005;
+    runtime.loop = { mode: 'off' };
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'probe',
+        description: () => 'probe',
+        inputSchema: z.unknown(),
+        renderResult: () => ({ content: 'ok' }),
+        async call() {
+          return { data: 'ok' };
+        },
+      }),
+    );
+  });
+  const code = await runSdkRunCommand(
+    { ...opts, resume: f.parent, toolset: 'coding', permissionMode: 'bypass' },
+    f.io,
+    f.deps,
+  );
+  expect(order[0]).toBe('summary');
+  expect(summaries).toBe(1);
+  expect(mains + summaries).toBe(cap);
+  expect(mains).toBe(cap - 1);
+  expect(code).toBe(3);
+  const terminal = f.events.at(-1);
+  expect(terminal).toMatchObject({
+    type: 'turn.error',
+    outcome: 'exhausted',
+    reason: 'model_call_limit',
+    code: 'continuation_exhausted',
+    finishReason: 'model_call_limit',
+    counters: {
+      segments: 1,
+      modelCalls: mains + summaries,
+      inputTokens: (mains + summaries) * 4,
+      outputTokens: mains + summaries,
+    },
+  });
+  expect(terminal?.counters).toMatchObject({ modelCalls: cap });
+  expect(order.filter((kind) => kind === 'summary')).toHaveLength(1);
+});
+
+test('a later segment compacts before the next model call and charges the summary', async () => {
+  const order: string[] = [];
+  let mains = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(req) {
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 4, outputTokens: 1 } };
+      if (isSummary(req)) {
+        order.push('summary');
+        const message = answer('Keep the task.');
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'end_turn' };
+        return message;
+      }
+      mains++;
+      order.push('main');
+      // Web's segment limit is 6. Those tool rounds stay under the hard window
+      // and leave a head the next segment can summarize.
+      if (mains <= 6) {
+        const message: AssistantMessage = {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: `probe-${mains}`, name: 'WebSearch', input: {} }],
+        };
+        yield { type: 'assistant_message', message };
+        yield { type: 'message_stop', stop_reason: 'tool_use' };
+        return message;
+      }
+      const message = answer('done');
+      yield { type: 'assistant_message', message };
+      yield { type: 'message_stop', stop_reason: 'end_turn' };
+      return message;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.proactiveCompactThreshold = 0;
+    runtime.loop = { mode: 'off' };
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'WebSearch',
+        description: () => 'fixture',
+        inputSchema: z.unknown(),
+        async call() {
+          // Larger than the compaction tail budget, still under the hard window.
+          return { data: 'r'.repeat(6000) };
+        },
+      }),
+    );
+  });
+  expect(await runSdkRunCommand({ ...opts, toolset: 'web' }, f.io, f.deps)).toBe(0);
+  expect(order).toEqual(['main', 'main', 'main', 'main', 'main', 'main', 'summary', 'main']);
+  expect(f.events.at(-1)).toMatchObject({
+    type: 'turn.completed',
+    reply: 'done',
+    counters: {
+      segments: 2,
+      modelCalls: 8,
+      toolCalls: 6,
+      inputTokens: 32,
+      outputTokens: 8,
+    },
+  });
+});
+
+test('stolen lease skips compaction child and usage writes', async () => {
+  const db = SessionDb.open({ path: ':memory:' });
+  try {
+    const parent = db.createSession({ model: 'm', provider: 'p' });
+    const history: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'one' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'two' }] },
+      { role: 'user', content: [{ type: 'text', text: 'three' }] },
+    ];
+    for (const message of history) db.saveMessage(parent, message);
+    let releaseSummary: (() => void) | undefined;
+    const summaryGate = new Promise<void>((resolve) => {
+      releaseSummary = resolve;
+    });
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const waiters: Array<() => void> = [];
+    let nowMs = 1_000;
+    let logicalTurnId = '';
+    let renewFailed = false;
+    const create = db.createLogicalTurn.bind(db);
+    db.createLogicalTurn = (record) => {
+      logicalTurnId = record.logicalTurnId;
+      create(record);
+    };
+    const renew = db.renewLogicalTurnLease.bind(db);
+    db.renewLogicalTurnLease = (id, owner, expiresAt) => {
+      const ok = renew(id, owner, expiresAt);
+      if (!ok) renewFailed = true;
+      return ok;
+    };
+    const estimate: CostEstimate = {
+      provider: 'p',
+      model: 'm',
+      state: 'unknown',
+      complete: false,
+      source: 'compact',
+      version: 1,
+      pricedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const refused = { usage: false, compaction: false, lineage: false };
+    const pending = superviseLogicalTurn({
+      store: db,
+      binding: { provider: 'p', model: 'm', cwd: '/tmp' },
+      sessionId: parent,
+      initialMessages: history,
+      rehydrate: () => history,
+      recoverySafe: () => true,
+      now: () => nowMs,
+      sleep: () =>
+        new Promise((resolve) => {
+          waiters.push(resolve);
+        }),
+      prepare: async () => {
+        await compactSession({
+          db,
+          sessionId: parent,
+          model: 'm',
+          providerName: 'p',
+          systemPrompt: [],
+          history,
+          tailTokenBudget: 1,
+          minTailMessages: 1,
+          summarize: async () => {
+            markStarted?.();
+            await summaryGate;
+            const attempt = (write: () => void): boolean => {
+              try {
+                write();
+                return false;
+              } catch (error) {
+                if (!(error instanceof LogicalTurnLeaseError)) throw error;
+                return true;
+              }
+            };
+            refused.usage = attempt(() =>
+              db.recordUsageEstimate(parent, { inputTokens: 4 }, estimate),
+            );
+            refused.compaction = attempt(() =>
+              db.recordCompactionUsage(parent, { inputTokens: 4, outputTokens: 1 }, 0.2, estimate),
+            );
+            refused.lineage = attempt(() => db.recordCompactionLineage(parent, parent));
+            return {
+              summary: 'kept',
+              usedAuxiliary: true,
+              usage: { inputTokens: 4, outputTokens: 1 },
+              estimatedCostUsd: 0.2,
+              costEstimate: estimate,
+            };
+          },
+        });
+      },
+      runSegment: async () => {
+        throw new Error('segment should not start');
+      },
+    }).then(
+      () => new Error('dispossessed compaction finished'),
+      (error: unknown) => error,
+    );
+    await started;
+    nowMs += LOGICAL_TURN_LEASE_MS + 1;
+    expect(db.acquireLogicalTurnLease(logicalTurnId, 'second-owner', nowMs + 30_000, nowMs)).toBe(
+      true,
+    );
+    const waiter = waiters.shift();
+    if (!waiter) throw new Error('heartbeat did not wait');
+    waiter();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(renewFailed).toBe(true);
+    const sessionsBefore = db.handle
+      .query<{ n: number }, []>('SELECT COUNT(*) AS n FROM sessions')
+      .get()?.n;
+    const usageBefore = db.handle
+      .query<{ n: number }, []>('SELECT COUNT(*) AS n FROM usage_estimates')
+      .get()?.n;
+    releaseSummary?.();
+    expect(await pending).toBeInstanceOf(LogicalTurnLeaseError);
+    expect(refused).toEqual({ usage: true, compaction: true, lineage: true });
+    expect(db.handle.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM sessions').get()?.n).toBe(
+      sessionsBefore,
+    );
+    expect(
+      db.handle.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM usage_estimates').get()?.n,
+    ).toBe(usageBefore);
+    expect(db.getCompactionsForParent(parent)).toEqual([]);
+    expect(db.loadLogicalTurn(logicalTurnId)?.activeSessionId).toBe(parent);
+    db.saveMessage(parent, {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'second owner' }],
+    });
+    db.recordUsageEstimate(parent, { inputTokens: 1 }, estimate);
+    expect(
+      db
+        .loadMessages(parent)
+        .some((row) =>
+          row.content.some((block) => block.type === 'text' && block.text === 'second owner'),
+        ),
+    ).toBe(true);
+    expect(
+      db.handle.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM usage_estimates').get()?.n,
+    ).toBe((usageBefore ?? 0) + 1);
+  } finally {
+    db.close();
+  }
+});
+
+test('a dispossessed compaction writes no child session and no usage row', async () => {
+  let releaseSummary: (() => void) | undefined;
+  const summaryGate = new Promise<void>((resolve) => {
+    releaseSummary = resolve;
+  });
+  let markSummaryStarted: (() => void) | undefined;
+  const summaryStarted = new Promise<void>((resolve) => {
+    markSummaryStarted = resolve;
+  });
+  let signalAbortedWhenSummaryResolved = false;
+  let renewFailed = false;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(req) {
+      if (!isSummary(req)) {
+        const message = answer('unused');
+        yield { type: 'assistant_message', message };
+        return message;
+      }
+      yield { type: 'message_start' };
+      yield { type: 'usage_delta', usage: { inputTokens: 11, outputTokens: 4 } };
+      const message = answer('late handoff');
+      yield { type: 'assistant_message', message };
+      markSummaryStarted?.();
+      await summaryGate;
+      signalAbortedWhenSummaryResolved = req.signal?.aborted === true;
+      return message;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.proactiveCompactThreshold = 0.005;
+    const renew = runtime.sessionDb.renewLogicalTurnLease.bind(runtime.sessionDb);
+    runtime.sessionDb.renewLogicalTurnLease = (id, owner, expiresAt) => {
+      const ok = renew(id, owner, expiresAt);
+      if (!ok) {
+        renewFailed = true;
+        releaseSummary?.();
+      }
+      return ok;
+    };
+  });
+  const pending = runSdkRunCommand({ ...opts, resume: f.parent }, f.io, f.deps);
+  await summaryStarted;
+  const thief = SessionDb.open({ path: f.dbPath });
+  let logicalTurnId = '';
+  try {
+    const row = thief.handle
+      .query<{ logical_turn_id: string }, []>('SELECT logical_turn_id FROM logical_turns')
+      .get();
+    if (!row) throw new Error('logical turn missing');
+    logicalTurnId = row.logical_turn_id;
+    thief.handle.run('UPDATE logical_turns SET lease_expires_at = ? WHERE logical_turn_id = ?', [
+      Date.now() - 1,
+      logicalTurnId,
+    ]);
+    expect(
+      thief.acquireLogicalTurnLease(logicalTurnId, 'second-owner', Date.now() + 60_000, Date.now()),
+    ).toBe(true);
+    thief.saveMessage(f.parent, {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'second owner' }],
+    });
+  } finally {
+    thief.close();
+  }
+  expect(await pending).toBe(3);
+  expect(renewFailed).toBe(true);
+  expect(signalAbortedWhenSummaryResolved).toBe(true);
+  const db = SessionDb.open({ path: f.dbPath });
+  try {
+    const sessions = db.handle
+      .query<{ session_id: string; parent_session_id: string | null }, []>(
+        'SELECT session_id, parent_session_id FROM sessions',
+      )
+      .all();
+    expect(sessions).toEqual([{ session_id: f.parent, parent_session_id: null }]);
+    expect(
+      db.handle.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM usage_estimates').get()?.n,
+    ).toBe(0);
+    expect(db.getCompactionsForParent(f.parent)).toEqual([]);
+    expect(db.readLogicalTurnLease(logicalTurnId)?.owner).toBe('second-owner');
+    expect(db.loadLogicalTurn(logicalTurnId)?.activeSessionId).toBe(f.parent);
+    expect(
+      db
+        .loadMessages(f.parent)
+        .some((row) =>
+          row.content.some((block) => block.type === 'text' && block.text === 'second owner'),
+        ),
+    ).toBe(true);
+    const estimate: CostEstimate = {
+      provider: 'openai',
+      model: 'gpt-4.1',
+      state: 'unknown',
+      complete: false,
+      source: 'second-owner',
+      version: 1,
+      pricedAt: new Date().toISOString(),
+    };
+    db.recordUsageEstimate(f.parent, { inputTokens: 1, outputTokens: 1 }, estimate);
+    expect(
+      db.handle.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM usage_estimates').get()?.n,
+    ).toBe(1);
+  } finally {
+    db.close();
+  }
+});
+
+function lastHumanText(db: SessionDb, sessionId: string): string | undefined {
+  const rows = db.loadMessages(sessionId);
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    if (!row || row.role !== 'user') continue;
+    if (row.content.some((block) => block.type === 'tool_result')) continue;
+    if (
+      row.toolCalls &&
+      typeof row.toolCalls === 'object' &&
+      (row.toolCalls as { origin?: unknown }).origin === 'runtime'
+    )
+      continue;
+    const text = row.content.find((block) => block.type === 'text');
+    return text?.type === 'text' ? text.text : undefined;
+  }
+  return undefined;
+}
+
+function latestRequestHumanText(request: ProviderRequest): string | undefined {
+  for (let i = request.messages.length - 1; i >= 0; i--) {
+    const message = request.messages[i];
+    if (!message || message.role !== 'user' || message.origin === 'runtime') continue;
+    if (message.content.some((block) => block.type === 'tool_result')) continue;
+    const text = message.content.find((block) => block.type === 'text');
+    return text?.type === 'text' ? text.text : undefined;
+  }
+  return undefined;
+}
+
+test('proactive compaction stores the prompt gate on the child human row', async () => {
+  const seen: string[] = [];
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(request) {
+      if (isSummary(request)) {
+        const message = answer('Task remains active.');
+        yield { type: 'assistant_message', message };
+        return message;
+      }
+      calls++;
+      const prompt = latestRequestHumanText(request);
+      if (prompt !== undefined) seen.push(prompt);
+      if (calls <= 6) {
+        const reply: AssistantMessage = {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: `rewrite-${calls}`, name: 'WebSearch', input: { n: calls } },
+          ],
+        };
+        yield { type: 'message_start' };
+        yield { type: 'usage_delta', usage: { inputTokens: 1, outputTokens: 1 } };
+        yield { type: 'message_stop', stop_reason: 'tool_use' };
+        yield { type: 'assistant_message', message: reply };
+        return reply;
+      }
+      const message = answer('done');
+      yield { type: 'assistant_message', message };
+      return message;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.proactiveCompactThreshold = 0.005;
+    runtime.loop = { mode: 'off' };
+    runtime.hookRunner = async (event) => {
+      if (event === 'UserPromptSubmit')
+        return { block: false, rewrittenPrompt: 'rewritten-by-hook' };
+      return { block: false };
+    };
+    runtime.toolPool.splice(
+      0,
+      runtime.toolPool.length,
+      buildTool<unknown, unknown>({
+        name: 'WebSearch',
+        description: () => 'fixture',
+        inputSchema: z.unknown(),
+        async call() {
+          return { data: 'receipt' };
+        },
+      }),
+    );
+  });
+  f.io.readStdin = async () => JSON.stringify({ inputVersion: 1, text: 'ungated-secret-prompt' });
+  expect(await runSdkRunCommand({ ...opts, resume: f.parent, toolset: 'web' }, f.io, f.deps)).toBe(
+    0,
+  );
+  const child = String(f.events.at(-1)?.activeSessionId);
+  expect(child).not.toBe(f.parent);
+  expect(calls).toBe(7);
+  expect(seen.length).toBeGreaterThan(1);
+  for (const prompt of seen) {
+    expect(prompt).toContain('rewritten-by-hook');
+    expect(prompt).not.toContain('ungated-secret-prompt');
+  }
+  const db = SessionDb.open({ path: f.dbPath });
+  try {
+    expect(lastHumanText(db, child)).toContain('rewritten-by-hook');
+    expect(lastHumanText(db, child)).not.toContain('ungated-secret-prompt');
+    expect(lastHumanText(db, f.parent)).toBe('ungated-secret-prompt');
+  } finally {
+    db.close();
+  }
+});
+
+test('proactive compaction writes a prompt denial onto the child human row', async () => {
+  let mains = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream(request) {
+      if (isSummary(request)) {
+        const message = answer('Task remains active.');
+        yield { type: 'assistant_message', message };
+        return message;
+      }
+      mains++;
+      const message = answer('should not run');
+      yield { type: 'assistant_message', message };
+      return message;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.proactiveCompactThreshold = 0.005;
+    runtime.hookRunner = async (event) => {
+      if (event === 'UserPromptSubmit') return { block: true, reason: 'forbidden prompt' };
+      return { block: false };
+    };
+  });
+  f.io.readStdin = async () => JSON.stringify({ inputVersion: 1, text: 'ungated-secret-prompt' });
+  expect(await runSdkRunCommand({ ...opts, resume: f.parent }, f.io, f.deps)).not.toBe(0);
+  expect(mains).toBe(0);
+  const child = String(
+    f.events.find((event) => event.type === 'compaction_complete')?.activeSessionId,
+  );
+  expect(child).not.toBe(f.parent);
+  const db = SessionDb.open({ path: f.dbPath });
+  try {
+    expect(lastHumanText(db, child)).toBe('forbidden prompt');
+    expect(lastHumanText(db, f.parent)).toBe('ungated-secret-prompt');
+  } finally {
+    db.close();
+  }
+});

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AssistantMessage, Message, StreamEvent } from '@yevgetman/sov-sdk/core/types';
+import type { AssistantMessage, StreamEvent } from '@yevgetman/sov-sdk/core/types';
 import { ContextOverflowError } from '@yevgetman/sov-sdk/providers/errors';
 import { grokSubscriptionPin } from '@yevgetman/sov-sdk/providers/models/grokPin';
 import { getRoute } from '@yevgetman/sov-sdk/providers/routes/index';
@@ -107,7 +107,7 @@ function fixture(provider: LLMProvider) {
 function final(text = 'image inspected'): AssistantMessage {
   return { role: 'assistant', content: [{ type: 'text', text }] };
 }
-function images(messages: readonly Message[]) {
+function images(messages: readonly { content: readonly { type: string }[] }[]) {
   return messages.flatMap((message) => message.content.filter((block) => block.type === 'image'));
 }
 

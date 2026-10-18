@@ -51,6 +51,28 @@ It composes **only open primitives** — `query()`, `resolveProvider`, the `Tool
 
 **Every in-process surface runs on `createAgent()`** — the gateway/OpenAI turn-exec, `sov mission run`, cron, channels, and the sub-agent scheduler — each migrated behind a field-level parity test. Two parity *gains* rode along: cron and channels picked up microcompaction (and cron, transcript writes) through the new ports, closing a gap the old per-surface wrapper structurally could not carry.
 
+`createAgent().run()` remains one bounded segment. The exported
+`superviseLogicalTurn()` layer owns multi-segment completion for native
+headless hosts. It persists the original user-message reference, active and
+compacted session ids, fixed execution binding, deadline, cumulative budgets,
+progress fingerprint and final outcome. A continuation skips user-turn
+hooks and conduct pre-gates, and reapplies one recall fence without writing
+it into the stored row. Stop hooks run once at the logical terminal.
+A deadline Stop reason is `deadline`, not an earlier segment's `max_turns` or
+`max_tokens`.
+A stored `failed` row resumes only when `finishReason` or `lastCause` is
+`transient_provider`, `rate_limited`, `provider_unavailable`, or
+`provider_timeout`. Any other failed cause is returned as stored and does not
+start another segment.
+The SQLite host keeps one short lease, about 30 seconds, so only one worker
+continues a logical turn. The supervisor refreshes it after each segment,
+during a model call, and before a provider retry wait. A boundary scan renews
+between transcript pages; a renewal does not extend a lease that has already
+expired. Record writes are fenced to that owner. An expired lease is reclaimed
+only after receipt checks pass, and it is held before compaction or other model
+and tool work. Tool receipt state is the safety boundary: completed effects
+can be reused, while started or unknown effects require inspection.
+
 The open/proprietary line is **machine-enforced**, not conceptual: a **file-level boundary lint** (`bun run boundary` = `depcruise` against `.dependency-cruiser.cjs`, part of `bun run lint`, and re-run in `ci.yml`) fails the build on **any** open→proprietary import, measured against an explicit exception manifest (`scripts/boundary-manifest.json`). The `src/sdk.ts` barrel is itself classified open, so it actively self-gates — re-exporting anything proprietary fails the lint. The gateway wire protocol ships as **Contract #2**, a pure-`.d.ts` `sov-protocol` surface (`src/protocol/`) — the wire event/endpoint types plus a fetch-based typed client, the single source of truth the gateway, the Go TUI, and external clients all adopt. Full rationale + the §15 acceptance gate: [`specs/2026-06-29-sdk-open-core-extraction-design.md`](specs/2026-06-29-sdk-open-core-extraction-design.md).
 
 ## System Prompt And Context

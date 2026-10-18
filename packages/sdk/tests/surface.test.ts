@@ -127,6 +127,15 @@ import type {
   LearningSink,
   LoadSkillsOptions,
   LoadSubscriptionOpts,
+  LogicalTurnBinding,
+  LogicalTurnContinuation,
+  LogicalTurnCounters,
+  LogicalTurnRecord,
+  LogicalTurnResult,
+  LogicalTurnStatus,
+  LogicalTurnStore,
+  LogicalTurnSupervisorOptions,
+  LogicalTurnTraceEvent,
   LoopDetectionInfo,
   McpCallResult,
   McpClientPool,
@@ -308,7 +317,9 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'FilesystemSkillStore',
   'InMemorySkillContinuityStore',
   'InMemorySkillStore',
+  'LOGICAL_TURN_RECOVERY_CAPABILITY',
   'LaneSemaphores',
+  'LogicalTurnLeaseError',
   'MODEL_CATALOG_VERSION',
   'PRICE_TABLE',
   'PRICING_VERSION',
@@ -396,6 +407,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'skillCatalogGeneration',
   'skillRestrictionRules',
   'skillTextTokenBound',
+  'superviseLogicalTurn',
   'validateModelRequest',
   'validateOpenRouterPolicy',
   'verifiedSubscriptionImageInput',
@@ -558,6 +570,15 @@ type TypeSurfaceWitness = {
   skillDiscoveryOptions?: SkillDiscoveryOptions;
   skillDiscoveryResult?: SkillDiscoveryResult;
   loadSubscriptionOpts?: LoadSubscriptionOpts;
+  logicalTurnBinding?: LogicalTurnBinding;
+  logicalTurnContinuation?: LogicalTurnContinuation;
+  logicalTurnCounters?: LogicalTurnCounters;
+  logicalTurnRecord?: LogicalTurnRecord;
+  logicalTurnResult?: LogicalTurnResult;
+  logicalTurnStatus?: LogicalTurnStatus;
+  logicalTurnStore?: LogicalTurnStore;
+  logicalTurnSupervisorOptions?: LogicalTurnSupervisorOptions;
+  logicalTurnTraceEvent?: LogicalTurnTraceEvent;
   loopDetectionInfo?: LoopDetectionInfo;
   mcpCallResult?: McpCallResult;
   mcpClientPool?: McpClientPool;

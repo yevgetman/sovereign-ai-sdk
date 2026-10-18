@@ -7,20 +7,35 @@ skill bodies. A partial first-N index is never presented as the default catalog.
 
 ## Complete enumeration
 
-`skills_list` accepts `query`, `cursor` and `limit` (1–100, default 25).
-The byte budget can return fewer entries than the entry limit. Follow
-`nextCursor` with the same query until it is absent. `total` counts matching
-entries, and `truncated` states whether more entries remain.
+`skills_list` accepts `query`, `cursor`, `limit` (1–100, default 25), and
+`detail` (`names`, `summary`, or `activation`). `names` returns identities
+only. `summary` adds descriptions. `activation` adds trigger predicates. A
+call with neither `detail` nor a cursor uses `names`. The byte budget can
+return fewer entries than the entry limit.
+
+Every page reports `total`, `returned`, `remaining`, `truncated`,
+`nextCursor`, `generation`, and `detail`. `total` counts matching entries.
+`returned` is the number of entries in `skills`. `remaining` counts matching
+entries not included on this page. `truncated` states whether more entries
+remain. A `names` page sets `detail` to `names`. Ordinary entries are
+`{ name }` only. When `truncated` is false, `nextCursor` is absent and
+`remaining` is 0. A names success says descriptions and triggers are not in
+the page, including when `remaining` is 0. A query with no matches does not
+call that page a full index. Its next action names `detail: "summary"` or
+`"activation"`.
 
 Queries have a 256-character limit before trimming. If a query's serialized
 response fields exceed the current page budget, the caller receives an error
 and must shorten the query or increase context headroom. The same checks apply
-to the public pure helper and the model tool.
+to `listSkillCatalog` and the model tool.
 
-The cursor pins the registry generation, visible entries and normalized query.
-A mutation, visibility change or changed query rejects an old cursor with a
-restart instruction. Sorting uses names, independent of locale. A refresh never
-silently splices two generations into one enumeration.
+Follow `nextCursor` with the same query until it is absent. The cursor pins
+the registry generation, visible entries, normalized query, and `detail`. A
+mutation, visibility change, changed query, or changed `detail` rejects the
+cursor with a restart instruction. On `skills_list`, an omitted follow-up
+`detail` reuses the cursor's `detail`. Sorting uses names, independent of
+locale. A refresh never silently splices two generations into one
+enumeration.
 
 Long descriptions and trigger predicates carry `metadataTruncated: true`.
 Use `skill_view` for the skill's full guidance. Even an oversized name cannot
@@ -34,8 +49,12 @@ serialized page and continuation cursor. JSON escaping counts toward the byte
 allocation. Quotes, control characters and Unicode in an opaque host identity
 cannot enlarge a page beyond its allowance or lose the remainder of its name.
 
-The public pure helpers `listSkillCatalog` and `buildSkillCatalogIndex` implement
-these rules. Hosts can use the same contracts without the model tools.
+The public exports `listSkillCatalog` and `buildSkillCatalogIndex` share the
+page and index contracts. `listSkillCatalog` returns a `SkillCatalogPage` with
+`returned`, `remaining`, and `detail`. Pass `detail` when continuing a
+`listSkillCatalog` cursor; a different `detail` is rejected. `skills_list` is
+the model tool: neither `detail` nor a cursor means `names`, and an omitted
+follow-up `detail` reuses the cursor's `detail`.
 
 ## Model metadata is the input
 

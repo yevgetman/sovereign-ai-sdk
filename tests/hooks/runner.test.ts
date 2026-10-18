@@ -350,6 +350,91 @@ describe('hook runner', () => {
     expect(result.reason).toContain(path);
   });
 
+  test('UserPromptSubmit exit 2 does not adopt stderr or the command', async () => {
+    const script = writeHook('ups-exit2.sh', 'printf "STDERRMARKER %s\\n" "$(cat)" >&2\nexit 2');
+    const command = `/bin/sh ${script}`;
+    const run = buildHookRunner({
+      hooksByEvent: hooksFor('UserPromptSubmit', [{ hooks: [{ type: 'command', command }] }]),
+      consent: allowAll,
+      logStderr: () => {},
+    });
+    const result = await run('UserPromptSubmit', {
+      hookEventName: 'UserPromptSubmit',
+      session_id: 's',
+      cwd: workDir,
+      prompt: 'UNIQUEPROMPTTOKEN',
+    });
+    expect(result.block).toBe(true);
+    const reason = result.reason ?? '';
+    expect(reason).not.toContain('STDERRMARKER');
+    expect(reason).not.toContain('UNIQUEPROMPTTOKEN');
+    expect(reason).not.toContain(script);
+    expect(reason).not.toContain('/bin/sh');
+  });
+
+  test('UserPromptSubmit exit 2 keeps a parsed reason and drops stderr', async () => {
+    const script = writeHook(
+      'ups-exit2-reason.sh',
+      'printf "STDERRMARKER UNIQUEPROMPTTOKEN\\n" >&2\necho \'{"reason":"desk policy"}\'\nexit 2',
+    );
+    const command = `/bin/sh ${script}`;
+    const run = buildHookRunner({
+      hooksByEvent: hooksFor('UserPromptSubmit', [{ hooks: [{ type: 'command', command }] }]),
+      consent: allowAll,
+      logStderr: () => {},
+    });
+    const result = await run('UserPromptSubmit', {
+      hookEventName: 'UserPromptSubmit',
+      session_id: 's',
+      cwd: workDir,
+      prompt: 'UNIQUEPROMPTTOKEN',
+    });
+    expect(result.block).toBe(true);
+    expect(result.reason).toBe('desk policy');
+  });
+
+  test('UserPromptSubmit JSON deny without a reason omits the command', async () => {
+    const script = writeHook('ups-deny.sh', 'echo \'{"permissionDecision":"deny"}\'');
+    const command = `/bin/sh ${script}`;
+    const run = buildHookRunner({
+      hooksByEvent: hooksFor('UserPromptSubmit', [{ hooks: [{ type: 'command', command }] }]),
+      consent: allowAll,
+      logStderr: () => {},
+    });
+    const result = await run('UserPromptSubmit', {
+      hookEventName: 'UserPromptSubmit',
+      session_id: 's',
+      cwd: workDir,
+      prompt: 'UNIQUEPROMPTTOKEN',
+    });
+    expect(result.block).toBe(true);
+    const reason = result.reason ?? '';
+    expect(reason).not.toContain(script);
+    expect(reason).not.toContain('/bin/sh');
+    expect(reason).not.toContain('prompt rejected by hook');
+  });
+
+  test('UserPromptSubmit JSON deny keeps a parsed reason', async () => {
+    const script = writeHook(
+      'ups-reason.sh',
+      'echo \'{"permissionDecision":"deny","reason":"desk policy"}\'',
+    );
+    const command = `/bin/sh ${script}`;
+    const run = buildHookRunner({
+      hooksByEvent: hooksFor('UserPromptSubmit', [{ hooks: [{ type: 'command', command }] }]),
+      consent: allowAll,
+      logStderr: () => {},
+    });
+    const result = await run('UserPromptSubmit', {
+      hookEventName: 'UserPromptSubmit',
+      session_id: 's',
+      cwd: workDir,
+      prompt: 'UNIQUEPROMPTTOKEN',
+    });
+    expect(result.block).toBe(true);
+    expect(result.reason).toBe('desk policy');
+  });
+
   test('matcher: literal tool name only fires for that tool', async () => {
     const path = writeHook('only-bash.sh', 'echo \'{"updatedInput":"matched"}\'');
     const run = buildHookRunner({

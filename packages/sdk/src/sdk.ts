@@ -352,6 +352,22 @@ export type {
   ToolExecution,
   ToolExecutionStore,
 } from './persistence/sessionStore.js';
+export {
+  LOGICAL_TURN_RECOVERY_CAPABILITY,
+  LogicalTurnLeaseError,
+  superviseLogicalTurn,
+} from './agent/logicalTurn.js';
+export type {
+  LogicalTurnBinding,
+  LogicalTurnContinuation,
+  LogicalTurnCounters,
+  LogicalTurnRecord,
+  LogicalTurnResult,
+  LogicalTurnStatus,
+  LogicalTurnStore,
+  LogicalTurnSupervisorOptions,
+  LogicalTurnTraceEvent,
+} from './agent/logicalTurn.js';
 // The session DTOs `SessionStore`'s method signatures reference (Task 2.9).
 export type {
   CreateSessionInput,

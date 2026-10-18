@@ -22,6 +22,13 @@ import type { CostEstimate } from '../providers/pricing.js';
 // stored state.
 
 import { randomUUID } from 'node:crypto';
+import {
+  LOGICAL_TURN_LEASE_MS,
+  LogicalTurnLeaseError,
+  type LogicalTurnRecord,
+  type LogicalTurnStore,
+  assertLogicalTurnWriteLease,
+} from '../agent/logicalTurn.js';
 import type {
   CreateSessionInput,
   SaveMessageInput,
@@ -34,7 +41,7 @@ import type { SessionStore, ToolExecution, ToolExecutionStore } from './sessionS
 /** Mirrors `SessionDb`'s current schema version so getSession reports the same
  *  `schemaVersion` an in-memory SQLite open would. The in-memory store has no
  *  migrations; this is the reported value only. */
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 10;
 
 /** Deep-copy via a JSON round-trip — mirrors how SQLite serializes content on
  *  write and decodes it on read (strips `undefined`, severs shared references).
@@ -45,7 +52,8 @@ function deepCopy<T>(value: T): T {
 
 /** A pure in-process `SessionStore` (no disk, no SQLite). */
 export type InMemorySessionStore = SessionStore &
-  ToolExecutionStore & {
+  ToolExecutionStore &
+  LogicalTurnStore & {
     truncateMessages(sessionId: string, keep: number): void;
   };
 
@@ -53,9 +61,12 @@ export function createInMemorySessionStore(): InMemorySessionStore {
   const sessions = new Map<string, Session>();
   const messagesBySession = new Map<string, StoredMessage[]>();
   const executions = new Map<string, ToolExecution[]>();
+  const logicalTurns = new Map<string, LogicalTurnRecord>();
+  const logicalTurnLeases = new Map<string, { owner: string; expiresAt: number }>();
   let nextMessageId = 1;
 
   function createSession(input: CreateSessionInput): string {
+    assertLogicalTurnWriteLease();
     const sessionId = input.sessionId ?? randomUUID();
     const now = Date.now() / 1000;
     const session: Session = {
@@ -113,6 +124,7 @@ export function createInMemorySessionStore(): InMemorySessionStore {
   }
 
   function saveMessage(sessionId: string, msg: SaveMessageInput): number {
+    assertLogicalTurnWriteLease();
     const now = Date.now() / 1000;
     const id = nextMessageId++;
     const stored: StoredMessage = {
@@ -148,6 +160,7 @@ export function createInMemorySessionStore(): InMemorySessionStore {
   }
 
   function truncateMessages(sessionId: string, keep: number): void {
+    assertLogicalTurnWriteLease();
     const list = messagesBySession.get(sessionId);
     if (list === undefined) return;
     const retain = keep > 0 ? Math.floor(keep) : 0;
@@ -171,6 +184,7 @@ export function createInMemorySessionStore(): InMemorySessionStore {
   }
 
   function recordUsageEstimate(sessionId: string, usage: TokenUsage, estimate: CostEstimate): void {
+    assertLogicalTurnWriteLease();
     const known =
       estimate.complete &&
       estimate.amountUsd !== undefined &&
@@ -193,6 +207,7 @@ export function createInMemorySessionStore(): InMemorySessionStore {
   }
 
   function saveToolExecution(sessionId: string, execution: ToolExecution): void {
+    assertLogicalTurnWriteLease();
     const rows = executions.get(sessionId) ?? [];
     const index = rows.findIndex(
       (row) =>
@@ -212,6 +227,51 @@ export function createInMemorySessionStore(): InMemorySessionStore {
       (executions.get(sessionId) ?? []).filter((row) => ids.has(row.assistantMessageId)),
     );
   }
+  function createLogicalTurn(record: LogicalTurnRecord): void {
+    if (logicalTurns.has(record.logicalTurnId)) throw new Error('logical turn already exists');
+    logicalTurns.set(record.logicalTurnId, deepCopy(record));
+  }
+  function loadLogicalTurn(logicalTurnId: string): LogicalTurnRecord | null {
+    const record = logicalTurns.get(logicalTurnId);
+    return record ? deepCopy(record) : null;
+  }
+  function saveLogicalTurn(record: LogicalTurnRecord, owner: string): void {
+    if (!logicalTurns.has(record.logicalTurnId)) throw new Error('logical turn does not exist');
+    const lease = logicalTurnLeases.get(record.logicalTurnId);
+    if (!lease || lease.owner !== owner) throw new LogicalTurnLeaseError();
+    logicalTurns.set(record.logicalTurnId, deepCopy(record));
+  }
+  function readLogicalTurnLease(
+    id: string,
+  ): { owner: string | null; expiresAt: number | null } | null {
+    if (!logicalTurns.has(id)) return null;
+    const lease = logicalTurnLeases.get(id);
+    return lease
+      ? { owner: lease.owner, expiresAt: lease.expiresAt }
+      : { owner: null, expiresAt: null };
+  }
+  function acquireLogicalTurnLease(
+    id: string,
+    owner: string,
+    expiresAt: number,
+    now: number,
+  ): boolean {
+    if (!logicalTurns.has(id)) return false;
+    const lease = logicalTurnLeases.get(id);
+    if (lease && lease.owner !== owner && lease.expiresAt > now) return false;
+    logicalTurnLeases.set(id, { owner, expiresAt });
+    return true;
+  }
+  function renewLogicalTurnLease(id: string, owner: string, expiresAt: number): boolean {
+    const lease = logicalTurnLeases.get(id);
+    const at = expiresAt - LOGICAL_TURN_LEASE_MS;
+    if (!lease || lease.owner !== owner || lease.expiresAt <= at) return false;
+    logicalTurnLeases.set(id, { owner, expiresAt });
+    return true;
+  }
+  function releaseLogicalTurnLease(id: string, owner: string): void {
+    if (logicalTurnLeases.get(id)?.owner === owner) logicalTurnLeases.delete(id);
+  }
   return {
     saveToolExecution,
     loadToolExecutions,
@@ -224,5 +284,12 @@ export function createInMemorySessionStore(): InMemorySessionStore {
     loadMessages,
     truncateMessages,
     recordTokenUsage,
+    createLogicalTurn,
+    loadLogicalTurn,
+    saveLogicalTurn,
+    readLogicalTurnLease,
+    acquireLogicalTurnLease,
+    renewLogicalTurnLease,
+    releaseLogicalTurnLease,
   };
 }

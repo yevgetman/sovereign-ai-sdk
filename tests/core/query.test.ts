@@ -14,6 +14,8 @@ import type {
   StreamEvent,
   Terminal,
 } from '@yevgetman/sov-sdk/core/types';
+import type { HookRunner } from '@yevgetman/sov-sdk/hooks/types';
+import { FENCE_PREAMBLE, formatMemorySnapshot } from '@yevgetman/sov-sdk/memory/injection';
 import type { LLMProvider, ProviderRequest } from '@yevgetman/sov-sdk/providers/types';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool, ToolContext } from '@yevgetman/sov-sdk/tool/types';
@@ -99,6 +101,18 @@ async function drainToTerminal(
     const step = await gen.next();
     if (step.done) return step.value;
   }
+}
+
+function userTextOf(req: ProviderRequest | undefined): string {
+  return (req?.messages ?? [])
+    .flatMap((message) => message.content)
+    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+    .join('\n');
+}
+
+/** query() appends to the same messages array after the provider returns. */
+function snapshotRequest(req: ProviderRequest): ProviderRequest {
+  return { ...req, messages: structuredClone(req.messages) };
 }
 
 const completedAnswer: AssistantMessage = {
@@ -266,6 +280,382 @@ describe('query() — Phase 2 turn loop', () => {
     }
     const secondTurn = seen[1];
     expect(secondTurn?.messages.filter((message) => message.role === 'user')).toHaveLength(2);
+  });
+
+  test('reapplies the memory fence after a max_turns continuation boundary', async () => {
+    // The host persists the original user message and rehydrates that row on
+    // the next segment. Segment 2 must see the memory fence and one recall
+    // fence, without a second copy of the user text. UserPromptSubmit does
+    // not run again.
+    const FENCE = 'UNIQUE_MEMORY_FENCE_H8_127';
+    const RECALL = 'UNIQUE_RECALL_REAPPLY_H8_127';
+    const prompt = 'do the thing';
+    const seen: ProviderRequest[] = [];
+    let recalls = 0;
+    let userPromptSubmits = 0;
+    const memoryManager = {
+      async prefetchSnapshot() {
+        return `<memory-context>${FENCE}</memory-context>`;
+      },
+      async syncTurn() {},
+      async onMemoryWrite() {},
+      async onDelegation() {},
+    };
+    const recall = async () => {
+      recalls++;
+      return { injectionText: RECALL, lessons: [] };
+    };
+    const hookRunner: HookRunner = async (event) => {
+      if (event === 'UserPromptSubmit') userPromptSubmits++;
+      return { block: false };
+    };
+    const original: Message = { role: 'user', content: [{ type: 'text', text: prompt }] };
+    const segment1 = query({
+      provider: {
+        name: 'capture-max-turns',
+        async *stream(req: ProviderRequest) {
+          seen.push(snapshotRequest(req));
+          yield { type: 'message_start' };
+          yield { type: 'message_stop', stop_reason: 'tool_use' };
+          yield { type: 'assistant_message', message: toolUseAnswer };
+          return toolUseAnswer;
+        },
+      },
+      model: 'claude-sonnet-4-6',
+      messages: [original],
+      systemPrompt: [{ text: 'system', cacheable: true }],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      maxTurns: 1,
+      maxTokens: 256,
+      sessionId: 'memory-continuation',
+      cwd: process.cwd(),
+      memoryManager,
+      recall,
+      hookRunner,
+    });
+    const yielded: Array<StreamEvent | Message> = [];
+    let terminal: Terminal | undefined;
+    for (;;) {
+      const step = await segment1.next();
+      if (step.done) {
+        terminal = step.value;
+        break;
+      }
+      yielded.push(step.value);
+    }
+    expect(terminal?.reason).toBe('max_turns');
+    expect(userTextOf(seen[0])).toContain(FENCE);
+    expect(userTextOf(seen[0])).toContain(prompt);
+    expect(original.content).toEqual([{ type: 'text', text: prompt }]);
+
+    const rehydrated: Message[] = [original];
+    for (const event of yielded) {
+      if ('role' in event) rehydrated.push(event);
+      else if (event.type === 'assistant_message') rehydrated.push(event.message);
+    }
+    const rehydratedBefore = JSON.stringify(rehydrated);
+    const segment2 = query({
+      provider: capturingProvider((req) => seen.push(snapshotRequest(req))),
+      model: 'claude-sonnet-4-6',
+      messages: rehydrated,
+      systemPrompt: [{ text: 'system', cacheable: true }],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      maxTokens: 256,
+      continuation: true,
+      sessionId: 'memory-continuation',
+      cwd: process.cwd(),
+      memoryManager,
+      recall,
+      hookRunner,
+    });
+    const continued = await drainToTerminal(segment2);
+    expect(continued.reason).toBe('completed');
+    expect(seen[1]?.messages).toHaveLength(rehydrated.length);
+    const continuedUser = seen[1]?.messages.find((message) => message.role === 'user');
+    const continuedBlock = continuedUser?.content.find((block) => block.type === 'text');
+    expect(continuedBlock?.type).toBe('text');
+    if (continuedBlock?.type === 'text') {
+      expect(continuedBlock.text).toContain(FENCE);
+      expect(continuedBlock.text).toContain(prompt);
+      expect(continuedBlock.text.split(FENCE)).toHaveLength(2);
+      expect(continuedBlock.text.split(prompt)).toHaveLength(2);
+    }
+    const continuedText = userTextOf(seen[1]);
+    expect(continuedText).toContain(RECALL);
+    expect(continuedText.split('</recall-context>').length - 1).toBe(1);
+    expect(continuedText.split(RECALL)).toHaveLength(2);
+    expect(JSON.stringify(rehydrated)).toBe(rehydratedBefore);
+    expect(recalls).toBe(2);
+    expect(userPromptSubmits).toBe(1);
+
+    const snapshot = `<memory-context>${FENCE}</memory-context>`;
+    const alreadyFenced: Message[] = rehydrated.map((message, index) =>
+      index === 0
+        ? { role: 'user', content: [{ type: 'text', text: `${snapshot}\n\n${prompt}` }] }
+        : message,
+    );
+    const alreadyBefore = JSON.stringify(alreadyFenced);
+    const segment3 = query({
+      provider: capturingProvider((req) => seen.push(snapshotRequest(req))),
+      model: 'claude-sonnet-4-6',
+      messages: alreadyFenced,
+      systemPrompt: [{ text: 'system', cacheable: true }],
+      tools: [makeEchoTool()],
+      toolContext: toolCtx,
+      maxTokens: 256,
+      continuation: true,
+      sessionId: 'memory-continuation',
+      cwd: process.cwd(),
+      memoryManager,
+      recall,
+      hookRunner,
+    });
+    expect((await drainToTerminal(segment3)).reason).toBe('completed');
+    const once = userTextOf(seen[2]);
+    expect(once.split(FENCE)).toHaveLength(2);
+    expect(once.split(prompt)).toHaveLength(2);
+    expect(once).toContain(RECALL);
+    expect(once.split('</recall-context>').length - 1).toBe(1);
+    expect(seen[2]?.messages).toHaveLength(alreadyFenced.length);
+    expect(JSON.stringify(alreadyFenced)).toBe(alreadyBefore);
+    expect(recalls).toBe(3);
+    expect(userPromptSubmits).toBe(1);
+  });
+
+  test('reapplies the current memory snapshot when the stored prompt only mentions the tag', async () => {
+    // The host rehydrates the original user text. Mentioning <memory-context>
+    // is not a fence, so the next segment must start with the preamble and
+    // carry the current snapshot once.
+    const marker = 'UNIQUE_MEMORY_BODY_TAG_MENTION_170';
+    const prompt = 'Explain the <memory-context> tag. It is not a stored fence.';
+    const snapshot = formatMemorySnapshot({ memory: marker });
+    const seen: ProviderRequest[] = [];
+    const messages: Message[] = [{ role: 'user', content: [{ type: 'text', text: prompt }] }];
+    const before = JSON.stringify(messages);
+    const gen = query({
+      provider: capturingProvider((req) => seen.push(snapshotRequest(req))),
+      model: 'claude-sonnet-4-6',
+      messages,
+      systemPrompt: [{ text: 'system', cacheable: true }],
+      maxTokens: 256,
+      continuation: true,
+      memoryManager: {
+        async prefetchSnapshot() {
+          return snapshot;
+        },
+        async syncTurn() {},
+        async onMemoryWrite() {},
+        async onDelegation() {},
+      },
+    });
+    expect((await drainToTerminal(gen)).reason).toBe('completed');
+    const user = seen[0]?.messages.find((message) => message.role === 'user');
+    const block = user?.content.find((part) => part.type === 'text');
+    expect(block?.type).toBe('text');
+    if (block?.type === 'text') {
+      expect(block.text.startsWith(FENCE_PREAMBLE)).toBe(true);
+      expect(block.text.startsWith(snapshot)).toBe(true);
+      expect(block.text.split(snapshot)).toHaveLength(2);
+      expect(block.text.split(marker)).toHaveLength(2);
+      expect(block.text.split(prompt)).toHaveLength(2);
+      expect(block.text.endsWith(prompt)).toBe(true);
+    }
+    expect(JSON.stringify(messages)).toBe(before);
+  });
+
+  test('does not stack a memory fence that already starts with the preamble', async () => {
+    const oldMarker = 'UNIQUE_OLD_MEMORY_FENCE_170';
+    const newMarker = 'UNIQUE_NEW_MEMORY_FENCE_170';
+    const prompt = 'continue the task';
+    const stored = `${formatMemorySnapshot({ memory: oldMarker })}\n\n${prompt}`;
+    const seen: ProviderRequest[] = [];
+    const messages: Message[] = [{ role: 'user', content: [{ type: 'text', text: stored }] }];
+    const before = JSON.stringify(messages);
+    const gen = query({
+      provider: capturingProvider((req) => seen.push(snapshotRequest(req))),
+      model: 'claude-sonnet-4-6',
+      messages,
+      systemPrompt: [{ text: 'system', cacheable: true }],
+      maxTokens: 256,
+      continuation: true,
+      memoryManager: {
+        async prefetchSnapshot() {
+          return formatMemorySnapshot({ memory: newMarker });
+        },
+        async syncTurn() {},
+        async onMemoryWrite() {},
+        async onDelegation() {},
+      },
+    });
+    expect((await drainToTerminal(gen)).reason).toBe('completed');
+    const user = seen[0]?.messages.find((message) => message.role === 'user');
+    const block = user?.content.find((part) => part.type === 'text');
+    expect(block).toEqual({ type: 'text', text: stored });
+    expect(stored.startsWith(FENCE_PREAMBLE)).toBe(true);
+    expect(stored).toContain(oldMarker);
+    expect(stored).not.toContain(newMarker);
+    expect(JSON.stringify(messages)).toBe(before);
+  });
+
+  test('a runtime continuation marker is not a new user turn', async () => {
+    const fence = 'UNIQUE_RUNTIME_MARKER_FENCE';
+    const prompt = 'original question';
+    const markerText = 'Continue the interrupted answer without repeating text already saved.';
+    const markerId = 'logical:output:1';
+    let submits = 0;
+    const memoryManager = {
+      async prefetchSnapshot() {
+        return `<memory-context>${fence}</memory-context>`;
+      },
+      async syncTurn() {},
+      async onMemoryWrite() {},
+      async onDelegation() {},
+    };
+    const hookRunner: HookRunner = async (event) => {
+      if (event === 'UserPromptSubmit') submits++;
+      return { block: false };
+    };
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: prompt }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'partial' }] },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: markerText }],
+        origin: 'runtime',
+        id: markerId,
+      },
+    ];
+    const seen: ProviderRequest[] = [];
+    const gen = query({
+      provider: capturingProvider((req) => seen.push(snapshotRequest(req))),
+      model: 'claude-sonnet-4-6',
+      messages,
+      systemPrompt: [],
+      maxTokens: 256,
+      continuation: true,
+      sessionId: 'runtime-marker',
+      cwd: process.cwd(),
+      memoryManager,
+      hookRunner,
+    });
+    expect((await drainToTerminal(gen)).reason).toBe('completed');
+    const sent = seen[0]?.messages ?? [];
+    expect(sent.map((row) => row.role)).toEqual(['user', 'assistant', 'user']);
+    const human = sent[0]?.content.find((block) => block.type === 'text');
+    expect(human?.type === 'text' ? human.text : '').toContain(fence);
+    expect(human?.type === 'text' ? human.text : '').toContain(prompt);
+    expect(sent[2]).toMatchObject({
+      role: 'user',
+      origin: 'runtime',
+      id: markerId,
+      content: [{ type: 'text', text: markerText }],
+    });
+    expect(sent.filter((row) => row.role === 'user' && row.origin !== 'runtime')).toHaveLength(1);
+    expect(submits).toBe(0);
+  });
+
+  test('a tool-result tail keeps recall and syncTurn on the human prompt', async () => {
+    // The rehydrated tail is a tool-result user row, not the stored prompt.
+    // Lessons match only that prompt. A textless result must not drop them,
+    // and steer text on the same row must not replace the prompt.
+    const prompt = 'original prompt for the logical turn';
+    const steer = 'STEER: change course';
+    const markerText = 'Continue the interrupted answer without repeating text already saved.';
+    const lesson = 'UNIQUE_RECALL_TOOL_TAIL_252';
+    const recalled: Array<string | undefined> = [];
+    const synced: string[] = [];
+    const recall = async (text: string | undefined) => {
+      recalled.push(text);
+      return text === prompt
+        ? { injectionText: lesson, lessons: [] }
+        : { injectionText: '', lessons: [] };
+    };
+    const memoryManager = {
+      async prefetchSnapshot() {
+        return '';
+      },
+      async syncTurn(userMsg: string, assistantResponse: string) {
+        synced.push(`${userMsg}\n${assistantResponse}`);
+      },
+      async onMemoryWrite() {},
+      async onDelegation() {},
+    };
+
+    async function continueTail(tail: Message) {
+      const messages: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: prompt }] },
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 't1', name: 'Echo', input: { text: 'hello' } }],
+        },
+        {
+          role: 'user',
+          content: [{ type: 'text', text: markerText }],
+          origin: 'runtime',
+          id: 'logical:output:1',
+        },
+        { role: 'user', content: [] },
+        tail,
+      ];
+      const before = JSON.stringify(messages);
+      const seen: ProviderRequest[] = [];
+      const gen = query({
+        provider: capturingProvider((req) => seen.push(snapshotRequest(req))),
+        model: 'claude-sonnet-4-6',
+        messages,
+        systemPrompt: [{ text: 'system', cacheable: true }],
+        maxTokens: 256,
+        continuation: true,
+        memoryManager,
+        recall,
+      });
+      const terminal = await drainToTerminal(gen);
+      return { terminal, seen, before, messages };
+    }
+
+    const bareTail: Message = {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 't1', content: 'result data' }],
+    };
+    const bare = await continueTail(bareTail);
+    expect(bare.terminal.reason).toBe('completed');
+    expect(JSON.stringify(bare.messages)).toBe(bare.before);
+    const bareText = bare.seen[0]?.messages[0]?.content.find((block) => block.type === 'text');
+    expect(bareText?.type).toBe('text');
+    if (bareText?.type === 'text') {
+      expect(bareText.text.endsWith(prompt)).toBe(true);
+      expect(bareText.text).toContain(lesson);
+      expect(bareText.text.split('</recall-context>').length - 1).toBe(1);
+      expect(bareText.text.split(prompt)).toHaveLength(2);
+    }
+    expect(bare.seen[0]?.messages.at(-1)).toEqual(bareTail);
+
+    const steeredTail: Message = {
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 't1', content: 'result data' },
+        { type: 'text', text: steer },
+      ],
+    };
+    const steered = await continueTail(steeredTail);
+    expect(steered.terminal.reason).toBe('completed');
+    expect(JSON.stringify(steered.messages)).toBe(steered.before);
+    const steeredText = steered.seen[0]?.messages[0]?.content.find(
+      (block) => block.type === 'text',
+    );
+    expect(steeredText?.type).toBe('text');
+    if (steeredText?.type === 'text') {
+      expect(steeredText.text.endsWith(prompt)).toBe(true);
+      expect(steeredText.text).toContain(lesson);
+      expect(steeredText.text).not.toContain(steer);
+      expect(steeredText.text.split('</recall-context>').length - 1).toBe(1);
+      expect(steeredText.text.split(prompt)).toHaveLength(2);
+    }
+    expect(steered.seen[0]?.messages.at(-1)).toEqual(steeredTail);
+    expect(recalled).toEqual([prompt, prompt]);
+    expect(synced).toEqual([`${prompt}\n4`, `${prompt}\n4`]);
   });
 
   test('preserves injected recall context when a UserPromptSubmit hook rewrites the prompt', async () => {

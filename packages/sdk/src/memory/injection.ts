@@ -44,7 +44,9 @@ export function formatMemorySnapshot(parts: {
 
 export function injectMemoryIntoUserText(userText: string, snapshot: string): string {
   const trimmed = snapshot.trim();
-  return trimmed ? `${trimmed}\n\n${userText}` : userText;
+  // Already present: prepending again would keep a second copy of the user text.
+  if (!trimmed || userText.includes(trimmed)) return userText;
+  return `${trimmed}\n\n${userText}`;
 }
 
 export async function injectMemoryIntoLatestUserMessage(
