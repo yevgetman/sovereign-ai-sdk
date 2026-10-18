@@ -23,6 +23,7 @@ import type { CostEstimate } from '../providers/pricing.js';
 
 import { randomUUID } from 'node:crypto';
 import {
+  LOGICAL_TURN_LEASE_MS,
   LogicalTurnLeaseError,
   type LogicalTurnRecord,
   type LogicalTurnStore,
@@ -263,7 +264,8 @@ export function createInMemorySessionStore(): InMemorySessionStore {
   }
   function renewLogicalTurnLease(id: string, owner: string, expiresAt: number): boolean {
     const lease = logicalTurnLeases.get(id);
-    if (!lease || lease.owner !== owner) return false;
+    const at = expiresAt - LOGICAL_TURN_LEASE_MS;
+    if (!lease || lease.owner !== owner || lease.expiresAt <= at) return false;
     logicalTurnLeases.set(id, { owner, expiresAt });
     return true;
   }
