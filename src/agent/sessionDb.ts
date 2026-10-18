@@ -836,6 +836,30 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
     });
   }
 
+  /** Replace one message body. Inside a logical-turn binding the lease must
+   *  still belong to this owner. After the supervisor releases, pass
+   *  `logicalTurnId` so the write commits only while that lease is free.
+   *  Returns false when a later owner already holds it. */
+  replaceMessageContent(messageId: number, content: unknown, logicalTurnId?: string): boolean {
+    assertLogicalTurnWriteLease();
+    const contentJson = JSON.stringify(content);
+    return this.writeWithRetry(() => {
+      const result =
+        logicalTurnId === undefined
+          ? this.db.run('UPDATE messages SET content = ? WHERE id = ?', [contentJson, messageId])
+          : this.db.run(
+              `UPDATE messages SET content = ?
+               WHERE id = ?
+                 AND NOT EXISTS (
+                   SELECT 1 FROM logical_turns
+                   WHERE logical_turn_id = ? AND lease_owner IS NOT NULL
+                 )`,
+              [contentJson, messageId, logicalTurnId],
+            );
+      return (result.changes ?? 0) > 0;
+    });
+  }
+
   loadMessages(sessionId: string): StoredMessage[] {
     const rows = this.db
       .query<StoredRow, [string]>(

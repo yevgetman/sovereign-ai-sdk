@@ -2492,6 +2492,135 @@ test('a blocked prompt is not sent when the failed logical turn is continued', a
   expect(second.events.at(-1)?.nextAction).not.toBe('resume');
 });
 
+test('a stolen lease blocks the gated prompt write and the provider stream', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('should not run');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    runtime.hookRunner = async (event) => {
+      if (event !== 'UserPromptSubmit') return { block: false };
+      const row = runtime.sessionDb.handle
+        .query<{ logical_turn_id: string }, []>('SELECT logical_turn_id FROM logical_turns')
+        .get();
+      if (!row) throw new Error('logical turn missing');
+      runtime.sessionDb.handle.run(
+        'UPDATE logical_turns SET lease_expires_at = ? WHERE logical_turn_id = ?',
+        [Date.now() - 1, row.logical_turn_id],
+      );
+      const acquired = runtime.sessionDb.acquireLogicalTurnLease(
+        row.logical_turn_id,
+        'second-owner',
+        Date.now() + 60_000,
+        Date.now(),
+      );
+      if (!acquired) throw new Error('second owner did not acquire');
+      return { block: false, rewrittenPrompt: 'rewritten-by-hook' };
+    };
+  });
+  const c = capture();
+  expect(await runSdkRunCommand(opts, c.io, f.deps)).toBe(3);
+  expect(calls).toBe(0);
+  expect(c.events.find((event) => event.type === 'turn.error')).toMatchObject({
+    type: 'turn.error',
+    code: 'logical_turn_leased',
+  });
+  const db = SessionDb.open({ path: f.db });
+  try {
+    const session = db.handle
+      .query<{ session_id: string }, []>('SELECT session_id FROM sessions')
+      .get();
+    const stored = db.loadMessages(session?.session_id ?? '');
+    expect(stored.find((row) => row.role === 'user')?.content).toEqual([
+      { type: 'text', text: 'question' },
+    ]);
+    expect(
+      db.handle
+        .query<{ lease_owner: string | null }, []>('SELECT lease_owner FROM logical_turns')
+        .get()?.lease_owner,
+    ).toBe('second-owner');
+  } finally {
+    db.close();
+  }
+});
+
+test('a policy denial does not overwrite the prompt after another owner acquires the lease', async () => {
+  let calls = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('should not run');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider, (runtime) => {
+    const release = runtime.sessionDb.releaseLogicalTurnLease.bind(runtime.sessionDb);
+    runtime.sessionDb.releaseLogicalTurnLease = (id, owner) => {
+      release(id, owner);
+      const acquired = runtime.sessionDb.acquireLogicalTurnLease(
+        id,
+        'second-owner',
+        Date.now() + 60_000,
+        Date.now(),
+      );
+      if (!acquired) throw new Error('second owner did not acquire');
+      const session = runtime.sessionDb.handle
+        .query<{ session_id: string }, []>('SELECT session_id FROM sessions')
+        .get();
+      const human = runtime.sessionDb
+        .loadMessages(session?.session_id ?? '')
+        .find(
+          (row) =>
+            row.role === 'user' && !row.content.some((block) => block.type === 'tool_result'),
+        );
+      if (!human) throw new Error('user row missing');
+      runtime.sessionDb.handle.run('UPDATE messages SET content = ? WHERE id = ?', [
+        JSON.stringify([{ type: 'text', text: 'second-owner prompt' }]),
+        human.id,
+      ]);
+    };
+    runtime.hookRunner = async (event) => {
+      if (event === 'UserPromptSubmit') return { block: true, reason: 'forbidden prompt' };
+      return { block: false };
+    };
+  });
+  const c = capture();
+  expect(await runSdkRunCommand(opts, c.io, f.deps)).toBe(1);
+  expect(calls).toBe(0);
+  const denied = c.events.find((event) => event.type === 'turn.error');
+  expect(denied).toMatchObject({
+    type: 'turn.error',
+    code: 'policy_denied',
+    recoverable: false,
+    nextAction: 'none',
+  });
+  const db = SessionDb.open({ path: f.db });
+  try {
+    const session = db.handle
+      .query<{ session_id: string }, []>('SELECT session_id FROM sessions')
+      .get();
+    const stored = db.loadMessages(session?.session_id ?? '');
+    expect(stored.find((row) => row.role === 'user')?.content).toEqual([
+      { type: 'text', text: 'second-owner prompt' },
+    ]);
+    expect(
+      db.handle
+        .query<{ lease_owner: string | null }, []>('SELECT lease_owner FROM logical_turns')
+        .get()?.lease_owner,
+    ).toBe('second-owner');
+  } finally {
+    db.close();
+  }
+});
+
 test('a failed logical turn resumes only when the stored cause is a safe transient', async () => {
   let calls = 0;
   const provider: LLMProvider = {
