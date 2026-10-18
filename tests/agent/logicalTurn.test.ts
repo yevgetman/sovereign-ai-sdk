@@ -330,10 +330,11 @@ describe('logical-turn supervisor', () => {
     const first = await superviseLogicalTurn(fixture.options);
     expect(first.status).toBe('exhausted');
     expect(calls).toBe(1);
-    expect(boundaries).toBe(1);
+    // At the cap the next segment cannot start, so this turn does not read.
+    expect(boundaries).toBe(0);
     expect(safety).toBe(0);
     expect(rehydrates).toBe(0);
-    expect(reads).toBe(1);
+    expect(reads).toBe(0);
 
     const stored = fixture.store.loadLogicalTurn(first.logicalTurnId);
     if (!stored) throw new Error('logical turn row missing');
@@ -1071,6 +1072,93 @@ describe('logical-turn supervisor', () => {
       finishReason: 'deadline',
       logicalTurnId: first.logicalTurnId,
     });
+  });
+
+  test('a row already at the model-call cap does not summarize on resume', async () => {
+    let calls = 0;
+    let summaries = 0;
+    let rehydrates = 0;
+    // Native prepare compacts when the resumed context is over the proactive threshold.
+    const overThreshold: Message[] = [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'context over the proactive threshold' }],
+      },
+    ];
+    const fixture = setup(
+      async () => {
+        calls += 1;
+        return result('max_turns', 'partial');
+      },
+      {
+        logicalModelCallLimit: 1,
+        // Ids plus a cursor skip the fingerprint read so the failing load is
+        // the post-segment rehydrate, after continuing is stored at the cap.
+        progressSnapshot: () => ({
+          transcriptIds: [1],
+          transcriptCount: 1,
+          receipts: [],
+          cursor: null,
+        }),
+        prepare: () => {
+          summaries += 1;
+        },
+        rehydrate: () => {
+          rehydrates += 1;
+          throw new Error('post-segment rehydrate failed');
+        },
+      },
+    );
+    const first = await superviseLogicalTurn(fixture.options);
+    expect(rehydrates).toBe(0);
+    expect(summaries).toBe(1);
+    expect(first).toMatchObject({
+      status: 'exhausted',
+      code: 'continuation_exhausted',
+      finishReason: 'model_call_limit',
+    });
+    expect(first.counters.modelCalls).toBe(1);
+    const stored = fixture.store.loadLogicalTurn(first.logicalTurnId);
+    expect(stored?.status).toBe('exhausted');
+    expect(stored?.counters.modelCalls).toBe(1);
+    if (!stored) throw new Error('logical turn row missing');
+    // A post-segment rehydrate used to leave this continuing at the cap.
+    const now = Date.now();
+    expect(
+      fixture.store.acquireLogicalTurnLease(first.logicalTurnId, 'seed', now + 1_000, now),
+    ).toBe(true);
+    const { finishReason: _finished, ...continuing } = stored;
+    fixture.store.saveLogicalTurn({ ...continuing, status: 'continuing' }, 'seed');
+    fixture.store.releaseLogicalTurnLease(first.logicalTurnId, 'seed');
+
+    const resumed = await superviseLogicalTurn({
+      ...fixture.options,
+      logicalTurnId: first.logicalTurnId,
+      initialMessages: overThreshold,
+      prepare: () => {
+        summaries += 1;
+      },
+      rehydrate: () => {
+        rehydrates += 1;
+        return overThreshold;
+      },
+    });
+    expect(summaries).toBe(1);
+    expect(rehydrates).toBe(0);
+    expect(calls).toBe(1);
+    expect(resumed.counters.modelCalls).toBe(1);
+    expect(resumed).toMatchObject({
+      status: 'exhausted',
+      code: 'continuation_exhausted',
+      finishReason: 'model_call_limit',
+      logicalTurnId: first.logicalTurnId,
+    });
+    const after = fixture.store.loadLogicalTurn(first.logicalTurnId);
+    expect(after?.status).toBe('exhausted');
+    expect(after?.finishReason).toBe('model_call_limit');
+    expect(after?.counters.modelCalls).toBe(1);
+    expect(after?.status).not.toBe('continuing');
+    expect(after?.status).not.toBe('running');
   });
 
   test('a user abort before the deadline stays cancelled', async () => {
