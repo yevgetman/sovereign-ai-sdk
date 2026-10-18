@@ -556,6 +556,108 @@ describe('query() — Phase 2 turn loop', () => {
     expect(submits).toBe(0);
   });
 
+  test('a tool-result tail keeps recall and syncTurn on the human prompt', async () => {
+    // The rehydrated tail is a tool-result user row, not the stored prompt.
+    // Lessons match only that prompt. A textless result must not drop them,
+    // and steer text on the same row must not replace the prompt.
+    const prompt = 'original prompt for the logical turn';
+    const steer = 'STEER: change course';
+    const markerText = 'Continue the interrupted answer without repeating text already saved.';
+    const lesson = 'UNIQUE_RECALL_TOOL_TAIL_252';
+    const recalled: Array<string | undefined> = [];
+    const synced: string[] = [];
+    const recall = async (text: string | undefined) => {
+      recalled.push(text);
+      return text === prompt
+        ? { injectionText: lesson, lessons: [] }
+        : { injectionText: '', lessons: [] };
+    };
+    const memoryManager = {
+      async prefetchSnapshot() {
+        return '';
+      },
+      async syncTurn(userMsg: string, assistantResponse: string) {
+        synced.push(`${userMsg}\n${assistantResponse}`);
+      },
+      async onMemoryWrite() {},
+      async onDelegation() {},
+    };
+
+    async function continueTail(tail: Message) {
+      const messages: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: prompt }] },
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 't1', name: 'Echo', input: { text: 'hello' } }],
+        },
+        {
+          role: 'user',
+          content: [{ type: 'text', text: markerText }],
+          origin: 'runtime',
+          id: 'logical:output:1',
+        },
+        { role: 'user', content: [] },
+        tail,
+      ];
+      const before = JSON.stringify(messages);
+      const seen: ProviderRequest[] = [];
+      const gen = query({
+        provider: capturingProvider((req) => seen.push(snapshotRequest(req))),
+        model: 'claude-sonnet-4-6',
+        messages,
+        systemPrompt: [{ text: 'system', cacheable: true }],
+        maxTokens: 256,
+        continuation: true,
+        memoryManager,
+        recall,
+      });
+      const terminal = await drainToTerminal(gen);
+      return { terminal, seen, before, messages };
+    }
+
+    const bareTail: Message = {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 't1', content: 'result data' }],
+    };
+    const bare = await continueTail(bareTail);
+    expect(bare.terminal.reason).toBe('completed');
+    expect(JSON.stringify(bare.messages)).toBe(bare.before);
+    const bareText = bare.seen[0]?.messages[0]?.content.find((block) => block.type === 'text');
+    expect(bareText?.type).toBe('text');
+    if (bareText?.type === 'text') {
+      expect(bareText.text.endsWith(prompt)).toBe(true);
+      expect(bareText.text).toContain(lesson);
+      expect(bareText.text.split('</recall-context>').length - 1).toBe(1);
+      expect(bareText.text.split(prompt)).toHaveLength(2);
+    }
+    expect(bare.seen[0]?.messages.at(-1)).toEqual(bareTail);
+
+    const steeredTail: Message = {
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 't1', content: 'result data' },
+        { type: 'text', text: steer },
+      ],
+    };
+    const steered = await continueTail(steeredTail);
+    expect(steered.terminal.reason).toBe('completed');
+    expect(JSON.stringify(steered.messages)).toBe(steered.before);
+    const steeredText = steered.seen[0]?.messages[0]?.content.find(
+      (block) => block.type === 'text',
+    );
+    expect(steeredText?.type).toBe('text');
+    if (steeredText?.type === 'text') {
+      expect(steeredText.text.endsWith(prompt)).toBe(true);
+      expect(steeredText.text).toContain(lesson);
+      expect(steeredText.text).not.toContain(steer);
+      expect(steeredText.text.split('</recall-context>').length - 1).toBe(1);
+      expect(steeredText.text.split(prompt)).toHaveLength(2);
+    }
+    expect(steered.seen[0]?.messages.at(-1)).toEqual(steeredTail);
+    expect(recalled).toEqual([prompt, prompt]);
+    expect(synced).toEqual([`${prompt}\n4`, `${prompt}\n4`]);
+  });
+
   test('preserves injected recall context when a UserPromptSubmit hook rewrites the prompt', async () => {
     // Regression: the UserPromptSubmit hook receives only the ORIGINAL prompt
     // text, but its rewrittenPrompt replaced the WHOLE latest-user text block —
