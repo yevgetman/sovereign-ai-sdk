@@ -65,11 +65,12 @@ A stored `failed` row resumes only when `finishReason` or `lastCause` is
 start another segment.
 The SQLite host keeps one short lease, about 30 seconds, so only one worker
 continues a logical turn. The supervisor refreshes it after each segment,
-during a model call, and before a provider retry wait. Record writes are
-fenced to that owner. An expired lease is reclaimed only after receipt checks
-pass, and it is held before compaction or other model and tool work. Tool
-receipt state is the safety boundary: completed effects can be reused, while
-started or unknown effects require inspection.
+during a model call, and before a provider retry wait. A boundary scan renews
+between transcript pages; a renewal does not extend a lease that has already
+expired. Record writes are fenced to that owner. An expired lease is reclaimed
+only after receipt checks pass, and it is held before compaction or other model
+and tool work. Tool receipt state is the safety boundary: completed effects
+can be reused, while started or unknown effects require inspection.
 
 The open/proprietary line is **machine-enforced**, not conceptual: a **file-level boundary lint** (`bun run boundary` = `depcruise` against `.dependency-cruiser.cjs`, part of `bun run lint`, and re-run in `ci.yml`) fails the build on **any** open→proprietary import, measured against an explicit exception manifest (`scripts/boundary-manifest.json`). The `packages/sdk/src/index.ts` barrel is itself classified open, so it actively self-gates — re-exporting anything proprietary fails the lint. The gateway wire protocol ships as **Contract #2**, the `@yevgetman/sov-protocol` package (`packages/protocol/`), with compiled JavaScript and declarations — the wire event/endpoint types plus a fetch-based typed client, the single source of truth the gateway, the Go TUI, and external clients all adopt. Full rationale + the §15 acceptance gate: [`specs/2026-06-29-sdk-open-core-extraction-design.md`](../../specs/2026-06-29-sdk-open-core-extraction-design.md).
 
