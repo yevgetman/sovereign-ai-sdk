@@ -57,6 +57,8 @@ headless hosts. It persists the original user-message reference, active and
 compacted session ids, fixed execution binding, deadline, cumulative budgets,
 progress fingerprint and final outcome. Continuation segments skip user-turn
 hooks, recall and conduct pre-gates. Stop hooks run once at the logical terminal.
+A deadline Stop reason is `deadline`, not an earlier segment's `max_turns` or
+`max_tokens`.
 A stored `failed` row resumes only when `finishReason` or `lastCause` is
 `transient_provider`, `rate_limited`, `provider_unavailable`, or
 `provider_timeout`. Any other failed cause is returned as stored and does not

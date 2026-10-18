@@ -19,7 +19,10 @@ Every page reports `total`, `returned`, `remaining`, `truncated`,
 entries not included on this page. `truncated` states whether more entries
 remain. A `names` page sets `detail` to `names`. Ordinary entries are
 `{ name }` only. When `truncated` is false, `nextCursor` is absent and
-`remaining` is 0.
+`remaining` is 0. A names success says descriptions and triggers are not in
+the page, including when `remaining` is 0. A query with no matches does not
+call that page a full index. Its next action names `detail: "summary"` or
+`"activation"`.
 
 Queries have a 256-character limit before trimming. If a query's serialized
 response fields exceed the current page budget, the caller receives an error

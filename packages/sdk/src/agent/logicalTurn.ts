@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { logicalSegmentStop } from '../core/query.js';
 import type { Message, Terminal, TokenUsage } from '../core/types.js';
+import type { StopHookReason } from '../hooks/types.js';
 import {
   PersistBeforeRunError,
   ProviderHttpError,
@@ -160,7 +161,7 @@ type LeaseBinding = {
   signal: AbortSignal;
   lost: boolean;
   /** Stop deferred by the segment in flight. Kept if the host drops the terminal. */
-  stop?: ((reason?: Terminal['reason']) => Promise<void>) | undefined;
+  stop?: ((reason?: StopHookReason) => Promise<void>) | undefined;
 };
 
 const leaseBindings = new AsyncLocalStorage<LeaseBinding>();
@@ -177,9 +178,7 @@ function clearSegment(logicalTurnId: string, owner: string): void {
 }
 
 /** Remember the Stop closure for the segment on this async stack. */
-export function rememberLogicalSegmentStop(
-  fire: (reason?: Terminal['reason']) => Promise<void>,
-): void {
+export function rememberLogicalSegmentStop(fire: (reason?: StopHookReason) => Promise<void>): void {
   const binding = leaseBindings.getStore();
   if (binding) binding.stop = fire;
 }
@@ -485,12 +484,18 @@ export async function superviseLogicalTurn(
     held.record.updatedAt = now();
     options.store.saveLogicalTurn(held.record, leaseOwner);
   };
-  let pendingStop: ((reason?: Terminal['reason']) => Promise<void>) | undefined;
+  let pendingStop: ((reason?: StopHookReason) => Promise<void>) | undefined;
   // A user abort must not keep the previous segment's reason. The closure
   // still on the lease is this attempt, or none, and runs as interrupted.
   const armUserAbortStop = (): void => {
     const stop = binding.stop;
     pendingStop = stop ? () => stop('interrupted') : undefined;
+  };
+  // A deadline must not keep the previous segment's reason. The closure
+  // still on the lease is this attempt, or none, and runs as deadline.
+  const armDeadlineStop = (): void => {
+    const stop = binding.stop;
+    pendingStop = stop ? () => stop('deadline') : undefined;
   };
   const fireTerminalStop = async (): Promise<void> => {
     const fire = pendingStop;
@@ -610,8 +615,10 @@ export async function superviseLogicalTurn(
     record.status = 'running';
     save();
     // Compaction inside prepare is paid work. The loop check below is too late.
-    if (isDeadlineTerminal(options.signal, record.deadlineAt, now()))
+    if (isDeadlineTerminal(options.signal, record.deadlineAt, now())) {
+      armDeadlineStop();
       return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
+    }
     const prepare = options.prepare;
     if (prepare) {
       try {
@@ -622,6 +629,7 @@ export async function superviseLogicalTurn(
           !storageFault(error) &&
           isDeadlineTerminal(options.signal, record.deadlineAt, now())
         ) {
+          armDeadlineStop();
           return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
         }
         throw error;
@@ -640,8 +648,10 @@ export async function superviseLogicalTurn(
     let transientAttempts = 0;
     for (;;) {
       // Deadline wins over a shared abort. A user stop before the deadline stays cancelled.
-      if (isDeadlineTerminal(options.signal, record.deadlineAt, now()))
+      if (isDeadlineTerminal(options.signal, record.deadlineAt, now())) {
+        armDeadlineStop();
         return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
+      }
       if (options.signal?.aborted) {
         armUserAbortStop();
         return await finish('cancelled', 'cancelled', undefined);
@@ -676,10 +686,10 @@ export async function superviseLogicalTurn(
         // Storage faults stay untouched so the host reports them. A lost lease
         // must not overwrite the worker that now owns the record.
         // A host can drop the returned terminal when the deadline abort wins
-        // the race. The segment still left its Stop on the lease binding.
+        // the race. This attempt's Stop, if it armed one, is on the lease.
         if (!(error instanceof LogicalTurnLeaseError) && !storageFault(error)) {
           if (isDeadlineTerminal(options.signal, record.deadlineAt, now())) {
-            if (binding.stop) pendingStop = binding.stop;
+            armDeadlineStop();
             return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
           }
           if (options.signal?.aborted) {
@@ -720,8 +730,10 @@ export async function superviseLogicalTurn(
         return await finish('completed', 'completed', result);
       if (result.terminal.reason === 'checkin')
         return await finish('waiting_user', 'checkin', result);
-      if (isDeadlineTerminal(options.signal, record.deadlineAt, now()))
+      if (isDeadlineTerminal(options.signal, record.deadlineAt, now())) {
+        armDeadlineStop();
         return await finish('exhausted', 'deadline', result, 'continuation_exhausted');
+      }
       if (result.terminal.reason === 'interrupted' || options.signal?.aborted) {
         armUserAbortStop();
         return await finish('cancelled', 'cancelled', result);
@@ -756,8 +768,10 @@ export async function superviseLogicalTurn(
         });
         // Cancellation during the wait must not start the next attempt.
         await withHeartbeat(() => sleepWithSignal(transient, options.signal, pause));
-        if (isDeadlineTerminal(options.signal, record.deadlineAt, now()))
+        if (isDeadlineTerminal(options.signal, record.deadlineAt, now())) {
+          armDeadlineStop();
           return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
+        }
         if (options.signal?.aborted) {
           armUserAbortStop();
           return await finish('cancelled', 'cancelled', undefined);
