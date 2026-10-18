@@ -148,6 +148,9 @@ test('migration does not certify historical unknown-price zero usage', () => {
     old.run('DROP TABLE tool_executions');
     old.run('DROP TABLE skill_continuity');
     old.run('DROP TABLE usage_estimates');
+    // logical_turns is v9. Leaving the already-migrated table makes v9→v10
+    // ADD COLUMN fail because CREATE TABLE IF NOT EXISTS will not rebuild it.
+    old.run('DROP TABLE logical_turns');
     old.run('ALTER TABLE sessions DROP COLUMN cost_complete');
     old.run('UPDATE state_meta SET schema_version = 5');
     old.close();

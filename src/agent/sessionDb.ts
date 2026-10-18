@@ -25,6 +25,15 @@ import { Database, SQLiteError } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import {
+  LOGICAL_TURN_LEASE_MS,
+  LOGICAL_TURN_READ_PAGE,
+  LogicalTurnLeaseError,
+  type LogicalTurnRecord,
+  type LogicalTurnStore,
+  assertLogicalTurnWriteLease,
+  renewHeldLogicalTurnLease,
+} from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import type {
   CreateSessionInput,
@@ -38,6 +47,16 @@ import type { ContentBlock, SystemSegment, TokenUsage } from '@yevgetman/sov-sdk
 import type { SessionStore, ToolExecution } from '@yevgetman/sov-sdk/persistence/sessionStore';
 import { type CostEstimate, estimateUsageCost } from '@yevgetman/sov-sdk/providers/pricing';
 
+/** The row exists, but its JSON is not a logical-turn record. */
+export class LogicalTurnRecordError extends Error {
+  readonly code = 'recovery_state_invalid' as const;
+
+  constructor() {
+    super('logical turn recovery state is invalid');
+    this.name = 'LogicalTurnRecordError';
+  }
+}
+
 /** Default DB path. Resolved at call time so a profile-aware
  *  HARNESS_HOME (set by `sov -p name` before imports) lands the DB
  *  under the right profile root. Phase 10.7 — Invariant #11. */
@@ -50,11 +69,37 @@ export function getDefaultDbPath(): string {
  *  back-compat shim for tests that reference it directly. */
 export const DEFAULT_DB_PATH = join(resolveHarnessHome(), 'sessions.db');
 
-const CURRENT_SCHEMA_VERSION = 8;
+const CURRENT_SCHEMA_VERSION = 10;
 
 type Migration = { from: number; to: number; sql: string };
 
 const MIGRATIONS: Migration[] = [
+  {
+    // session_id / active_session_id are indexed so session delete does not
+    // parse every logical-turn blob. Nulls stay null for unreadable records.
+    from: 9,
+    to: 10,
+    sql: `
+      ALTER TABLE logical_turns ADD COLUMN session_id TEXT;
+      ALTER TABLE logical_turns ADD COLUMN active_session_id TEXT;
+      UPDATE logical_turns
+      SET session_id = json_extract(record, '$.sessionId'),
+          active_session_id = json_extract(record, '$.activeSessionId')
+      WHERE json_valid(record);
+      CREATE INDEX idx_logical_turns_session_id ON logical_turns(session_id);
+      CREATE INDEX idx_logical_turns_active_session_id ON logical_turns(active_session_id);
+    `,
+  },
+  {
+    from: 8,
+    to: 9,
+    sql: `CREATE TABLE IF NOT EXISTS logical_turns (
+      logical_turn_id TEXT PRIMARY KEY,
+      record TEXT NOT NULL,
+      lease_owner TEXT,
+      lease_expires_at REAL
+    );`,
+  },
   {
     from: 7,
     to: 8,
@@ -265,7 +310,7 @@ export type SearchOpts = {
 // The admin/search/routing/cleanup surface and the raw `handle` getter stay on
 // the concrete class, off the port. The `implements` clause makes a future drift
 // (a port method's signature changing on SessionDb) a typecheck failure.
-export class SessionDb implements SessionStore {
+export class SessionDb implements SessionStore, LogicalTurnStore {
   private writeCount = 0;
 
   constructor(private readonly db: Database) {}
@@ -297,6 +342,108 @@ export class SessionDb implements SessionStore {
 
   close(): void {
     this.db.close();
+  }
+
+  createLogicalTurn(record: LogicalTurnRecord): void {
+    this.writeWithRetry(() =>
+      this.db.run(
+        `INSERT INTO logical_turns (logical_turn_id, record, session_id, active_session_id)
+         VALUES (?, ?, ?, ?)`,
+        [record.logicalTurnId, JSON.stringify(record), record.sessionId, record.activeSessionId],
+      ),
+    );
+  }
+
+  loadLogicalTurn(logicalTurnId: string): LogicalTurnRecord | null {
+    const row = this.db
+      .query<{ record: string }, [string]>(
+        'SELECT record FROM logical_turns WHERE logical_turn_id = ?',
+      )
+      .get(logicalTurnId);
+    // A missing row stays null. Corrupt JSON is invalid recovery state, not a provider failure.
+    if (!row) return null;
+    return parseLogicalTurnRecord(row.record, logicalTurnId);
+  }
+
+  saveLogicalTurn(record: LogicalTurnRecord, owner: string): void {
+    const changes = this.writeWithRetry(
+      () =>
+        this.db.run(
+          `UPDATE logical_turns
+           SET record = ?, session_id = ?, active_session_id = ?
+           WHERE logical_turn_id = ? AND lease_owner = ?`,
+          [
+            JSON.stringify(record),
+            record.sessionId,
+            record.activeSessionId,
+            record.logicalTurnId,
+            owner,
+          ],
+        ).changes ?? 0,
+    );
+    if (changes === 1) return;
+    const existing = this.db
+      .query<{ logical_turn_id: string }, [string]>(
+        'SELECT logical_turn_id FROM logical_turns WHERE logical_turn_id = ?',
+      )
+      .get(record.logicalTurnId);
+    if (!existing) throw new Error('logical turn does not exist');
+    throw new LogicalTurnLeaseError();
+  }
+
+  readLogicalTurnLease(id: string): { owner: string | null; expiresAt: number | null } | null {
+    const row = this.db
+      .query<{ lease_owner: string | null; lease_expires_at: number | null }, [string]>(
+        'SELECT lease_owner, lease_expires_at FROM logical_turns WHERE logical_turn_id = ?',
+      )
+      .get(id);
+    if (!row) return null;
+    return { owner: row.lease_owner, expiresAt: row.lease_expires_at };
+  }
+
+  acquireLogicalTurnLease(id: string, owner: string, expiresAt: number, now: number): boolean {
+    const changes = this.writeWithRetry(
+      () =>
+        this.db.run(
+          `UPDATE logical_turns SET lease_owner = ?, lease_expires_at = ?
+           WHERE logical_turn_id = ? AND
+             (lease_owner IS NULL OR lease_owner = ? OR lease_expires_at <= ?)`,
+          [owner, expiresAt, id, owner, now],
+        ).changes ?? 0,
+    );
+    return changes === 1;
+  }
+
+  renewLogicalTurnLease(
+    id: string,
+    owner: string,
+    expiresAt: number,
+    countCheckpoint = true,
+  ): boolean {
+    // The caller's clock is one lease length before the new expiry. A row
+    // whose lease_expires_at is already due is lost, even if lease_owner matches.
+    // Read-path renewals pass countCheckpoint false so they do not truncate the WAL.
+    const now = expiresAt - LOGICAL_TURN_LEASE_MS;
+    const changes = this.writeWithRetry(
+      () =>
+        this.db.run(
+          `UPDATE logical_turns SET lease_owner = ?, lease_expires_at = ?
+           WHERE logical_turn_id = ? AND lease_owner = ? AND lease_expires_at > ?`,
+          [owner, expiresAt, id, owner, now],
+        ).changes ?? 0,
+      { checkpoint: countCheckpoint },
+    );
+    return changes === 1;
+  }
+
+  releaseLogicalTurnLease(id: string, owner: string): void {
+    this.writeWithRetry(() =>
+      this.db.run(
+        `UPDATE logical_turns SET lease_owner = NULL, lease_expires_at = NULL
+         WHERE logical_turn_id = ? AND lease_owner = ?`,
+        [id, owner],
+      ),
+    );
   }
 
   /** Phase 13.3 follow-up — delete phantom review-fork session rows.
@@ -335,14 +482,14 @@ export class SessionDb implements SessionStore {
    *  unbounded growth.
    *
    *  Uses json_extract on metadata.kind — strict (no false positives from
-   *  titles that happen to contain "cron"). messages and session_compactions
-   *  reference sessions without ON DELETE CASCADE (PRAGMA foreign_keys = ON
-   *  is enabled), so dependent rows must be removed first. tasks already
-   *  CASCADE / SET NULL via migration 3→4.
+   *  titles that happen to contain "cron"). messages, session_compactions,
+   *  and logical_turns reference sessions without ON DELETE CASCADE
+   *  (logical_turns has no session FK at all), so dependent rows must be
+   *  removed first. tasks already CASCADE / SET NULL via migration 3→4.
    *
-   *  Deletes via a CORRELATED SUBQUERY (mirroring cleanupPhantomReviews) — each
-   *  DELETE binds ONE parameter (the cutoff), never a per-id placeholder list,
-   *  so SQLite's bound-parameter ceiling (audit H14) can never be hit no matter
+   *  Deletes via a CORRELATED SUBQUERY (mirroring cleanupPhantomReviews) — the
+   *  only bound value is the cutoff, never a per-id placeholder list, so
+   *  SQLite's bound-parameter ceiling (audit H14) can never be hit no matter
    *  how many stale rows have accrued. Returns the number of session rows
    *  deleted. Called during runtime boot. */
   cleanupOldCronSessions(maxAgeMs = 30 * 24 * 3_600_000): number {
@@ -361,15 +508,15 @@ export class SessionDb implements SessionStore {
    *  default keeps a month of inactive conversations recoverable.
    *
    *  Strictly scoped via json_extract(metadata,'$.kind') = 'channel' (no false
-   *  positives from titles). messages + session_compactions reference sessions
-   *  WITHOUT ON DELETE CASCADE (PRAGMA foreign_keys = ON), so dependent rows are
-   *  removed first; tasks CASCADE / SET NULL via migration 3→4. Wrapped in
-   *  writeWithRetry (matching the cron sweep) so a transient SQLITE_BUSY from a
-   *  concurrent writer is retried.
+   *  positives from titles). messages, session_compactions, and logical_turns
+   *  reference sessions WITHOUT ON DELETE CASCADE (logical_turns has no session
+   *  FK), so dependent rows are removed first; tasks CASCADE / SET NULL via
+   *  migration 3→4. Wrapped in writeWithRetry (matching the cron sweep) so a
+   *  transient SQLITE_BUSY from a concurrent writer is retried.
    *
-   *  Deletes via a CORRELATED SUBQUERY (mirroring cleanupPhantomReviews) — each
-   *  DELETE binds ONE parameter (the cutoff), never a per-id placeholder list,
-   *  so a flood of untrusted channel senders can never push the sweep past
+   *  Deletes via a CORRELATED SUBQUERY (mirroring cleanupPhantomReviews) — the
+   *  only bound value is the cutoff, never a per-id placeholder list, so a
+   *  flood of untrusted channel senders can never push the sweep past
    *  SQLite's bound-parameter ceiling (audit H14). Returns the number of
    *  session rows deleted. */
   cleanupOldChannelSessions(maxAgeMs = 30 * 24 * 3_600_000): number {
@@ -377,13 +524,14 @@ export class SessionDb implements SessionStore {
   }
 
   /** Shared sweep for kind-tagged sessions older than maxAgeMs. Deletes the
-   *  dependent rows (messages, session_compactions) then the session rows, all
-   *  via a CORRELATED SUBQUERY keyed on a single cutoff parameter — so the
-   *  number of stale rows is irrelevant to the bound-parameter budget (audit
-   *  H14 / findings #10, #11). `ageColumn` is a fixed internal literal (never
-   *  caller input): 'created_at' for cron (each run is a fresh row) or
-   *  'last_updated' for channels (touched on every turn, so a recently-active
-   *  chat survives). Wrapped in writeWithRetry for SQLITE_BUSY resilience. */
+   *  dependent rows (logical turns, messages, session_compactions) then the
+   *  session rows, all via a CORRELATED SUBQUERY keyed on a single cutoff
+   *  parameter — so the number of stale rows is irrelevant to the
+   *  bound-parameter budget (audit H14 / findings #10, #11). `ageColumn` is a
+   *  fixed internal literal (never caller input): 'created_at' for cron (each
+   *  run is a fresh row) or 'last_updated' for channels (touched on every
+   *  turn, so a recently-active chat survives). Wrapped in writeWithRetry for
+   *  SQLITE_BUSY resilience. */
   private deleteSessionsByKind(
     kind: 'cron' | 'channel',
     ageColumn: 'created_at' | 'last_updated',
@@ -395,6 +543,9 @@ export class SessionDb implements SessionStore {
          AND ${ageColumn} < ?`;
     return this.writeWithRetry(() => {
       const run = this.db.transaction((): number => {
+        // Before session_compactions rows disappear: logical turns for a
+        // stale session and for its direct compacted children.
+        this.deleteLogicalTurnsForSessions(staleSelect, cutoffSec);
         this.db.run(`DELETE FROM messages WHERE session_id IN (${staleSelect})`, [cutoffSec]);
         this.db.run(
           `DELETE FROM session_compactions
@@ -411,18 +562,47 @@ export class SessionDb implements SessionStore {
     });
   }
 
+  /** logical_turns has no session FK. `finish()` stores `finalReply` and the
+   *  binding stores absolute `cwd` in the JSON record. Drop rows whose
+   *  indexed session_id or active_session_id is a session from `sessionSelect`,
+   *  or a direct compacted child of one (`session_compactions`). `sessionSelect`
+   *  is a fixed internal fragment with exactly one bound parameter — never a
+   *  per-id placeholder list. Must run before those compaction rows are
+   *  deleted. Rows with null session columns (records the migration could not
+   *  read) are left in place so a corrupt row cannot abort the delete.
+   *  Ordinary parent_session_id children are not compacted children and are
+   *  left alone. Does not parse `record`. */
+  private deleteLogicalTurnsForSessions(sessionSelect: string, binding: string | number): void {
+    const targets = `${sessionSelect}
+      UNION
+      SELECT child_session_id FROM session_compactions
+      WHERE parent_session_id IN (${sessionSelect})`;
+    this.db.run(
+      `DELETE FROM logical_turns
+       WHERE session_id IN (${targets})
+          OR active_session_id IN (${targets})`,
+      [binding, binding, binding, binding],
+    );
+  }
+
   /** Phase D — permanently remove a single session and every dependent row.
    *  FK policy: `messages` + `session_compactions` reference sessions WITHOUT
    *  ON DELETE CASCADE (PRAGMA foreign_keys = ON), so their rows are deleted
-   *  manually first; `tasks` CASCADEs / SET NULLs automatically (migration
-   *  3→4); child sessions (`sessions.parent_session_id` — an undeclared FK
-   *  column) are DETACHED (set NULL), never recursively deleted — they are
-   *  independent rows. Wrapped in a transaction so a partial delete can't
-   *  leave a FK violation. Returns true iff the session row existed and was
-   *  removed (idempotent: a missing or already-deleted id returns false). */
+   *  manually first; `logical_turns` has no session FK, so rows for this
+   *  session and its direct compacted children are deleted in the same
+   *  transaction (otherwise `finalReply` and `binding.cwd` stay behind);
+   *  `tasks` CASCADEs / SET NULLs automatically (migration 3→4); child
+   *  sessions (`sessions.parent_session_id` — an undeclared FK column) are
+   *  DETACHED (set NULL), never recursively deleted — they are independent
+   *  rows. Wrapped in a transaction so a partial delete can't leave a FK
+   *  violation. Returns true iff the session row existed and was removed
+   *  (idempotent: a missing or already-deleted id returns false). */
   deleteSession(sessionId: string): boolean {
     return this.writeWithRetry(() => {
       const run = this.db.transaction((): boolean => {
+        // While session_compactions still names compacted children. Detach
+        // does not remove that lineage; deleting it below would.
+        this.deleteLogicalTurnsForSessions('SELECT ?', sessionId);
         // Detach child sessions first: null their parent pointer so the
         // forthcoming parent-row delete leaves no dangling lineage.
         this.db.run('UPDATE sessions SET parent_session_id = NULL WHERE parent_session_id = ?', [
@@ -527,6 +707,7 @@ export class SessionDb implements SessionStore {
   }
 
   createSession(input: CreateSessionInput): string {
+    assertLogicalTurnWriteLease();
     const sessionId = input.sessionId ?? randomUUID();
     const now = Date.now() / 1000;
     const systemPromptJson =
@@ -644,6 +825,7 @@ export class SessionDb implements SessionStore {
   }
 
   saveMessage(sessionId: string, msg: SaveMessageInput): number {
+    assertLogicalTurnWriteLease();
     const now = Date.now() / 1000;
     const contentJson = JSON.stringify(msg.content);
     const toolCallsJson = msg.toolCalls !== undefined ? JSON.stringify(msg.toolCalls) : null;
@@ -667,21 +849,62 @@ export class SessionDb implements SessionStore {
     });
   }
 
+  /** Replace one message body. Inside a logical-turn binding the lease must
+   *  still belong to this owner. After the supervisor releases, pass
+   *  `logicalTurnId` so the write commits only while that lease is free.
+   *  Returns false when a later owner already holds it. */
+  replaceMessageContent(messageId: number, content: unknown, logicalTurnId?: string): boolean {
+    assertLogicalTurnWriteLease();
+    const contentJson = JSON.stringify(content);
+    return this.writeWithRetry(() => {
+      const result =
+        logicalTurnId === undefined
+          ? this.db.run('UPDATE messages SET content = ? WHERE id = ?', [contentJson, messageId])
+          : this.db.run(
+              `UPDATE messages SET content = ?
+               WHERE id = ?
+                 AND NOT EXISTS (
+                   SELECT 1 FROM logical_turns
+                   WHERE logical_turn_id = ? AND lease_owner IS NOT NULL
+                 )`,
+              [contentJson, messageId, logicalTurnId],
+            );
+      return (result.changes ?? 0) > 0;
+    });
+  }
+
   loadMessages(sessionId: string): StoredMessage[] {
-    const rows = this.db
+    // Pages stay synchronous. Renew on the heartbeat gap, not once per page.
+    // An already-expired lease fails the read instead of returning a partial scan.
+    const page = this.db.query<StoredRow, [string, number, number]>(
+      `SELECT id, session_id, role, content, tool_call_id, tool_calls, token_count, created_at
+       FROM messages
+       WHERE session_id = ?
+       ORDER BY id ASC
+       LIMIT ? OFFSET ?`,
+    );
+    return this.readPages((limit, offset) => page.all(sessionId, limit, offset).map(rowToMessage));
+  }
+
+  /** Last stored row. One statement, still refused when the held lease is due. */
+  loadLatestMessage(sessionId: string): StoredMessage | null {
+    if (!renewHeldLogicalTurnLease()) throw new LogicalTurnLeaseError();
+    const row = this.db
       .query<StoredRow, [string]>(
         `SELECT id, session_id, role, content, tool_call_id, tool_calls, token_count, created_at
          FROM messages
          WHERE session_id = ?
-         ORDER BY id ASC`,
+         ORDER BY id DESC
+         LIMIT 1`,
       )
-      .all(sessionId);
-    return rows.map(rowToMessage);
+      .get(sessionId);
+    return row ? rowToMessage(row) : null;
   }
 
   /** Keep the first `keep` messages and drop the rest. The messages DELETE
    *  trigger keeps the search index in step. */
   saveToolExecution(sessionId: string, execution: ToolExecution): void {
+    assertLogicalTurnWriteLease();
     this.writeWithRetry(() => {
       this.db.run(
         `INSERT INTO tool_executions (session_id, assistant_message_id, tool_use_id, state, receipt)
@@ -700,15 +923,19 @@ export class SessionDb implements SessionStore {
   }
 
   loadToolExecutions(sessionId: string): ToolExecution[] {
-    return this.db
-      .query<{ receipt: string }, [string]>(
-        'SELECT receipt FROM tool_executions WHERE session_id = ? ORDER BY assistant_message_id, rowid',
-      )
-      .all(sessionId)
-      .map((row) => JSON.parse(row.receipt) as ToolExecution);
+    const page = this.db.query<{ receipt: string }, [string, number, number]>(
+      `SELECT receipt FROM tool_executions
+       WHERE session_id = ?
+       ORDER BY assistant_message_id, rowid
+       LIMIT ? OFFSET ?`,
+    );
+    return this.readPages((limit, offset) =>
+      page.all(sessionId, limit, offset).map((row) => JSON.parse(row.receipt) as ToolExecution),
+    );
   }
 
   truncateMessages(sessionId: string, keep: number): void {
+    assertLogicalTurnWriteLease();
     const retain = keep > 0 ? Math.floor(keep) : 0;
     this.writeWithRetry(() => {
       this.db.run(
@@ -821,6 +1048,7 @@ export class SessionDb implements SessionStore {
   }
 
   recordUsageEstimate(sessionId: string, usage: TokenUsage, estimate: CostEstimate): void {
+    assertLogicalTurnWriteLease();
     const known =
       estimate.complete &&
       estimate.amountUsd !== undefined &&
@@ -880,6 +1108,7 @@ export class SessionDb implements SessionStore {
     estimatedCostUsd: number | undefined,
     receipt?: CostEstimate,
   ): void {
+    assertLogicalTurnWriteLease();
     const session = this.getSession(sessionId);
     const supplied =
       estimatedCostUsd !== undefined && Number.isFinite(estimatedCostUsd) && estimatedCostUsd >= 0;
@@ -931,6 +1160,7 @@ export class SessionDb implements SessionStore {
   }
 
   recordCompactionLineage(parentSessionId: string, childSessionId: string): void {
+    assertLogicalTurnWriteLease();
     const now = Date.now() / 1000;
     this.writeWithRetry(() => {
       this.db.run(
@@ -1089,22 +1319,37 @@ export class SessionDb implements SessionStore {
     return rows.map(rowToMessage);
   }
 
+  /** Check the held lease on each page. A fresh lease does not write. */
+  private readPages<T>(read: (limit: number, offset: number) => T[]): T[] {
+    const rows: T[] = [];
+    let offset = 0;
+    for (;;) {
+      if (!renewHeldLogicalTurnLease()) throw new LogicalTurnLeaseError();
+      const page = read(LOGICAL_TURN_READ_PAGE, offset);
+      rows.push(...page);
+      if (page.length < LOGICAL_TURN_READ_PAGE) return rows;
+      offset += page.length;
+    }
+  }
+
   /**
    * Wrap a mutating DB call with busy-retry + WAL checkpoint discipline.
    * SQLITE_BUSY / SQLITE_LOCKED → sleep a uniform 20-150ms and retry up to
    * 15 times before giving up. Every 50 successful writes we TRUNCATE the
    * WAL to keep the sidecar file bounded.
    */
-  private writeWithRetry<T>(fn: () => T): T {
+  private writeWithRetry<T>(fn: () => T, options?: { checkpoint?: boolean }): T {
     for (let i = 0; i < MAX_RETRIES; i++) {
       try {
         const out = fn();
-        this.writeCount++;
-        if (this.writeCount % WAL_CHECKPOINT_EVERY === 0) {
-          try {
-            this.db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
-          } catch {
-            // Non-fatal — checkpoint can fail if readers are active.
+        if (options?.checkpoint !== false) {
+          this.writeCount++;
+          if (this.writeCount % WAL_CHECKPOINT_EVERY === 0) {
+            try {
+              this.db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+            } catch {
+              // Non-fatal — checkpoint can fail if readers are active.
+            }
           }
         }
         return out;
@@ -1115,6 +1360,123 @@ export class SessionDb implements SessionStore {
     }
     throw new Error('unreachable');
   }
+}
+
+const LOGICAL_TURN_STATUSES = new Set<string>([
+  'admitted',
+  'running',
+  'continuing',
+  'completed',
+  'waiting_user',
+  'cancelled',
+  'failed',
+  'exhausted',
+  'stalled',
+]);
+
+const LOGICAL_TURN_COUNTERS = [
+  'segments',
+  'modelCalls',
+  'toolCalls',
+  'providerRetries',
+  'contextRecoveries',
+  'inputTokens',
+  'outputTokens',
+  'cacheCreationInputTokens',
+  'cacheReadInputTokens',
+  'estimatedCostUsd',
+] as const;
+
+function parseLogicalTurnRecord(serialized: string, logicalTurnId: string): LogicalTurnRecord {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized);
+  } catch {
+    throw new LogicalTurnRecordError();
+  }
+  if (!isLogicalTurnRecord(parsed, logicalTurnId)) throw new LogicalTurnRecordError();
+  return omitLegacySegmentLimit(parsed);
+}
+
+function omitLegacySegmentLimit(record: LogicalTurnRecord): LogicalTurnRecord {
+  if (!Object.hasOwn(record, 'segmentLimit')) return record;
+  const { segmentLimit: _segmentLimit, ...rest } = record as LogicalTurnRecord & {
+    segmentLimit?: unknown;
+  };
+  return rest;
+}
+
+function isLogicalTurnRecord(value: unknown, logicalTurnId: string): value is LogicalTurnRecord {
+  if (!isPlainRecord(value)) return false;
+  if (value.version !== 1 || value.logicalTurnId !== logicalTurnId) return false;
+  if (typeof value.sessionId !== 'string' || typeof value.activeSessionId !== 'string')
+    return false;
+  if (!isStringArray(value.compactedSessionIds) || !isPlainRecord(value.binding)) return false;
+  const binding = value.binding;
+  if (
+    typeof binding.provider !== 'string' ||
+    typeof binding.model !== 'string' ||
+    typeof binding.cwd !== 'string'
+  ) {
+    return false;
+  }
+  if (
+    !optionalString(binding, 'route') ||
+    !optionalString(binding, 'authKind') ||
+    !optionalString(binding, 'effort') ||
+    !optionalString(binding, 'toolset') ||
+    !optionalString(binding, 'permissionMode') ||
+    !optionalString(binding, 'policyDigest') ||
+    !optionalString(binding, 'skillApprovalDigest') ||
+    !optionalString(binding, 'mcpIdentityDigest') ||
+    !optionalString(binding, 'hookScopeDigest') ||
+    !optionalString(binding, 'bundleIdentity')
+  ) {
+    return false;
+  }
+  if (typeof value.bindingDigest !== 'string') return false;
+  if (!isFiniteNumber(value.logicalModelCallLimit)) return false;
+  // Legacy rows may still carry segmentLimit. A non-number is corrupt; a number is ignored.
+  if (value.segmentLimit !== undefined && !isFiniteNumber(value.segmentLimit)) return false;
+  if (value.deadlineAt !== undefined && !isFiniteNumber(value.deadlineAt)) return false;
+  if (!isLogicalTurnStatus(value.status)) return false;
+  if (value.lastCause !== undefined && typeof value.lastCause !== 'string') return false;
+  if (value.progressFingerprint !== undefined && typeof value.progressFingerprint !== 'string') {
+    return false;
+  }
+  if (!isFiniteNumber(value.repeatedNoProgress) || !isStringArray(value.runtimeContinuationIds)) {
+    return false;
+  }
+  if (value.finalReply !== undefined && typeof value.finalReply !== 'string') return false;
+  if (value.finishReason !== undefined && typeof value.finishReason !== 'string') return false;
+  if (value.originalUserMessageId !== undefined && !isFiniteNumber(value.originalUserMessageId)) {
+    return false;
+  }
+  if (!isPlainRecord(value.counters)) return false;
+  const counters = value.counters;
+  if (!LOGICAL_TURN_COUNTERS.every((key) => isFiniteNumber(counters[key]))) return false;
+  return isFiniteNumber(value.createdAt) && isFiniteNumber(value.updatedAt);
+}
+
+function isLogicalTurnStatus(value: unknown): value is LogicalTurnRecord['status'] {
+  return typeof value === 'string' && LOGICAL_TURN_STATUSES.has(value);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function optionalString(record: Record<string, unknown>, key: string): boolean {
+  const value = record[key];
+  return value === undefined || typeof value === 'string';
 }
 
 function nonTurnSkillContinuitySnapshot(serialized: string): string {

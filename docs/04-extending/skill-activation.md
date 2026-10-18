@@ -42,9 +42,13 @@ attempt rebuilds its host permission path, so a prior approval cannot suppress a
 new host denial. An absent host approval callback remains absent on retries.
 Caller-owned child gates retain their independent ceiling without repeating the
 host transformer. Activation metadata keeps native child and subprocess ceilings
-in force. Restrictions expire when that run ends, including failure, cancellation
-and consumer abandonment. A later `agent.run()` begins from the original host
-context and tool pool.
+in force. A logical turn is one user turn. After a segment boundary, including
+an automatic `max_tokens` continuation, the host reinstalls the intersection of
+skill allow-lists still in force into the next segment's tool schemas and
+permission gate. Continuity guidance still grants no tool permissions. An empty
+`allowedTools` declaration does not widen that ceiling. Restrictions expire when
+the logical turn ends, including failure, cancellation and consumer abandonment.
+A later ordinary user turn begins from the original host context and tool pool.
 
 Parallel host activations on the same state also run in request order. The next
 activation observes the prior activation's complete restriction before it

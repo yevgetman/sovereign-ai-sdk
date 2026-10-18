@@ -31,6 +31,7 @@ import type { SkillContinuityPort } from '@yevgetman/sov-sdk/skills/continuity';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { TraceWriter } from '@yevgetman/sov-sdk/trace/writer';
 import { tryWriteTrajectory } from '@yevgetman/sov-sdk/trajectory/writer';
+import { instinctCorpusStamp } from '../learning-layer/recall/readInstincts.js';
 import { LearningObserver } from '../learning/observer.js';
 import { instinctsDir } from '../learning/paths.js';
 import { getProjectId } from '../learning/project.js';
@@ -242,7 +243,7 @@ function buildSessionRecallThunk(
   const recallEnabled = recallCfg?.enabled !== false;
   if (!recallEnabled) return undefined;
   const recallProjectId = getProjectId(runtime.cwd).id;
-  return (latestUserText) =>
+  const recall: RecallTurn = (latestUserText) =>
     runtime.learningLayer.recall({
       projectId: recallProjectId,
       latestUserText,
@@ -251,6 +252,11 @@ function buildSessionRecallThunk(
       // Phase E T6 — scope recall to the owning principal (read path).
       ...(userId !== undefined ? { userId } : {}),
     });
+  recall.corpusStamp = async () =>
+    userId === undefined
+      ? instinctCorpusStamp(runtime.harnessHome, recallProjectId)
+      : instinctCorpusStamp(runtime.harnessHome, recallProjectId, userId);
+  return recall;
 }
 
 /** 2026-06-14 config live-apply (M4) — rebuild the ACTIVE SessionContext's

@@ -61,6 +61,7 @@ import {
   type TurnPersistence,
   appendInstructions,
   buildTurnCanUseTool,
+  clearSkillCeiling,
   composeTurn,
   createSteeringPoller,
   gateTurnInstructions,
@@ -432,6 +433,7 @@ async function runTurnInBackground(
   ): Promise<void> => {
     if (continuitySettled) return;
     for (const port of continuityPorts) await port.finish(skillActivationTurnId, outcome);
+    clearSkillCeiling(skillActivationTurnId);
     continuitySettled = true;
   };
   const traceRecorder = (event: TraceEvent): void => {

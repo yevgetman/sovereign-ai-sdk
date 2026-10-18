@@ -60,6 +60,8 @@ the active SOV profile's `model-catalog/` directory; credentials are never store
 Account-scoped caches do not borrow another account's catalog. Failed refreshes preserve
 stale metadata and exact configured model IDs. Use `capabilities.modelDiscovery` to
 check this additive machine interface without changing the existing route contract.
+`capabilities.logicalTurnRecovery` names SOV-owned automatic recovery
+(`owner` `sov`, `version` 1, `mode` `automatic`).
 
 Status is read-only:
 it does not call the provider, refresh tokens, open a browser or write credentials.
@@ -243,9 +245,12 @@ provider and tools and emit a typed terminal failure. Cleanup has a bounded wait
 The native host uses the selected model's frozen context/output limits, scoped
 tool schemas and effective system prompt to check the configured proactive
 threshold. It compacts before a drive when reducible history reaches that limit.
-A provider overflow may then cause one independent compact-and-retry. A second
-overflow is a typed `context_overflow` failure. A no-op compaction does not retry
-an unchanged request. If the fixed system/tool schemas or mandatory retained
+A provider overflow may then cause one compact-and-retry, independent of an
+earlier proactive compaction. The abandoned drive and the summary call are
+charged before that retry, and the retry's max turns are the logical model
+calls still remaining. No retry starts when none remain. A second overflow is
+a typed `context_overflow` failure. A no-op compaction does not retry an
+unchanged request. If the fixed system/tool schemas or mandatory retained
 tail cannot fit, the host refuses before paid summary work or a child pivot.
 Capability refusal precedes paid summarization. The summary request carries the
 same selected effort and frozen model evidence, and must fit that model's actual
@@ -282,21 +287,78 @@ layered settings and user configuration cascade. Headless permission requests
 are denied because this surface has no interactive approver.
 
 Each recognized request ends with exactly one `turn.completed` or `turn.error`.
-Completion contains `reply`, `sessionId`, `activeSessionId`, `finishReason` and route metadata.
-Only the SDK's `completed` reason emits `turn.completed` and exits zero. A
-`max_tokens`, `max_turns`, or `checkin` stop emits `turn.error` with
-`outcome: "needs_continuation"`, `code: "needs_continuation"`, `continuationCause`,
-a safe `nextAction`, and exit3. A partial `reply` can be present. It is not a
-finished answer. Cancellation emits `outcome: "interrupted"` and reason
-`cancelled` or `deadline`; other errors emit `outcome: "failed"`.
+Completion contains `reply`, `sessionId`, `activeSessionId`, `logicalTurnId`,
+`finishReason`, cumulative counters and route metadata. `session.started`
+includes that same `logicalTurnId` for a new turn and for
+`--continue-logical-turn`, and advertises `capabilities.logicalTurnRecovery`.
+A `turn.error` after the id is assigned also carries it, including storage
+and lease failures. The SQLite row is then the one named by that id.
+`--resume` starts a different logical turn; it does not continue this one. A bounded segment that ends at
+`max_tokens` or `max_turns` emits `turn.continuing`, reloads durable state and
+continues without replaying the original prompt. The toolset segment defaults
+are chat 1, web 6, ops 8 and coding 100 model calls. Those numbers bound model
+calls inside one segment. They are not a count of segments, and the durable row
+does not store a segment-count limit. The logical-turn default is 100 model
+calls. `--deadline-ms` covers the complete logical turn, and
+`--continue-logical-turn` aborts at the stored deadline when this invocation
+omits `--deadline-ms`, including a tool that is still blocked. Passing
+`--deadline-ms` together with `--continue-logical-turn` is invalid input.
+The stored deadline stays absolute, and the error says the flag was not applied.
+
+A deliberate `checkin` emits `turn.completed` with `outcome: "waiting_user"`
+and `nextAction: "user_input"`. `answerWith` names `--resume <activeSessionId>`.
+That prompted resume is how to send the answer. `--continue-logical-turn`
+replays the stored check-in and does not call the model, with or without a
+piped prompt.
+
+If the supervisor has already stored `completed`, `waiting_user`, or another
+terminal, a later abort does not replace that event. The stdout terminal keeps
+the stored outcome and the reply, and the row stays as stored. A Stop hook
+that aborts with `deadline`, or a user abort after that commit, does not
+reclassify the outcome as `continuation_exhausted` or `interrupted`.
+Exhaustion, including a deadline and a model-call cap, emits `turn.error`
+with `continuation_exhausted` and `nextAction: "none"`. Two unchanged
+progress fingerprints emit `continuation_stalled` with `nextAction: "none"`.
+A later `--continue-logical-turn` of an exhausted or stalled row does not
+resume it. Unsafe receipts emit `recovery_unsafe` with
+`nextAction: "inspect_session"`. A later `--continue-logical-turn` of that
+row is `continuation_failed` with `nextAction: "none"` and does not retry
+the unsafe decision. A stored cancelled row emits `recovery_state_invalid`
+with `nextAction: "none"`. A corrupt logical-turn record emits
+`recovery_state_invalid` with `nextAction: "repair_request"` and is not
+continued. Those stops stay stopped. Do not use `--continue-logical-turn`
+to resume them. Use `--continue-logical-turn <id>` with `--sdk --json` to
+continue stored work without a replacement prompt only when that work
+resumes: an in-flight lease after it expires, and a skill-approval, MCP
+identity, hook-scope, working-directory, or permission-policy mismatch
+after the pinned environment is restored. Any other bound route, provider,
+auth, model, effort, toolset, permission mode, or bundle mismatch uses that
+same `nextAction: "continue_logical_turn"`. A live owner keeps a short
+lease, so a second continuation does not run tools or start another worker.
+While that lease is unexpired the event is `logical_turn_leased` with
+`recoverable: true`, `nextAction: "continue_logical_turn"`, and
+`retryAfterMs` set to the time left on the lease. It is not
+`nextAction: "none"`. The message says a live owner is busy and a crashed
+owner can be continued after the lease expires. After a crash the lease
+expires in about 30 seconds, and the same id is accepted only when receipt
+recovery is safe.
+Route, model, effort, toolset, permissions, working directory and bundle
+identity stay bound to the stored record.
+Cancellation emits `outcome: "interrupted"`. Exhaustion and a deadline emit
+`outcome: "exhausted"`. A repeated no-progress fingerprint emits
+`outcome: "stalled"`. `finishReason` is `repeated:<action>`, naming the
+terminal cause or the single repeated tool. One unchanged continuation is
+not a stall. A new transcript row, pagination cursor, or compaction child
+is progress. Other errors emit `outcome: "failed"`.
 
 Native runs opt in to committing approved completed assistant messages before
 exposing them. A cooperative cancelled drive gets at most one second to settle
 its messages, tool receipts and usage before its terminal result. Stream teardown
 then keeps its existing bounded wait. Automatic recovery requires an existing
-session with a durable user message and coherent tool receipts. Unknown or
-in-flight tool effects, an unsettled drive, missing session, or storage failure
-set `recoverable: false`. Failed final storage verification also refuses completed
+session with a durable user message and coherent tool receipts. Completed
+receipts are reused. `started` or `unknown` effects stop recovery before paid
+work. An unsettled drive, missing session, or storage failure sets
+`recoverable: false`. Failed final storage verification also refuses completed
 success and keeps the completed canonical rows and observed usage for inspection.
 Safe pre-session interruptions, rate limits and transient token-service failures
 report `nextAction: "retry"`. A malformed token-service response reports
@@ -352,9 +414,54 @@ keep their existing typed errors and do not retry. Native `turn.error` events re
 the fixed `deliveryPhase` and `deliveryReason` fields; incomplete delivery reports
 `recoverable: false`.
 
-Exit codes are 0 for completion, 1 for turn failure, 2 for invalid input/options,
-130 for SIGINT and 143 for SIGTERM. A Grok 403 reports `tier_blocked` and never
-switches to a paid API key.
+Exit codes are 0 for completion (including `waiting_user` and a completed
+continuation), 1 for a turn failure that is not a logical-turn stop, 2 for
+invalid input or options, 3 for a logical-turn stop, 130 for SIGINT and 143
+for SIGTERM. Exit 3 is no longer `needs_continuation`. A `max_tokens` or
+`max_turns` segment emits `turn.continuing` and stays in the same process. A
+`checkin` completes with `waiting_user`, `nextAction: "user_input"`, and
+`answerWith` set to `--resume <activeSessionId>`. It exits 0. Send the answer
+with that `--resume`. `--continue-logical-turn` does not deliver it. Do not
+start another prompt on exit 3. That code used to mean the partial answer
+needed another turn. It now means the logical turn has stopped.
+
+These logical-turn stops all return 3. A deadline returns 3
+(`continuation_exhausted`, reason `deadline`), including a deadline that
+aborts the launch and a later `--continue-logical-turn` of that exhausted
+record. A model-call cap returns 3 (`continuation_exhausted`, reason
+`model_call_limit`), both when the running turn reaches the cap and when a
+continuation is asked to resume it. A lease conflict returns 3
+(`logical_turn_leased`) while another owner holds the turn. That stop is
+recoverable: wait `retryAfterMs`, then continue the same id. It does not use
+`nextAction: "none"`. A cancelled continuation
+returns 3: `--continue-logical-turn` of a stored cancelled id is
+`recovery_state_invalid` and does not call the model. An in-process cancel
+is still SIGINT 130 or SIGTERM 143, not 3. A stall returns 3
+(`continuation_stalled`), including resume of a stored stall. Invalid
+recovery state returns 3 (`recovery_state_invalid`) for a skill-approval
+mismatch, an MCP identity mismatch, a hook-scope mismatch, a working-directory
+or permission-policy mismatch, any other bound route, provider, auth, model,
+effort, toolset, permission mode, or bundle mismatch, and a corrupt
+logical-turn record. A hook-scope mismatch is a stored hook digest that
+differs from the current hooks. An old row has no hook pin: empty hooks
+cannot widen it, and any command is a hook-scope mismatch. A skill-approval,
+MCP identity, hook-scope, working-directory, or permission-policy mismatch
+names that binding. Restore the pinned environment and continue the same id.
+`nextAction` is `continue_logical_turn`, not `repair_request`. Any other bound
+route, provider, auth, model, effort, toolset, permission mode, or bundle
+mismatch uses that same next action. Passed route, model, and toolset flags
+cannot repair it: the stored row overwrites them. A corrupt logical-turn
+record is not continued that way.
+Unsafe recovery returns 3 (`recovery_unsafe`) when the stored session has no
+usable receipt target, including a `started` or `unknown` tool receipt or an
+ambiguous truncated tool call. That stop records `failed` with finish reason
+`unsafe_effect` after the lease is held, then releases the lease. A later
+`--continue-logical-turn` of that row is `continuation_failed` and does not
+retry the unsafe decision or treat the turn as still running. Any other failed
+logical result returns the same 3 when its status is not `completed` or
+`waiting_user` and it is not rethrown as an interrupt or a provider failure.
+A Grok 403 reports `tier_blocked`
+and never switches to a paid API key.
 
 ## Verification limits
 

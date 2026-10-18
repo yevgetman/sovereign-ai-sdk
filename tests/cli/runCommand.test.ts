@@ -203,6 +203,191 @@ describe('runRunCommand', () => {
     expect(stderr).toContain('--json and --stdin');
   });
 
+  test('rejects --continue-logical-turn without --sdk before a turn starts', async () => {
+    let stdinReads = 0;
+    let stdout = '';
+    let stderr = '';
+    const code = await runRunCommand(
+      {
+        json: true,
+        stdin: true,
+        continueLogicalTurn: 'lt-existing',
+        provider: 'mock',
+        model: 'mock-haiku',
+        db: dbPath,
+        permissionMode: 'bypass',
+        preflight: false,
+      },
+      {
+        readStdin: async () => {
+          stdinReads += 1;
+          return 'should not start a new turn';
+        },
+        writeStdout: (s) => {
+          stdout += s;
+        },
+        writeStderr: (s) => {
+          stderr += s;
+        },
+      },
+    );
+    const events = stdout
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as JsonEvent);
+
+    expect(code).toBe(2);
+    expect(stdinReads).toBe(0);
+    expect(stderr).toBe('');
+    expect(events).toEqual([
+      {
+        type: 'turn.error',
+        sessionId: null,
+        code: 'invalid_input',
+        error: 'Native route and input controls require --sdk; no provider was started.',
+        recoverable: false,
+      },
+    ]);
+    expect(existsSync(dbPath)).toBe(false);
+    expect(existsSync(join(home, 'projects'))).toBe(false);
+  });
+
+  test('help describes prompt-free continuation without --stdin', () => {
+    const help = spawnSync(process.execPath, [MAIN, 'run', '--help'], {
+      encoding: 'utf8',
+      env: { ...process.env, HARNESS_HOME: home },
+    });
+    expect(help.status).toBe(0);
+    const helpText = help.stdout ?? '';
+    const normalized = helpText.replace(/\s+/g, ' ');
+    const example = 'sov run --sdk --json --continue-logical-turn <id>';
+    const continuation = normalized.match(/Prompt-free continuation:.*?<id>\./)?.[0] ?? '';
+    expect(continuation).toBe(`Prompt-free continuation: ${example}.`);
+    expect(continuation).not.toContain('--stdin');
+    const flagAt = helpText.indexOf('\n  --continue-logical-turn <id>');
+    expect(flagAt).toBeGreaterThanOrEqual(0);
+    const nextFlag = helpText.indexOf('\n  --', flagAt + 1);
+    const flagBlock = helpText.slice(flagAt, nextFlag === -1 ? undefined : nextFlag);
+    expect(flagBlock).toContain('--sdk');
+    expect(flagBlock).toContain('--json');
+    expect(flagBlock).toContain('prompt-free');
+    expect(flagBlock).not.toContain('--stdin');
+    expect(flagBlock).not.toContain('--route');
+  });
+
+  test('continuation names the one missing --sdk or --json flag', async () => {
+    const capture = async (
+      opts: RunOptions,
+    ): Promise<{ code: number; stdout: string; stderr: string; stdinReads: number }> => {
+      let stdout = '';
+      let stderr = '';
+      let stdinReads = 0;
+      const code = await runRunCommand(opts, {
+        readStdin: async () => {
+          stdinReads += 1;
+          return 'should not be read';
+        },
+        writeStdout: (s) => {
+          stdout += s;
+        },
+        writeStderr: (s) => {
+          stderr += s;
+        },
+      });
+      return { code, stdout, stderr, stdinReads };
+    };
+
+    const missingSdk = await capture({ continueLogicalTurn: 'lt-existing' });
+    expect(missingSdk.code).toBe(2);
+    expect(missingSdk.stdinReads).toBe(0);
+    expect(missingSdk.stdout).toBe('');
+    expect(missingSdk.stderr).toBe('sov run: --continue-logical-turn requires --sdk\n');
+
+    const jsonWithoutStdin = await capture({
+      json: true,
+      continueLogicalTurn: 'lt-existing',
+    });
+    expect(jsonWithoutStdin.code).toBe(2);
+    expect(jsonWithoutStdin.stdinReads).toBe(0);
+    expect(jsonWithoutStdin.stdout).toBe('');
+    expect(jsonWithoutStdin.stderr).toBe('sov run: --continue-logical-turn requires --sdk\n');
+
+    const missingJson = await capture({ sdk: true, continueLogicalTurn: 'lt-existing' });
+    expect(missingJson.code).toBe(2);
+    expect(missingJson.stdinReads).toBe(0);
+    expect(missingJson.stdout).toBe('');
+    expect(missingJson.stderr).toBe('sov run: --continue-logical-turn requires --json\n');
+    expect(existsSync(dbPath)).toBe(false);
+
+    const cli = (args: string[]) =>
+      spawnSync(process.execPath, [MAIN, ...args], {
+        encoding: 'utf8',
+        cwd,
+        input: '',
+        env: { ...process.env, HARNESS_HOME: home, SOV_TEST_MOCK_PROVIDER: '1' },
+      });
+    const cliMissingSdk = cli(['run', '--continue-logical-turn', 'lt-existing']);
+    expect(cliMissingSdk.status).toBe(2);
+    expect(cliMissingSdk.stdout).toBe('');
+    expect(cliMissingSdk.stderr).toBe('sov run: --continue-logical-turn requires --sdk\n');
+    const cliMissingJson = cli(['run', '--sdk', '--continue-logical-turn', 'lt-existing']);
+    expect(cliMissingJson.status).toBe(2);
+    expect(cliMissingJson.stdout).toBe('');
+    expect(cliMissingJson.stderr).toBe('sov run: --continue-logical-turn requires --json\n');
+  });
+
+  test('prompt-free --sdk --json continuation reaches the stored turn', async () => {
+    let stdinReads = 0;
+    let stdout = '';
+    let stderr = '';
+    const code = await runRunCommand(
+      { sdk: true, json: true, continueLogicalTurn: 'lt-missing', db: dbPath },
+      {
+        readStdin: async () => {
+          stdinReads += 1;
+          return 'should not be read';
+        },
+        writeStdout: (s) => {
+          stdout += s;
+        },
+        writeStderr: (s) => {
+          stderr += s;
+        },
+      },
+    );
+    const events = stdout
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as JsonEvent);
+
+    expect(code).toBe(2);
+    expect(stdinReads).toBe(0);
+    expect(stderr).toBe('');
+    expect(events).toHaveLength(1);
+    expect(events[0]?.error).toBe('logical turn does not exist');
+    expect(JSON.stringify(events[0])).not.toContain('--stdin');
+    expect(JSON.stringify(events[0])).not.toContain('--route');
+
+    const cli = spawnSync(
+      process.execPath,
+      [MAIN, 'run', '--sdk', '--json', '--continue-logical-turn', 'lt-missing', '--db', dbPath],
+      {
+        encoding: 'utf8',
+        cwd,
+        input: '',
+        env: { ...process.env, HARNESS_HOME: home, SOV_TEST_MOCK_PROVIDER: '1' },
+      },
+    );
+    expect(cli.status).toBe(2);
+    expect(cli.stderr).toBe('');
+    const cliEvents = (cli.stdout ?? '')
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as JsonEvent);
+    expect(cliEvents).toHaveLength(1);
+    expect(cliEvents[0]?.error).toBe('logical turn does not exist');
+  });
+
   test('reports empty stdin as a structured machine error', async () => {
     const result = await invoke('');
 

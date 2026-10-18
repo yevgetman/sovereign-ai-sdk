@@ -30,6 +30,7 @@ import type { AppVariables } from '../auth.js';
 import { disposeBus, peekBus } from '../eventBus.js';
 import type { Runtime } from '../runtime.js';
 import { isValidSessionId } from '../sessionId.js';
+import { presentStoredMessages } from '../turnComposition.js';
 import { loadOwnedSession, ownerIdOf } from './ownership.js';
 
 /** Upper bound on the `?limit` query param for GET /sessions. */
@@ -143,8 +144,9 @@ export function sessionsRoute(
     // Phase E T4 — owner-only access (404 hides another principal's session).
     const session = loadOwnedSession(runtime, c, id);
     if (session === null) return c.json({ error: 'not found' }, 404);
-    const stored = runtime.sessionDb.loadMessages(id);
+    const stored = presentStoredMessages(runtime.sessionDb.loadMessages(id));
     // Strip storage-internal fields — callers only need role + content to render.
+    // Runtime continuation markers stay in the session row and are not shown.
     const messages = stored.map((m) => ({ role: m.role, content: m.content }));
     return c.json({ messages });
   });

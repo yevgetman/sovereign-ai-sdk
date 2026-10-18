@@ -1,3 +1,4 @@
+import { logicalTurnPreludeCache, rememberLogicalSegmentStop } from '../agent/logicalTurn.js';
 import { isOwnerSubscriptionModel } from '../providers/models/ownerModelPolicy.js';
 // The turn loop — async generator yielding typed events. Phase 2: wraps
 // the Phase-1 single-turn body in a while-loop. When the assistant
@@ -27,9 +28,14 @@ import {
   microcompact,
   shouldMicrocompact,
 } from '../compact/microcompact.js';
+import type { StopHookReason } from '../hooks/types.js';
 import { LoopDetectorState } from '../loop/detector.js';
 import { toToolSchemas } from '../mcp/schemaSerialization.js';
-import { injectMemoryIntoLatestUserMessage } from '../memory/injection.js';
+import {
+  FENCE_PREAMBLE,
+  injectMemoryIntoLatestUserMessage,
+  injectMemoryIntoUserText,
+} from '../memory/injection.js';
 import {
   PersistBeforeRunError,
   ToolStorageError,
@@ -62,7 +68,7 @@ import type { TraceEvent } from '../trace/types.js';
 import { type TurnSummary, detectStall } from '../util/stall.js';
 import { DEFAULT_CONDUCT_REFUSAL, wrapConductAuditSink } from './conductPort.js';
 import { runTools } from './orchestrator.js';
-import { injectRecallIntoLatestUserMessage } from './recallInjection.js';
+import { injectRecallIntoLatestUserMessage, prependRecall } from './recallInjection.js';
 import type {
   AssistantMessage,
   ContentBlock,
@@ -73,9 +79,25 @@ import type {
   StreamEvent,
   Terminal,
   TokenUsage,
+  UserMessage,
 } from './types.js';
 
 const DEFAULT_MAX_TURNS = 100;
+
+type DeferredLogicalStop = { fire?: (reason?: StopHookReason) => Promise<void> };
+
+const logicalStops = new WeakMap<Terminal, (reason?: StopHookReason) => Promise<void>>();
+
+/** Stop hook deferred by one logical-turn segment. Absent when that segment fired nothing. */
+export function logicalSegmentStop(
+  terminal: Terminal,
+): ((reason?: StopHookReason) => Promise<void>) | undefined {
+  return logicalStops.get(terminal);
+}
+
+function bindDeferredLogicalStop(terminal: Terminal, deferred: DeferredLogicalStop): void {
+  if (deferred.fire) logicalStops.set(terminal, deferred.fire);
+}
 
 // The TokenUsage fields carried by usage_delta events. Mirrors the
 // usageAccumulator's field list (kept local — the boundary forbids importing
@@ -142,8 +164,13 @@ function flattenContentBlock(block: unknown): string {
 
 /** Run one user turn, including provider streaming and tool-use continuation turns. */
 export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | Message, Terminal> {
+  const deferred: DeferredLogicalStop = {};
   const continuity = params.toolContext?.skillContinuity;
-  if (!continuity) return yield* queryInternal(params);
+  if (!continuity) {
+    const terminal = yield* queryInternal(params, deferred);
+    bindDeferredLogicalStop(terminal, deferred);
+    return terminal;
+  }
   const context = params.toolContext;
   if (
     !context ||
@@ -164,10 +191,14 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
   let terminal: Terminal | undefined;
   let failed = false;
   try {
-    terminal = yield* queryInternal({
-      ...params,
-      toolContext: { ...context, skillActivation: state },
-    });
+    terminal = yield* queryInternal(
+      {
+        ...params,
+        toolContext: { ...context, skillActivation: state },
+      },
+      deferred,
+    );
+    bindDeferredLogicalStop(terminal, deferred);
     return terminal;
   } catch (error) {
     failed = true;
@@ -190,6 +221,7 @@ export async function* query(params: QueryParams): AsyncGenerator<StreamEvent | 
 
 async function* queryInternal(
   params: QueryParams,
+  deferred: DeferredLogicalStop,
 ): AsyncGenerator<StreamEvent | Message, Terminal> {
   const modelMetadata = params.modelMetadata ? structuredClone(params.modelMetadata) : undefined;
   // Publisher limits are snapshotted once. Host caps never expand them.
@@ -331,16 +363,25 @@ async function* queryInternal(
   // Phase 13.3 — sliding window of TurnSummary records for stall detection.
   const recentTurnSummaries: TurnSummary[] = [];
   const originalUserText = latestUserText(messages);
-  let history: Message[] = params.memoryManager
-    ? await injectMemoryIntoLatestUserMessage(messages, params.memoryManager)
-    : [...messages];
+  // The host stores the original user message and rehydrates it on the next
+  // segment, so memory and recall fences have to be applied again in this copy.
+  // User-turn hooks stay skipped. A fence that is already present is not copied again.
+  let history = [...messages];
+  if (params.memoryManager) {
+    const memory = withLogicalTurnMemoryCache(params.memoryManager);
+    history = params.continuation
+      ? await reinjectMemoryFence(history, memory)
+      : await injectMemoryIntoLatestUserMessage(history, memory);
+  }
 
   // Learning loop (Recall): after memory injection, prepend recalled lessons to
-  // the latest user message. Optional thunk bound by the host; query() stays
-  // project-agnostic. Empty injectionText leaves history unchanged (same ref).
+  // the latest human user message. Optional thunk bound by the host; query() stays
+  // project-agnostic. Empty injectionText leaves history unchanged. A continuation
+  // reapplies the cached fence once; it does not stack a closed recall block.
   if (params.recall) {
-    const recalled = await params.recall(originalUserText);
-    history = injectRecallIntoLatestUserMessage(history, recalled.injectionText);
+    history = params.continuation
+      ? await reinjectRecallFence(history, params.recall, originalUserText)
+      : await injectRecallOnce(history, params.recall, originalUserText);
   }
 
   // Both memory + recall injection PREPEND their blocks to the latest user
@@ -354,7 +395,7 @@ async function* queryInternal(
 
   // UserPromptSubmit: runs once before turn 0. A hook can deny (terminating
   // immediately) or rewrite the prompt text in the latest user message.
-  if (hookRunner && sessionId && cwd && originalUserText !== undefined) {
+  if (!params.continuation && hookRunner && sessionId && cwd && originalUserText !== undefined) {
     const result = await hookRunner(
       'UserPromptSubmit',
       {
@@ -366,11 +407,13 @@ async function* queryInternal(
       signal,
     );
     if (result.block) {
+      const error = new Error(result.reason ?? 'prompt rejected by UserPromptSubmit hook');
+      error.name = 'UserTurnPolicyError';
       const terminal: Terminal = {
         reason: 'error',
-        error: new Error(result.reason ?? 'prompt rejected by UserPromptSubmit hook'),
+        error,
       };
-      await fireStopHook(hookRunner, sessionId, cwd, terminal.reason, signal);
+      await maybeFireStop(terminal.reason);
       return terminal;
     }
     if (typeof result.rewrittenPrompt === 'string') {
@@ -409,7 +452,7 @@ async function* queryInternal(
   const conduct = params.conduct;
   const conductCtx = params.conductCtx;
   const emitConductAudit = wrapConductAuditSink(conduct?.auditSink?.bind(conduct));
-  if (conduct?.preGate && conductCtx && conductCtx.surface === 'user') {
+  if (!params.continuation && conduct?.preGate && conductCtx && conductCtx.surface === 'user') {
     const gateText = latestUserText(history);
     if (gateText !== undefined) {
       // Gate-input capture (attestation evidence §3.4): hand the EXACT text the
@@ -444,9 +487,11 @@ async function* queryInternal(
             await maybeFireStop('completed');
             return refusal;
           }
+          const error = new Error('prompt rejected by conduct preGate');
+          error.name = 'UserTurnPolicyError';
           const terminal: Terminal = {
             reason: 'error',
-            error: new Error('prompt rejected by conduct preGate'),
+            error,
           };
           await maybeFireStop(terminal.reason);
           return terminal;
@@ -471,7 +516,7 @@ async function* queryInternal(
   // posture-shaping, FAIL-OPEN by design; 'refuse' short-circuits pre-model
   // into a refusal reply. Non-refuse postures are advisory in 1b (audited;
   // the engine consumes them when it arrives).
-  if (conduct?.triage && conductCtx && conductCtx.surface === 'user') {
+  if (!params.continuation && conduct?.triage && conductCtx && conductCtx.surface === 'user') {
     const triageText = latestUserText(history);
     if (triageText !== undefined) {
       const startedAt = Date.now();
@@ -508,9 +553,23 @@ async function* queryInternal(
   }
 
   async function maybeFireStop(reason: Terminal['reason']): Promise<void> {
-    if (hookRunner && sessionId && cwd) {
-      await fireStopHook(hookRunner, sessionId, cwd, reason, signal);
+    if (!hookRunner || !sessionId || !cwd) return;
+    if (params.logicalTurn) {
+      // The supervisor fires one Stop at the logical terminal. A retry or
+      // continuation must not observe this segment as an ending. The work
+      // signal is often already aborted (deadline) when that closure runs;
+      // binding Stop to it skips the command. The host may also drop the
+      // returned terminal on that abort, so the lease binding keeps the closure.
+      deferred.fire = (override?: StopHookReason) => {
+        const stopReason = override ?? reason;
+        if (signal && !signal.aborted)
+          return fireStopHook(hookRunner, sessionId, cwd, stopReason, signal);
+        return fireStopHook(hookRunner, sessionId, cwd, stopReason);
+      };
+      rememberLogicalSegmentStop(deferred.fire);
+      return;
     }
+    await fireStopHook(hookRunner, sessionId, cwd, reason, signal);
   }
 
   const accountingPort = params.inputTokenAccounting ?? modelInputTokenAccounting(provider.name);
@@ -598,7 +657,7 @@ async function* queryInternal(
   const requestHistory = (): Message[] => {
     if (!retainedSkillGuidance) return history;
     const copy = history.slice();
-    let index = copy.findLastIndex((message) => message.role === 'user');
+    let index = copy.findLastIndex((message) => isHumanUserMessage(message));
     if (index < 0) {
       copy.unshift({ role: 'user', content: [] });
       index = 0;
@@ -981,10 +1040,7 @@ async function* queryInternal(
     if (stopReason === 'max_tokens') {
       if (toolUseBlocks.length > 0) {
         const msg = consumeGuidance(
-          synthesizeToolResultMessage(
-            toolUseBlocks,
-            'tool call was not executed because the assistant response hit max_tokens before completing the turn',
-          ),
+          synthesizeToolResultMessage(toolUseBlocks, AMBIGUOUS_MAX_TOKENS_TOOL_NOTE),
         );
         history.push(msg);
         yield msg;
@@ -1269,6 +1325,9 @@ async function* queryInternal(
         params.maxToolCallsBeforeCheckin !== undefined &&
         totalToolCallCount >= params.maxToolCallsBeforeCheckin
       ) {
+        // A supervised check-in is waiting_user, so Stop waits for that
+        // terminal. An unsupervised pause stays a segment boundary.
+        if (params.logicalTurn) await maybeFireStop('checkin');
         return { reason: 'checkin', toolCallCount: totalToolCallCount };
       }
     } catch (err) {
@@ -1326,7 +1385,7 @@ async function fireStopHook(
   runner: import('../hooks/types.js').HookRunner,
   sessionId: string,
   cwd: string,
-  reason: Terminal['reason'],
+  reason: StopHookReason,
   signal?: AbortSignal,
 ): Promise<void> {
   try {
@@ -1336,10 +1395,198 @@ async function fireStopHook(
   }
 }
 
+type PreludeBucket = WeakMap<object, Map<string, { text: string; fingerprint: string }>>;
+
+function preludeKey(userText: string | undefined): string {
+  return userText ?? '';
+}
+
+/** '' means the host did not report a file identity, so the turn cache stands.
+ *  undefined means the stamp failed and the text must not be reused. */
+async function sourceFingerprint(
+  read: (() => Promise<string>) | undefined,
+): Promise<string | undefined> {
+  if (!read) return '';
+  try {
+    return await read();
+  } catch {
+    return undefined;
+  }
+}
+
+function cachedPrelude(
+  bucket: PreludeBucket,
+  source: object,
+  key: string,
+  fingerprint: string | undefined,
+): string | undefined {
+  if (fingerprint === undefined) return undefined;
+  const hit = bucket.get(source)?.get(key);
+  if (!hit || hit.fingerprint !== fingerprint) return undefined;
+  return hit.text;
+}
+
+function storePrelude(
+  bucket: PreludeBucket,
+  source: object,
+  key: string,
+  text: string,
+  fingerprint: string,
+): void {
+  let entries = bucket.get(source);
+  if (!entries) {
+    entries = new Map();
+    bucket.set(source, entries);
+  }
+  entries.set(key, { text, fingerprint });
+}
+
+function withLogicalTurnMemoryCache(
+  memory: NonNullable<QueryParams['memoryManager']>,
+): NonNullable<QueryParams['memoryManager']> {
+  const cache = logicalTurnPreludeCache();
+  if (!cache) return memory;
+  const snapshotStamp = memory.snapshotStamp;
+  return {
+    prefetchSnapshot: (userText) => cachedMemorySnapshot(cache.memory, memory, userText),
+    ...(snapshotStamp ? { snapshotStamp: () => snapshotStamp() } : {}),
+    syncTurn: (user, assistant) => memory.syncTurn(user, assistant),
+    onMemoryWrite: (change) => memory.onMemoryWrite(change),
+    onDelegation: (task, result) => memory.onDelegation(task, result),
+  };
+}
+
+async function cachedMemorySnapshot(
+  bucket: PreludeBucket,
+  memory: NonNullable<QueryParams['memoryManager']>,
+  userText: string,
+): Promise<string> {
+  const snapshotStamp = memory.snapshotStamp;
+  const readStamp = snapshotStamp ? () => snapshotStamp() : undefined;
+  const before = await sourceFingerprint(readStamp);
+  const hit = cachedPrelude(bucket, memory, userText, before);
+  if (hit !== undefined) return hit;
+  const snapshot = await memory.prefetchSnapshot(userText);
+  if (before !== undefined) {
+    const after = await sourceFingerprint(readStamp);
+    if (after !== undefined) storePrelude(bucket, memory, userText, snapshot, after);
+  }
+  return snapshot;
+}
+
+async function cachedRecallText(
+  recall: NonNullable<QueryParams['recall']>,
+  userText: string | undefined,
+): Promise<string> {
+  const cache = logicalTurnPreludeCache();
+  if (!cache) {
+    const recalled = await recall(userText);
+    return recalled.injectionText;
+  }
+  const corpusStamp = recall.corpusStamp;
+  const readStamp = corpusStamp ? () => corpusStamp() : undefined;
+  const before = await sourceFingerprint(readStamp);
+  const key = preludeKey(userText);
+  const hit = cachedPrelude(cache.recall, recall, key, before);
+  if (hit !== undefined) return hit;
+  const recalled = await recall(userText);
+  if (before !== undefined) {
+    const after = await sourceFingerprint(readStamp);
+    if (after !== undefined) storePrelude(cache.recall, recall, key, recalled.injectionText, after);
+  }
+  return recalled.injectionText;
+}
+
+/** True when stored text already opens with the preamble and a closed block.
+ *  Mentioning `<memory-context>` is not itself a fence. */
+function hasLeadingClosedMemoryFence(text: string): boolean {
+  if (!text.startsWith(FENCE_PREAMBLE)) return false;
+  const rest = text.slice(FENCE_PREAMBLE.length).trimStart();
+  const open = '<memory-context>';
+  const close = '</memory-context>';
+  if (!rest.startsWith(open)) return false;
+  return rest.indexOf(close) >= open.length;
+}
+
+/** Reapply the memory fence to the original user message after rehydration.
+ *  Tool-result tails have no user text, so they are skipped. The caller's
+ *  messages are not mutated, and a fence that is already present is left as-is. */
+async function reinjectMemoryFence(
+  messages: Message[],
+  memory: { prefetchSnapshot(userMsg: string): Promise<string> },
+): Promise<Message[]> {
+  const history = [...messages];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    if (!isHumanUserMessage(msg)) continue;
+    if (msg.content.some((block) => block.type === 'tool_result')) continue;
+    const textIndex = msg.content.findIndex((block) => block.type === 'text');
+    const block = msg.content[textIndex];
+    if (!block || block.type !== 'text') continue;
+    // A fence already in this segment copy is left as-is. Do not read again.
+    if (hasLeadingClosedMemoryFence(block.text)) return history;
+    const snapshot = await memory.prefetchSnapshot(block.text);
+    const trimmed = snapshot.trim();
+    // A stored copy of this snapshot is already present. A bare tag mention
+    // still receives the snapshot once.
+    if (!trimmed || block.text.includes(trimmed)) return history;
+    const next = injectMemoryIntoUserText(block.text, snapshot);
+    if (next === block.text) return history;
+    const content = [...msg.content];
+    content[textIndex] = { type: 'text', text: next };
+    history[i] = { ...msg, content };
+    return history;
+  }
+  return history;
+}
+
+function hasClosedRecallFence(text: string): boolean {
+  const open = '<recall-context>';
+  const close = '</recall-context>';
+  const start = text.indexOf(open);
+  if (start < 0) return false;
+  return text.indexOf(close, start + open.length) >= 0;
+}
+
+async function injectRecallOnce(
+  messages: Message[],
+  recall: NonNullable<QueryParams['recall']>,
+  userText: string | undefined,
+): Promise<Message[]> {
+  const injectionText = await cachedRecallText(recall, userText);
+  return injectRecallIntoLatestUserMessage(messages, injectionText);
+}
+
+/** Reapply recall to the stored human prompt. Tool-result tails and runtime
+ *  markers are not the lesson target. A closed recall fence is left as-is. */
+async function reinjectRecallFence(
+  messages: Message[],
+  recall: NonNullable<QueryParams['recall']>,
+  userText: string | undefined,
+): Promise<Message[]> {
+  const history = [...messages];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    if (!isHumanUserMessage(msg)) continue;
+    if (msg.content.some((block) => block.type === 'tool_result')) continue;
+    const textIndex = msg.content.findIndex((block) => block.type === 'text');
+    const block = msg.content[textIndex];
+    if (!block || block.type !== 'text') continue;
+    if (hasClosedRecallFence(block.text)) return history;
+    const injectionText = await cachedRecallText(recall, userText);
+    if (!injectionText) return history;
+    const content = [...msg.content];
+    content[textIndex] = { type: 'text', text: prependRecall(block.text, injectionText) };
+    history[i] = { ...msg, content };
+    return history;
+  }
+  return history;
+}
+
 function rewriteLatestUserText(messages: Message[], next: string): Message[] {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (!message || message.role !== 'user') continue;
+    if (!isHumanUserMessage(message)) continue;
     const idx = message.content.findIndex((block) => block.type === 'text');
     if (idx === -1) continue;
     const updatedContent = message.content.slice();
@@ -1359,7 +1606,7 @@ function rewriteLatestUserText(messages: Message[], next: string): Message[] {
 function extractInjectedPrefix(messages: Message[], originalUserText: string): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (!message || message.role !== 'user') continue;
+    if (!isHumanUserMessage(message)) continue;
     const block = message.content.find((b) => b.type === 'text');
     if (!block || block.type !== 'text') return '';
     if (block.text === originalUserText) return '';
@@ -1371,12 +1618,25 @@ function extractInjectedPrefix(messages: Message[], originalUserText: string): s
   return '';
 }
 
+/** A truncated tool call is not a request to guess. The note is the synthetic result. */
+export const AMBIGUOUS_MAX_TOKENS_TOOL_NOTE =
+  'tool call was not executed because the assistant response hit max_tokens before completing the turn';
+
+function isHumanUserMessage(message: Message | undefined): message is UserMessage {
+  return message?.role === 'user' && message.origin !== 'runtime';
+}
+
+/** Latest human prompt. A tool-result row is still role user, and it may carry
+ *  steer text or no text at all. Neither is the prompt: keep scanning past
+ *  runtime markers, tool results, and rows with no text block. */
 function latestUserText(messages: Message[]): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (!message || message.role !== 'user') continue;
+    if (!isHumanUserMessage(message)) continue;
+    if (message.content.some((block) => block.type === 'tool_result')) continue;
     const text = message.content.find((block) => block.type === 'text');
-    return text?.type === 'text' ? text.text : undefined;
+    if (text?.type !== 'text') continue;
+    return text.text;
   }
   return undefined;
 }

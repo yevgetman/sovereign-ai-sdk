@@ -111,6 +111,7 @@ import {
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { validateSessionId } from '../util/sessionId.js';
+import { logicalTurnWorkSignal } from './logicalTurn.js';
 
 /** Fallback per-request token budget when `AgentConfig.maxTokens` is omitted.
  *  Matches the harness wrapper default (src/main.ts / src/server/runtime.ts). */
@@ -264,6 +265,15 @@ export type PerTurn = Partial<{
   toolContext: ToolContext;
   /** Per-turn override of the standing `rethrow` mode (see AgentConfig). */
   rethrow: boolean;
+  /** Override the bounded segment call limit. Logical-turn supervisors use
+   * this to enforce the remaining cumulative budget without changing the
+   * standing toolset limit. */
+  maxTurns: number;
+  /** Marks an internal continuation segment. User-turn hooks and recall do
+   * not run again. */
+  continuation: boolean;
+  /** Marks this run as a segment of a supervised logical turn. */
+  logicalTurn: boolean;
   /** Per-turn override of the standing conduct provider (see AgentConfig). */
   conduct: ConductProvider;
   /** Host-minted per-turn id (attestation evidence §3.3), threaded VERBATIM
@@ -550,13 +560,15 @@ export function createAgent(config: AgentConfig): Agent {
       canUseTool = wrapToolsetCanUseTool(canUseTool, tools ?? []);
     }
     const maxTurns =
-      config.maxTurns !== undefined
-        ? config.maxTurns
-        : requestedToolset !== undefined && config.capabilityProfiles?.has(requestedToolset)
-          ? config.capabilityProfiles.maxTurns(requestedToolset)
-          : requestedToolset !== undefined && isToolsetName(requestedToolset)
-            ? defaultMaxTurns(requestedToolset)
-            : undefined;
+      perTurn.maxTurns !== undefined
+        ? perTurn.maxTurns
+        : config.maxTurns !== undefined
+          ? config.maxTurns
+          : requestedToolset !== undefined && config.capabilityProfiles?.has(requestedToolset)
+            ? config.capabilityProfiles.maxTurns(requestedToolset)
+            : requestedToolset !== undefined && isToolsetName(requestedToolset)
+              ? defaultMaxTurns(requestedToolset)
+              : undefined;
     let messages: Message[] = [...seedMessages];
     // Store length before this attempt's early tool-call write. A regenerate
     // truncates back to it so the discarded call does not stay in history.
@@ -659,6 +671,7 @@ export function createAgent(config: AgentConfig): Agent {
           ),
         };
       }
+      const workSignal = logicalTurnWorkSignal(perTurn.signal);
       return query({
         provider: observedProvider,
         model,
@@ -700,6 +713,8 @@ export function createAgent(config: AgentConfig): Agent {
         ...(contextManager !== undefined ? { contextManager } : {}),
         ...(contextLimits !== undefined ? { contextLimits } : {}),
         ...(maxTurns !== undefined ? { maxTurns } : {}),
+        ...(perTurn.continuation === true ? { continuation: true } : {}),
+        ...(perTurn.logicalTurn === true ? { logicalTurn: true } : {}),
         ...(config.sessionStore !== undefined || config.toolExecutionStore !== undefined
           ? {
               persistBeforeTools: (assistant: AssistantMessage) => {
@@ -716,7 +731,7 @@ export function createAgent(config: AgentConfig): Agent {
                     savedThrough,
                   });
                 if (savedThrough !== undefined) savedThrough = messages.length;
-                const intent = journal?.loadMessages(sessionId).at(-1);
+                const intent = journal ? latestStoredMessage(journal, sessionId) : undefined;
                 if (
                   intent?.role !== 'assistant' ||
                   JSON.stringify(intent.content) !== JSON.stringify(assistant.content)
@@ -760,7 +775,7 @@ export function createAgent(config: AgentConfig): Agent {
               },
             }
           : {}),
-        ...(perTurn.signal !== undefined ? { signal: perTurn.signal } : {}),
+        ...(workSignal !== undefined ? { signal: workSignal } : {}),
         ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
       });
     };
@@ -991,9 +1006,11 @@ export function createAgent(config: AgentConfig): Agent {
                   // cancellation cannot bypass its post-loop persistence.
                   // A discarded regeneration never reaches this seam.
                   try {
-                    const stored = config.sessionStore.loadMessages(sessionId);
-                    const boundary =
-                      savedThrough ?? (isRehydratedPrefix(stored, messages) ? stored.length : 0);
+                    let boundary = savedThrough;
+                    if (boundary === undefined) {
+                      const stored = config.sessionStore.loadMessages(sessionId);
+                      boundary = isRehydratedPrefix(stored, messages) ? stored.length : 0;
+                    }
                     let committedThrough = boundary;
                     attemptTranscriptWrites += saveBeforeTools({
                       store: config.sessionStore,
@@ -1358,6 +1375,20 @@ function persistTurn(opts: {
   }
 }
 
+/** Tail row when the store can read it without walking the transcript. */
+function latestStoredMessage(
+  store: { loadMessages(sessionId: string): StoredMessage[] },
+  sessionId: string,
+): StoredMessage | undefined {
+  const tailed = store as {
+    loadLatestMessage?: (sessionId: string) => StoredMessage | null;
+  };
+  if (typeof tailed.loadLatestMessage === 'function') {
+    return tailed.loadLatestMessage(sessionId) ?? undefined;
+  }
+  return store.loadMessages(sessionId).at(-1);
+}
+
 /** True when every stored row matches the message at the same index.
  *  The list may be longer than the original seed: a tool call is saved
  *  before it runs, so the stored prefix includes that assistant row. */
@@ -1397,7 +1428,6 @@ function saveBeforeTools(opts: {
     provider: opts.providerName,
     ...(opts.systemPrompt.length > 0 ? { systemPrompt: opts.systemPrompt } : {}),
   });
-  const stored = store.loadMessages(sessionId);
   const write = (msg: Message): void => {
     const toolCalls =
       msg.role === 'assistant' ? msg.content.filter((block) => block.type === 'tool_use') : [];
@@ -1416,6 +1446,7 @@ function saveBeforeTools(opts: {
     for (const msg of snapshot.slice(savedThrough)) write(msg);
     return transcriptWrites;
   }
+  const stored = store.loadMessages(sessionId);
   if (isRehydratedPrefix(stored, snapshot)) {
     for (const msg of snapshot.slice(stored.length)) write(msg);
     return transcriptWrites;

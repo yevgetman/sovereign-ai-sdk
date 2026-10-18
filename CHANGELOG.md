@@ -1,5 +1,76 @@
 # Changelog
 
+## Unreleased — skills_list names observation (#233)
+
+**SDK:** A `skills_list` names success says descriptions and triggers are not
+in the page. A no-match action names `detail: "summary"` or `"activation"`
+instead of a full index. `skills_list` with neither `detail` nor a cursor
+still uses `names`. An omitted `detail` on `listSkillCatalog` still defaults
+to `activation`.
+
+## Unreleased — logical-turn SDK surface
+
+**SDK:** The package exports `superviseLogicalTurn`, `LogicalTurnLeaseError`,
+and `LOGICAL_TURN_RECOVERY_CAPABILITY`, plus the logical-turn types.
+`origin` and `id` are optional on `UserMessage`. `maxTurns`, `continuation`,
+and `logicalTurn` are optional on `PerTurn` and `QueryParams`. No release or
+installed-host upgrade is included.
+
+## Unreleased — logical-turn continuation
+
+**Harness:** `--continue-logical-turn <id>` with `--sdk --json` continues one
+stored logical turn. The continuation is prompt-free: do not pass `--stdin`.
+Exit 3 is a logical-turn stop and is no longer
+`needs_continuation`. A deadline, a lease conflict, a cancelled continuation,
+and a model-call cap all return 3, as do a stall, an unsafe receipt, and
+invalid recovery state. Do not start another prompt on exit 3. See
+[SDK routes](docs/03-cli-reference/sdk-routes.md).
+
+Passing `--deadline-ms` with `--continue-logical-turn` is invalid input and
+exits 2. The stored deadline stays absolute. A `checkin` completes with
+`waiting_user`, `nextAction` of `user_input`, and `answerWith` naming
+`--resume <activeSessionId>`. That prompted resume sends the answer as a new
+logical turn. A continuation reapplies one recall fence to the stored human
+prompt and does not write that fence into the stored row.
+
+An unsafe resume records `failed` with finish reason `unsafe_effect`. That
+covers a `started` or `unknown` tool receipt and an ambiguous truncated tool
+call. A later `--continue-logical-turn` reads that terminal row and does not
+retry the unsafe decision. The row does not keep a lease after the stop.
+
+`session.started` includes `logicalTurnId` for a new turn, not only for
+`--continue-logical-turn`. The same id is on `turn.error` when prepare,
+compaction, storage, or a lease refusal fails after that id is assigned.
+The durable row uses that id, so recovery can continue it. `--resume` does
+not. Hosts may pass `allocatedLogicalTurnId` when creating a row; omitting
+it still mints an id inside the supervisor. That field is not a resume.
+
+The durable logical-turn row does not store `segmentLimit`. That field was a
+toolset turn cap, or a default of 10, and the supervisor never applied it.
+Continuation still stops at the logical model-call budget (default 100), the
+deadline, or a repeated no-progress fingerprint. A chat turn is not limited to
+one segment.
+
+A skill allow-list still in force stays on that logical turn. The next
+segment, including an automatic `max_tokens` continuation and
+`--continue-logical-turn`, keeps the intersection in its tool schemas and
+permission gate. An empty `allowedTools` declaration does not widen it.
+Continuity guidance still grants no tool permissions. The next ordinary user
+turn starts from the host pool again.
+
+## Unreleased — skill catalog projections (#120)
+
+**SDK:** `skills_list` accepts `detail` (`names`, `summary`, or `activation`).
+A call with neither `detail` nor a cursor uses `names`. Pages report `returned`,
+`remaining`, and `detail` along with `total`, `truncated`, `nextCursor`, and
+`generation`. Cursors pin `detail`. A changed `detail` rejects the cursor.
+An omitted follow-up `detail` reuses the cursor's `detail`. Ordinary `names`
+entries contain only the skill name.
+
+Public exports `listSkillCatalog` and `SkillCatalogPage` carry the same
+projection and accounting fields. Pass `detail` when continuing a
+`listSkillCatalog` cursor. No release or installed-host upgrade is included.
+
 ## SDK 0.16.2 / SOV 0.6.82 — 2026-10-15 (verified public release)
 
 - Include the single reviewed layered Kernel skill settings repair from [PR97](https://github.com/yevgetman/sovereign-ai-sdk/pull/97), plus reviewed release preparation. All eight public downloads match the frozen cut; exact source and publication proof are archived under releases/history/sdk-0.16.2/.

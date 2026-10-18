@@ -255,6 +255,72 @@ describe('compactSession', () => {
     db.close();
   });
 
+  test('keeps a text max_tokens runtime marker on the child row', async () => {
+    // A text max_tokens stop stores a hidden user row. Proactive compaction
+    // then copies the tail into the child. The marker is origin/id beside
+    // role and content, persisted as toolCalls — not a content block.
+    const db = openDb();
+    const parent = createParent(db);
+    const markerId = 'turn-235:output:1';
+    const markerText =
+      'Continue the interrupted answer without repeating text already saved. Do not start a new task.';
+    const prompt = 'original prompt: finish the report';
+    const history: Message[] = [
+      { role: 'user', content: [text('old decision: keep alpha')] },
+      { role: 'assistant', content: [text('resolved: alpha is keep')] },
+      { role: 'user', content: [text(prompt)] },
+      { role: 'assistant', content: [text('partial answer cut off by max_tokens')] },
+      { role: 'user', content: [text(markerText)], origin: 'runtime', id: markerId },
+    ];
+    for (const message of history) {
+      if (message.role === 'user' && message.origin === 'runtime') {
+        db.saveMessage(parent, {
+          role: 'user',
+          content: message.content,
+          toolCallId: markerId,
+          toolCalls: { origin: 'runtime', id: markerId },
+        });
+        continue;
+      }
+      db.saveMessage(parent, { role: message.role, content: message.content });
+    }
+
+    const result = await compactSession({
+      db,
+      sessionId: parent,
+      model: 'claude-sonnet-4-6',
+      providerName: 'anthropic',
+      systemPrompt: [],
+      history,
+      // Pull the prompt, the truncated answer, and the marker into the tail
+      // while leaving a non-empty head so this is a real child, not a no-op.
+      tailTokenBudget: 1,
+      minTailMessages: 3,
+      summarize: async () => 'Task remains active.',
+    });
+
+    expect(result.noOp).toBeFalsy();
+    expect(result.newSessionId).not.toBe(parent);
+    const tailMarker = result.tail.find(
+      (message) => message.role === 'user' && message.origin === 'runtime',
+    );
+    expect(tailMarker).toMatchObject({ origin: 'runtime', id: markerId });
+    const child = db.loadMessages(result.newSessionId);
+    const storedMarker = child.find((row) =>
+      row.content.some((block) => block.type === 'text' && block.text === markerText),
+    );
+    const storedPrompt = child.find((row) =>
+      row.content.some((block) => block.type === 'text' && block.text === prompt),
+    );
+    expect(storedMarker?.role).toBe('user');
+    expect(storedMarker?.toolCallId).toBe(markerId);
+    expect(storedMarker?.toolCalls).toEqual({ origin: 'runtime', id: markerId });
+    expect(storedPrompt?.role).toBe('user');
+    expect(storedPrompt?.toolCalls).toBeNull();
+    expect(storedPrompt?.toolCallId).toBeNull();
+    db.close();
+  });
+
   test('pre-prunes old tool results before summarization', async () => {
     const db = openDb();
     const parent = createParent(db);

@@ -2,7 +2,8 @@
 // External providers can plug in later; only one non-builtin provider may be
 // active at once to keep tool/schema bloat bounded.
 
-import { readAllMemory, readProjectMemoryFile } from './bounded.js';
+import { statSync } from 'node:fs';
+import { memoryPath, projectMemoryPath, readAllMemory, readProjectMemoryFile } from './bounded.js';
 import { formatMemorySnapshot } from './injection.js';
 import type { ProjectScope } from './scope.js';
 
@@ -14,6 +15,8 @@ export interface MemoryProvider {
   getToolSchemas(): unknown[];
   handleToolCall(name: string, args: object): Promise<string>;
   prefetchSnapshot(userMsg: string): Promise<string>;
+  /** Identity of this provider's memory files. Omit when there are no files. */
+  snapshotStamp?(): string | Promise<string>;
   syncTurn(userMsg: string, assistantResponse: string): Promise<void>;
   onMemoryWrite(internalChange: object): Promise<void>;
   onDelegation(task: string, result: string): Promise<void>;
@@ -24,6 +27,8 @@ export interface MemoryProvider {
 
 export interface MemoryRuntime {
   prefetchSnapshot(userMsg: string): Promise<string>;
+  /** Identity of the memory files behind `prefetchSnapshot`. Unchanged means the snapshot is current. */
+  snapshotStamp?(): Promise<string>;
   syncTurn(userMsg: string, assistantResponse: string): Promise<void>;
   onMemoryWrite(change: object): Promise<void>;
   onDelegation(task: string, result: string): Promise<void>;
@@ -68,6 +73,17 @@ export class BuiltinMarkdownMemoryProvider implements MemoryProvider {
     return '';
   }
 
+  snapshotStamp(): string {
+    const files = [
+      memoryPath(this.harnessHome, 'MEMORY.md', this.userId),
+      memoryPath(this.harnessHome, 'USER.md', this.userId),
+    ];
+    if (this.projectScope?.kind === 'project') {
+      files.push(projectMemoryPath(this.harnessHome, this.projectScope.id, this.userId));
+    }
+    return files.map((path) => `${path}\0${memoryFileIdentity(path)}`).join('\n');
+  }
+
   async prefetchSnapshot(_userMsg: string): Promise<string> {
     const all = readAllMemory(this.harnessHome, this.userId);
     const projectPart = (() => {
@@ -87,6 +103,8 @@ export class BuiltinMarkdownMemoryProvider implements MemoryProvider {
 export class MemoryManager {
   private readonly providers: MemoryProvider[] = [];
   private turnsSinceWrite = 0;
+  /** Bumps when a provider reports a write, even if the file stamp cannot be read. */
+  private writeGeneration = 0;
 
   constructor(private readonly nudgeEvery = 10) {}
 
@@ -115,6 +133,15 @@ export class MemoryManager {
     for (const provider of this.providers) await provider.shutdown();
   }
 
+  async snapshotStamp(): Promise<string> {
+    const parts = [`writes:${this.writeGeneration}`];
+    for (const provider of this.providers) {
+      if (!provider.isAvailable() || !provider.snapshotStamp) continue;
+      parts.push(String(await provider.snapshotStamp()));
+    }
+    return parts.join('\n');
+  }
+
   async prefetchSnapshot(userMsg: string): Promise<string> {
     this.turnsSinceWrite++;
     const snapshots: string[] = [];
@@ -139,12 +166,23 @@ export class MemoryManager {
   }
 
   async onMemoryWrite(change: object): Promise<void> {
+    this.writeGeneration += 1;
     this.turnsSinceWrite = 0;
     for (const provider of this.providers) await provider.onMemoryWrite(change);
   }
 
   async onDelegation(task: string, result: string): Promise<void> {
     for (const provider of this.providers) await provider.onDelegation(task, result);
+  }
+}
+
+function memoryFileIdentity(path: string): string {
+  try {
+    const info = statSync(path);
+    return `${info.mtimeMs}:${info.ctimeMs}:${info.size}:${info.ino}`;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === 'ENOENT' ? 'missing' : `error:${code ?? 'unknown'}`;
   }
 }
 
