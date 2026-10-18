@@ -226,8 +226,14 @@ function gatedUserText(providerText: string, stored: string): string | undefined
   return ephemeralInjectionRemainder(prefix) === '' ? undefined : providerText;
 }
 
-/** Replace the stored user prompt with the post-gate text before a later segment reloads it. */
-function replaceStoredUserText(db: SessionDb, messageId: number, text: string): void {
+/** Replace the stored user prompt with the post-gate text before a later segment reloads it.
+ *  Pass `logicalTurnId` after the supervisor releases so a new owner keeps the row. */
+function replaceStoredUserText(
+  db: SessionDb,
+  messageId: number,
+  text: string,
+  logicalTurnId?: string,
+): void {
   const row = db.handle
     .query<{ content: string }, [number]>('SELECT content FROM messages WHERE id = ?')
     .get(messageId);
@@ -249,10 +255,7 @@ function replaceStoredUserText(db: SessionDb, messageId: number, text: string): 
   const next = typeof block.text === 'string' ? gatedUserText(text, block.text) : text;
   if (next === undefined) return;
   content[index] = { ...block, type: 'text', text: next };
-  db.handle.run('UPDATE messages SET content = ? WHERE id = ?', [
-    JSON.stringify(content),
-    messageId,
-  ]);
+  db.replaceMessageContent(messageId, content, logicalTurnId);
 }
 const CONTINUATION_INPUT_ERRORS = new Set([
   UNKNOWN_LOGICAL_TURN,
@@ -1153,6 +1156,7 @@ export async function runSdkRunCommand(
       let result: RunResult | undefined;
       let settledResult: RunResult | undefined;
       let drive: Promise<RunResult> | undefined;
+      let lostLease = false;
       try {
         persistGatedUserText = segment.continuation !== true;
         activeStream = hop.composed.agent.run(messages, {
@@ -1173,6 +1177,11 @@ export async function runSdkRunCommand(
             return completed;
           },
           (error) => {
+            const lease = logicalTurnLeaseCause(error);
+            if (lease) {
+              lostLease = true;
+              throw lease;
+            }
             if (isStorageFault(error)) storageFault = true;
             throw error;
           },
@@ -1198,7 +1207,9 @@ export async function runSdkRunCommand(
             : 'error';
         const receipt = result?.costEstimate ? result : meter.partial();
         receipts.push(receipt);
-        if (!result && receipt.costEstimate)
+        // A lost lease already failed this drive. Recording usage would assert
+        // again and replace that error with a storage fault.
+        if (!result && receipt.costEstimate && !lostLease)
           hop.hopStore.recordUsageEstimate?.(id, receipt.usage ?? {}, receipt.costEstimate);
       }
     };
@@ -1436,7 +1447,12 @@ export async function runSdkRunCommand(
       if (error?.name === 'UserTurnPolicyError' && sessionId !== null) {
         const messageId = currentHumanUserMessageId(hostRuntime.sessionDb, sessionId);
         if (messageId !== undefined)
-          replaceStoredUserText(hostRuntime.sessionDb, messageId, error.message);
+          replaceStoredUserText(
+            hostRuntime.sessionDb,
+            messageId,
+            error.message,
+            logical.logicalTurnId,
+          );
       }
       preserveCommittedTerminal = true;
       throw error ?? new Error('provider failed');
@@ -1895,6 +1911,17 @@ function ambiguousTruncatedToolRequest(store: SessionStore, sessionId: string | 
   } catch {
     return false;
   }
+}
+
+/** A lost lease stays a lease error when persistence wrappers hide it. */
+function logicalTurnLeaseCause(error: unknown): LogicalTurnLeaseError | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current instanceof Error; depth++) {
+    if (current instanceof LogicalTurnLeaseError) return current;
+    if (!(current instanceof SessionPersistenceError)) return undefined;
+    current = current.cause;
+  }
+  return undefined;
 }
 
 function isStorageFault(error: unknown): boolean {
