@@ -1,7 +1,7 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: '2026-10-18T18:44:55Z'
+updated_at: '2026-10-18T20:02:02Z'
 checkout: .
 last_release: &a1
   version: 0.16.2
@@ -10,28 +10,80 @@ last_release: &a1
   evidence: releases/history/sdk-0.16.2/publication.json
 reconciliation:
   history_start_commit: d1af49f5f4640ac0525f5cb61fb1a81c73c09684
-  through_main_commit: 2a0c43e15ca8d2e4781f2c932404c46e2dde4a7c
-  checked_at: '2026-10-18T18:44:55Z'
-  evidence: All 8 public SDK 0.16.2 and SOV 0.6.82 downloads were verified on
-    2026-10-15 and remain the published baseline. That record merge preserves
-    exact published build ancestry. Owner asked on 2026-10-18 to merge the
-    resilient logical-turn work and add it to the SDK 0.16.3 draft. The merge
-    is on master, is not in the published baseline, and is recorded once. This
+  through_main_commit: 48b6fa761185fcdd865f66dafebf08a8179eee44
+  checked_at: '2026-10-18T20:02:02Z'
+  evidence: Public SDK 0.16.2 and SOV 0.6.82 remain the verified baseline.
+    PR103 and reviewed preparation PR269 are the only selected units. The
+    assembled build is 296955080ada445c83441b7d2b9207833b443fef. This freeze
     does not publish.
 release:
   id: sdk-0.16.3
   product: sovereign-ai-sdk
   version: 0.16.3
   cli_version: 0.6.83
-  status: draft
+  status: frozen
   base: *a1
-  applied_commits: []
-  preparation_commits: []
-  build_commit: null
+  applied_commits:
+    - item_id: sdk-pr-103
+      source_commit: 2a0c43e15ca8d2e4781f2c932404c46e2dde4a7c
+      release_commit: 4df2c9690b721189034e0b86114c5c7a1380b0f8
+    - item_id: sdk-pr-269-preparation
+      source_commit: 48b6fa761185fcdd865f66dafebf08a8179eee44
+      release_commit: 296955080ada445c83441b7d2b9207833b443fef
+  preparation_commits:
+    - item_id: sdk-pr-269-preparation
+      commit: 296955080ada445c83441b7d2b9207833b443fef
+      reason: Reviewed mapped versions, lockfile, install contract and
+        logical-turn notes. Documentation conflicts kept the feature text and
+        the baseline release-candidate wording.
+      review: releases/history/sdk-0.16.3/qa.json
+  build_commit: 296955080ada445c83441b7d2b9207833b443fef
   frozen_manifest_commit: null
-  authorization: null
-  validation: []
-  artifacts: []
+  authorization:
+    kind: owner-approval
+    reference: "Authenticated Owner Telegram request on 2026-10-18: cut the new
+      SOV SDK release and pin the SDK and SOV harness to their consumers after
+      a successful cut and publish. Covers SDK 0.16.3 and SOV 0.6.83 at
+      296955080ada445c83441b7d2b9207833b443fef, the public GitHub release,
+      consumer source pins and the local public SOV update. npm stays
+      Owner-operated. No Kernel runtime, Mac app, or Telekit publication and
+      no daemon restart."
+    at: '2026-10-18T20:02:02Z'
+    build_commit: 296955080ada445c83441b7d2b9207833b443fef
+  validation:
+    - check: exact assembled source gates and GitHub CI
+      result: pass
+      build_commit: 296955080ada445c83441b7d2b9207833b443fef
+      evidence: releases/history/sdk-0.16.3/qa.json
+    - check: five platform archives, scans, metadata and Mac ad hoc signatures
+      result: pass
+      build_commit: 296955080ada445c83441b7d2b9207833b443fef
+      evidence: releases/history/sdk-0.16.3/qa.json
+  artifacts:
+    - arch: darwin-arm64
+      filename: sov-darwin-arm64.tar.gz
+      sha256: c81dc649fe430ca0770a667de1de2714bb7fe1e2a9f608452e35f3f9f267454d
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.83/sov-darwin-arm64.tar.gz
+    - arch: darwin-x64
+      filename: sov-darwin-x64.tar.gz
+      sha256: ce9e9a136abd656babed637ec11c5964430150a3529c4ab44aeb3ab278502b36
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.83/sov-darwin-x64.tar.gz
+    - arch: linux-arm64
+      filename: sov-linux-arm64.tar.gz
+      sha256: d254208219c21c9e67b1e103a72650c6c9d0aafb54f0c06e40d474ec74fed67b
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.83/sov-linux-arm64.tar.gz
+    - arch: linux-x64
+      filename: sov-linux-x64.tar.gz
+      sha256: 3ffcc0fca4be2fc1f3439d055cb766ab1e8d8b8593d0a7e9090bc7635cecb01a
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.83/sov-linux-x64.tar.gz
+    - arch: windows-x64
+      filename: sov-windows-x64.zip
+      sha256: 981e2b6e1face682b04fb6683831f437c70d512cc3a91c00542a69b4997982ee
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.83/sov-windows-x64.zip
+    - arch: package
+      filename: yevgetman-sov-sdk-0.16.3.tgz
+      sha256: e06aa7b31526de7095a3400074149681a733afc8f5e008dee89caf0247ee5e42
+      location: https://github.com/yevgetman/sov-releases/releases/download/v0.6.83/yevgetman-sov-sdk-0.16.3.tgz
   published_at: null
   publication_evidence: null
-  manifest_sha256: null
+  manifest_sha256: b54c54d80972afa8a228201e856b4ad8d1aa2859cb1eabcd130509b7d03f852e

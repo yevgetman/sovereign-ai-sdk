@@ -24,3 +24,25 @@ items:
         high and medium findings were fixed on the feature branch before this
         merge. The lows were recorded and left."
       - docs/06-testing/testing-log.md
+  - id: sdk-pr-269-preparation
+    product: sovereign-ai-sdk
+    title: Prepare SDK 0.16.3 and SOV 0.6.83 versions, lockfile and release notes
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/269
+    merged_at: '2026-10-18T19:58:31Z'
+    commits:
+      - sha: 48b6fa761185fcdd865f66dafebf08a8179eee44
+        mainline: 1
+    requires:
+      - sdk-pr-103
+    reason: The merge is one application unit for reviewed version, lockfile and
+      notes preparation. Its first parent is master
+      8817ffac38c68fc2a732f6985b9d3e74163be7dd. Its second parent is
+      cd896ebc2170093a051c115e35a32a2ce43f113d. STABILITY.md would call the new
+      logical-turn exports a minor. The assigned version stays 0.16.3. This
+      does not publish.
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/pull/269
+      - "Local preparation gate: build, lint, typecheck, Go tests, and a
+        complete retry of 6680 pass / 31 skip / 0 fail. The first run had one
+        MCP pool miss that passed unchanged on retry."
+      - "GitHub CI run 39160648156: all six checks passed."
