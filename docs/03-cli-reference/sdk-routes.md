@@ -309,18 +309,32 @@ terminal, a later abort does not replace that event. The stdout terminal keeps
 the stored outcome and the reply, and the row stays as stored. A Stop hook
 that aborts with `deadline`, or a user abort after that commit, does not
 reclassify the outcome as `continuation_exhausted` or `interrupted`.
-Exhaustion, two unchanged progress fingerprints, unsafe receipts and invalid
-recovery state emit `turn.error` with `continuation_exhausted`,
-`continuation_stalled`, `recovery_unsafe` or `recovery_state_invalid`. Use
-`--continue-logical-turn <id>` with `--sdk --json` to continue stored work
-without a replacement prompt. A live owner keeps a short lease, so a second
-continuation does not run tools or start another worker. While that lease is
-unexpired the event is `logical_turn_leased` with `recoverable: true`,
-`nextAction: "continue_logical_turn"`, and `retryAfterMs` set to the time left
-on the lease. It is not `nextAction: "none"`. The message says a live owner is
-busy and a crashed owner can be continued after the lease expires. After a
-crash the lease expires in about 30 seconds, and the same id is accepted only
-when receipt recovery is safe.
+Exhaustion, including a deadline and a model-call cap, emits `turn.error`
+with `continuation_exhausted` and `nextAction: "none"`. Two unchanged
+progress fingerprints emit `continuation_stalled` with `nextAction: "none"`.
+A later `--continue-logical-turn` of an exhausted or stalled row does not
+resume it. Unsafe receipts emit `recovery_unsafe` with
+`nextAction: "inspect_session"`. A later `--continue-logical-turn` of that
+row is `continuation_failed` with `nextAction: "none"` and does not retry
+the unsafe decision. A stored cancelled row emits `recovery_state_invalid`
+with `nextAction: "none"`. A corrupt logical-turn record emits
+`recovery_state_invalid` with `nextAction: "repair_request"` and is not
+continued. Those stops stay stopped. Do not use `--continue-logical-turn`
+to resume them. Use `--continue-logical-turn <id>` with `--sdk --json` to
+continue stored work without a replacement prompt only when that work
+resumes: an in-flight lease after it expires, and a skill-approval, MCP
+identity, hook-scope, working-directory, or permission-policy mismatch
+after the pinned environment is restored. Any other bound route, provider,
+auth, model, effort, toolset, permission mode, or bundle mismatch uses that
+same `nextAction: "continue_logical_turn"`. A live owner keeps a short
+lease, so a second continuation does not run tools or start another worker.
+While that lease is unexpired the event is `logical_turn_leased` with
+`recoverable: true`, `nextAction: "continue_logical_turn"`, and
+`retryAfterMs` set to the time left on the lease. It is not
+`nextAction: "none"`. The message says a live owner is busy and a crashed
+owner can be continued after the lease expires. After a crash the lease
+expires in about 30 seconds, and the same id is accepted only when receipt
+recovery is safe.
 Route, model, effort, toolset, permissions, working directory and bundle
 identity stay bound to the stored record.
 Cancellation emits `outcome: "interrupted"`. Exhaustion and a deadline emit

@@ -27,6 +27,21 @@ modules, 1057 dependencies, no violations). `bun run typecheck` reports the
 same 3 existing errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212
 and 366) and `tests/skills/catalog.test.ts` (line 370). Full `bun test` was
 not run.
+## 2026-10-17 — Route summary does not continue stopped logical turns
+
+Scope: docs-only correction in `docs/03-cli-reference/sdk-routes.md`. The
+operator summary no longer tells a harness to `--continue-logical-turn` an
+exhausted, stalled, unsafe, cancelled, or corrupt logical turn. Continuation
+stays limited to an expired in-flight lease and a binding mismatch.
+
+Environment: `/Users/julie/code/sdk-review-fix-232` on `review-fix/232` from
+`ab919cab`, macOS, Bun 1.3.13 (`bf2e2cec`). No live provider, product install,
+upgrade, release, or push.
+
+`bun run lint` passed (Biome 1161 files; boundary 257 modules, 1057
+dependencies, no violations). `bun run typecheck` reports the same 3 existing
+errors in `tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). Full `bun test` was not run.
 
 ## 2026-10-17 — Logical-turn delete uses indexed session columns
 
