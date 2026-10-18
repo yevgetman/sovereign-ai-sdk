@@ -64,7 +64,7 @@ describe('complete bounded skill catalogs', () => {
     expect(page.nextCursor).toBeUndefined();
   });
 
-  test('production names budget fits 33 long names at limit 100', () => {
+  test('production names budget fits 33 long names at limit 100', async () => {
     const budget = resolveSkillContextBudget({
       contextWindowTokens: 200_000,
       outputTokens: 8_192,
@@ -114,7 +114,7 @@ describe('complete bounded skill catalogs', () => {
       expect(rich.nextCursor).toBeDefined();
       expect(skillTextTokenBound(JSON.stringify(rich))).toBeLessThanOrEqual(budget.pageTokens);
     }
-    const described = SkillsListTool.description({});
+    const described = await SkillsListTool.description({});
     expect(described).toContain('detail names');
     expect(described).toContain('limit 100');
   });
@@ -360,7 +360,7 @@ describe('skills_list cursor detail', () => {
   });
 
   test('description does not assign whenToUse or activation to summary', async () => {
-    const described = SkillsListTool.description({});
+    const described = await SkillsListTool.description({});
     expect(described).toContain('detail names');
     expect(described).toContain('limit 100');
     expect(described).toContain('names to enumerate');
