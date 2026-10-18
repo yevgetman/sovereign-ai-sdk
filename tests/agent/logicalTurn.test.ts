@@ -2156,6 +2156,144 @@ appendFileSync(${JSON.stringify(marker)}, String(payload.reason) + '\\n');
     }
   });
 
+  test('a deadline during proactive summary does not run the previous Stop reason', async () => {
+    const probe = commandStopProbe('summary-deadline');
+    const controller = new AbortController();
+    let nowMs = 0;
+    let segments = 0;
+    const { store, options } = setup(
+      async (segment) => {
+        segments += 1;
+        if (segments === 1) {
+          const terminal = await drainQuery(
+            query({
+              provider: toolUseProvider(),
+              model: 'fixture-model',
+              messages: segment.messages,
+              systemPrompt: [{ text: 'system', cacheable: true }],
+              maxTokens: 32,
+              maxTurns: 1,
+              continuation: segment.continuation,
+              logicalTurn: true,
+              hookRunner: probe.hookRunner,
+              sessionId: 'session-1',
+              cwd: probe.dir,
+              tools: [echoTool],
+              toolContext: stopToolContext,
+              signal: segment.signal,
+            }),
+          );
+          expect(terminal.reason).toBe('max_turns');
+          expect(probe.stopLines()).toEqual([]);
+          return {
+            sessionId: 'session-1',
+            terminal,
+            iterationsUsed: 1,
+            toolCallCount: 1,
+            distinctToolNames: ['Echo'],
+            messages: segment.messages,
+          };
+        }
+        // Compaction does not arm a Stop. Block until the stored deadline aborts it.
+        expect(probe.stopLines()).toEqual([]);
+        await new Promise<void>((_, reject) => {
+          const fail = (): void => reject(new Error('summary aborted'));
+          const timer = setTimeout(() => {
+            nowMs = 100;
+            controller.abort('deadline');
+            fail();
+          }, 20);
+          if (segment.signal.aborted) {
+            clearTimeout(timer);
+            fail();
+            return;
+          }
+          segment.signal.addEventListener(
+            'abort',
+            () => {
+              clearTimeout(timer);
+              fail();
+            },
+            { once: true },
+          );
+        });
+        throw new Error('summary returned');
+      },
+      { signal: controller.signal, deadlineAt: 100, now: () => nowMs },
+    );
+    try {
+      const outcome = await superviseLogicalTurn(options);
+      expect(segments).toBe(2);
+      expect(outcome.status).toBe('exhausted');
+      expect(outcome.finishReason).toBe('deadline');
+      expect(outcome.code).toBe('continuation_exhausted');
+      const stored = store.loadLogicalTurn(outcome.logicalTurnId);
+      expect(stored?.status).toBe('exhausted');
+      expect(stored?.finishReason).toBe('deadline');
+      expect(probe.stopLines()).toEqual([]);
+    } finally {
+      probe.cleanup();
+    }
+  });
+
+  test('a dropped deadline segment records one deadline Stop', async () => {
+    const probe = commandStopProbe('armed-deadline');
+    const controller = new AbortController();
+    let nowMs = 0;
+    let segments = 0;
+    const { store, options } = setup(
+      async (segment) => {
+        segments += 1;
+        const terminal = await drainQuery(
+          query({
+            provider: toolUseProvider(),
+            model: 'fixture-model',
+            messages: segment.messages,
+            systemPrompt: [{ text: 'system', cacheable: true }],
+            maxTokens: 32,
+            maxTurns: 1,
+            continuation: segment.continuation,
+            logicalTurn: true,
+            hookRunner: probe.hookRunner,
+            sessionId: 'session-1',
+            cwd: probe.dir,
+            tools: [echoTool],
+            toolContext: stopToolContext,
+            signal: segment.signal,
+          }),
+        );
+        expect(terminal.reason).toBe('max_turns');
+        expect(probe.stopLines()).toEqual([]);
+        if (segments === 1) {
+          return {
+            sessionId: 'session-1',
+            terminal,
+            iterationsUsed: 1,
+            toolCallCount: 1,
+            distinctToolNames: ['Echo'],
+            messages: segment.messages,
+          };
+        }
+        nowMs = 100;
+        controller.abort('deadline');
+        throw new Error('dropped terminal');
+      },
+      { signal: controller.signal, deadlineAt: 100, now: () => nowMs },
+    );
+    try {
+      const outcome = await superviseLogicalTurn(options);
+      expect(segments).toBe(2);
+      expect(outcome.status).toBe('exhausted');
+      expect(outcome.finishReason).toBe('deadline');
+      expect(outcome.code).toBe('continuation_exhausted');
+      const stored = store.loadLogicalTurn(outcome.logicalTurnId);
+      expect(stored?.finishReason).toBe('deadline');
+      expect(probe.stopLines()).toEqual(['deadline']);
+    } finally {
+      probe.cleanup();
+    }
+  });
+
   test('a deadline after max_turns records one Stop', async () => {
     const observed = stopRecorder();
     const provider = toolUseProvider();
@@ -2171,7 +2309,7 @@ appendFileSync(${JSON.stringify(marker)}, String(payload.reason) + '\\n');
     const outcome = await superviseLogicalTurn(options);
     expect(outcome.status).toBe('exhausted');
     expect(outcome.finishReason).toBe('deadline');
-    expect(observed.stops).toEqual(['max_turns']);
+    expect(observed.stops).toEqual(['deadline']);
   });
 
   test('recovery_unsafe after max_turns records one Stop', async () => {

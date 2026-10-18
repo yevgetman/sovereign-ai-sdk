@@ -28,6 +28,7 @@ import {
   microcompact,
   shouldMicrocompact,
 } from '../compact/microcompact.js';
+import type { StopHookReason } from '../hooks/types.js';
 import { LoopDetectorState } from '../loop/detector.js';
 import { toToolSchemas } from '../mcp/schemaSerialization.js';
 import {
@@ -83,14 +84,14 @@ import type {
 
 const DEFAULT_MAX_TURNS = 100;
 
-type DeferredLogicalStop = { fire?: (reason?: Terminal['reason']) => Promise<void> };
+type DeferredLogicalStop = { fire?: (reason?: StopHookReason) => Promise<void> };
 
-const logicalStops = new WeakMap<Terminal, (reason?: Terminal['reason']) => Promise<void>>();
+const logicalStops = new WeakMap<Terminal, (reason?: StopHookReason) => Promise<void>>();
 
 /** Stop hook deferred by one logical-turn segment. Absent when that segment fired nothing. */
 export function logicalSegmentStop(
   terminal: Terminal,
-): ((reason?: Terminal['reason']) => Promise<void>) | undefined {
+): ((reason?: StopHookReason) => Promise<void>) | undefined {
   return logicalStops.get(terminal);
 }
 
@@ -556,7 +557,7 @@ async function* queryInternal(
       // signal is often already aborted (deadline) when that closure runs;
       // binding Stop to it skips the command. The host may also drop the
       // returned terminal on that abort, so the lease binding keeps the closure.
-      deferred.fire = (override?: Terminal['reason']) => {
+      deferred.fire = (override?: StopHookReason) => {
         const stopReason = override ?? reason;
         if (signal && !signal.aborted)
           return fireStopHook(hookRunner, sessionId, cwd, stopReason, signal);
@@ -1381,7 +1382,7 @@ async function fireStopHook(
   runner: import('../hooks/types.js').HookRunner,
   sessionId: string,
   cwd: string,
-  reason: Terminal['reason'],
+  reason: StopHookReason,
   signal?: AbortSignal,
 ): Promise<void> {
   try {

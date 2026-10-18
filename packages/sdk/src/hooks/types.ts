@@ -9,6 +9,16 @@
 
 export type HookEventName = 'PreToolUse' | 'PostToolUse' | 'UserPromptSubmit' | 'Stop';
 
+/** Segment terminals, plus `deadline` when the logical turn ends on its deadline. */
+export type StopHookReason =
+  | 'completed'
+  | 'max_tokens'
+  | 'max_turns'
+  | 'error'
+  | 'interrupted'
+  | 'checkin'
+  | 'deadline';
+
 /** Discriminated union of every hook event payload. Serialized to JSON on the
  * hook's stdin. The shape mirrors the build-plan spec exactly — additional
  * fields like `permission_mode` and `transcript_path` are not yet exposed. */
@@ -39,7 +49,7 @@ export type HookEvent =
       hookEventName: 'Stop';
       session_id: string;
       cwd: string;
-      reason: 'completed' | 'max_tokens' | 'max_turns' | 'error' | 'interrupted' | 'checkin';
+      reason: StopHookReason;
     };
 
 /** Narrow a HookEvent to the union member for a given event name. */
