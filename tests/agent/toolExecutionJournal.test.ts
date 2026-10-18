@@ -56,6 +56,9 @@ test('SQLite schema 7 migrates without changing raw history; old orphan stays un
     current.close();
     const v7 = new Database(path);
     v7.run('DROP TABLE tool_executions');
+    // logical_turns is v9. Leaving the already-migrated table makes v9→v10
+    // ADD COLUMN fail because CREATE TABLE IF NOT EXISTS will not rebuild it.
+    v7.run('DROP TABLE logical_turns');
     v7.run('UPDATE state_meta SET schema_version = 7');
     v7.close();
     const migrated = SessionDb.open({ path });

@@ -1,3 +1,41 @@
+## 2026-10-17 — Logical-turn delete uses indexed session columns
+
+Scope: `deleteLogicalTurnsForSessions` parsed every `logical_turns.record`.
+Schema v10 stores indexed `session_id` and `active_session_id` and deletes by
+those columns. The in-memory store has no session delete; its reported schema
+version now matches SessionDb (10).
+
+Environment: `/Users/julie/code/sdk-review-fix-234` on `review-fix/234` from
+`fa7c7dc1`, macOS, Bun 1.3.13 (`bf2e2cec`). No live provider, product install,
+upgrade, release, or push.
+
+Before the fix, `EXPLAIN QUERY PLAN` on the delete was `SCAN logical_turns`.
+`deleteSession` of one row among 16KB blobs took 0.9ms at 200 rows, 3.3ms at
+800, and 6.5ms at 1600. The new column assertions failed with
+`no such column: session_id`.
+
+After the fix those sizes delete in 0.17ms each. The plan is
+`SEARCH logical_turns USING INDEX idx_logical_turns_session_id` and
+`idx_logical_turns_active_session_id` for both `deleteSession` and cron
+cleanup, with no `json_extract` on `record`. A logical turn is removed with
+its session or compacted child and kept when another session is deleted. A v9
+database backfills the columns; invalid JSON stays null and does not abort
+the delete.
+
+Commands: `env -u FORCE_COLOR bun test --timeout 20000` on
+`tests/agent/sessionDb.test.ts`, `tests/agent/sessionDb.deleteSession.test.ts`,
+`tests/agent/sessionDb.logicalTurnRecord.test.ts`,
+`tests/agent/sessionDb.cleanupBoundParams.test.ts`,
+`tests/agent/sessionDbOwner.test.ts`, `tests/skills/continuity-host.test.ts`,
+`tests/persistence/inMemoryStore.test.ts`, `tests/agent/toolExecutionJournal.test.ts`,
+`tests/providers/pricingSnapshots.test.ts`, `tests/agent/logicalTurn.test.ts`,
+`tests/cli/sdkRunRecovery.test.ts`, and `tests/cli/sdkRunCompaction.test.ts`
+(108 pass, then 82 pass, then 144 pass, 0 fail). `bun run lint` passed
+(Biome 1159 files; boundary 257 modules, 1055 dependencies, no violations).
+`bun run typecheck` reports the same 3 existing errors in
+`tests/cli/sdkSubscriptionImages.test.ts` (lines 212 and 366) and
+`tests/skills/catalog.test.ts` (line 370). Full `bun test` was not run.
+
 ## 2026-10-17 — Logical-turn id is named when prepare fails after the row exists
 
 Scope: `session.started` included `logicalTurnId` only for

@@ -40,7 +40,7 @@ import type { SessionStore, ToolExecution, ToolExecutionStore } from './sessionS
 /** Mirrors `SessionDb`'s current schema version so getSession reports the same
  *  `schemaVersion` an in-memory SQLite open would. The in-memory store has no
  *  migrations; this is the reported value only. */
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 /** Deep-copy via a JSON round-trip — mirrors how SQLite serializes content on
  *  write and decodes it on read (strips `undefined`, severs shared references).
