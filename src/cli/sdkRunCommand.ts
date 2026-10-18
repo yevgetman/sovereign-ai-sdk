@@ -9,7 +9,7 @@ import {
   logicalTurnWorkSignal,
   superviseLogicalTurn,
 } from '@yevgetman/sov-sdk/agent/logicalTurn';
-import type { LogicalTurnRecord } from '@yevgetman/sov-sdk/agent/logicalTurn';
+import type { LogicalTurnBinding, LogicalTurnRecord } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { ContextManagementError } from '@yevgetman/sov-sdk/compact/contextManagement';
 import { resolveHarnessHome } from '@yevgetman/sov-sdk/config/paths';
 import {
@@ -52,6 +52,7 @@ import {
   resolveRouteProvider,
   routeErrorCodeFor,
   routeSupportsImages,
+  validateRouteSelection,
 } from '@yevgetman/sov-sdk/providers/routes/index';
 import { modelInputTokenAccounting } from '@yevgetman/sov-sdk/providers/tokenAccounting';
 import type { SkillContinuityPort } from '@yevgetman/sov-sdk/skills/continuity';
@@ -154,6 +155,110 @@ function rememberPin(
   if (!drifted) return;
   kinds.push(kind);
   pinned[field] = stored ?? null;
+}
+
+/** Fields known without a provider resolver. Omitted optionals are not compared yet. */
+function rememberEnvironmentPins(
+  pinned: Record<string, string | null>,
+  kinds: string[],
+  binding: LogicalTurnBinding,
+  observed: {
+    cwd: string;
+    policyDigest: string;
+    route: string;
+    toolset: string;
+    permissionMode: string;
+    bundleIdentity: string | undefined;
+    provider?: string;
+    authKind?: string;
+    model?: string;
+    effort?: string;
+  },
+): void {
+  rememberPin(
+    pinned,
+    kinds,
+    binding.cwd !== observed.cwd,
+    'working-directory mismatch',
+    'cwd',
+    binding.cwd,
+  );
+  rememberPin(
+    pinned,
+    kinds,
+    binding.policyDigest !== observed.policyDigest,
+    'permission-policy mismatch',
+    'policyDigest',
+    binding.policyDigest,
+  );
+  rememberPin(
+    pinned,
+    kinds,
+    binding.route !== observed.route,
+    'route mismatch',
+    'route',
+    binding.route,
+  );
+  if (observed.provider !== undefined)
+    rememberPin(
+      pinned,
+      kinds,
+      binding.provider !== observed.provider,
+      'provider mismatch',
+      'provider',
+      binding.provider,
+    );
+  if (observed.authKind !== undefined)
+    rememberPin(
+      pinned,
+      kinds,
+      binding.authKind !== observed.authKind,
+      'auth mismatch',
+      'authKind',
+      binding.authKind,
+    );
+  if (observed.model !== undefined)
+    rememberPin(
+      pinned,
+      kinds,
+      binding.model !== observed.model,
+      'model mismatch',
+      'model',
+      binding.model,
+    );
+  if (observed.effort !== undefined)
+    rememberPin(
+      pinned,
+      kinds,
+      binding.effort !== observed.effort,
+      'effort mismatch',
+      'effort',
+      binding.effort,
+    );
+  rememberPin(
+    pinned,
+    kinds,
+    binding.toolset !== observed.toolset,
+    'toolset mismatch',
+    'toolset',
+    binding.toolset,
+  );
+  rememberPin(
+    pinned,
+    kinds,
+    binding.permissionMode !== observed.permissionMode,
+    'permission-mode mismatch',
+    'permissionMode',
+    binding.permissionMode,
+  );
+  rememberPin(
+    pinned,
+    kinds,
+    binding.bundleIdentity !== observed.bundleIdentity,
+    'bundle mismatch',
+    'bundleIdentity',
+    binding.bundleIdentity,
+  );
 }
 
 function reportBindingMismatch(
@@ -657,46 +762,83 @@ export async function runSdkRunCommand(
       (storedHookDigest === undefined
         ? hookIdentity.length > 0
         : storedHookDigest !== hookScopeDigest);
+    const settings = settingsSnapshot.config;
+    // Hash the layers boot will use. A pin mismatch must return before
+    // credential use, MCP connect, and any session write.
+    const policyDigest = createHash('sha256')
+      .update(
+        JSON.stringify(
+          loadPermissionSettings({
+            cwd: process.cwd(),
+            harnessHome,
+          }).layers,
+        ),
+      )
+      .digest('hex');
+    const permissionSettings = loadPermissionSettings({
+      cwd: process.cwd(),
+      harnessHome,
+      snapshot: settingsSnapshot,
+    });
+    const resolvedPermissionMode =
+      opts.permissionMode !== undefined
+        ? String(opts.permissionMode)
+        : permissionSettings.mode !== 'default'
+          ? permissionSettings.mode
+          : (settings.permissionMode ?? 'default');
+    const environmentObserved = {
+      cwd: process.cwd(),
+      policyDigest,
+      route: resolvedRouteId,
+      toolset,
+      permissionMode: resolvedPermissionMode,
+      bundleIdentity: string(opts.bundle),
+    };
+    const rejectBindingDrift = (
+      kinds: readonly string[],
+      pinned: Record<string, string | null>,
+    ): boolean => {
+      if (!continuationRecord || kinds.length === 0) return false;
+      reportBindingMismatch(finish, continuationRecord, kinds, pinned, {
+        ...metadata(),
+        counters: continuationRecord.counters,
+        ...nativeTurnMetrics(receipts),
+      });
+      return true;
+    };
     if (continuationRecord) {
       const binding = continuationRecord.binding;
       const skillMismatch = binding.skillApprovalDigest !== skillApprovalDigest;
       const mcpMismatch = binding.mcpIdentityDigest !== mcpIdentityDigest;
-      if (skillMismatch || mcpMismatch || hookMismatch) {
-        const kinds: string[] = [];
-        const pinned: Record<string, string | null> = {};
-        rememberPin(
-          pinned,
-          kinds,
-          skillMismatch,
-          'skill-approval mismatch',
-          'skillApprovalDigest',
-          binding.skillApprovalDigest,
-        );
-        rememberPin(
-          pinned,
-          kinds,
-          mcpMismatch,
-          'MCP mismatch',
-          'mcpIdentityDigest',
-          binding.mcpIdentityDigest,
-        );
-        rememberPin(
-          pinned,
-          kinds,
-          hookMismatch,
-          'hook-scope mismatch',
-          'hookScopeDigest',
-          binding.hookScopeDigest,
-        );
-        reportBindingMismatch(finish, continuationRecord, kinds, pinned, {
-          ...metadata(),
-          counters: continuationRecord.counters,
-          ...nativeTurnMetrics(receipts),
-        });
-        return 3;
-      }
+      const kinds: string[] = [];
+      const pinned: Record<string, string | null> = {};
+      rememberPin(
+        pinned,
+        kinds,
+        skillMismatch,
+        'skill-approval mismatch',
+        'skillApprovalDigest',
+        binding.skillApprovalDigest,
+      );
+      rememberPin(
+        pinned,
+        kinds,
+        mcpMismatch,
+        'MCP mismatch',
+        'mcpIdentityDigest',
+        binding.mcpIdentityDigest,
+      );
+      rememberPin(
+        pinned,
+        kinds,
+        hookMismatch,
+        'hook-scope mismatch',
+        'hookScopeDigest',
+        binding.hookScopeDigest,
+      );
+      rememberEnvironmentPins(pinned, kinds, binding, environmentObserved);
+      if (rejectBindingDrift(kinds, pinned)) return 3;
     }
-    const settings = settingsSnapshot.config;
     const requestedRoute = getRoute(resolvedRouteId, settings);
     const requestedModel =
       string(opts.model) && opts.model !== 'auto'
@@ -723,6 +865,28 @@ export async function runSdkRunCommand(
         requestedRoute.provider,
         selectedMetadata,
       );
+    if (continuationRecord) {
+      const kinds: string[] = [];
+      const pinned: Record<string, string | null> = {};
+      let selection: { model: string; effort: string } | undefined;
+      try {
+        selection = validateRouteSelection(requestedRoute, {
+          modelMetadata: selectedMetadata,
+          ...(string(opts.model) ? { model: String(opts.model) } : {}),
+          ...(opts.effort !== undefined ? { effort: String(opts.effort) } : {}),
+        });
+      } catch (error) {
+        // The resolver reports an unsupported selection. A pin drift is not that error.
+        if (!(error instanceof RouteError)) throw error;
+      }
+      rememberEnvironmentPins(pinned, kinds, continuationRecord.binding, {
+        ...environmentObserved,
+        provider: requestedRoute.provider,
+        authKind: requestedRoute.auth,
+        ...(selection ? { model: selection.model, effort: selection.effort } : {}),
+      });
+      if (rejectBindingDrift(kinds, pinned)) return 3;
+    }
     stage = 'route';
     selected = await Promise.race([
       (deps.resolve ?? resolveRouteProvider)(resolvedRouteId, {
@@ -740,6 +904,18 @@ export async function runSdkRunCommand(
         readModelCatalogSnapshot(selected.route.id, settings),
         selected.model,
       );
+    if (continuationRecord) {
+      const kinds: string[] = [];
+      const pinned: Record<string, string | null> = {};
+      rememberEnvironmentPins(pinned, kinds, continuationRecord.binding, {
+        ...environmentObserved,
+        provider: selected.route.provider,
+        authKind: selected.route.auth,
+        model: selected.model,
+        effort: selected.effort,
+      });
+      if (rejectBindingDrift(kinds, pinned)) return 3;
+    }
     stage = 'boot';
     const runtimeBoot = (deps.runtime ?? buildRuntime)({
       cwd: process.cwd(),
@@ -865,16 +1041,6 @@ export async function runSdkRunCommand(
       maxTokens: runtime.maxTokens,
     });
     if (!modelSnapshot) throw new Error('native model evidence unavailable');
-    const policyDigest = createHash('sha256')
-      .update(
-        JSON.stringify(
-          loadPermissionSettings({
-            cwd: hostRuntime.cwd,
-            harnessHome: hostRuntime.harnessHome,
-          }).layers,
-        ),
-      )
-      .digest('hex');
     const hydrate = () =>
       hydrateSessionHistory(
         loadStoredMessages(persistence, sessionId as string),
@@ -1026,101 +1192,6 @@ export async function runSdkRunCommand(
       ...permissionMetadata,
       capabilities: { logicalTurnRecovery: LOGICAL_TURN_RECOVERY_CAPABILITY },
     });
-    if (continuationRecord) {
-      const binding = continuationRecord.binding;
-      // A moved directory or a changed permission policy is an intact row.
-      // Corrupt JSON stays on the LogicalTurnRecordError path.
-      const kinds: string[] = [];
-      const pinned: Record<string, string | null> = {};
-      rememberPin(
-        pinned,
-        kinds,
-        binding.cwd !== process.cwd(),
-        'working-directory mismatch',
-        'cwd',
-        binding.cwd,
-      );
-      rememberPin(
-        pinned,
-        kinds,
-        binding.policyDigest !== policyDigest,
-        'permission-policy mismatch',
-        'policyDigest',
-        binding.policyDigest,
-      );
-      rememberPin(
-        pinned,
-        kinds,
-        binding.route !== resolvedRouteId,
-        'route mismatch',
-        'route',
-        binding.route,
-      );
-      rememberPin(
-        pinned,
-        kinds,
-        binding.provider !== routeSelection.route.provider,
-        'provider mismatch',
-        'provider',
-        binding.provider,
-      );
-      rememberPin(
-        pinned,
-        kinds,
-        binding.authKind !== routeSelection.route.auth,
-        'auth mismatch',
-        'authKind',
-        binding.authKind,
-      );
-      rememberPin(
-        pinned,
-        kinds,
-        binding.model !== routeSelection.model,
-        'model mismatch',
-        'model',
-        binding.model,
-      );
-      rememberPin(
-        pinned,
-        kinds,
-        binding.effort !== routeSelection.effort,
-        'effort mismatch',
-        'effort',
-        binding.effort,
-      );
-      rememberPin(
-        pinned,
-        kinds,
-        binding.toolset !== toolset,
-        'toolset mismatch',
-        'toolset',
-        binding.toolset,
-      );
-      rememberPin(
-        pinned,
-        kinds,
-        binding.permissionMode !== hostRuntime.permissionMode,
-        'permission-mode mismatch',
-        'permissionMode',
-        binding.permissionMode,
-      );
-      rememberPin(
-        pinned,
-        kinds,
-        binding.bundleIdentity !== string(opts.bundle),
-        'bundle mismatch',
-        'bundleIdentity',
-        binding.bundleIdentity,
-      );
-      if (kinds.length > 0) {
-        reportBindingMismatch(finish, continuationRecord, kinds, pinned, {
-          ...metadata(),
-          counters: continuationRecord.counters,
-          ...nativeTurnMetrics(receipts),
-        });
-        return 3;
-      }
-    }
     if (continuationRecord?.status === 'cancelled') {
       finish({
         type: 'turn.error',

@@ -1831,6 +1831,92 @@ test('continuing the same id from another cwd names the working-directory mismat
   expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
 });
 
+test('continuing from another cwd does not spawn a relative stdio MCP server', async () => {
+  let calls = 0;
+  let boots = 0;
+  const provider: LLMProvider = {
+    name: 'openai',
+    async *stream() {
+      calls++;
+      const reply = message('durable answer');
+      yield { type: 'assistant_message', message: reply };
+      return reply;
+    },
+  };
+  const f = fixture(provider);
+  const log = join(f.home, 'mcp-spawns.log');
+  const script = `#!/bin/sh\npwd >> ${JSON.stringify(log)}\nexit 0\n`;
+  writeFileSync(
+    join(f.home, 'config.json'),
+    JSON.stringify({ learning: { disabled: true }, review: { disabled: true } }),
+  );
+  writeFileSync(
+    join(f.home, 'settings.json'),
+    JSON.stringify({ mcpServers: { pinned: { command: './pinned-mcp.sh' } } }),
+  );
+  f.deps.runtime = async (options) => {
+    boots++;
+    return buildRuntime({
+      ...options,
+      harnessHome: f.home,
+      dbPath: f.db,
+      cronEnabled: false,
+    });
+  };
+  mkdirSync(join(f.home, 'origin'));
+  mkdirSync(join(f.home, 'elsewhere'));
+  const origin = realpathSync(join(f.home, 'origin'));
+  const elsewhere = realpathSync(join(f.home, 'elsewhere'));
+  for (const dir of [origin, elsewhere]) {
+    const path = join(dir, 'pinned-mcp.sh');
+    writeFileSync(path, script);
+    chmodSync(path, 0o755);
+  }
+  const first = capture();
+  expect(
+    await withHarness(f.home, () =>
+      inDirectory(origin, () => runSdkRunCommand(opts, first.io, f.deps)),
+    ),
+  ).toBe(0);
+  expect(calls).toBe(1);
+  expect(boots).toBe(1);
+  expect(readFileSync(log, 'utf8')).toContain(origin);
+  const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+  const stored = logicalTurnRecord(f.db, logicalTurnId);
+  const record = JSON.parse(stored) as { sessionId: string; binding: { cwd: string } };
+  const db = SessionDb.open({ path: f.db });
+  const turnsBefore = db.getSession(record.sessionId)?.metadata.sdkTurns;
+  db.close();
+  expect(Array.isArray(turnsBefore) ? turnsBefore.length : 0).toBe(1);
+  const spawned = readFileSync(log, 'utf8');
+  const second = capture();
+  expect(
+    await withHarness(f.home, () =>
+      inDirectory(elsewhere, () =>
+        runSdkRunCommand(
+          { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+          second.io,
+          f.deps,
+        ),
+      ),
+    ),
+  ).toBe(3);
+  const terminal = second.events.at(-1);
+  expect(second.events.some((event) => event.type === 'session.started')).toBe(false);
+  expect(terminal?.error).toBe(pinnedMismatchError('working-directory mismatch'));
+  expect(terminal?.pinned).toEqual({ cwd: origin });
+  expect(terminal?.cwd).toBe(origin);
+  expect(readFileSync(log, 'utf8')).toBe(spawned);
+  expect(readFileSync(log, 'utf8')).not.toContain(elsewhere);
+  const after = SessionDb.open({ path: f.db });
+  const turnsAfter = after.getSession(record.sessionId)?.metadata.sdkTurns;
+  after.close();
+  expect(turnsAfter).toEqual(turnsBefore);
+  expect(calls).toBe(1);
+  expect(boots).toBe(1);
+  expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
+});
+
 const PIN_DRIFTS: Array<{
   name: string;
   field: string;
