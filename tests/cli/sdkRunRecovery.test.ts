@@ -6,12 +6,14 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { LogicalTurnBinding } from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { AMBIGUOUS_MAX_TOKENS_TOOL_NOTE } from '@yevgetman/sov-sdk/core/query';
 import type { AssistantMessage, Message } from '@yevgetman/sov-sdk/core/types';
 import { buildHookRunner } from '@yevgetman/sov-sdk/hooks/runner';
@@ -35,6 +37,13 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 const opts = { json: true, stdin: true, route: 'openai-api', inputFormat: 'json', toolset: 'chat' };
+const CORRUPT_ROW_ERROR = 'Logical turn recovery state is invalid.';
+const PINNED_ENVIRONMENT_ERROR =
+  'The continue will not proceed until the process is in the pinned environment.';
+
+function pinnedMismatchError(kind: string): string {
+  return `Logical turn ${kind}. ${PINNED_ENVIRONMENT_ERROR}`;
+}
 const message = (text: string): AssistantMessage => ({
   role: 'assistant',
   content: [{ type: 'text', text }],
@@ -1731,12 +1740,32 @@ function logicalTurnRecord(path: string, id: string): string {
   }
 }
 
+function rewriteLogicalTurnBinding(
+  path: string,
+  id: string,
+  edit: (binding: LogicalTurnBinding) => LogicalTurnBinding,
+): void {
+  const db = SessionDb.open({ path });
+  try {
+    const record = db.loadLogicalTurn(id);
+    if (!record) throw new Error('logical turn row missing');
+    record.binding = edit(record.binding);
+    record.bindingDigest = bindingDigest(record.binding);
+    db.handle.run('UPDATE logical_turns SET record = ? WHERE logical_turn_id = ?', [
+      JSON.stringify(record),
+      id,
+    ]);
+  } finally {
+    db.close();
+  }
+}
+
 test('continuing the same id from another cwd names the working-directory mismatch', async () => {
   const f = fixture(answerProvider());
-  const origin = join(f.home, 'origin');
-  const elsewhere = join(f.home, 'elsewhere');
-  mkdirSync(origin);
-  mkdirSync(elsewhere);
+  mkdirSync(join(f.home, 'origin'));
+  mkdirSync(join(f.home, 'elsewhere'));
+  const origin = realpathSync(join(f.home, 'origin'));
+  const elsewhere = realpathSync(join(f.home, 'elsewhere'));
   const first = capture();
   expect(await inDirectory(origin, () => runSdkRunCommand(opts, first.io, f.deps))).toBe(0);
   const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
@@ -1759,10 +1788,23 @@ test('continuing the same id from another cwd names the working-directory mismat
     nextAction: 'continue_logical_turn',
     logicalTurnId,
   });
-  expect(terminal?.error).toBe('Logical turn working-directory mismatch.');
+  const record = JSON.parse(stored) as {
+    sessionId: string;
+    activeSessionId: string;
+    binding: { cwd: string };
+  };
+  expect(record.binding.cwd).toBe(origin);
+  expect(terminal?.error).toBe(pinnedMismatchError('working-directory mismatch'));
+  expect(terminal?.error).not.toBe(CORRUPT_ROW_ERROR);
   expect(terminal?.nextAction).not.toBe('repair_request');
+  expect(terminal?.sessionId).toBe(record.sessionId);
+  expect(terminal?.activeSessionId).toBe(record.activeSessionId);
+  expect(terminal?.cwd).toBe(origin);
+  expect(terminal?.pinned).toEqual({ cwd: origin });
   expect(String(terminal?.error)).not.toContain(origin);
   expect(String(terminal?.error)).not.toContain(elsewhere);
+  expect(JSON.stringify(terminal)).toContain(origin);
+  expect(JSON.stringify(terminal)).not.toContain(elsewhere);
   expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
   const restored = capture();
   expect(
@@ -1782,10 +1824,111 @@ test('continuing the same id from another cwd names the working-directory mismat
   expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
 });
 
+const PIN_DRIFTS: Array<{
+  name: string;
+  field: string;
+  kind: string;
+  stored: string | null;
+  edit: (binding: LogicalTurnBinding) => LogicalTurnBinding;
+}> = [
+  {
+    name: 'provider',
+    field: 'provider',
+    kind: 'provider mismatch',
+    stored: 'anthropic',
+    edit: (binding) => ({ ...binding, provider: 'anthropic' }),
+  },
+  {
+    name: 'model',
+    field: 'model',
+    kind: 'model mismatch',
+    stored: 'gpt-stored-pin',
+    edit: (binding) => ({ ...binding, model: 'gpt-stored-pin' }),
+  },
+  {
+    name: 'effort',
+    field: 'effort',
+    kind: 'effort mismatch',
+    stored: 'max',
+    edit: (binding) => ({ ...binding, effort: 'max' }),
+  },
+  {
+    name: 'toolset',
+    field: 'toolset',
+    kind: 'toolset mismatch',
+    stored: null,
+    edit: ({ toolset: _omit, ...binding }) => binding,
+  },
+  {
+    name: 'permission mode',
+    field: 'permissionMode',
+    kind: 'permission-mode mismatch',
+    stored: null,
+    edit: ({ permissionMode: _omit, ...binding }) => binding,
+  },
+  {
+    name: 'bundle',
+    field: 'bundleIdentity',
+    kind: 'bundle mismatch',
+    stored: '',
+    edit: (binding) => ({ ...binding, bundleIdentity: '' }),
+  },
+  {
+    name: 'auth',
+    field: 'authKind',
+    kind: 'auth mismatch',
+    stored: 'oauth',
+    edit: (binding) => ({ ...binding, authKind: 'oauth' }),
+  },
+];
+
+for (const drift of PIN_DRIFTS) {
+  test(`a ${drift.name} pin drift reports the stored value and not a corrupt row`, async () => {
+    const f = fixture(answerProvider());
+    mkdirSync(join(f.home, 'origin'));
+    const origin = realpathSync(join(f.home, 'origin'));
+    const first = capture();
+    expect(await inDirectory(origin, () => runSdkRunCommand(opts, first.io, f.deps))).toBe(0);
+    const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
+    const sessionId = String(
+      first.events.at(-1)?.sessionId ?? first.events.at(-1)?.activeSessionId,
+    );
+    rewriteLogicalTurnBinding(f.db, logicalTurnId, drift.edit);
+    const stored = logicalTurnRecord(f.db, logicalTurnId);
+    const second = capture();
+    expect(
+      await inDirectory(origin, () =>
+        runSdkRunCommand(
+          { json: true, sdk: true, db: f.db, continueLogicalTurn: logicalTurnId },
+          second.io,
+          f.deps,
+        ),
+      ),
+    ).toBe(3);
+    const terminal = second.events.at(-1);
+    expect(terminal).toMatchObject({
+      type: 'turn.error',
+      code: 'recovery_state_invalid',
+      recoverable: false,
+      nextAction: 'continue_logical_turn',
+      logicalTurnId,
+      sessionId,
+      activeSessionId: sessionId,
+      cwd: origin,
+    });
+    expect(terminal?.pinned).toEqual({ [drift.field]: drift.stored });
+    expect(terminal?.error).toBe(pinnedMismatchError(drift.kind));
+    expect(terminal?.error).not.toBe(CORRUPT_ROW_ERROR);
+    expect(terminal?.nextAction).not.toBe('repair_request');
+    expect(String(terminal?.error)).not.toContain(origin);
+    expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
+  });
+}
+
 test('a changed permission policy names the policy mismatch and keeps the row', async () => {
   const f = fixture(answerProvider());
-  const origin = join(f.home, 'origin');
-  mkdirSync(origin);
+  mkdirSync(join(f.home, 'origin'));
+  const origin = realpathSync(join(f.home, 'origin'));
   const first = capture();
   expect(await inDirectory(origin, () => runSdkRunCommand(opts, first.io, f.deps))).toBe(0);
   const logicalTurnId = String(first.events.at(-1)?.logicalTurnId);
@@ -1813,9 +1956,20 @@ test('a changed permission policy names the policy mismatch and keeps the row', 
     nextAction: 'continue_logical_turn',
     logicalTurnId,
   });
-  expect(terminal?.error).toBe('Logical turn permission-policy mismatch.');
+  const record = JSON.parse(stored) as {
+    sessionId: string;
+    activeSessionId: string;
+    binding: { cwd: string; policyDigest?: string };
+  };
+  expect(terminal?.error).toBe(pinnedMismatchError('permission-policy mismatch'));
+  expect(terminal?.error).not.toBe(CORRUPT_ROW_ERROR);
   expect(terminal?.nextAction).not.toBe('repair_request');
+  expect(terminal?.sessionId).toBe(record.sessionId);
+  expect(terminal?.activeSessionId).toBe(record.activeSessionId);
+  expect(terminal?.cwd).toBe(origin);
+  expect(terminal?.pinned).toEqual({ policyDigest: record.binding.policyDigest });
   expect(String(terminal?.error)).not.toContain(origin);
+  expect(JSON.stringify(terminal)).toContain(origin);
   expect(logicalTurnRecord(f.db, logicalTurnId)).toBe(stored);
 });
 
@@ -1918,8 +2072,17 @@ test('continuing a bypass turn with a wider skill approval refuses before those 
     nextAction: 'continue_logical_turn',
     logicalTurnId,
   });
-  expect(terminal?.error).toBe('Logical turn skill-approval mismatch.');
+  const record = JSON.parse(stored) as {
+    sessionId: string;
+    activeSessionId: string;
+    binding: { cwd: string; skillApprovalDigest?: string };
+  };
+  expect(terminal?.error).toBe(pinnedMismatchError('skill-approval mismatch'));
   expect(terminal?.nextAction).not.toBe('repair_request');
+  expect(terminal?.sessionId).toBe(record.sessionId);
+  expect(terminal?.activeSessionId).toBe(record.activeSessionId);
+  expect(terminal?.cwd).toBe(realpathSync(project));
+  expect(terminal?.pinned).toEqual({ skillApprovalDigest: record.binding.skillApprovalDigest });
   expect(String(terminal?.error)).not.toContain('working-directory');
   expect(String(terminal?.error)).not.toContain('permission-policy');
   expect(String(terminal?.error)).not.toContain(skillDir);
@@ -2005,8 +2168,17 @@ test('a changed MCP server identity is recovery_state_invalid before that server
     nextAction: 'continue_logical_turn',
     logicalTurnId,
   });
-  expect(terminal?.error).toBe('Logical turn MCP mismatch.');
+  const record = JSON.parse(stored) as {
+    sessionId: string;
+    activeSessionId: string;
+    binding: { cwd: string; mcpIdentityDigest?: string };
+  };
+  expect(terminal?.error).toBe(pinnedMismatchError('MCP mismatch'));
   expect(terminal?.nextAction).not.toBe('repair_request');
+  expect(terminal?.sessionId).toBe(record.sessionId);
+  expect(terminal?.activeSessionId).toBe(record.activeSessionId);
+  expect(terminal?.cwd).toBe(realpathSync(project));
+  expect(terminal?.pinned).toEqual({ mcpIdentityDigest: record.binding.mcpIdentityDigest });
   expect(String(terminal?.error)).not.toContain('working-directory');
   expect(String(terminal?.error)).not.toContain('permission-policy');
   expect(String(terminal?.error)).not.toContain('127.0.0.1');
@@ -2759,8 +2931,17 @@ test('a PreToolUse matcher change is recovery_state_invalid before hook spawn', 
     nextAction: 'continue_logical_turn',
     logicalTurnId,
   });
-  expect(terminal?.error).toBe('Logical turn hook-scope mismatch.');
+  const record = JSON.parse(stored) as {
+    sessionId: string;
+    activeSessionId: string;
+    binding: { cwd: string; hookScopeDigest?: string };
+  };
+  expect(terminal?.error).toBe(pinnedMismatchError('hook-scope mismatch'));
   expect(terminal?.nextAction).not.toBe('repair_request');
+  expect(terminal?.sessionId).toBe(record.sessionId);
+  expect(terminal?.activeSessionId).toBe(record.activeSessionId);
+  expect(terminal?.cwd).toBe(realpathSync(project));
+  expect(terminal?.pinned).toEqual({ hookScopeDigest: record.binding.hookScopeDigest });
   expect(String(terminal?.error)).not.toContain(script);
   expect(String(terminal?.error)).not.toContain(marker);
   expect(calls).toBe(1);
@@ -2878,7 +3059,9 @@ test('a pre-pin row continues only when the current hooks cannot widen', async (
   expect(blocked.events.some((event) => event.type === 'session.started')).toBe(false);
   expect(blocked.events.at(-1)?.nextAction).toBe('continue_logical_turn');
   expect(blocked.events.at(-1)?.nextAction).not.toBe('repair_request');
-  expect(blocked.events.at(-1)?.error).toBe('Logical turn hook-scope mismatch.');
+  expect(blocked.events.at(-1)?.error).toBe(pinnedMismatchError('hook-scope mismatch'));
+  expect(blocked.events.at(-1)?.cwd).toBe(realpathSync(project));
+  expect(blocked.events.at(-1)?.pinned).toEqual({ hookScopeDigest: null });
   expect(String(blocked.events.at(-1)?.error)).not.toContain(command);
   expect(calls).toBe(1);
 });
