@@ -414,9 +414,15 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
     return changes === 1;
   }
 
-  renewLogicalTurnLease(id: string, owner: string, expiresAt: number): boolean {
+  renewLogicalTurnLease(
+    id: string,
+    owner: string,
+    expiresAt: number,
+    countCheckpoint = true,
+  ): boolean {
     // The caller's clock is one lease length before the new expiry. A row
     // whose lease_expires_at is already due is lost, even if lease_owner matches.
+    // Read-path renewals pass countCheckpoint false so they do not truncate the WAL.
     const now = expiresAt - LOGICAL_TURN_LEASE_MS;
     const changes = this.writeWithRetry(
       () =>
@@ -425,6 +431,7 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
            WHERE logical_turn_id = ? AND lease_owner = ? AND lease_expires_at > ?`,
           [owner, expiresAt, id, owner, now],
         ).changes ?? 0,
+      { checkpoint: countCheckpoint },
     );
     return changes === 1;
   }
@@ -867,8 +874,8 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
   }
 
   loadMessages(sessionId: string): StoredMessage[] {
-    // One page is synchronous, so the heartbeat cannot run during it. Renew
-    // between pages. An already-expired lease does not return a partial scan.
+    // Pages stay synchronous. Renew on the heartbeat gap, not once per page.
+    // An already-expired lease fails the read instead of returning a partial scan.
     const page = this.db.query<StoredRow, [string, number, number]>(
       `SELECT id, session_id, role, content, tool_call_id, tool_calls, token_count, created_at
        FROM messages
@@ -876,15 +883,22 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
        ORDER BY id ASC
        LIMIT ? OFFSET ?`,
     );
-    const messages: StoredMessage[] = [];
-    let offset = 0;
-    for (;;) {
-      const rows = page.all(sessionId, LOGICAL_TURN_READ_PAGE, offset);
-      for (const row of rows) messages.push(rowToMessage(row));
-      if (rows.length < LOGICAL_TURN_READ_PAGE) return messages;
-      offset += rows.length;
-      if (!renewHeldLogicalTurnLease()) throw new LogicalTurnLeaseError();
-    }
+    return this.readPages((limit, offset) => page.all(sessionId, limit, offset).map(rowToMessage));
+  }
+
+  /** Last stored row. One statement, still refused when the held lease is due. */
+  loadLatestMessage(sessionId: string): StoredMessage | null {
+    if (!renewHeldLogicalTurnLease()) throw new LogicalTurnLeaseError();
+    const row = this.db
+      .query<StoredRow, [string]>(
+        `SELECT id, session_id, role, content, tool_call_id, tool_calls, token_count, created_at
+         FROM messages
+         WHERE session_id = ?
+         ORDER BY id DESC
+         LIMIT 1`,
+      )
+      .get(sessionId);
+    return row ? rowToMessage(row) : null;
   }
 
   /** Keep the first `keep` messages and drop the rest. The messages DELETE
@@ -915,15 +929,9 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
        ORDER BY assistant_message_id, rowid
        LIMIT ? OFFSET ?`,
     );
-    const executions: ToolExecution[] = [];
-    let offset = 0;
-    for (;;) {
-      const rows = page.all(sessionId, LOGICAL_TURN_READ_PAGE, offset);
-      for (const row of rows) executions.push(JSON.parse(row.receipt) as ToolExecution);
-      if (rows.length < LOGICAL_TURN_READ_PAGE) return executions;
-      offset += rows.length;
-      if (!renewHeldLogicalTurnLease()) throw new LogicalTurnLeaseError();
-    }
+    return this.readPages((limit, offset) =>
+      page.all(sessionId, limit, offset).map((row) => JSON.parse(row.receipt) as ToolExecution),
+    );
   }
 
   truncateMessages(sessionId: string, keep: number): void {
@@ -1311,22 +1319,37 @@ export class SessionDb implements SessionStore, LogicalTurnStore {
     return rows.map(rowToMessage);
   }
 
+  /** Check the held lease on each page. A fresh lease does not write. */
+  private readPages<T>(read: (limit: number, offset: number) => T[]): T[] {
+    const rows: T[] = [];
+    let offset = 0;
+    for (;;) {
+      if (!renewHeldLogicalTurnLease()) throw new LogicalTurnLeaseError();
+      const page = read(LOGICAL_TURN_READ_PAGE, offset);
+      rows.push(...page);
+      if (page.length < LOGICAL_TURN_READ_PAGE) return rows;
+      offset += page.length;
+    }
+  }
+
   /**
    * Wrap a mutating DB call with busy-retry + WAL checkpoint discipline.
    * SQLITE_BUSY / SQLITE_LOCKED → sleep a uniform 20-150ms and retry up to
    * 15 times before giving up. Every 50 successful writes we TRUNCATE the
    * WAL to keep the sidecar file bounded.
    */
-  private writeWithRetry<T>(fn: () => T): T {
+  private writeWithRetry<T>(fn: () => T, options?: { checkpoint?: boolean }): T {
     for (let i = 0; i < MAX_RETRIES; i++) {
       try {
         const out = fn();
-        this.writeCount++;
-        if (this.writeCount % WAL_CHECKPOINT_EVERY === 0) {
-          try {
-            this.db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
-          } catch {
-            // Non-fatal — checkpoint can fail if readers are active.
+        if (options?.checkpoint !== false) {
+          this.writeCount++;
+          if (this.writeCount % WAL_CHECKPOINT_EVERY === 0) {
+            try {
+              this.db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+            } catch {
+              // Non-fatal — checkpoint can fail if readers are active.
+            }
           }
         }
         return out;

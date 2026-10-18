@@ -948,7 +948,7 @@ export async function runSdkRunCommand(
     if (!continuationId) persistTurnMessage(persistence, sessionId, input.message);
     const originalUserMessageId = continuationId
       ? runtime.sessionDb.loadLogicalTurn(continuationId)?.originalUserMessageId
-      : runtime.sessionDb.loadMessages(sessionId).at(-1)?.id;
+      : runtime.sessionDb.loadLatestMessage(sessionId)?.id;
     let messages = hydrate();
     // Refuse unsafe prior effects before a paid summary or inference call.
     // Complete journal receipts can repair their missing canonical batch.
@@ -2026,6 +2026,9 @@ function sessionView(
     get(target, property, receiver) {
       if (property === 'loadMessages')
         return (id: string) => (id === sessionId ? rows : target.loadMessages(id));
+      if (property === 'loadLatestMessage')
+        return (id: string) =>
+          id === sessionId ? (rows.at(-1) ?? null) : target.loadLatestMessage(id);
       if (property === 'loadToolExecutions')
         return (id: string) => (id === sessionId ? executions : target.loadToolExecutions(id));
       const value = Reflect.get(target, property, receiver);
@@ -2034,10 +2037,20 @@ function sessionView(
   }) as SessionStore;
 }
 
+function latestStoredRow(store: SessionStore, sessionId: string) {
+  const tailed = store as SessionStore & {
+    loadLatestMessage?: (id: string) => StoredMessage | null;
+  };
+  if (typeof tailed.loadLatestMessage === 'function') {
+    return tailed.loadLatestMessage(sessionId) ?? undefined;
+  }
+  return store.loadMessages(sessionId).at(-1);
+}
+
 function ambiguousTruncatedToolRequest(store: SessionStore, sessionId: string | null): boolean {
   if (!sessionId) return false;
   try {
-    const last = store.loadMessages(sessionId).at(-1);
+    const last = latestStoredRow(store, sessionId);
     if (!last || last.role !== 'user') return false;
     const results = last.content.filter((block) => block.type === 'tool_result');
     if (results.length === 0) return false;
