@@ -1,3 +1,11 @@
+## 2026-10-24 — Continuous owner-turn design verification
+
+Scope: proposed design only, `specs/2026-10-24-continuous-owner-turns-design.md`, based on origin/master `e1a08bb5` (SDK 0.16.3 / SOV 0.6.83). No runtime changes. Self-review checked the core loop, toolset/profile limits, logical-turn policy, CLI/server divergence, child defaults, cancellation, context recovery, migration and Telekit 0.64.36 adapter requirements. Relative spec links and `git diff --check` pass. Official Claude and Codex loop documentation informed the lifecycle comparison; neither establishes unlimited hosted execution.
+
+macOS arm64, Bun 1.3.13, Node 25.9.0. `bun install --frozen-lockfile --ignore-scripts`, `bun run lint` (including boundary) and `bun run typecheck` pass. The first `bun run test` ran before the clean checkout had compiled SDK and TUI artifacts: 6,670 pass / 19 skip / 22 fail / 2 errors. Failures were missing SDK dist modules and TUI launcher/boot artifacts. Built those prerequisites with `bun run build` and `bun run tui:build`; the focused import-order check then passed 10/0. Complete prepared-checkout `bun run test`: **6,692 pass / 19 skip / 0 fail**, 30,579 assertions, 628 files, 196.79 s. No source fix was needed for setup failures. Receipts: `/private/tmp/sov-continuous-design-{lint,types,build,tui-build,imports,tests,tests-ready}.log`.
+
+This verifies the unchanged baseline and design artifact; it does not test the proposed continuous behavior. The spec defines the required new acceptance cases for implementation after Owner approval. No live provider, install, bot configuration change, service restart or publication.
+
 ## 2026-10-18 — SDK 0.16.3 / SOV 0.6.83 public bytes
 
 Scope: downloaded every file from the public SOV v0.6.83 release and compared it with the frozen cut at 296955080ada445c83441b7d2b9207833b443fef. All eight files match SHA-256 and size. Checksum files match the frozen two-space records. Five archives report version v0.6.83 and that source revision. Both downloaded Mac binaries print 0.6.83 and pass `codesign --verify --strict` with an ad hoc signature. The x64 binary ran under Rosetta. Packed SDK version is 0.16.3. Linux arm64 was not executed natively. Windows was not executed natively. No npm publish. Proof: releases/history/sdk-0.16.3/publication.json.
