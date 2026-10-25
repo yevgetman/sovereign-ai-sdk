@@ -11,7 +11,7 @@ allowedTools:
   - Bash(git diff *)
   - Bash(ls *)
 role: plan
-maxTurns: 40
+maxTurns: null
 readOnly: true
 ---
 

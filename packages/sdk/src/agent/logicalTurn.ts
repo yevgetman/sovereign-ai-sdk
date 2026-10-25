@@ -1,7 +1,13 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { logicalSegmentStop } from '../core/query.js';
-import type { Message, Terminal, TokenUsage } from '../core/types.js';
+import type {
+  Message,
+  ModelCallBudget,
+  QueryLoopState,
+  Terminal,
+  TokenUsage,
+} from '../core/types.js';
 import type { StopHookReason } from '../hooks/types.js';
 import {
   PersistBeforeRunError,
@@ -13,6 +19,7 @@ import {
   SubscriptionStreamError,
   ToolStorageError,
 } from '../providers/errors.js';
+import type { TaskManagerPort } from '../tool/ports.js';
 import type { RunResult } from './createAgent.js';
 
 export const LOGICAL_TURN_RECOVERY_CAPABILITY = {
@@ -28,6 +35,8 @@ export const LOGICAL_TURN_LEASE_RENEW_MS = 10_000;
 export const LOGICAL_TURN_READ_PAGE = 64;
 /** Tool-result bodies above this are not parsed for a pagination cursor. */
 export const LOGICAL_TURN_CURSOR_PARSE_CAP = 65_536;
+/** Recent record pointers only; the transcript and compaction store retain full durable lineage. */
+export const LOGICAL_TURN_RECENT_POINTERS = 64;
 
 /** A failed row may resume only when finishReason or lastCause is one of these. */
 const SAFE_TRANSIENT_FAILURES = new Set([
@@ -80,8 +89,22 @@ export type LogicalTurnBinding = {
   bundleIdentity?: string;
 };
 
+export type LogicalTurnPolicyOrigin = 'owner' | 'host' | 'job' | 'legacy';
+
 export type LogicalTurnRecord = {
-  version: 1;
+  version: 1 | 2;
+  /** Required on version 2; omitted legacy records retain their finite policy. */
+  policyOrigin?: LogicalTurnPolicyOrigin;
+  policyMigrations?: Array<{
+    at: number;
+    fromVersion: 1 | 2;
+    previousLimit: number | null;
+    previousDeadlineAt?: number;
+    reason: string;
+  }>;
+  cancellationSource?: string;
+  /** Only tasks admitted by this logical turn, never the session global task list. */
+  ownedTaskIds?: string[];
   logicalTurnId: string;
   originalUserMessageId?: number;
   sessionId: string;
@@ -90,7 +113,7 @@ export type LogicalTurnRecord = {
   binding: LogicalTurnBinding;
   bindingDigest: string;
   /** Cumulative model calls for this logical turn. Not a count of segments. */
-  logicalModelCallLimit: number;
+  logicalModelCallLimit: number | null;
   deadlineAt?: number;
   status: LogicalTurnStatus;
   lastCause?: Terminal['reason'] | 'deadline' | 'unsafe' | 'invalid';
@@ -135,7 +158,7 @@ export type LogicalTurnContinuation = {
   cause: 'max_turns' | 'max_tokens' | 'transient_provider';
   segment: number;
   cumulative: LogicalTurnCounters;
-  limits: { modelCalls: number; deadlineAt?: number };
+  limits: { modelCalls: number | null; deadlineAt?: number };
 };
 
 export type LogicalTurnResult = {
@@ -169,6 +192,7 @@ type LeaseBinding = {
   /** Aborted when this owner loses the lease. Independent of the caller's stop signal. */
   signal: AbortSignal;
   lost: boolean;
+  rememberOwnedTask?: (id: string) => void;
   /** Stop deferred by the segment in flight. Kept if the host drops the terminal. */
   stop?: ((reason?: StopHookReason) => Promise<void>) | undefined;
   /** Last observed expiry. A read renews only after the heartbeat gap. */
@@ -283,7 +307,9 @@ export type LogicalTurnSupervisorOptions = {
     activeSessionId: string;
     segment: number;
     continuation: boolean;
-    remainingModelCalls: number;
+    remainingModelCalls: number | null;
+    modelCallBudget: ModelCallBudget;
+    loopState: QueryLoopState;
     /** Aborted when this owner's renewal fails. Also active on the async stack. */
     signal: AbortSignal;
   }) => Promise<RunResult>;
@@ -321,17 +347,19 @@ export type LogicalTurnSupervisorOptions = {
   /** New-row id. Not a resume. Ignored when `logicalTurnId` is set. */
   allocatedLogicalTurnId?: string;
   activeSessionId?: string;
-  /** Cumulative model-call budget. Default 100. There is no segment-count option. */
-  logicalModelCallLimit?: number;
+  /** Cumulative model-call budget. Omission and null are unlimited. */
+  logicalModelCallLimit?: number | null;
+  policyOrigin?: LogicalTurnPolicyOrigin;
+  taskManager?: TaskManagerPort;
   deadlineAt?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 };
 
 /**
- * Spec 5.8 facts. A new transcript row, completed receipt, cursor, compaction
- * child, saved assistant-text length, or terminal cause changes the fingerprint.
- * Task id and state are included when the host already reports them.
+ * Useful progress compares the latest tool result, cursor and owned task state.
+ * Transcript/receipt ids, compaction ids and timestamps alone are not progress.
+ * Legacy bookkeeping fields remain accepted for compatible hosts.
  */
 export type LogicalTurnProgressSnapshot = {
   transcriptIds?: readonly (string | number)[];
@@ -386,6 +414,7 @@ const EMPTY_COUNTERS: LogicalTurnCounters = {
 export async function superviseLogicalTurn(
   options: LogicalTurnSupervisorOptions,
 ): Promise<LogicalTurnResult> {
+  validateLogicalModelCallLimit(options.logicalModelCallLimit);
   const now = options.now ?? Date.now;
   const startedAt = now();
   const bindingDigest = digest(options.binding);
@@ -415,7 +444,8 @@ export async function superviseLogicalTurn(
   if (!record) {
     const createdAt = now();
     record = {
-      version: 1,
+      version: 2,
+      policyOrigin: options.policyOrigin ?? 'owner',
       logicalTurnId: options.allocatedLogicalTurnId || randomUUID(),
       ...(options.originalUserMessageId !== undefined
         ? { originalUserMessageId: options.originalUserMessageId }
@@ -425,7 +455,7 @@ export async function superviseLogicalTurn(
       compactedSessionIds: [],
       binding: structuredClone(options.binding),
       bindingDigest,
-      logicalModelCallLimit: options.logicalModelCallLimit ?? 100,
+      logicalModelCallLimit: options.logicalModelCallLimit ?? null,
       ...(options.deadlineAt !== undefined ? { deadlineAt: options.deadlineAt } : {}),
       status: 'admitted',
       repeatedNoProgress: 0,
@@ -438,6 +468,20 @@ export async function superviseLogicalTurn(
   }
   const resuming = options.logicalTurnId !== undefined;
   const held = { record };
+  const modelCallBudget: ModelCallBudget = {
+    limit: record.logicalModelCallLimit,
+    used: record.counters.modelCalls,
+  };
+  const loopState: QueryLoopState = {
+    strikes: 0,
+    ...(options.taskManager
+      ? {
+          ownedTasks: new Map(
+            (record.ownedTaskIds ?? []).map((id) => [id, options.taskManager as TaskManagerPort]),
+          ),
+        }
+      : {}),
+  };
   const leaseOwner = randomUUID();
   let leased = false;
   const segmentAbort = new AbortController();
@@ -569,6 +613,12 @@ export async function superviseLogicalTurn(
     held.record.updatedAt = now();
     options.store.saveLogicalTurn(held.record, leaseOwner);
   };
+  binding.rememberOwnedTask = (id) => {
+    if (!held.record.ownedTaskIds?.includes(id)) {
+      held.record.ownedTaskIds = [...(held.record.ownedTaskIds ?? []), id];
+      save();
+    }
+  };
   let pendingStop: ((reason?: StopHookReason) => Promise<void>) | undefined;
   // A user abort must not keep the previous segment's reason. The closure
   // still on the lease is this attempt, or none, and runs as interrupted.
@@ -599,6 +649,7 @@ export async function superviseLogicalTurn(
     code?: LogicalTurnResult['code'],
   ): Promise<LogicalTurnResult> => {
     held.record.status = status;
+    if (status === 'cancelled') held.record.cancellationSource = cancellationSource(options.signal);
     held.record.finishReason = finishReason;
     if (finalSegment)
       held.record.finalReply =
@@ -606,6 +657,15 @@ export async function superviseLogicalTurn(
           .filter((block) => block.type === 'text')
           .map((block) => (block.type === 'text' ? block.text : ''))
           .join('') ?? '';
+    if (!held.record.finalReply && status !== 'completed')
+      held.record.finalReply =
+        status === 'stalled'
+          ? 'Work is blocked because repeated tool results did not change after recovery. The turn is saved. Change the query or resolve the reported tool obstacle before retrying.'
+          : status === 'exhausted'
+            ? `Work is incomplete because the explicit ${finishReason} policy was reached. The turn is saved.`
+            : status === 'cancelled'
+              ? 'Stopped. The turn is saved and will not resume automatically.'
+              : `Work stopped: ${finishReason}. The turn is saved.`;
     save();
     trace({
       type: 'logical_turn_end',
@@ -707,7 +767,10 @@ export async function superviseLogicalTurn(
       armDeadlineStop();
       return await finish('exhausted', 'deadline', undefined, 'continuation_exhausted');
     }
-    if (record.counters.modelCalls >= record.logicalModelCallLimit) {
+    if (
+      record.logicalModelCallLimit !== null &&
+      record.counters.modelCalls >= record.logicalModelCallLimit
+    ) {
       return await finish('exhausted', 'model_call_limit', undefined, 'continuation_exhausted');
     }
     const prepare = options.prepare;
@@ -747,8 +810,11 @@ export async function superviseLogicalTurn(
         armUserAbortStop();
         return await finish('cancelled', 'cancelled', undefined);
       }
-      const remaining = record.logicalModelCallLimit - record.counters.modelCalls;
-      if (remaining <= 0)
+      const remaining =
+        record.logicalModelCallLimit === null
+          ? null
+          : record.logicalModelCallLimit - record.counters.modelCalls;
+      if (remaining !== null && remaining <= 0)
         return await finish('exhausted', 'model_call_limit', undefined, 'continuation_exhausted');
       const segment = record.counters.segments + 1;
       if (!renewLease()) throw new LogicalTurnLeaseError();
@@ -769,6 +835,8 @@ export async function superviseLogicalTurn(
             segment,
             continuation: segment > 1,
             remainingModelCalls: remaining,
+            modelCallBudget,
+            loopState,
             signal: segmentAbort.signal,
           }),
         );
@@ -792,6 +860,7 @@ export async function superviseLogicalTurn(
         }
         throw error;
       }
+      if (loopState.ownedTasks) record.ownedTaskIds = [...loopState.ownedTasks.keys()];
       const previousCause = record.lastCause;
       const previousSessionId = record.activeSessionId;
       record.activeSessionId = result.sessionId;
@@ -800,10 +869,17 @@ export async function superviseLogicalTurn(
         !record.compactedSessionIds.includes(previousSessionId)
       ) {
         record.compactedSessionIds.push(previousSessionId);
+        record.compactedSessionIds = record.compactedSessionIds.slice(
+          -LOGICAL_TURN_RECENT_POINTERS,
+        );
         record.counters.contextRecoveries++;
       }
       record.counters.segments++;
-      record.counters.modelCalls += result.iterationsUsed;
+      record.counters.modelCalls = Math.max(
+        record.counters.modelCalls + result.iterationsUsed,
+        modelCallBudget.used,
+      );
+      modelCallBudget.used = record.counters.modelCalls;
       record.counters.toolCalls += result.toolCallCount;
       addUsage(record.counters, result.usage, result.estimatedCostUsd);
       record.lastCause = result.terminal.reason;
@@ -817,6 +893,9 @@ export async function superviseLogicalTurn(
         activeSessionId: record.activeSessionId,
       });
 
+      // A segment that just completed is verified by the host. Reading the
+      // store here conflates a storage fault with an unsafe receipt and loads
+      // the transcript again. Resume still checks the boundary before work.
       if (result.terminal.reason === 'completed')
         return await finish('completed', 'completed', result);
       if (result.terminal.reason === 'checkin')
@@ -839,7 +918,10 @@ export async function superviseLogicalTurn(
         if (transient === undefined || transientAttempts >= 2)
           return await finish('failed', 'failed', result);
         // A retry is another segment. The cap must be stored before that read.
-        if (record.counters.modelCalls >= record.logicalModelCallLimit) {
+        if (
+          record.logicalModelCallLimit !== null &&
+          record.counters.modelCalls >= record.logicalModelCallLimit
+        ) {
           return await finish('exhausted', 'model_call_limit', undefined, 'continuation_exhausted');
         }
         let retryMessages: Message[] | undefined;
@@ -877,7 +959,10 @@ export async function superviseLogicalTurn(
 
       // The next segment cannot start. Finish before continuing or rehydrate
       // so a throw cannot leave this row resumable at the cap.
-      if (record.counters.modelCalls >= record.logicalModelCallLimit) {
+      if (
+        record.logicalModelCallLimit !== null &&
+        record.counters.modelCalls >= record.logicalModelCallLimit
+      ) {
         return await finish('exhausted', 'model_call_limit', undefined, 'continuation_exhausted');
       }
 
@@ -893,16 +978,15 @@ export async function superviseLogicalTurn(
         ? boundary.progress
         : options.progressSnapshot?.(record.activeSessionId);
       const facts = progressFacts(supplied);
-      const hydrated = needsHydratedFacts(facts)
-        ? boundary
-          ? readSnapshotMessages(() => boundary.messages())
-          : options.rehydrate(record.activeSessionId)
-        : undefined;
+      const hydrated = boundary
+        ? readSnapshotMessages(() => boundary.messages())
+        : options.rehydrate(record.activeSessionId);
       const fingerprint = progressFingerprint({
         facts,
         hydrated,
         cause: result.terminal.reason,
         assistantTextLength: assistantTextLength(result),
+        outputFingerprint: digest(result.finalAssistant?.content ?? []),
         activeSessionId: record.activeSessionId,
       });
       if (!renewLease()) throw new LogicalTurnLeaseError();
@@ -931,6 +1015,9 @@ export async function superviseLogicalTurn(
             text,
           });
           record.runtimeContinuationIds.push(id);
+          record.runtimeContinuationIds = record.runtimeContinuationIds.slice(
+            -LOGICAL_TURN_RECENT_POINTERS,
+          );
         }
       }
       record.status = 'continuing';
@@ -1006,39 +1093,20 @@ function repeatedAction(result: RunResult): string {
 }
 
 type ProgressFacts = {
-  transcriptIds?: readonly (string | number)[];
-  transcriptCount?: number;
-  receipts: readonly unknown[];
   cursor?: unknown;
   hasCursor: boolean;
-  compactionChildId?: string;
   tasks?: unknown;
 };
 
-function needsHydratedFacts(facts: ProgressFacts): boolean {
-  return (
-    (facts.transcriptIds === undefined && facts.transcriptCount === undefined) || !facts.hasCursor
-  );
-}
-
 function progressFacts(snapshot: unknown): ProgressFacts {
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
-    return { receipts: [], hasCursor: false };
+    return { hasCursor: false };
   }
   const record = snapshot as Record<string, unknown>;
   const facts: ProgressFacts = {
-    receipts: completedReceipts(record.receipts),
     hasCursor: Object.hasOwn(record, 'cursor'),
   };
-  const ids = idList(record.transcriptIds);
-  if (ids) facts.transcriptIds = ids;
-  if (typeof record.transcriptCount === 'number' && Number.isFinite(record.transcriptCount)) {
-    facts.transcriptCount = record.transcriptCount;
-  }
   if (facts.hasCursor) facts.cursor = record.cursor;
-  if (typeof record.compactionChildId === 'string' && record.compactionChildId.length > 0) {
-    facts.compactionChildId = record.compactionChildId;
-  }
   if (record.tasks !== undefined) facts.tasks = record.tasks;
   return facts;
 }
@@ -1048,42 +1116,42 @@ function progressFingerprint(input: {
   hydrated: readonly Message[] | undefined;
   cause: string;
   assistantTextLength: number;
+  outputFingerprint: string;
   activeSessionId: string;
 }): string {
-  const derived =
-    input.facts.transcriptIds === undefined && input.facts.transcriptCount === undefined
-      ? transcriptIdentity(input.hydrated ?? [])
-      : undefined;
   const cursor = input.facts.hasCursor
     ? input.facts.cursor
     : logicalTurnCursor(input.hydrated ?? []);
-  return digest({
-    transcriptIds: input.facts.transcriptIds ?? derived?.transcriptIds ?? [],
-    transcriptCount:
-      input.facts.transcriptCount ?? derived?.transcriptCount ?? input.hydrated?.length ?? 0,
-    receipts: input.facts.receipts,
-    cursor: cursor ?? null,
-    compactionChildId: input.facts.compactionChildId ?? input.activeSessionId,
-    activeSessionId: input.activeSessionId,
-    ...(input.facts.tasks !== undefined ? { tasks: input.facts.tasks } : {}),
-    assistantTextLength: input.assistantTextLength,
-    cause: input.cause,
-  });
-}
-
-function transcriptIdentity(messages: readonly Message[]): {
-  transcriptIds: string[];
-  transcriptCount: number;
-} {
-  const transcriptIds: string[] = [];
-  for (const message of messages) {
-    if (message.role === 'user' && message.id) transcriptIds.push(`user:${message.id}`);
-    for (const block of message.content) {
-      if (block.type === 'tool_use') transcriptIds.push(`use:${block.id}`);
-      else if (block.type === 'tool_result') transcriptIds.push(`result:${block.tool_use_id}`);
+  // Row ids, new receipts and compaction ids are bookkeeping, not useful work.
+  // Compare bounded result content; a changed page/result remains progress.
+  let latestResult: string | undefined;
+  const messages = input.hydrated ?? [];
+  for (let i = messages.length - 1; i >= 0 && latestResult === undefined; i--) {
+    const blocks = messages[i]?.content ?? [];
+    for (let j = blocks.length - 1; j >= 0; j--) {
+      const block = blocks[j];
+      if (block?.type === 'tool_result') {
+        latestResult = digest(block.content);
+        break;
+      }
     }
   }
-  return { transcriptIds, transcriptCount: messages.length };
+  const tasks = Array.isArray(input.facts.tasks)
+    ? input.facts.tasks.map((task) => {
+        if (!task || typeof task !== 'object') return task;
+        const item = task as Record<string, unknown>;
+        return { id: item.id, state: item.state ?? item.status, result: item.result };
+      })
+    : undefined;
+  return digest({
+    latestResult,
+    cursor: cursor ?? null,
+    tasks,
+    ...(input.cause === 'max_tokens'
+      ? { savedOutputLength: input.assistantTextLength, output: input.outputFingerprint }
+      : {}),
+    cause: input.cause,
+  });
 }
 
 /** Latest pagination cursor in transcript order. A tool result wins over its request. */
@@ -1135,27 +1203,6 @@ function cursorInValue(value: unknown): string | undefined {
     if (typeof nested === 'string') return nested;
   }
   return undefined;
-}
-
-function idList(value: unknown): (string | number)[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const ids: (string | number)[] = [];
-  for (const entry of value) {
-    if (typeof entry !== 'string' && typeof entry !== 'number') return undefined;
-    ids.push(entry);
-  }
-  return ids;
-}
-
-function completedReceipts(value: unknown): unknown[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((entry) => {
-    if (Array.isArray(entry)) return entry[1] === 'completed';
-    if (entry && typeof entry === 'object' && 'state' in entry) {
-      return (entry as { state?: unknown }).state === 'completed';
-    }
-    return false;
-  });
 }
 
 function transientDelay(
@@ -1352,4 +1399,91 @@ function invalidResult(
     finishReason: code,
     reply: '',
   };
+}
+
+/** Zero, negative, fractional and non-finite model-call counts are invalid policy. */
+export function validateLogicalModelCallLimit(limit: number | null | undefined): void {
+  if (limit !== undefined && limit !== null && (!Number.isSafeInteger(limit) || limit <= 0)) {
+    throw new RangeError('logicalModelCallLimit must be a positive safe integer or null');
+  }
+}
+
+function cancellationSource(signal?: AbortSignal): string {
+  if (!signal?.aborted) return 'segment_interrupted';
+  const reason: unknown = signal.reason;
+  if (typeof reason === 'string') return reason;
+  if (reason instanceof Error) return `${reason.name}: ${reason.message}`;
+  return 'host_signal';
+}
+
+/** Explicit policy change. Never resumes cancelled work or changes route/permission pins. */
+export function migrateLogicalTurnPolicy(options: {
+  store: LogicalTurnStore;
+  logicalTurnId: string;
+  binding: LogicalTurnBinding;
+  logicalModelCallLimit: number | null;
+  policyOrigin: Exclude<LogicalTurnPolicyOrigin, 'legacy'>;
+  reason: string;
+  recoverySafe: (activeSessionId: string) => boolean;
+  now?: () => number;
+}): LogicalTurnRecord {
+  validateLogicalModelCallLimit(options.logicalModelCallLimit);
+  if (!options.reason.trim()) throw new Error('policy migration requires a recorded reason');
+  const at = (options.now ?? Date.now)();
+  const owner = randomUUID();
+  if (
+    !options.store.acquireLogicalTurnLease(
+      options.logicalTurnId,
+      owner,
+      at + LOGICAL_TURN_LEASE_MS,
+      at,
+    )
+  ) {
+    throw new LogicalTurnLeaseError();
+  }
+  try {
+    const record = options.store.loadLogicalTurn(options.logicalTurnId);
+    if (!record || record.bindingDigest !== digest(options.binding))
+      throw new Error('policy migration binding mismatch');
+    if (['cancelled', 'completed', 'waiting_user'].includes(record.status))
+      throw new Error(`policy migration cannot reopen ${record.status} work`);
+    if (!options.recoverySafe(record.activeSessionId))
+      throw new Error('policy migration blocked by unsafe receipts or transcript');
+    const migrated: LogicalTurnRecord = {
+      ...record,
+      version: 2,
+      policyOrigin: options.policyOrigin,
+      logicalModelCallLimit: options.logicalModelCallLimit,
+      policyMigrations: [
+        ...(record.policyMigrations ?? []),
+        {
+          at,
+          fromVersion: record.version,
+          previousLimit: record.logicalModelCallLimit,
+          ...(record.deadlineAt !== undefined ? { previousDeadlineAt: record.deadlineAt } : {}),
+          reason: options.reason,
+        },
+      ],
+      updatedAt: at,
+    };
+    options.store.saveLogicalTurn(migrated, owner);
+    return migrated;
+  } finally {
+    options.store.releaseLogicalTurnLease(options.logicalTurnId, owner);
+  }
+}
+
+export const CONTINUOUS_OWNER_TURNS_CAPABILITY = {
+  owner: 'sov',
+  version: 1,
+  mode: 'continuous',
+  logicalTurnRecordVersion: 2,
+  defaultModelCallLimit: null,
+  defaultDeadlineMs: null,
+  explicitLimits: true,
+} as const;
+
+/** Persist task ownership before its tool receipt can be acknowledged. */
+export function rememberLogicalTurnOwnedTask(id: string): void {
+  leaseBindings.getStore()?.rememberOwnedTask?.(id);
 }

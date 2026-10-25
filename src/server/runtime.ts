@@ -442,6 +442,9 @@ export type Runtime = {
    *  segments/hooks only), so a `/config loop.*` edit lands next session.
    *  Spec: specs/2026-08-25-progress-aware-loop-guard-design.md §3.6. */
   loop?: LoopOptions;
+  /** Explicit host policy; omitted means continuous owner turns. */
+  ownerModelCallLimit?: number | null;
+  ownerToolCheckin?: number;
   agents: AgentRegistry;
   bundle: Bundle | null;
   cwd: string;
@@ -2073,6 +2076,10 @@ export async function buildRuntime(opts: RuntimeOptions): Promise<Runtime> {
   const loop = buildLoopOptions(userSettings.loop);
 
   const runtime: Runtime = {
+    ownerModelCallLimit: settings.maxTurns ?? null,
+    ...(settings.behavior?.maxToolCallsBeforeCheckin !== undefined
+      ? { ownerToolCheckin: settings.behavior.maxToolCallsBeforeCheckin }
+      : {}),
     sessionDb,
     transcripts: transcriptStore,
     toolPool,

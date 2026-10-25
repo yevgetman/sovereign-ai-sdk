@@ -9,8 +9,8 @@ describe('shouldFireReviewOnDelegation — recursion guard', () => {
   test('returns true for non-review agents that completed', () => {
     expect(shouldFireReviewOnDelegation('explore', 'completed')).toBe(true);
     expect(shouldFireReviewOnDelegation('plan', 'completed')).toBe(true);
-    expect(shouldFireReviewOnDelegation('verify', 'max_turns')).toBe(true);
-    expect(shouldFireReviewOnDelegation('explore', 'max_turns')).toBe(true);
+    expect(shouldFireReviewOnDelegation('verify', 'max_turns')).toBe(false);
+    expect(shouldFireReviewOnDelegation('explore', 'max_turns')).toBe(false);
   });
 
   test('returns false for review agents (prevents recursion)', () => {

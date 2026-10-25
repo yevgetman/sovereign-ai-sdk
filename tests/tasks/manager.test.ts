@@ -114,6 +114,68 @@ describe('TaskManager.create', () => {
 });
 
 describe('TaskManager error / cancel mapping', () => {
+  test('explicit child max_turns is failed incomplete work, never completed', async () => {
+    const deferred = makeDeferred<DelegateResult>();
+    const { db, manager, sessionId } = setup({ delegate: () => deferred.promise });
+    try {
+      const created = await manager.create({
+        parentSessionId: sessionId,
+        agentName: 'explore',
+        prompt: 'bounded work',
+        parentToolPool: [],
+        parentToolContext: baseToolContext,
+      });
+      seedChildSession(db, 'bounded-child');
+      deferred.resolve({
+        ...makeCompletedResult('bounded-child', { reason: 'max_turns' }),
+        summary: 'Partial result. Work remains.',
+      });
+      await Bun.sleep(0);
+      const task = manager.get(created.id);
+      expect(task?.state).toBe('failed');
+      expect(task?.resultPreview).toContain('Work remains');
+    } finally {
+      db.close();
+    }
+  });
+
+  test.each(['return', 'throw'])(
+    'parent context abort reaches child and records cancelled (%s)',
+    async (mode) => {
+      let childSignal: AbortSignal | undefined;
+      const deferred = makeDeferred<DelegateResult>();
+      const controller = new AbortController();
+      const { db, manager, sessionId } = setup({
+        delegate: (input) => {
+          childSignal = input.parentSignal;
+          return deferred.promise;
+        },
+      });
+      try {
+        const created = await manager.create({
+          parentSessionId: sessionId,
+          agentName: 'explore',
+          prompt: 'owned work',
+          parentToolPool: [],
+          parentToolContext: { ...baseToolContext, signal: controller.signal },
+        });
+        expect(childSignal?.aborted).toBe(false);
+        const cause = new Error('owner stopped parent');
+        controller.abort(cause);
+        expect(childSignal?.aborted).toBe(true);
+        expect(childSignal?.reason).toBe(cause);
+        if (mode === 'return') {
+          seedChildSession(db, 'cancelled-child');
+          deferred.resolve(makeCompletedResult('cancelled-child', { reason: 'interrupted' }));
+        } else deferred.reject(cause);
+        await Bun.sleep(0);
+        expect(manager.get(created.id)?.state).toBe('cancelled');
+      } finally {
+        db.close();
+      }
+    },
+  );
+
   test('terminal.reason=error -> state=failed', async () => {
     const deferred = makeDeferred<DelegateResult>();
     const { db, manager, sessionId } = setup({ delegate: () => deferred.promise });

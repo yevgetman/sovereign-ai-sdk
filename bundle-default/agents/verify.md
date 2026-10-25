@@ -11,7 +11,7 @@ allowedTools:
   - Bash(git diff *)
   - Bash(ls *)
 role: verify
-maxTurns: 25
+maxTurns: null
 readOnly: true
 ---
 

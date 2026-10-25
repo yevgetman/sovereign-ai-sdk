@@ -80,7 +80,7 @@ async function run(agent: ReturnType<typeof createAgent>, input: string | Messag
 }
 
 describe('toolset', () => {
-  test('chat sends no tool schemas and defaults maxTurns to 1', async () => {
+  test('chat sends no tool schemas and has no implicit one-call budget', async () => {
     const { provider, requests } = recording([textTurn]);
     let polls = 0;
     const result = await run(
@@ -97,7 +97,7 @@ describe('toolset', () => {
     );
     expect(result.terminal.reason).toBe('completed');
     expect(requests[0]?.tools).toBeUndefined();
-    expect(polls).toBe(0);
+    expect(polls).toBe(1);
   });
 
   test('a caller maxTurns wins over the chat default', async () => {

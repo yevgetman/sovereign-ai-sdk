@@ -1408,7 +1408,13 @@ function omitLegacySegmentLimit(record: LogicalTurnRecord): LogicalTurnRecord {
 
 function isLogicalTurnRecord(value: unknown, logicalTurnId: string): value is LogicalTurnRecord {
   if (!isPlainRecord(value)) return false;
-  if (value.version !== 1 || value.logicalTurnId !== logicalTurnId) return false;
+  if (![1, 2].includes(value.version as number) || value.logicalTurnId !== logicalTurnId)
+    return false;
+  if (
+    value.version === 2 &&
+    !['owner', 'host', 'job', 'legacy'].includes(value.policyOrigin as string)
+  )
+    return false;
   if (typeof value.sessionId !== 'string' || typeof value.activeSessionId !== 'string')
     return false;
   if (!isStringArray(value.compactedSessionIds) || !isPlainRecord(value.binding)) return false;
@@ -1435,7 +1441,30 @@ function isLogicalTurnRecord(value: unknown, logicalTurnId: string): value is Lo
     return false;
   }
   if (typeof value.bindingDigest !== 'string') return false;
-  if (!isFiniteNumber(value.logicalModelCallLimit)) return false;
+  if (
+    !(value.version === 2 && value.logicalModelCallLimit === null) &&
+    (!isFiniteNumber(value.logicalModelCallLimit) ||
+      !Number.isSafeInteger(value.logicalModelCallLimit) ||
+      value.logicalModelCallLimit <= 0)
+  )
+    return false;
+  if (value.ownedTaskIds !== undefined && !isStringArray(value.ownedTaskIds)) return false;
+  if (value.cancellationSource !== undefined && typeof value.cancellationSource !== 'string')
+    return false;
+  if (
+    value.policyMigrations !== undefined &&
+    (!Array.isArray(value.policyMigrations) ||
+      !value.policyMigrations.every(
+        (entry: unknown) =>
+          isPlainRecord(entry) &&
+          isFiniteNumber(entry.at) &&
+          [1, 2].includes(entry.fromVersion as number) &&
+          (entry.previousLimit === null ||
+            (isFiniteNumber(entry.previousLimit) && entry.previousLimit > 0)) &&
+          typeof entry.reason === 'string',
+      ))
+  )
+    return false;
   // Legacy rows may still carry segmentLimit. A non-number is corrupt; a number is ignored.
   if (value.segmentLimit !== undefined && !isFiniteNumber(value.segmentLimit)) return false;
   if (value.deadlineAt !== undefined && !isFiniteNumber(value.deadlineAt)) return false;
