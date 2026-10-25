@@ -1,3 +1,13 @@
+## 2026-10-25 — Continuous owner turns implementation
+
+Scope: approved spec `specs/2026-10-24-continuous-owner-turns-design.md` on branch `feat/continuous-owner-turns` in `/private/tmp/sov-owner-turn-design-20261025`. Owner turns have no default model-call, tool-call, segment, token, cost, or elapsed ceiling. Explicit caller and job limits stay binding. A tool loop stays in one segment. Compaction and an unsafe tool receipt yield a new segment without charging that yield as a model call. Public release remains SDK 0.16.3 / SOV 0.6.83. This work is unreleased.
+
+The 2026-10-24 JulieWajo11Bot turn `dda1b560-171b-4156-bc03-100ecb0ef7ab` stopped at 8 model calls and 10 tool calls with `lastCause: max_turns` and `status: cancelled`. Its stored ceiling was 100. Telekit accepts `turn.continuing` only when route, provider, and auth are present. The CLI progress event omitted them, so the bridge killed a healthy continuation. `onContinuing` now sends the same route metadata as the terminal events. `tests/cli/sdkRunRecovery.test.ts` locks that shape on the max-tokens continuation.
+
+macOS 26.2 arm64, Bun 1.3.13, Node 25.9.0. `bun run lint` passed (Biome 1168 files; boundary 257 modules, 1062 dependencies, no violations). `bun run typecheck` passed. `env -u FORCE_COLOR bun run test` is **6738 pass / 31 skip / 0 fail**, 41268 assertions, 633 files, 202.45 s. Log: `/tmp/sov-continuous-full-test2.log`. An earlier full run before the overflow wire correction was 6736 pass / 31 skip / 2 fail: an unrecoverable context overflow was emitted as `turn_complete`. Overflow stays `turn_error`. A handled non-overflow provider error stays `turn_complete` with `finishReason: error` and lands in `failed.jsonl`.
+
+No live provider, product install, `sov upgrade`, bot change, service restart, or publication.
+
 ## 2026-10-24 — Continuous owner-turn design verification
 
 Scope: proposed design only, `specs/2026-10-24-continuous-owner-turns-design.md`, based on origin/master `e1a08bb5` (SDK 0.16.3 / SOV 0.6.83). No runtime changes. Self-review checked the core loop, toolset/profile limits, logical-turn policy, CLI/server divergence, child defaults, cancellation, context recovery, migration and Telekit 0.64.36 adapter requirements. Relative spec links and `git diff --check` pass. Official Claude and Codex loop documentation informed the lifecycle comparison; neither establishes unlimited hosted execution.

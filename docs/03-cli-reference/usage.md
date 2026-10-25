@@ -473,7 +473,7 @@ Phase 2 wired through the R-D plumbing Phase 1 deferred. Each lane's `timeoutMs`
 }
 ```
 
-The configured value is consulted in three-step precedence: lane override (via `ctx.laneRegistry.lookup(role)?.timeoutMs`) → `SubagentSchedulerOpts.perChildTimeoutMs` → `agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS`.
+An explicit lane timeout or `perChildTimeoutMs` still bounds that child. The smaller finite value wins. A continuous child does not get a wall-clock deadline inferred from `maxTurns`.
 
 ## Session transcripts
 
@@ -1677,7 +1677,7 @@ Available config fields (top-level unless noted):
 | `defaultModel` | string | provider default | scoped by `defaultProvider` in the picker |
 | `permissionMode` | enum | `default` | `default` \| `ask` \| `bypass` |
 | `thinking.effort` | enum | `off` | `off` \| `low` \| `medium` \| `high` \| `max` — boot default for reasoning depth (extended thinking). `off` ⇒ request byte-identical, except `grok-subscription`, where a stored or absent `off` selects `high`. `--effort off` on that route throws `effort_unsupported` and does not fetch. Overridden per session by `/effort`. See [`/effort` — reasoning depth](#effort--reasoning-depth). |
-| `maxTurns` | int | `100` | runaway-loop circuit breaker, not a task ceiling |
+| `maxTurns` | int or null | unlimited | Optional explicit model-call ceiling. Unset or null keeps the owner turn continuous. A positive integer stops that turn and reports it incomplete. |
 | `loop.mode` | enum | `enforce` | `enforce` \| `warn` \| `off` — loop-guard policy. See [The `loop` block — progress-aware loop guard](#the-loop-block--progress-aware-loop-guard). |
 | `loop.noProgressWindow` | int > 0 | `8` | fire when the last K tool calls all came back with nothing new |
 | `loop.consecutiveIdenticalThreshold` | int > 0 | `4` | fire when the same tool + same input repeats this many times in a row |

@@ -1,7 +1,7 @@
 # Continuous owner turns in SOV
 
 Date: 2026-10-24
-Status: Proposed. Awaiting Owner approval before implementation.
+Status: Approved by the Owner on 2026-10-24. Implementation follows this spec.
 Owner: Sovereign AI owns SOV and the SDK. Telekit owns its transport adapter.
 Source baseline: SDK origin/master `e1a08bb5`; public SOV 0.6.83 / SDK 0.16.3.
 Telekit reference: origin/main `660ee83`, public 0.64.36.
@@ -31,9 +31,13 @@ Grok subscription route. Its stored logical turn is
 tool calls. The record says `lastCause: max_turns`, `status: cancelled`, and one
 segment. Its configured cumulative ceiling was 100 calls, not eight.
 
-The exact cancellation source is not established by those fields. Do not claim
-that removing one constant fixes this incident. The implementation must establish
-why the internal boundary became cancellation and add a regression for it.
+Those fields do not name the host. The implementation established the cause:
+Telekit accepts `turn.continuing` only when the event carries the pinned route,
+provider, and auth. The CLI progress event omitted that metadata, so the bridge
+treated a healthy continuation as invalid and killed the child. The configured
+100-call ceiling was never reached. `onContinuing` now emits the same route
+metadata as the terminal events, and the recovery test locks that shape. Removing
+the old eight-call toolset ceiling does not by itself explain this cancellation.
 
 Current layers, verified in source:
 

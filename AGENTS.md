@@ -44,7 +44,7 @@ provider/MCP implementation and tests before changing these surfaces.
 
 1. **This file** (`AGENTS.md`) — canonical router and standing rules.
 2. **[`README.md`](README.md)** — repo intro, install, layout.
-3. **The latest state snapshot** — the canonical "where we are now." Find it with `ls docs/07-history/state/*.md | sort -r | head -1` (currently `docs/07-history/state/2026-10-13-sdk-release-0151.md`). Predecessors are dated siblings; pre-Phase-16 history is in `docs/07-history/state/archive/`.
+3. **The latest state snapshot** — the canonical "where we are now." Find it with `ls docs/07-history/state/*.md | sort -r | head -1` (currently `docs/07-history/state/2026-10-25-continuous-owner-turns.md`). Predecessors are dated siblings; pre-Phase-16 history is in `docs/07-history/state/archive/`.
 4. **[`docs/08-roadmap/backlog/post-phase-13-4.md`](docs/08-roadmap/backlog/post-phase-13-4.md)** — open backlog items not in the canonical build plan (+ the running "last sync" log).
 5. **`~/code/sovereign-ai-docs/harness/docs/runtime/runtime-scaffold-plan.md`** — Phase-0/1 scaffold contract this repo was seeded against.
 6. **`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`** — canonical remaining phased plan.
