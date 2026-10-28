@@ -36,7 +36,7 @@ const ProviderConfigSchema = z
  *  every request — router lane ONLY (it exists here, not on ProviderConfigSchema,
  *  so it is never a silent no-op field on a non-router provider). */
 const RouterProviderConfigSchema = ProviderConfigSchema.extend({
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
 }).strict();
 
 /** Per-route, non-secret overrides for a built-in SOV auth route. */
@@ -257,14 +257,14 @@ export const TaskRoutingSchema = z.object({
     .object({
       model: z.string().default('claude-sonnet-4-6'),
     })
-    .default({}),
+    .prefault({}),
   lanes: z
     .object({
       'cheap-task': LaneConfigSchema.partial().optional(),
       'moderate-task': LaneConfigSchema.partial().optional(),
       'frontier-task': LaneConfigSchema.partial().optional(),
     })
-    .default({}),
+    .prefault({}),
   /** Phase 2.5 — trivial-chat fast-path. When true (default false), the
    *  parent's smart-router system prompt gains an exception clause
    *  allowing it to bypass the delegator on clearly trivial turns

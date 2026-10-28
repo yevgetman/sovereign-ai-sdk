@@ -232,7 +232,7 @@ runCanary({
   // The consumer imports zod DIRECTLY (for its tool's input schema), so the
   // scratch app declares its own copy; the SDK's runtime deps arrive with the
   // tarball install itself.
-  extraInstalls: ['zod@^3.24.0'],
+  extraInstalls: ['zod@^4.6.7'],
 });
 runCanary({
   name: '@yevgetman/sov-sdk',
@@ -240,14 +240,14 @@ runCanary({
   consumer: join(here, 'sdk-contract-consumer.mjs'),
   token: 'SDK_CONTRACT_OK',
   typeConsumer: join(here, 'sdk-contract-types.ts'),
-  extraInstalls: ['zod@^3.24.0', '@types/node@20.19.0'],
+  extraInstalls: ['zod@^4.6.7', '@types/node@20.19.0'],
 });
 runCanary({
   name: '@yevgetman/sov-sdk',
   pkgDir: join(repo, 'packages/sdk'),
   consumer: join(here, 'context-child-consumer.mjs'),
   token: 'CONTEXT_CHILD_OK',
-  extraInstalls: ['zod@^3.24.0'],
+  extraInstalls: ['zod@^4.6.7'],
 });
 runCanary({
   name: '@yevgetman/sov-sdk',

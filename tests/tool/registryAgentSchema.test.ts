@@ -5,8 +5,15 @@
 import { describe, expect, test } from 'bun:test';
 import type { AgentDefinition, AgentRegistry } from '@yevgetman/sov-sdk/agents/types';
 import type { ToolContext } from '@yevgetman/sov-sdk/tool/types';
-import type { z } from 'zod';
 import { assembleToolPool } from '../../src/tool/registry.js';
+
+type PatchedAgentSchema = {
+  shape: {
+    subagent_type: { description?: string };
+    prompt: { description?: string };
+  };
+  parse: (data: unknown) => unknown;
+};
 
 function makeAgent(name: string, overrides: Partial<AgentDefinition> = {}): AgentDefinition {
   return {
@@ -57,10 +64,7 @@ describe('patchSchemasAgainstAvailable — AgentTool subagent_type enum', () => 
     const agentTool = pool.find((t) => t.name === 'AgentTool');
     expect(agentTool).toBeDefined();
     // Validate that the schema now accepts only the registered agent names.
-    const schema = agentTool?.inputSchema as z.ZodType<{
-      subagent_type: string;
-      prompt: string;
-    }>;
+    const schema = agentTool?.inputSchema as unknown as PatchedAgentSchema;
     // Valid agent name passes validation.
     expect(() => schema.parse({ subagent_type: 'explore', prompt: 'hello' })).not.toThrow();
     // Unknown agent name is rejected by the enum.
@@ -88,10 +92,7 @@ describe('patchSchemasAgainstAvailable — AgentTool subagent_type enum', () => 
     // The model reads the description text on the subagent_type field
     // every time AgentTool is in the pool. Confirm the enrichment
     // shows up there.
-    const schema = agentTool?.inputSchema as z.ZodObject<{
-      subagent_type: z.ZodEnum<[string, ...string[]]>;
-      prompt: z.ZodString;
-    }>;
+    const schema = agentTool?.inputSchema as unknown as PatchedAgentSchema;
     const fieldDesc = schema.shape.subagent_type.description ?? '';
     expect(fieldDesc).toContain('Available sub-agents:');
     expect(fieldDesc).toContain('explore: Fast read-only codebase explorer');
@@ -113,10 +114,7 @@ describe('patchSchemasAgainstAvailable — AgentTool subagent_type enum', () => 
     };
     const pool = assembleToolPool(ctx);
     const agentTool = pool.find((t) => t.name === 'AgentTool');
-    const schema = agentTool?.inputSchema as z.ZodObject<{
-      subagent_type: z.ZodEnum<[string, ...string[]]>;
-      prompt: z.ZodString;
-    }>;
+    const schema = agentTool?.inputSchema as unknown as PatchedAgentSchema;
     const fieldDesc = schema.shape.subagent_type.description ?? '';
     expect(fieldDesc).toContain('minimal: No trigger predicate');
     // Should NOT contain a "Use when:" clause since whenToUse wasn't set.
@@ -140,10 +138,7 @@ describe('patchSchemasAgainstAvailable — task_create subagent_type enum', () =
     const pool = assembleToolPool(ctx);
     const taskCreate = pool.find((t) => t.name === 'task_create');
     expect(taskCreate).toBeDefined();
-    const schema = taskCreate?.inputSchema as z.ZodObject<{
-      subagent_type: z.ZodEnum<[string, ...string[]]>;
-      prompt: z.ZodString;
-    }>;
+    const schema = taskCreate?.inputSchema as unknown as PatchedAgentSchema;
     // Valid agent name passes validation.
     expect(() => schema.parse({ subagent_type: 'explore', prompt: 'hello' })).not.toThrow();
     // Unknown agent name is rejected by the enum.
@@ -158,10 +153,7 @@ describe('patchSchemasAgainstAvailable — task_create subagent_type enum', () =
     // Sanity-check that AgentTool's prompt description is different and also
     // preserved through the same patching pass.
     const agentTool = pool.find((t) => t.name === 'AgentTool');
-    const agentSchema = agentTool?.inputSchema as z.ZodObject<{
-      subagent_type: z.ZodEnum<[string, ...string[]]>;
-      prompt: z.ZodString;
-    }>;
+    const agentSchema = agentTool?.inputSchema as unknown as PatchedAgentSchema;
     const agentPromptDesc = agentSchema.shape.prompt.description ?? '';
     expect(agentPromptDesc).toBe(
       'The task description for the sub-agent. Be specific — the agent runs as a separate session and only receives this prompt.',

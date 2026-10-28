@@ -194,40 +194,35 @@ describe('config catalog', () => {
     // schema re-parse — some subschemas have required-field gates that
     // a single-key set can't satisfy on its own (e.g., router requires
     // both localProvider and frontierProvider).
-    // SettingsSchema is wrapped in a ZodEffects by the top-level
-    // .superRefine (the subscriptionExecutor × taskRouting mutex), so the
-    // ZodObject — and its .shape() — lives at `_def.schema`. Unwrap it.
-    const rootObject = (
-      SettingsSchema as unknown as {
-        _def: { schema: { _def: { shape: () => Record<string, unknown> } } };
-      }
-    )._def.schema;
-    const rootShape = rootObject._def.shape();
+    // Zod 4 keeps superRefine on the object (`def.checks`) and exposes
+    // `.shape` as the field map. Zod 3 wrapped the object in ZodEffects
+    // (`_def.schema`) and stored the map behind `shape()`.
+    function objectShape(schema: unknown): Record<string, unknown> | undefined {
+      if (!schema || typeof schema !== 'object') return undefined;
+      const obj = schema as {
+        shape?: unknown;
+        _def?: { shape?: unknown; schema?: unknown };
+      };
+      const direct = obj.shape ?? obj._def?.shape;
+      if (typeof direct === 'function') return (direct as () => Record<string, unknown>)();
+      if (direct && typeof direct === 'object') return direct as Record<string, unknown>;
+      if (obj._def?.schema) return objectShape(obj._def.schema);
+      return undefined;
+    }
+
+    const rootShape = objectShape(SettingsSchema);
+    expect(rootShape, 'SettingsSchema shape').toBeDefined();
 
     function resolveSegment(schema: unknown, segment: string): unknown {
       if (schema === null || typeof schema !== 'object') return undefined;
-      const obj = schema as Record<string, unknown>;
-      // Drill into wrappers (optional, default, partial, etc.).
-      const def = (obj as { _def?: unknown })._def;
-      if (def !== null && typeof def === 'object') {
-        const defObj = def as Record<string, unknown>;
-        // Object schema: shape() returns the field map.
-        const shape = defObj.shape;
-        if (typeof shape === 'function') {
-          const inner = (shape as () => Record<string, unknown>)();
-          if (Object.hasOwn(inner, segment)) return inner[segment];
-        }
-        // Unwrap optional/default/partial — they hold the inner type in
-        // `innerType` or `schema`.
-        const innerType = defObj.innerType ?? defObj.schema;
-        if (innerType !== undefined) {
-          return resolveSegment(innerType, segment);
-        }
+      const shape = objectShape(schema);
+      if (shape && Object.hasOwn(shape, segment)) return shape[segment];
+      const def = (schema as { _def?: { innerType?: unknown; schema?: unknown } })._def;
+      const innerType = def?.innerType ?? def?.schema;
+      if (innerType !== undefined && innerType !== schema) {
+        return resolveSegment(innerType, segment);
       }
-      // Fallback: if the object itself looks like a shape map, look up
-      // the segment directly. This handles the raw shape we get at the
-      // top level.
-      if (Object.hasOwn(obj, segment)) return obj[segment];
+      if (Object.hasOwn(schema, segment)) return (schema as Record<string, unknown>)[segment];
       return undefined;
     }
 
