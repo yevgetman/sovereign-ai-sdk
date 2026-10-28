@@ -25,3 +25,26 @@ items:
         GHSA-mrhx-c7xc-m3w5. This merge does not change the lockfile from the
         0.16.3 baseline."
       - "Local bun run canary passed on the feature head, under Node and Bun."
+  - id: sdk-pr-275
+    product: sovereign-ai-sdk
+    title: Patch body-parser, happy-dom, and zod advisories
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/275
+    merged_at: '2026-10-28T23:48:28Z'
+    commits:
+      - sha: 83c934936bd4e66e1517e8cd9f0fe35aa029a390
+        mainline: 1
+    requires: []
+    reason: The merge is one application unit and covers the fix once. Its
+      first parent is master 308a0259995db07a6c37b64f7b7acbc06d12bda4. Its
+      second parent is e2b331c95855d63b15eaecf808d5f7c2c1ff5748. This schedules
+      the dependency fix in SDK 0.16.4 and SOV 0.6.84. It does not publish
+      either product. Zod 4 is a breaking public dependency and the new
+      continuous-turn exports are a stability minor. The assigned version stays
+      0.16.4 / 0.6.84.
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/pull/275
+      - "GitHub CI run 40789236184 at e2b331c95855d63b15eaecf808d5f7c2c1ff5748:
+        lint, typecheck, full runtime and Go on Linux and macOS, both open
+        package floors, and the dependency advisory check passed."
+      - "Local env -u FORCE_COLOR bun test --timeout 20000 on that head:
+        6739 pass, 31 skip, 0 fail. bun run audit:dependencies passed."
