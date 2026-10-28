@@ -1,4 +1,27 @@
 schema_version: 4
 product: sovereign-ai-sdk
 version: 0.16.4
-items: []
+items:
+  - id: sdk-pr-274
+    product: sovereign-ai-sdk
+    title: Keep owner turns running until the work is done
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/274
+    merged_at: '2026-10-28T22:56:05Z'
+    commits:
+      - sha: 01c772341d9e73ab180adc6570937cf462e9f839
+        mainline: 1
+    requires: []
+    reason: The merge is one application unit and covers the feature branch once.
+      Its first parent is master e1a08bb5ad0f273e7184efa0b7fc582409325483.
+      Its second parent is 603e7591baff531ce0f315ca119d2b915f7d7a6a. The merge
+      tree matches that feature head. This schedules SDK 0.16.4 and SOV 0.6.84.
+      It does not publish the SDK or the harness.
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/pull/274
+      - "GitHub CI run 40184570382 at 603e7591baff531ce0f315ca119d2b915f7d7a6a:
+        lint, typecheck, full runtime and Go on Linux and macOS, and both open
+        package floors passed. The dependency advisory check failed for
+        body-parser GHSA-27r3-jxmh-p828, happy-dom GHSA-834v-8h66-3h79, and zod
+        GHSA-mrhx-c7xc-m3w5. This merge does not change the lockfile from the
+        0.16.3 baseline."
+      - "Local bun run canary passed on the feature head, under Node and Bun."
