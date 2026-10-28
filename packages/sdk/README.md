@@ -15,15 +15,15 @@ entitlement or transport image support. See [SDK routes](https://github.com/yevg
 
 ## Install
 
-SDK **0.16.3** uses the version-specific tarball and `SDK-SHA256SUMS` in [SOV v0.6.83](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.83). Download both assets, verify the checksum, then install the local tarball:
+SDK **0.16.4** uses the version-specific tarball and `SDK-SHA256SUMS` in [SOV v0.6.84](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.84). Download both assets, verify the checksum, then install the local tarball. This cut is a release candidate until that release is verified:
 
 ```sh
-curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.83/yevgetman-sov-sdk-0.16.3.tgz
-curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.83/SDK-SHA256SUMS
+curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.84/yevgetman-sov-sdk-0.16.4.tgz
+curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.84/SDK-SHA256SUMS
 shasum -a 256 -c SDK-SHA256SUMS
-npm install ./yevgetman-sov-sdk-0.16.3.tgz   # Node
+npm install ./yevgetman-sov-sdk-0.16.4.tgz   # Node
 # Or:
-bun add ./yevgetman-sov-sdk-0.16.3.tgz       # Bun
+bun add ./yevgetman-sov-sdk-0.16.4.tgz       # Bun
 ```
 
 For repeatable builds, vendor the verified file and commit the dependency lockfile.
@@ -32,9 +32,9 @@ separate owner gate in [PUBLISHING.md](https://github.com/yevgetman/sovereign-ai
 installs the application, not this library.
 
 Tool input/output schemas are [zod](https://www.npmjs.com/package/zod) schemas.
-`zod` is already a runtime dependency of this package, but if your own code
-imports it (any project that authors tools does), declare it in your own
-`dependencies` too.
+This package depends on zod 4.6.7. If your own code imports zod, declare that
+same major in your own `dependencies` so the schemas you pass in are the same
+zod the SDK reads.
 
 ## Quickstart
 
@@ -606,6 +606,13 @@ reasoning adapter that requires a larger minimum reservation still refuses an
 insufficient cap before contacting the provider.
 
 ## Skills runtime APIs
+
+SDK 0.16.4 keeps an owner turn running until the task finishes, the owner stops,
+human input is required, or a concrete blocker stops safe progress. There is no
+default model-call or elapsed ceiling. Explicit caller and job limits stay
+binding. `CONTINUOUS_OWNER_TURNS_CAPABILITY`, `migrateLogicalTurnPolicy`, and
+`validateLogicalModelCallLimit` are new `.` exports. Existing frozen export
+names stay. A host that passes an explicit limit keeps that limit.
 
 SDK 0.16.3 adds `superviseLogicalTurn` for one durable logical turn across
 bounded segments. Callers keep the original user message, route, model, effort,
