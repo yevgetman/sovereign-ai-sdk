@@ -25,7 +25,7 @@ const PermissionRuleSetSchema = z
     ask: z.array(z.string()).default([]),
   })
   .strict()
-  .default({});
+  .prefault({});
 
 const HookCommandSpecSchema = z
   .object({

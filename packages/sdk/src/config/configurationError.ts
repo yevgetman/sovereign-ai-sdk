@@ -27,7 +27,7 @@ export class ConfigurationError extends Error {
 export function readConfiguration<T>(
   path: string,
   source: string,
-  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+  schema: z.ZodType<T, unknown>,
   trustedFile = false,
 ): T | undefined {
   let fd: number | undefined;

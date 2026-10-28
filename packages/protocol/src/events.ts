@@ -10,12 +10,12 @@
 // becomes the `@yevgetman/sov-protocol` package that the Go TUI + resume-as-code
 // adopt, collapsing today's three hand-copies.
 //
-// Field-fidelity notes (these mirror zod v3's `z.infer` exactly, which the
+// Field-fidelity notes (these mirror zod 4's `z.infer` exactly, which the
 // conformance guard enforces):
-//   - `z.unknown()` keys infer as OPTIONAL (`?: unknown`) even when the schema
-//     marks them required — so `input`, `output`, `inputPartial` are `?: unknown`.
-//   - `.optional()` scalars infer as `?: T | undefined` (exactOptionalPropertyTypes).
-//   - `z.record(z.string(), z.number())` infers as `Record<string, number>`.
+//   - required `z.unknown()` keys infer as required `unknown`
+//   - `.optional()` unknown keys infer as `?: unknown`
+//   - `.optional()` scalars infer as `?: T | undefined` (exactOptionalPropertyTypes)
+//   - `z.record(z.string(), z.number())` infers as `Record<string, number>`
 
 /** Common envelope every server event carries: a monotonic sequence number
  *  (the SSE `id:` line / Last-Event-ID cursor) and the owning session id. */
@@ -52,15 +52,15 @@ export interface ToolUseInputDeltaEvent extends ServerEventBase {
 export interface ToolUseDoneEvent extends ServerEventBase {
   type: 'tool_use_done';
   block: number;
-  input?: unknown;
+  input: unknown;
 }
 
 export interface ToolResultEvent extends ServerEventBase {
   type: 'tool_result';
   block: number;
   tool: string;
-  input?: unknown;
-  output?: unknown;
+  input: unknown;
+  output: unknown;
   renderHint: string;
   language?: string | undefined;
 }
@@ -69,7 +69,7 @@ export interface PermissionRequestEvent extends ServerEventBase {
   type: 'permission_request';
   requestId: string;
   tool: string;
-  input?: unknown;
+  input: unknown;
   reason?: string | undefined;
 }
 

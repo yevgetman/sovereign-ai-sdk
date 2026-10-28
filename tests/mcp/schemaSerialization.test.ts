@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { toToolSchemas } from '@yevgetman/sov-sdk/mcp/schemaSerialization';
+import { toToolSchemas, zodToJsonSchemaShallow } from '@yevgetman/sov-sdk/mcp/schemaSerialization';
 import { buildTool } from '@yevgetman/sov-sdk/tool/buildTool';
 import type { Tool } from '@yevgetman/sov-sdk/tool/types';
 import { z } from 'zod';
@@ -83,6 +83,43 @@ function nonStringDescriptionTool(name: string, value: unknown): Tool<unknown, u
     },
   }) as unknown as Tool<unknown, unknown>;
 }
+
+describe('zodToJsonSchemaShallow', () => {
+  test('zod 4 defs keep the previous wire shape', () => {
+    const schema = z.object({
+      msg: z.string().describe('hi'),
+      opt: z.string().optional(),
+      def: z.string().default('x'),
+      arr: z.array(z.number()),
+      en: z.enum(['a', 'b']),
+      lit: z.literal(0),
+      litf: z.literal(false),
+      lits: z.literal(''),
+      nul: z.string().nullable(),
+      unk: z.unknown(),
+      descThenOpt: z.string().describe('inner').optional(),
+      optThenDesc: z.string().optional().describe('outer'),
+    });
+    expect(zodToJsonSchemaShallow(schema)).toEqual({
+      type: 'object',
+      properties: {
+        msg: { type: 'string', description: 'hi' },
+        opt: { type: 'string' },
+        def: { type: 'string' },
+        arr: { type: 'array', items: { type: 'number' } },
+        en: { type: 'string', enum: ['a', 'b'] },
+        lit: { const: 0 },
+        litf: { const: false },
+        lits: { const: '' },
+        nul: { type: 'string' },
+        unk: { type: 'object', additionalProperties: true },
+        descThenOpt: { type: 'string', description: 'inner' },
+        optThenDesc: { type: 'string', description: 'outer' },
+      },
+      required: ['msg', 'arr', 'en', 'lit', 'litf', 'lits', 'nul'],
+    });
+  });
+});
 
 describe('toToolSchemas', () => {
   test('native tool: Zod input schema is converted', () => {
