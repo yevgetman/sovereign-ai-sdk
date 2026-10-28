@@ -65,6 +65,32 @@ describe('bundle-default reference agents', () => {
     }
   });
 
+  test('ordinary owner-work agents are continuous while background jobs stay bounded', async () => {
+    const tmpHome = mkdtempSync(join(tmpdir(), 'sovereign-continuous-agents-'));
+    try {
+      const registry = await loadAgents({
+        cwd: tmpHome,
+        harnessHome: tmpHome,
+        bundleRoot: BUNDLE_DEFAULT_ROOT,
+      });
+      for (const name of [
+        'cheap-task',
+        'moderate-task',
+        'frontier-task',
+        'delegator',
+        'explore',
+        'plan',
+        'verify',
+      ]) {
+        expect(registry.byName.get(name)?.maxTurns).toBeNull();
+      }
+      expect(registry.byName.get('scheduled-mission')?.maxTurns).toBe(20);
+      expect(registry.byName.get('subscription-executor')?.maxTurns).toBe(8);
+    } finally {
+      rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
   test('review-memory, review-skill, review-consolidate load with restricted toolsets', async () => {
     const tmpHome = mkdtempSync(join(tmpdir(), 'sovereign-review-agents-'));
     try {

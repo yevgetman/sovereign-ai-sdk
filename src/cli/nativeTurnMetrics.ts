@@ -89,3 +89,15 @@ export function nativeTurnMetrics(
     ...(amountUsd !== undefined ? { estimatedCostUsd: amountUsd } : {}),
   };
 }
+
+/** Bound active telemetry; detailed per-request receipts remain in the session store. */
+export function appendNativeReceipt(receipts: NativeReceipt[], receipt: NativeReceipt): void {
+  receipts.push(receipt);
+  if (receipts.length <= 64) return;
+  const aggregate = nativeTurnMetrics(receipts.splice(0, 32));
+  const { components: _parts, ...cost } = aggregate.costEstimate ?? {};
+  receipts.unshift({
+    ...(aggregate.usage ? { usage: aggregate.usage } : {}),
+    ...(aggregate.costEstimate ? { costEstimate: cost as CostEstimate } : {}),
+  });
+}

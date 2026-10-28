@@ -4,7 +4,7 @@ description: Execute a moderately complex task requiring multi-step reasoning on
 whenToUse: Use for atoms that need reasoning — multi-file analysis, design questions, structured generation, code understanding.
 role: moderate-task
 inheritParentTools: true
-maxTurns: 50
+maxTurns: null
 readOnly: false
 ---
 

@@ -4,7 +4,7 @@ description: Execute a hard-reasoning task or synthesize prior atom outputs on t
 whenToUse: Use for atoms that need deep reasoning — security audits, architectural design, complex generation, or final synthesis of prior atom outputs.
 role: frontier-task
 inheritParentTools: true
-maxTurns: 50
+maxTurns: null
 readOnly: false
 ---
 

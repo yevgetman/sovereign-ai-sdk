@@ -194,7 +194,7 @@ allowedTools:                       # required; child's tool pool = parent pool 
   - Glob
   - Bash(git log *)                 # name-level filter only in v0; pattern not enforced at scheduler
 role: explore                       # OR `model: <provider>/<id>` — mutually exclusive
-maxTurns: 30                        # default 50
+maxTurns: 30                        # optional; omit or null for no child ceiling
 readOnly: true                      # default false; write-capable children acquire the global write lock
 ---
 

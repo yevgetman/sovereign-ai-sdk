@@ -231,7 +231,7 @@ Body
     });
   });
 
-  test('applies defaults: maxTurns=50, readOnly=false, allowedTools=[]', async () => {
+  test('applies defaults: maxTurns=null, readOnly=false, allowedTools=[]', async () => {
     await withTmp(async (dir) => {
       const bundleRoot = join(dir, 'bundle');
       writeAgent(
@@ -249,13 +249,46 @@ Be helpful.
         bundleRoot,
       });
       const a = registry.byName.get('minimal');
-      expect(a?.maxTurns).toBe(50);
+      expect(a?.maxTurns).toBeNull();
       expect(a?.readOnly).toBe(false);
       expect(a?.allowedTools).toEqual([]);
       expect(a?.model).toBeUndefined();
       expect(a?.role).toBeUndefined();
     });
   });
+
+  test.each(['null', '7', '0', '-1', '1.5', '.inf', '9007199254740992'])(
+    'loads only null or positive safe integer explicit maxTurns: %s',
+    async (value) => {
+      await withTmp(async (dir) => {
+        const bundleRoot = join(dir, 'bundle');
+        writeAgent(
+          join(bundleRoot, 'agents/budget.md'),
+          `---
+name: budget
+description: explicit ceiling
+maxTurns: ${value}
+---
+Do work.
+`,
+        );
+        const warnings: string[] = [];
+        const registry = await loadAgents({
+          cwd: join(dir, 'project'),
+          harnessHome: join(dir, 'home'),
+          bundleRoot,
+          warn: (message) => warnings.push(message),
+        });
+        if (value === 'null' || value === '7') {
+          expect(registry.byName.get('budget')?.maxTurns).toBe(value === 'null' ? null : 7);
+          expect(warnings).toEqual([]);
+        } else {
+          expect(registry.agents).toHaveLength(0);
+          expect(warnings.join(' ')).toContain('maxTurns');
+        }
+      });
+    },
+  );
 
   test('returns agents sorted by name', async () => {
     await withTmp(async (dir) => {

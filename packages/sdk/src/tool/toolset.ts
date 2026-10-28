@@ -23,12 +23,9 @@ export function isToolsetName(value: string): value is ToolsetName {
   return (TOOLSET_NAMES as readonly string[]).includes(value);
 }
 
-/** Used only when the caller set a toolset and did not set `maxTurns`. */
-export function defaultMaxTurns(toolset: ToolsetName): number {
-  if (toolset === 'chat') return 1;
-  if (toolset === 'web') return 6;
-  if (toolset === 'ops') return 8;
-  return 100;
+/** Toolsets select capabilities, never an implicit work budget. */
+export function defaultMaxTurns(_toolset: ToolsetName): null {
+  return null;
 }
 
 /**

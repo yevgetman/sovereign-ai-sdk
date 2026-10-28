@@ -60,6 +60,10 @@ export type ToolContext = {
   sessionId: string;
   harnessHome?: string;
   signal?: AbortSignal;
+  /** Shared ancestry of explicit model-call ceilings. Children cannot clear these. */
+  modelCallBudget?: import('../core/types.js').ModelCallBudget;
+  /** Optional absolute host deadline inherited by all descendants. */
+  deadlineAt?: number | null;
   /** Task 2.3 — WebSearch provider config (provider / apiKey / maxResults),
    *  threaded from the resolved `Settings` by the runtime/CLI assembler so
    *  WebSearchTool reads it off `ctx` instead of doing an ambient `readConfig()`

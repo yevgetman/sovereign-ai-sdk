@@ -167,7 +167,7 @@ export function buildSubprocessArgs(opts: {
   } else {
     args.push('--permission-mode', permissionMode as string);
   }
-  if (opts.config.maxTurns !== undefined) {
+  if (opts.config.maxTurns !== undefined && opts.config.maxTurns !== null) {
     args.push('--max-turns', String(opts.config.maxTurns));
   }
   return args;

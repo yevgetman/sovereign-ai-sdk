@@ -94,8 +94,7 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
     // registry when the target agent declares a `role` that maps to a
     // configured lane. Undefined when no role / no lane / no registry —
     // the scheduler falls through to its existing construction-time
-    // fallback chain in that case (`opts.perChildTimeoutMs ??
-    // agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS`).
+    // explicit host policy. Without either, the child has no lifetime timeout.
     const targetAgent = agents.byName.get(input.subagent_type);
     const laneTimeoutMs =
       targetAgent?.role !== undefined
@@ -121,8 +120,7 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
         ? { delegationLifecycleRecorder: ctx.delegationLifecycleRecorder }
         : {}),
     });
-    const nominalSuccess =
-      result.terminal.reason === 'completed' || result.terminal.reason === 'max_turns';
+    const nominalSuccess = result.terminal.reason === 'completed';
     const hasOutput = result.summary.trim().length > 0;
     const errorMessage =
       !nominalSuccess || !hasOutput
@@ -166,8 +164,7 @@ export const AgentTool = buildTool<AgentToolInput, AgentToolOutput>({
         : []),
       '</subagent_result>',
     ];
-    const nominalSuccess =
-      output.terminalReason === 'completed' || output.terminalReason === 'max_turns';
+    const nominalSuccess = output.terminalReason === 'completed';
     const hasOutput = output.summary.trim().length > 0;
     return {
       content: lines.join('\n'),

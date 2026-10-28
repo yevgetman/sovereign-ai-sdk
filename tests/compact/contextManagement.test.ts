@@ -105,9 +105,10 @@ describe('injected context management', () => {
       tokenUsageComplete: true,
       unknownRequests: 0,
     });
-    expect(result.usage).toEqual({ inputTokens: 24, outputTokens: 12 });
+    // Reuse the already compacted boundary on regeneration; no second summary bill.
+    expect(result.usage).toEqual({ inputTokens: 15, outputTokens: 10 });
     expect(result.usageComplete).toBe(true);
-    expect(result.estimatedCostUsd).toBeCloseTo(0.0200057, 9);
+    expect(result.estimatedCostUsd).toBeCloseTo(0.0100057, 9);
   });
 
   test('a provider failure after its final event still leaves the combined bill unknown', async () => {
@@ -184,10 +185,14 @@ describe('injected context management', () => {
     const first = await drain(agent.run(seed, { sessionId: 'context-transcript' }));
     expect(first.result.terminal.reason).toBe('completed');
     expect(historyBytes(requests[0]?.messages ?? [])).toBeLessThan(1000);
-    expect(first.result.messages).toEqual([...seed, answer]);
+    expect(first.result.messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'Earlier history summarized.' }] },
+      ...seed.slice(-1),
+      answer,
+    ]);
     expect(
       store.loadMessages('context-transcript').map((m) => ({ role: m.role, content: m.content })),
-    ).toEqual(first.result.messages);
+    ).toEqual([...seed, answer]);
     expect(first.result.usage).toEqual({ inputTokens: 12, outputTokens: 6 });
     expect(first.result.estimatedCostUsd).toBeCloseTo(0.01000285, 10);
     expect(first.result.costEstimate?.scope).toBe('aggregate');
@@ -202,7 +207,12 @@ describe('injected context management', () => {
     expect(JSON.stringify(seed)).toBe(original);
     await drain(
       agent.run(
-        [...first.result.messages, { role: 'user', content: [{ type: 'text', text: 'followup' }] }],
+        [
+          ...store
+            .loadMessages('context-transcript')
+            .map((m) => ({ role: m.role, content: m.content })),
+          { role: 'user', content: [{ type: 'text', text: 'followup' }] },
+        ],
         { sessionId: 'context-transcript' },
       ),
     );
@@ -264,7 +274,7 @@ describe('injected context management', () => {
     expect(reductions).toBe(0);
   });
 
-  test('never retries overflow after a tool runs and preserves early persisted tool transcript', async () => {
+  test('recovers a fresh overflow episode after a confirmed tool without repeating its effect', async () => {
     let effects = 0;
     let reductions = 0;
     const use: AssistantMessage = {
@@ -272,7 +282,7 @@ describe('injected context management', () => {
       content: [{ type: 'tool_use', id: 'c', name: 'Echo', input: {} }],
     };
     const { provider: p, requests } = provider((n) =>
-      n === 1 ? use : new Error('context length exceeded'),
+      n === 1 ? use : n === 2 ? new Error('context length exceeded') : answer,
     );
     const store = createInMemorySessionStore();
     const { result } = await drain(
@@ -291,15 +301,25 @@ describe('injected context management', () => {
             },
           }),
         ],
-        contextManager: port(() => reductions++),
+        contextManager: {
+          reduce: async (request) => {
+            reductions++;
+            return {
+              messages: [
+                { role: 'user', content: [{ type: 'text', text: 'Earlier request retained.' }] },
+                ...request.messages.slice(-2),
+              ],
+            };
+          },
+        },
         contextLimits: { maxHistoryBytes: 100000 },
       }).run(seed, { sessionId: 'context-tools' }),
     );
-    expect(result.terminal.reason).toBe('error');
+    expect(result.terminal.reason).toBe('completed');
     expect(effects).toBe(1);
-    expect(requests).toHaveLength(2);
-    expect(reductions).toBe(0);
-    expect(store.loadMessages('context-tools')).toHaveLength(seed.length + 2);
+    expect(requests).toHaveLength(3);
+    expect(reductions).toBe(1);
+    expect(store.loadMessages('context-tools')).toHaveLength(seed.length + 3);
     expect(store.loadMessages('context-tools')[0]?.content).toEqual(seed[0]?.content);
   });
 

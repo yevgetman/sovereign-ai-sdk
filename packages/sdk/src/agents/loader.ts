@@ -14,7 +14,6 @@ import { z } from 'zod';
 import type { AgentDefinition, AgentRegistry, AgentSource, AgentTrustTier } from './types.js';
 
 const AGENT_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_-]*$/;
-const DEFAULT_MAX_TURNS = 50;
 
 const FrontmatterSchema = z
   .object({
@@ -31,7 +30,7 @@ const FrontmatterSchema = z
     capabilityProfile: z.string().min(1).optional(),
     model: z.string().optional(),
     role: z.string().optional(),
-    maxTurns: z.number().int().positive().default(DEFAULT_MAX_TURNS),
+    maxTurns: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable().default(null),
     readOnly: z.boolean().default(false),
     supportsMissionState: z.boolean().default(false),
     inheritParentTools: z.boolean().default(false),

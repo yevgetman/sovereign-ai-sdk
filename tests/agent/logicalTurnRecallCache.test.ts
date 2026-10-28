@@ -91,6 +91,7 @@ function supervise(
     content: [{ type: 'text', text: prompt }],
   });
   const messages: Message[] = [{ role: 'user', content: [{ type: 'text', text: prompt }] }];
+  let work = 0;
   return superviseLogicalTurn({
     store,
     binding: { provider: 'fixture', model: 'fixture-model', cwd: '/tmp/project' },
@@ -98,11 +99,14 @@ function supervise(
     initialMessages: messages,
     rehydrate: () => messages.map((message) => ({ ...message, content: [...message.content] })),
     recoverySafe: () => true,
+    // Transcript ids are not progress. These segments do tool work, so the
+    // fixture reports a changed owned result instead of a new row id.
     progressSnapshot: () => ({
-      transcriptIds: [String(Date.now()) + Math.random()],
+      transcriptIds: ['stable'],
       transcriptCount: 1,
       receipts: [],
       cursor: null,
+      tasks: [{ id: 'work', state: 'running', result: work++ }],
     }),
     runSegment,
     ...extra,

@@ -159,8 +159,8 @@ const GENERAL_GROUP: ConfigGroup = {
       path: 'maxTurns',
       label: 'maxTurns',
       description:
-        'Runaway-loop circuit breaker (default 100). Effective next session — the running runtime captures the value at boot.',
-      editor: { kind: 'number', min: 1, placeholder: '100' },
+        'Optional explicit model-call ceiling. Unset or null means continuous owner turns. Effective next session.',
+      editor: { kind: 'number', min: 1, placeholder: 'unlimited' },
     },
     {
       path: 'verbose',

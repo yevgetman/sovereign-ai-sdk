@@ -276,7 +276,7 @@ describe('LoopDetectorState — no-progress', () => {
     const state = new LoopDetectorState();
     const errorText = 'ValidationError: expected array, received string';
     let detection = null;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       detection = drive(state, {
         name: 'Bash',
         input: { command: 'resume edit skills/1-x --field level' },
@@ -355,16 +355,13 @@ describe('LoopDetectorState — no-progress', () => {
 });
 
 describe('LoopDetectorState — side-effect tools', () => {
-  test('a successful side-effect tool is productive even with an already-seen result', () => {
+  test('successful no-op writes do not count as changed artifact state', () => {
     for (const name of ['FileEdit', 'FileWrite', 'memory', 'memory_propose']) {
       const state = new LoopDetectorState();
-      for (let i = 0; i < 12; i++) {
-        expect(
-          drive(state, { name, input: { path: `/file-${i}` }, text: 'ok' }),
-          `${name} must count as progress when it succeeds`,
-        ).toBeNull();
+      for (let i = 0; i <= 8; i++) {
+        expect(drive(state, { name, input: { path: `/file-${i}` }, text: 'ok' })).toBeNull();
       }
-      expect(nextCheck(state), `${name} must count as progress when it succeeds`).toBeNull();
+      expect(nextCheck(state)?.detector).toBe('no-progress');
     }
   });
 
@@ -389,21 +386,12 @@ describe('LoopDetectorState — side-effect tools', () => {
     expect(detection?.reason).toContain('FileWrite');
   });
 
-  test('host-supplied sideEffectTools are additive to the built-in set', () => {
+  test('an explicit host effect-progress policy remains supported', () => {
     const state = new LoopDetectorState({ sideEffectTools: ['Deploy'] });
     for (let i = 0; i < 12; i++) {
       expect(drive(state, { name: 'Deploy', input: { target: `t${i}` }, text: 'ok' })).toBeNull();
     }
     expect(nextCheck(state)).toBeNull();
-
-    // …and the built-ins still apply alongside it.
-    const builtin = new LoopDetectorState({ sideEffectTools: ['Deploy'] });
-    for (let i = 0; i < 12; i++) {
-      expect(
-        drive(builtin, { name: 'FileEdit', input: { path: `/p${i}` }, text: 'ok' }),
-      ).toBeNull();
-    }
-    expect(nextCheck(builtin)).toBeNull();
   });
 
   test('a non-side-effect tool with an already-seen result is unproductive', () => {

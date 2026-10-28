@@ -294,3 +294,14 @@ describe('HarnessInfoTool', () => {
     expect(perm.behavior).toBe('allow');
   });
 });
+
+test('effective inventory narrows HarnessInfo to admitted execution tools without mutating the host', async () => {
+  const snap = fixtureSnapshot();
+  const tool = buildHarnessInfoTool(() => snap);
+  const result = await tool.call({ section: 'all' }, { ...ctx, activeToolNames: ['HarnessInfo'] });
+  expect(result.data.tools).toEqual({ native: ['HarnessInfo'], mcp: [] });
+  expect(result.data.mcpServers?.[0]?.tools).toEqual([]);
+  expect(result.data.mcpServers?.[0]?.toolCount).toBe(0);
+  expect(snap.tools.native).toContain('Bash');
+  expect(snap.mcpServers[0]?.toolCount).toBe(1);
+});

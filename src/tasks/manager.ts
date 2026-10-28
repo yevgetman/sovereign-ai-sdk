@@ -152,12 +152,25 @@ export class TaskManager {
       this.controllers.delete(id);
       return;
     }
+    // An owner stop on the parent turn is cancellation, not a child timeout.
+    // The scheduler still reports `interrupted` or throws; userAborted selects
+    // `cancelled` in both mappings. A scheduler-only timeout leaves this false.
+    const parentStop = input.parentToolContext.signal;
+    const markOwnerStop = (): void => {
+      controller.userAborted = true;
+    };
+    if (parentStop) {
+      if (parentStop.aborted) markOwnerStop();
+      else parentStop.addEventListener('abort', markOwnerStop);
+    }
     try {
       const result = await this.opts.scheduler.delegate({
         agentName: input.agentName,
         prompt: input.prompt,
         parentSessionId: input.parentSessionId,
-        parentSignal: controller.abort.signal,
+        parentSignal: parentStop
+          ? AbortSignal.any([controller.abort.signal, parentStop])
+          : controller.abort.signal,
         parentToolPool: input.parentToolPool,
         parentToolContext: input.parentToolContext,
         ...(input.canUseTool !== undefined ? { canUseTool: input.canUseTool } : {}),
@@ -184,6 +197,8 @@ export class TaskManager {
         state: finalState,
         resultPreview: bound(message, PREVIEW_MAX_CHARS),
       });
+    } finally {
+      parentStop?.removeEventListener('abort', markOwnerStop);
     }
   }
 
@@ -232,8 +247,9 @@ export class TaskManager {
 function mapTerminalToState(terminal: Terminal, userAborted: boolean): TaskState {
   switch (terminal.reason) {
     case 'completed':
-    case 'max_turns':
       return 'completed';
+    case 'max_turns':
+      return 'failed';
     case 'interrupted':
       return userAborted ? 'cancelled' : 'timed_out';
     case 'error':

@@ -26,7 +26,8 @@ export type AgentDefinition = {
   capabilityProfile?: string;
   model?: string;
   role?: string;
-  maxTurns: number;
+  /** Explicit model-call ceiling; null is continuous. Parent ceilings still apply. */
+  maxTurns: number | null;
   readOnly: boolean;
   supportsMissionState: boolean;
   /**

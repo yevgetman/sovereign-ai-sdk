@@ -196,7 +196,7 @@ describe('query() ⊕ loop guard — consecutive-identical', () => {
     // consecutiveIdenticalThreshold defaults to 4, so the pre-dispatch check on
     // turn 3 sees a run of 4 and fires strike 1 → guidance, and turn 4 stops.
     const gen = query({
-      provider: stuckProvider({ breakAt: 4 }),
+      provider: stuckProvider({ breakAt: 5 }),
       model: 'm',
       messages: [SEED],
       systemPrompt: [],
@@ -251,7 +251,7 @@ describe('query() ⊕ loop guard — consecutive-identical', () => {
     // message rather than being pushed as a standalone text message between
     // the assistant's tool_use and the user's tool_result.
     const gen = query({
-      provider: stuckProvider({ breakAt: 4 }),
+      provider: stuckProvider({ breakAt: 5 }),
       model: 'm',
       messages: [SEED],
       systemPrompt: [],
