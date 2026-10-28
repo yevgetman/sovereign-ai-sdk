@@ -15,7 +15,10 @@ const inputSchema = z.object({
   action: z.enum(['create', 'edit', 'delete']).describe('Skill mutation to perform.'),
   name: z.string().regex(SAFE_SKILL_NAME_RE, 'must be a slash-command-safe skill name'),
   body: z.string().optional().describe('Markdown body for create/edit.'),
-  frontmatter: z.record(z.unknown()).optional().describe('Optional SKILL.md frontmatter fields.'),
+  frontmatter: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe('Optional SKILL.md frontmatter fields.'),
   expectedRevision: z
     .string()
     .optional()

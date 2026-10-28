@@ -292,12 +292,11 @@ describe('loadMcpServerSettings', () => {
     expect(() => loadMcpServerSettings({ cwd, harnessHome })).toThrow();
     const issues = mcpServerIssues({ url: 'https://x.example.com' });
     expect(issues.length).toBe(1);
-    expect(issues[0]?.code).toBe('invalid_union_discriminator');
-    // The native discriminator error names the valid transports + targets the
-    // `type` field by path — clear and singular.
+    // Zod 4 reports a missing discriminant as `invalid_union` and names the
+    // allowed transports. One issue, aimed at `type`, is the contract.
+    expect(issues[0]?.code).toBe('invalid_union');
     expect(issues[0]?.path).toContain('type');
     expect(issues[0]?.message).toMatch(/http.*sse|sse.*http/i);
-    expect(issues.some((i) => i.code === 'invalid_union')).toBe(false);
   });
 
   test('http variant rejects unknown keys', () => {

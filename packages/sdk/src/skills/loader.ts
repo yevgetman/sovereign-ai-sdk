@@ -46,14 +46,14 @@ const MetadataHarnessSchema = z
     fallback_for_tools: z.array(z.string()).default([]),
   })
   .passthrough()
-  .default({});
+  .prefault({});
 
 const MetadataSchema = z
   .object({
     harness: MetadataHarnessSchema,
   })
   .passthrough()
-  .default({});
+  .prefault({});
 
 /** Preserve portable controls and vendor fields. Native allowedTools strings
  * use comma lists; portable allowed-tools supports comma/whitespace lists.
