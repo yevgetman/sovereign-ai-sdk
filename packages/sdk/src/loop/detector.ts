@@ -36,12 +36,7 @@ export type { LoopMode, LoopOptions } from './options.js';
 /** Tools whose successful call is progress by definition — they changed the
  *  world, so a repeated result tells us nothing. Hosts extend this set through
  *  `LoopOptions.sideEffectTools` (additive, never replacing). */
-const BUILTIN_SIDE_EFFECT_TOOLS: readonly string[] = [
-  'FileEdit',
-  'FileWrite',
-  'memory',
-  'memory_propose',
-];
+const BUILTIN_SIDE_EFFECT_TOOLS: readonly string[] = [];
 
 /** Result text beyond this is not hashed (64 KiB). Bounds the hashing cost of a
  *  pathological tool result; two results that differ only past the cut are
@@ -139,6 +134,11 @@ export class LoopDetectorState {
   private recentCalls: readonly ObservedCall[] = [];
   /** Result hashes seen this session, insertion-ordered as an LRU. */
   private readonly seenResults = new Set<string>();
+  private lastResultsProgress = false;
+
+  hasRecentProgress(): boolean {
+    return this.lastResultsProgress;
+  }
 
   constructor(opts: LoopOptions = {}) {
     this.opts = resolveOptions(opts);
@@ -162,6 +162,13 @@ export class LoopDetectorState {
   observeResults(results: ReadonlyArray<ObservedToolResult>): void {
     if (this.isDisabled() || results.length === 0) return;
     const observed = results.map((result) => this.observeOne(result));
+    this.lastResultsProgress = observed.some((call) => call.productive);
+    // Input repetition alone is not a failure when results change (pagination,
+    // task state, fresh read-only evidence). Forget the old failure episode.
+    if (this.lastResultsProgress) {
+      this.toolCalls = [];
+      this.contentChunks = [];
+    }
     this.recentCalls = keepLast([...this.recentCalls, ...observed], this.opts.noProgressWindow);
   }
 
@@ -196,7 +203,7 @@ export class LoopDetectorState {
       inputHash: sha256(`${result.name}:${canonicalInput}`),
       inputPreview: preview(canonicalInput),
       errorPreview: result.isError ? preview(collapseWhitespace(result.text)) : undefined,
-      productive: !alreadySeen || isSuccessfulSideEffect,
+      productive: (result.text.trim().length > 0 && !alreadySeen) || isSuccessfulSideEffect,
     };
   }
 

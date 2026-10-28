@@ -130,6 +130,7 @@ import type {
   LogicalTurnBinding,
   LogicalTurnContinuation,
   LogicalTurnCounters,
+  LogicalTurnPolicyOrigin,
   LogicalTurnRecord,
   LogicalTurnResult,
   LogicalTurnStatus,
@@ -308,6 +309,7 @@ import type {
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'ASSAY_WIRE_VERSION',
   'CANONICAL_TOOL_DESCRIPTORS',
+  'CONTINUOUS_OWNER_TURNS_CAPABILITY',
   'CapabilityProfileRegistry',
   'ClaudeMaxTermsError',
   'ContextManagementError',
@@ -392,6 +394,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'loadSkillText',
   'loadSkills',
   'loadSubscriptionProvider',
+  'migrateLogicalTurnPolicy',
   'normalizeDirectModel',
   'normalizeOpenRouterModel',
   'normalizeSkillDescriptor',
@@ -408,6 +411,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'skillRestrictionRules',
   'skillTextTokenBound',
   'superviseLogicalTurn',
+  'validateLogicalModelCallLimit',
   'validateModelRequest',
   'validateOpenRouterPolicy',
   'verifiedSubscriptionImageInput',
@@ -573,6 +577,7 @@ type TypeSurfaceWitness = {
   logicalTurnBinding?: LogicalTurnBinding;
   logicalTurnContinuation?: LogicalTurnContinuation;
   logicalTurnCounters?: LogicalTurnCounters;
+  logicalTurnPolicyOrigin?: LogicalTurnPolicyOrigin;
   logicalTurnRecord?: LogicalTurnRecord;
   logicalTurnResult?: LogicalTurnResult;
   logicalTurnStatus?: LogicalTurnStatus;

@@ -82,8 +82,6 @@ import type {
   UserMessage,
 } from './types.js';
 
-const DEFAULT_MAX_TURNS = 100;
-
 type DeferredLogicalStop = { fire?: (reason?: StopHookReason) => Promise<void> };
 
 const logicalStops = new WeakMap<Terminal, (reason?: StopHookReason) => Promise<void>>();
@@ -263,11 +261,44 @@ async function* queryInternal(
     tools,
     temperature,
     effort,
-    maxTurns = DEFAULT_MAX_TURNS,
+    maxTurns = null,
     signal,
     cacheEnabled = true,
   } = params;
 
+  if (maxTurns !== null && (!Number.isSafeInteger(maxTurns) || maxTurns <= 0)) {
+    return {
+      reason: 'error',
+      error: new RangeError('maxTurns must be a positive safe integer or null'),
+    };
+  }
+  const slice = params.executionSliceModelCalls;
+  if (slice !== undefined && (!Number.isSafeInteger(slice) || slice <= 0))
+    return { reason: 'error', error: new RangeError('executionSliceModelCalls must be positive') };
+  const inheritedModelCallBudget = params.modelCallBudget ?? params.toolContext?.modelCallBudget;
+  const modelCallBudget: import('./types.js').ModelCallBudget = {
+    limit: maxTurns,
+    used: 0,
+    ...(inheritedModelCallBudget ? { parent: inheritedModelCallBudget } : {}),
+  };
+  const chargeModelCall = (): boolean => {
+    const ancestry: import('./types.js').ModelCallBudget[] = [];
+    for (
+      let node: import('./types.js').ModelCallBudget | undefined = modelCallBudget;
+      node;
+      node = node.parent
+    ) {
+      if (ancestry.includes(node)) throw new Error('cyclic model-call budget');
+      if (node.limit !== null && (!Number.isSafeInteger(node.limit) || node.limit <= 0))
+        throw new RangeError('model-call ceiling must be a positive safe integer or null');
+      if (!Number.isSafeInteger(node.used) || node.used < 0)
+        throw new RangeError('invalid model-call usage');
+      if (node.limit !== null && node.used >= node.limit) return false;
+      ancestry.push(node);
+    }
+    for (const node of ancestry) node.used++;
+    return true;
+  };
   // biome-ignore lint/suspicious/noExplicitAny: cast-free tool composition (F8) — see createAgent AgentConfig.tools.
   let toolPool: Tool<any, any>[] = tools ?? [];
   const inheritedActivation = params.toolContext?.skillActivation;
@@ -285,7 +316,9 @@ async function* queryInternal(
       params.toolContext?.skillRegistryManager,
   );
   const toolCtx: ToolContext | undefined =
-    skillsEnabled && params.toolContext ? { ...params.toolContext } : params.toolContext;
+    (skillsEnabled || params.toolContext?.taskManager) && params.toolContext
+      ? { ...params.toolContext, modelCallBudget }
+      : params.toolContext;
   let systemPrompt = initialSystemPrompt;
   const inheritedChildPermission = toolCtx?.canUseTool;
   const hostPermission =
@@ -341,7 +374,72 @@ async function* queryInternal(
   const sessionId = params.sessionId ?? toolCtx?.sessionId;
   const cwd = params.cwd ?? toolCtx?.cwd;
   const recordTrace = makeTraceRecorder(params.traceRecorder);
-  const loopDetector = new LoopDetectorState(params.loop);
+  const loopState: import('./types.js').QueryLoopState = params.loopState ?? {
+    detector: new LoopDetectorState(params.loop),
+    strikes: 0,
+  };
+  loopState.detector ??= new LoopDetectorState(params.loop);
+  const loopDetector = loopState.detector;
+  if (toolCtx?.taskManager) {
+    const manager = toolCtx.taskManager;
+    loopState.ownedTasks ??= new Map();
+    const owned = loopState.ownedTasks;
+    toolCtx.taskManager = {
+      create: async (input) => {
+        const task = await manager.create(input);
+        owned.set(task.id, manager);
+        return task;
+      },
+      get: (id) => manager.get(id),
+      list: (sessionId, options) => manager.list(sessionId, options),
+      stop: (id) => manager.stop(id),
+      output: (id) => manager.output(id),
+    };
+  }
+  const awaitOwnedTasks = async (): Promise<Terminal | undefined> => {
+    while (loopState.ownedTasks?.size) {
+      if (signal?.aborted) {
+        await Promise.all(
+          [...loopState.ownedTasks].map(async ([id, manager]) => {
+            const task = manager.get(id);
+            if (task?.state === 'running' || task?.state === 'queued') await manager.stop(id);
+          }),
+        );
+        return { reason: 'interrupted' };
+      }
+      for (const [id, manager] of loopState.ownedTasks) {
+        const task = manager.get(id);
+        if (!task)
+          return {
+            reason: 'error',
+            error: new Error(
+              `Owned task ${id} is missing; recover its saved state before completing.`,
+            ),
+          };
+        if (task.state === 'queued' || task.state === 'running') continue;
+        if (task.state !== 'completed')
+          return {
+            reason: 'error',
+            error: new Error(
+              `Owned task ${id} is incomplete (${task.state}): ${task.resultPreview ?? manager.output(id)?.terminalReason ?? 'inspect its saved output'}`,
+            ),
+          };
+        loopState.ownedTasks.delete(id);
+      }
+      if (!loopState.ownedTasks.size) break;
+      await new Promise<void>((resolve) => {
+        const done = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', done);
+          resolve();
+        };
+        const timer = setTimeout(done, 50);
+        signal?.addEventListener('abort', done, { once: true });
+        if (signal?.aborted) done();
+      });
+    }
+    return undefined;
+  };
   /** The loop guard is advisory: a throw inside it must never fail the turn.
    *  Any exception is recorded as a `loop_detector_error` trace event and the
    *  call yields `fallback` — "no detection" for a check, nothing for an
@@ -358,8 +456,8 @@ async function* queryInternal(
       return fallback;
     }
   };
-  let loopDetectionCount = 0;
-  let totalToolCallCount = 0;
+
+  let totalToolCallCount = loopState.toolCallCount ?? 0;
   // Phase 13.3 — sliding window of TurnSummary records for stall detection.
   const recentTurnSummaries: TurnSummary[] = [];
   const originalUserText = latestUserText(messages);
@@ -620,8 +718,6 @@ async function* queryInternal(
         : standing;
   };
 
-  let overflowRecoveries = 0;
-  let toolsDispatched = false;
   const contextSignal = signal ?? new AbortController().signal;
   const manageContext = async (reason: 'budget' | 'overflow'): Promise<StreamEvent> => {
     if (!params.contextManager || !contextLimits) {
@@ -639,6 +735,7 @@ async function* queryInternal(
         ...(sessionId !== undefined ? { sessionId } : {}),
       });
       // Model history only; createAgent persists its separate full transcript.
+      await params.onContextReduced?.(reduced.messages);
       history = reduced.messages;
       refreshSkillCatalog();
       return { type: 'context_management', info: reduced.info };
@@ -698,7 +795,11 @@ async function* queryInternal(
     retainedSkillGuidance = retained.text;
   };
 
-  for (let turn = 0; turn < maxTurns; turn++) {
+  for (
+    let turn = 0;
+    (maxTurns === null || turn < maxTurns) && (slice === undefined || turn < slice);
+    turn++
+  ) {
     if (signal?.aborted) {
       recordTrace({
         type: 'interrupt',
@@ -708,9 +809,15 @@ async function* queryInternal(
       await maybeFireStop('interrupted');
       return { reason: 'interrupted' };
     }
+    // The first request of a segment already passed the host's compaction
+    // check. Later requests yield when the live history needs a new segment
+    // (compaction or an unsafe receipt) without charging another model call.
+    if (turn > 0 && params.hostBoundary && (await params.hostBoundary(history)) === 'yield')
+      return { reason: 'max_turns' };
 
     recordTrace({ type: 'turn_start', turn, iso: nowIso() });
 
+    let overflowRecoveries = 0;
     let assistant: AssistantMessage | undefined;
     let stopReason: StopReason | undefined;
     let usage: TokenUsage | undefined;
@@ -843,6 +950,10 @@ async function* queryInternal(
           systemBytes: systemPrompt.reduce((n, s) => n + Buffer.byteLength(s.text, 'utf8'), 0),
           iso: nowIso(),
         });
+        if (!chargeModelCall()) {
+          await maybeFireStop('max_turns');
+          return { reason: 'max_turns' };
+        }
         providerStarted = true;
         for await (const event of provider.stream(request)) {
           if (firstEventAt === undefined) firstEventAt = Date.now();
@@ -874,7 +985,6 @@ async function* queryInternal(
           providerStarted &&
           params.contextManager &&
           contextLimits &&
-          !toolsDispatched &&
           firstEventAt === undefined &&
           isContextOverflowError(err) &&
           overflowRecoveries < (contextLimits.maxOverflowRetries ?? 1)
@@ -968,19 +1078,19 @@ async function* queryInternal(
     };
 
     if (detection) {
-      loopDetectionCount++;
+      loopState.strikes++;
       // `warn` never aborts — it guides on every detection. `enforce` guides
       // while the strike count is below `maxStrikes` and aborts on the strike
       // that reaches it (spec §3.4).
       const isAbort =
-        loopDetector.mode === 'enforce' && loopDetectionCount >= loopDetector.maxStrikes;
+        loopDetector.mode === 'enforce' && loopState.strikes >= loopDetector.maxStrikes;
       const action: LoopDetectionInfo['action'] =
         loopDetector.mode === 'warn' ? 'warn' : isAbort ? 'abort' : 'guidance';
       const info: LoopDetectionInfo = {
         detector: detection.detector,
         hash: detection.hash,
         repetitionCount: detection.repetitionCount,
-        occurrence: loopDetectionCount,
+        occurrence: loopState.strikes,
         reason: detection.reason,
         action,
         mode: loopDetector.mode,
@@ -1055,11 +1165,13 @@ async function* queryInternal(
       // standalone user message (assistant→user alternation is legal here) and
       // CONTINUE the loop instead of finishing — the sov counterpart of the
       // claude Stop-hook delivery. Only poll when another model call is still
-      // allowed (turn + 1 < maxTurns): consuming a steer on the FINAL
+      // allowed ((maxTurns === null || turn + 1 < maxTurns)): consuming a steer on the FINAL
       // iteration would announce an injection the model never sees — leaving
       // it in the file lets the adapter's leftover drain deliver it honestly.
       const steerText =
-        params.pollSteering && turn + 1 < maxTurns ? await params.pollSteering() : null;
+        params.pollSteering && (maxTurns === null || turn + 1 < maxTurns)
+          ? await params.pollSteering()
+          : null;
       if (steerText !== null && steerText.length > 0) {
         const steerMsg: Message = {
           role: 'user',
@@ -1071,6 +1183,11 @@ async function* queryInternal(
       }
       if (params.memoryManager && originalUserText !== undefined) {
         await params.memoryManager.syncTurn(originalUserText, assistantText(assistant));
+      }
+      const ownedTerminal = await awaitOwnedTasks();
+      if (ownedTerminal) {
+        await maybeFireStop(ownedTerminal.reason);
+        return ownedTerminal;
       }
       await maybeFireStop('completed');
       return { reason: 'completed' };
@@ -1115,10 +1232,16 @@ async function* queryInternal(
     // tools (BashTool's subprocess) and permission prompts can abort on
     // Ctrl-C. Phase 2 omitted this — latent until Phase 3 made it observable.
     const turnCtx: ToolContext = signal ? { ...toolCtx, signal } : toolCtx;
+    const previousBudget = turnCtx.modelCallBudget;
+    turnCtx.modelCallBudget = modelCallBudget;
     const previousNames = turnCtx.activeToolNames;
     const previousParentPool = turnCtx.parentToolPool;
     const restoreHostInventory = (): void => {
       if (turnCtx !== params.toolContext) return;
+      if (previousBudget === undefined) {
+        // biome-ignore lint/performance/noDelete: restore the caller's optional-field shape
+        delete turnCtx.modelCallBudget;
+      } else turnCtx.modelCallBudget = previousBudget;
       // biome-ignore lint/performance/noDelete: restore the caller's exact optional-field shape
       if (previousNames === undefined) delete turnCtx.activeToolNames;
       else turnCtx.activeToolNames = previousNames;
@@ -1168,7 +1291,6 @@ async function* queryInternal(
     let dispatchedResult: Message | undefined;
     let resultYielded = false;
     try {
-      toolsDispatched = true;
       for await (const msg of runTools(
         toolUseBlocks,
         turnCtx,
@@ -1189,9 +1311,13 @@ async function* queryInternal(
         // stay faithful and --resume reconstructs exact context. Guards run
         // BEFORE the poll so a steer is never consumed when it can't be
         // delivered: the merge target must be a user message, and another
-        // model call must still be allowed (turn + 1 < maxTurns) — otherwise
+        // model call must still be allowed ((maxTurns === null || turn + 1 < maxTurns)) — otherwise
         // the file is left for the adapter's leftover drain.
-        if (params.pollSteering && out.role === 'user' && turn + 1 < maxTurns) {
+        if (
+          params.pollSteering &&
+          out.role === 'user' &&
+          (maxTurns === null || turn + 1 < maxTurns)
+        ) {
           const steerText = await params.pollSteering();
           if (steerText !== null && steerText.length > 0) {
             out = {
@@ -1238,6 +1364,7 @@ async function* queryInternal(
           ];
         });
         guarded(() => loopDetector.observeResults(observed), undefined);
+        if (loopDetector.hasRecentProgress()) loopState.strikes = 0;
       }
       // Phase 13.3 — stall / no-op detection. Tracks file edits, memory
       // writes, decisions, and tool errors per turn over a 3-turn sliding
@@ -1321,6 +1448,7 @@ async function* queryInternal(
       // Backlog item 24 — checkin guard. Accumulate per-turn tool-call count
       // after microcompaction so history is clean before we pause.
       totalToolCallCount += toolUseBlocks.length;
+      loopState.toolCallCount = totalToolCallCount;
       if (
         params.maxToolCallsBeforeCheckin !== undefined &&
         totalToolCallCount >= params.maxToolCallsBeforeCheckin

@@ -154,7 +154,7 @@ test('pre-session deadline is continuation_exhausted and not an interrupt', asyn
   expect(String(c.events[0]?.error)).not.toContain('cumulative recovery budget');
 });
 for (const exhausted of ['max_tokens', 'max_turns'] as const) {
-  test(`${exhausted} treats new transcript rows as progress until the model-call budget`, async () => {
+  test(`${exhausted} preserves productive continuation until an explicit model-call budget`, async () => {
     let calls = 0;
     let toolRuns = 0;
     const provider: LLMProvider = {
@@ -169,10 +169,12 @@ for (const exhausted of ['max_tokens', 'max_turns'] as const) {
         };
         const reply: AssistantMessage =
           exhausted === 'max_tokens'
-            ? message('partial')
+            ? message(`partial-${calls}`)
             : {
                 role: 'assistant',
-                content: [{ type: 'tool_use', id: 'refused', name: 'WebSearch', input: {} }],
+                content: [
+                  { type: 'tool_use', id: `refused-${calls}`, name: 'WebSearch', input: {} },
+                ],
               };
         yield { type: 'assistant_message', message: reply };
         return reply;
@@ -180,6 +182,7 @@ for (const exhausted of ['max_tokens', 'max_turns'] as const) {
     };
     const f = fixture(provider, (runtime) => {
       runtime.loop = { mode: 'off' };
+      runtime.ownerModelCallLimit = 100;
       runtime.toolPool.splice(
         0,
         runtime.toolPool.length,
@@ -189,7 +192,7 @@ for (const exhausted of ['max_tokens', 'max_turns'] as const) {
           inputSchema: z.unknown(),
           async call() {
             toolRuns++;
-            return { data: 'receipt' };
+            return { data: `page-${toolRuns}` };
           },
         }),
       );
@@ -216,7 +219,18 @@ for (const exhausted of ['max_tokens', 'max_turns'] as const) {
     expect(terminal?.finishReason).not.toBe('max_tokens');
     expect(terminal?.nextAction).not.toBe('continue_logical_turn');
     expect(terminal?.nextAction).not.toBe('resume');
-    expect(c.events.filter((event) => event.type === 'turn.continuing').length).toBeGreaterThan(1);
+    // max_tokens continuation crosses segments. A tool loop under an explicit
+    // call ceiling stays in one segment, so it emits no continuation events
+    // and still spends the whole ceiling.
+    if (exhausted === 'max_turns') {
+      expect(calls).toBe(100);
+      expect(toolRuns).toBe(100);
+      expect(c.events.filter((event) => event.type === 'turn.continuing')).toHaveLength(0);
+    } else {
+      expect(c.events.filter((event) => event.type === 'turn.continuing').length).toBeGreaterThan(
+        1,
+      );
+    }
     expect(c.events.some((event) => event.type === 'turn.completed')).toBe(false);
     const db = SessionDb.open({ path: f.db });
     try {
@@ -308,6 +322,7 @@ test('model-call cap is not resumable and a follow-up continue does not call the
   };
   const f = fixture(provider, (runtime) => {
     runtime.loop = { mode: 'off' };
+    runtime.ownerModelCallLimit = 100;
     runtime.toolPool.splice(
       0,
       runtime.toolPool.length,
@@ -1485,6 +1500,15 @@ test('max_tokens on text keeps one hidden runtime marker and does not replay the
   expect(await runSdkRunCommand(opts, c.io, f.deps)).toBe(0);
   expect(calls).toBe(2);
   expect(c.events.filter((event) => event.type === 'turn.continuing')).toHaveLength(1);
+  // Telekit validates the route on progress as well as terminal events. An
+  // unbound continuation makes the host terminate the otherwise healthy turn.
+  expect(c.events.find((event) => event.type === 'turn.continuing')).toMatchObject({
+    route: 'openai-api',
+    provider: 'openai',
+    auth: 'api_key',
+    model: 'gpt-4.1',
+    effort: 'off',
+  });
   const terminal = c.events.at(-1);
   expect(terminal).toMatchObject({ type: 'turn.completed', outcome: 'completed' });
   const logicalTurnId = String(terminal?.logicalTurnId);
@@ -1707,7 +1731,7 @@ test('a chat logical turn does not store a segment-count limit', async () => {
     logicalModelCallLimit?: unknown;
     counters?: { segments?: number };
   };
-  expect(raw.logicalModelCallLimit).toBe(100);
+  expect(raw.logicalModelCallLimit).toBeNull();
   expect(raw.segmentLimit).toBeUndefined();
   expect(raw.counters?.segments).toBe(1);
 });
@@ -2552,14 +2576,14 @@ test('segment 2 rehydrates a UserPromptSubmit rewrite instead of the original pr
         description: () => 'fixture',
         inputSchema: z.unknown(),
         async call() {
-          return { data: 'receipt' };
+          return { data: `receipt-${calls}` };
         },
       }),
     );
   });
   const c = capture();
   expect(await runSdkRunCommand({ ...opts, toolset: 'web' }, c.io, f.deps)).toBe(0);
-  // Web segments stop at 6 model calls. Call 7 is the first call of segment 2.
+  // Each internal model-call slice rehydrates the gated prompt.
   expect(calls).toBe(7);
   expect(seen).toHaveLength(7);
   for (const prompt of seen) {
@@ -2627,7 +2651,7 @@ test('a rewritten prompt is stored without memory or recall fences', async () =>
         description: () => 'fixture',
         inputSchema: z.unknown(),
         async call() {
-          return { data: 'receipt' };
+          return { data: `receipt-${calls}` };
         },
       }),
     );
@@ -2635,10 +2659,11 @@ test('a rewritten prompt is stored without memory or recall fences', async () =>
   const c = capture();
   expect(await runSdkRunCommand({ ...opts, toolset: 'web' }, c.io, f.deps)).toBe(0);
   expect(calls).toBe(7);
-  expect(memorySnapshots).toBe(2);
-  const segment = seen.slice(0, 6);
-  expect(segment).toHaveLength(6);
-  for (const prompt of segment) {
+  // One continuous segment assembles memory once. Later model calls keep that
+  // snapshot in the live history and do not take another snapshot.
+  expect(memorySnapshots).toBe(1);
+  expect(seen).toHaveLength(7);
+  for (const prompt of seen) {
     expect(prompt).toContain('rewritten-by-hook');
     expect(prompt).toContain('MemorySnapOne');
     expect(prompt).toContain('RecallLessonMarker');
@@ -2648,13 +2673,7 @@ test('a rewritten prompt is stored without memory or recall fences', async () =>
     expect(prompt).not.toContain('MemorySnapTwo');
   }
   const next = seen[6] ?? '';
-  expect(next).toContain('rewritten-by-hook');
-  expect(next).toContain('MemorySnapTwo');
-  expect(next).toContain(FENCE_PREAMBLE);
-  expect(next).not.toContain('MemorySnapOne');
-  expect(next).toContain('RecallLessonMarker');
   expect(next.split('</recall-context>').length - 1).toBe(1);
-  expect(next).not.toContain('question');
   const db = SessionDb.open({ path: f.db });
   try {
     const session = db.handle

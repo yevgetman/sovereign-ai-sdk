@@ -6,7 +6,7 @@ import { defaultMaxTurns, filterToolsForToolset, isToolsetName } from './toolset
 export type ToolCapabilityProfile = {
   name: string;
   tools: readonly string[];
-  maxTurns?: number;
+  maxTurns?: number | null;
 };
 
 export class CapabilityProfileRegistry {
@@ -19,7 +19,8 @@ export class CapabilityProfileRegistry {
       }
       if (
         profile.maxTurns !== undefined &&
-        (!Number.isInteger(profile.maxTurns) || profile.maxTurns < 1)
+        profile.maxTurns !== null &&
+        (!Number.isSafeInteger(profile.maxTurns) || profile.maxTurns < 1)
       ) {
         throw new Error('profile maxTurns must be a positive integer');
       }
@@ -31,11 +32,11 @@ export class CapabilityProfileRegistry {
     return isToolsetName(name) || this.profiles.has(name);
   }
 
-  maxTurns(name: string): number {
+  maxTurns(name: string): number | null {
     if (isToolsetName(name)) return defaultMaxTurns(name);
     const profile = this.profiles.get(name);
     if (!profile) throw new Error(`unknown capability profile: ${name}`);
-    return profile.maxTurns ?? 100;
+    return profile.maxTurns ?? null;
   }
 
   filter<T extends { name: string }>(name: string, pool: readonly T[], parent?: string): T[] {

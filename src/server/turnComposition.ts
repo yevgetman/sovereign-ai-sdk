@@ -363,7 +363,11 @@ export type TurnHop = {
    *  (the hydrated view's length). Ignored in 'gateway-callbacks' mode. */
   storedPrefixLength?: number;
   /** Logical-turn segment controls. These do not change the standing agent. */
-  maxTurns?: number;
+  maxTurns?: number | null;
+  executionSliceModelCalls?: number;
+  hostBoundary?: import('@yevgetman/sov-sdk/core/types').QueryParams['hostBoundary'];
+  modelCallBudget?: import('@yevgetman/sov-sdk/core/types').ModelCallBudget;
+  loopState?: import('@yevgetman/sov-sdk/core/types').QueryLoopState;
   continuation?: boolean;
   logicalTurn?: boolean;
 };
@@ -507,6 +511,9 @@ export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
     opts.model ?? runtime.model,
     {
       maxTokens: runtime.maxTokens,
+      ...(runtime.ownerToolCheckin !== undefined
+        ? { maxToolCallsBeforeCheckin: runtime.ownerToolCheckin }
+        : {}),
       harnessHome: runtime.harnessHome,
       settings: runtime.injectedSettings,
       ...(opts.modelMetadata ? { modelMetadata: opts.modelMetadata } : {}),
@@ -579,6 +586,9 @@ export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
     hookRunner: runtime.hookRunner,
     microcompactConfig: runtime.microcompactConfig,
     maxTokens: runtime.maxTokens,
+    ...(runtime.ownerToolCheckin !== undefined
+      ? { maxToolCallsBeforeCheckin: runtime.ownerToolCheckin }
+      : {}),
     cwd: runtime.cwd,
     ...(toolset !== undefined ? { toolset } : {}),
     // Conduct Port (1b) — the boot-bound governance provider. Absent →
@@ -661,6 +671,12 @@ export function composeTurn(opts: ComposeTurnOptions): ComposedTurn {
       ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
       rethrow: opts.rethrow ?? true,
       ...(hop.maxTurns !== undefined ? { maxTurns: hop.maxTurns } : {}),
+      ...(hop.executionSliceModelCalls !== undefined
+        ? { executionSliceModelCalls: hop.executionSliceModelCalls }
+        : {}),
+      ...(hop.hostBoundary !== undefined ? { hostBoundary: hop.hostBoundary } : {}),
+      ...(hop.modelCallBudget !== undefined ? { modelCallBudget: hop.modelCallBudget } : {}),
+      ...(hop.loopState !== undefined ? { loopState: hop.loopState } : {}),
       ...(hop.continuation !== undefined ? { continuation: hop.continuation } : {}),
       ...(hop.logicalTurn !== undefined ? { logicalTurn: hop.logicalTurn } : {}),
       ...(persistence.mode === 'sdk-store' && hop.storedPrefixLength !== undefined

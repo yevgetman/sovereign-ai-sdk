@@ -52,7 +52,7 @@ function makeRegistry(agent: AgentDefinition): AgentRegistry {
   };
 }
 
-function makeStubScheduler(capture: { override?: number | undefined }): {
+function makeStubScheduler(capture: { override?: number | null | undefined }): {
   delegate: (input: DelegateInput) => Promise<DelegateResult>;
 } {
   return {
@@ -79,7 +79,7 @@ describe('AgentTool resolves perChildTimeoutMsOverride from laneRegistry', () =>
     const agent = makeAgent({ name: 'cheap-task', role: 'cheap-task' });
     const agents = makeRegistry(agent);
 
-    const capture: { override?: number | undefined } = {};
+    const capture: { override?: number | null | undefined } = {};
     const stubScheduler = makeStubScheduler(capture);
 
     const stubLaneRegistry = {
@@ -120,7 +120,7 @@ describe('AgentTool resolves perChildTimeoutMsOverride from laneRegistry', () =>
     const agent = makeAgent({ name: 'explore', role: 'explore' });
     const agents = makeRegistry(agent);
 
-    const capture: { override?: number | undefined } = { override: 99 };
+    const capture: { override?: number | null | undefined } = { override: 99 };
     const stubScheduler = makeStubScheduler(capture);
 
     const ctx: Partial<ToolContext> = {
@@ -143,7 +143,7 @@ describe('AgentTool resolves perChildTimeoutMsOverride from laneRegistry', () =>
     const agent = makeAgent({ name: 'unknown-role-agent', role: 'unknown-role' });
     const agents = makeRegistry(agent);
 
-    const capture: { override?: number | undefined } = { override: 99 };
+    const capture: { override?: number | null | undefined } = { override: 99 };
     const stubScheduler = makeStubScheduler(capture);
 
     const stubLaneRegistry = {
@@ -173,7 +173,7 @@ describe('AgentTool resolves perChildTimeoutMsOverride from laneRegistry', () =>
     const agent = makeAgent({ name: 'model-pinned', model: 'mock/mock-haiku' });
     const agents = makeRegistry(agent);
 
-    const capture: { override?: number | undefined } = { override: 99 };
+    const capture: { override?: number | null | undefined } = { override: 99 };
     const stubScheduler = makeStubScheduler(capture);
 
     const stubLaneRegistry = {

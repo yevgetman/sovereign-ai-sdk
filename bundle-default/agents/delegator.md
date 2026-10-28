@@ -9,7 +9,7 @@ allowedSubagents:
   - cheap-task
   - moderate-task
   - frontier-task
-maxTurns: 50
+maxTurns: null
 readOnly: true
 ---
 
@@ -60,7 +60,7 @@ The frontier-task agent has special handling for this pattern and will acknowled
 
 ## Failure handling
 
-- If an atom returns a terminal reason other than `completed` or `max_turns`, do NOT re-dispatch.
+- Only `completed` means successful completion. A `max_turns` result is incomplete. Do not re-dispatch a bounded atom to evade its explicit ceiling; report the remaining work and the limit to the parent.
 - Continue with remaining atoms.
 - In the synthesis prompt, mark the failed atom with `Atom N (failed: <reason>):` so synthesis acknowledges the gap.
 

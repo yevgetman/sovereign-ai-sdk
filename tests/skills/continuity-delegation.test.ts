@@ -26,7 +26,9 @@ function agent(name: string, role?: string): AgentDefinition {
     systemPrompt: name,
     allowedTools: [],
     ...(role ? { role } : {}),
-    maxTurns: 3,
+    // Skill restriction is the assertion. A numeric cap here is a shared tree
+    // ceiling, and two native hops need four model calls.
+    maxTurns: null,
     readOnly: true,
     supportsMissionState: false,
     inheritParentTools: true,

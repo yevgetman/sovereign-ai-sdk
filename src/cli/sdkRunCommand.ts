@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
 import {
+  CONTINUOUS_OWNER_TURNS_CAPABILITY,
   LOGICAL_TURN_LEASE_MS,
   LOGICAL_TURN_RECOVERY_CAPABILITY,
   LogicalTurnLeaseError,
@@ -57,7 +58,6 @@ import {
 import { modelInputTokenAccounting } from '@yevgetman/sov-sdk/providers/tokenAccounting';
 import type { SkillContinuityPort } from '@yevgetman/sov-sdk/skills/continuity';
 import { isToolsetName } from '@yevgetman/sov-sdk/tool/toolset';
-import { defaultMaxTurns } from '@yevgetman/sov-sdk/tool/toolset';
 import { persistMessage } from '../agent/persistMessage.js';
 import { LogicalTurnRecordError, SessionDb, type StoredMessage } from '../agent/sessionDb.js';
 import { SessionNotFoundError } from '../server/errors.js';
@@ -86,7 +86,12 @@ import {
 import { mapTerminalReason } from '../server/turnRelay.js';
 import { readModelCatalogSnapshot } from './modelDiscovery.js';
 import { hasNativeRecoveryTarget } from './nativeRunOutcome.js';
-import { type NativeReceipt, nativeTurnMetrics, nativeUsageMeter } from './nativeTurnMetrics.js';
+import {
+  type NativeReceipt,
+  appendNativeReceipt,
+  nativeTurnMetrics,
+  nativeUsageMeter,
+} from './nativeTurnMetrics.js';
 import type { RunCommandIO, RunOptions } from './runCommand.js';
 import { SdkInputError, parseSdkInput, readSdkStdin } from './sdkInput.js';
 
@@ -573,17 +578,17 @@ export async function runSdkRunCommand(
   let storageFault = false;
   const sigint = () => {
     exit = 130;
-    controller.abort();
+    controller.abort('owner_sigint');
   };
   const sigterm = () => {
     exit = 143;
-    controller.abort();
+    controller.abort('host_sigterm');
   };
   process.on('SIGINT', sigint);
   process.on('SIGTERM', sigterm);
-  const externalAbort = () => controller.abort();
+  const externalAbort = () => controller.abort(deps.signal?.reason ?? 'host_cancel');
   deps.signal?.addEventListener('abort', externalAbort, { once: true });
-  if (deps.signal?.aborted) controller.abort();
+  if (deps.signal?.aborted) externalAbort();
   let deadlineAt: number | undefined;
   const deadlineTimers: ReturnType<typeof setTimeout>[] = [];
   // A stored deadlineAt stays absolute. --deadline-ms on continue is rejected
@@ -1190,7 +1195,10 @@ export async function runSdkRunCommand(
       ...metadata(),
       toolset,
       ...permissionMetadata,
-      capabilities: { logicalTurnRecovery: LOGICAL_TURN_RECOVERY_CAPABILITY },
+      capabilities: {
+        logicalTurnRecovery: LOGICAL_TURN_RECOVERY_CAPABILITY,
+        continuousOwnerTurns: CONTINUOUS_OWNER_TURNS_CAPABILITY,
+      },
     });
     if (continuationRecord?.status === 'cancelled') {
       finish({
@@ -1331,7 +1339,7 @@ export async function runSdkRunCommand(
       } finally {
         if (!noOp) {
           const measured = receipt ?? meter.partial();
-          receipts.push(measured);
+          appendNativeReceipt(receipts, measured);
           // Successful compactSession writes its own summary receipt. Failed
           // or cancelled requests have no child; preserve their partial bill.
           if (!receipt && measured.costEstimate) {
@@ -1393,7 +1401,9 @@ export async function runSdkRunCommand(
     );
     const runOnce = async (segment: {
       continuation: boolean;
-      remainingModelCalls: number;
+      remainingModelCalls: number | null;
+      modelCallBudget: import('@yevgetman/sov-sdk/core/types').ModelCallBudget;
+      loopState: import('@yevgetman/sov-sdk/core/types').QueryLoopState;
     }): Promise<RunResult> => {
       const id = sessionId as string;
       const meter = nativeUsageMeter(
@@ -1418,7 +1428,34 @@ export async function runSdkRunCommand(
             sessionCtx: hop.sessionCtx,
             storedPrefixLength: messages.length,
             ...(turnId !== undefined ? { turnId } : {}),
-            maxTurns: Math.min(defaultMaxTurns(toolset), segment.remainingModelCalls),
+            maxTurns: segment.remainingModelCalls,
+            modelCallBudget: segment.modelCallBudget,
+            loopState: segment.loopState,
+            hostBoundary: async (history) => {
+              if (sessionId !== null) {
+                const unsafe = hostRuntime.sessionDb
+                  .loadToolExecutions(sessionId)
+                  .some((receipt) => receipt.state === 'unknown' || receipt.state === 'started');
+                if (unsafe) return 'yield';
+              }
+              if (
+                shouldCompactModelRequest(
+                  history,
+                  hop.system,
+                  toToolSchemas(hop.composed.tools),
+                  modelSnapshot.limits,
+                  hostRuntime.proactiveCompactThreshold,
+                  {
+                    counter: inputTokenAccounting,
+                    model: routeSelection.model,
+                    metadata: modelMetadata,
+                  },
+                ) &&
+                canReduce(hop, history)
+              )
+                return 'yield';
+              return 'continue';
+            },
             continuation: segment.continuation,
             logicalTurn: true,
           }),
@@ -1458,8 +1495,13 @@ export async function runSdkRunCommand(
           hop.sessionCtx.trajectoryMetadata.terminalReason = controller.signal.aborted
             ? 'interrupted'
             : 'error';
+        if (turnId !== undefined) {
+          hostRuntime.attestationEvidence?.endTurn(turnId);
+          const at = mintedTurnIds.indexOf(turnId);
+          if (at >= 0) mintedTurnIds.splice(at, 1);
+        }
         const receipt = result?.costEstimate ? result : meter.partial();
-        receipts.push(receipt);
+        appendNativeReceipt(receipts, receipt);
         // A lost lease already failed this drive. Recording usage would assert
         // again and replace that error with a storage fault.
         if (!result && receipt.costEstimate && !lostLease)
@@ -1512,7 +1554,7 @@ export async function runSdkRunCommand(
     // Same threshold check as the pre-loop prepare. Later segments do not call prepare.
     // prepare() runs before the supervisor reads counters, so its charge is kept
     // here and reported on the first segment's iterationsUsed.
-    let openingSummary: AttemptCharge | undefined;
+    const openingSummary: AttemptCharge | undefined = undefined;
     const compactIfProactive = async (): Promise<AttemptCharge | undefined> => {
       // A deadline that already aborted the work signal must not start a summary.
       if (controller.signal.aborted) return undefined;
@@ -1563,16 +1605,14 @@ export async function runSdkRunCommand(
       sessionId,
       ...(originalUserMessageId !== undefined ? { originalUserMessageId } : {}),
       initialMessages: messages,
-      // Toolset maxTurns bounds one segment inside runSegment. It is not a segment count.
-      logicalModelCallLimit: 100,
+      // No implicit toolset or cumulative ceiling. An explicit host limit stays binding.
+      logicalModelCallLimit: hostRuntime.ownerModelCallLimit ?? null,
+      policyOrigin: hostRuntime.ownerModelCallLimit == null ? 'owner' : 'host',
       ...(deadlineAt !== undefined ? { deadlineAt } : {}),
       ...(continuationId
         ? { logicalTurnId: continuationId }
         : { allocatedLogicalTurnId: admittedLogicalTurnId }),
       signal: controller.signal,
-      prepare: async () => {
-        openingSummary = await compactIfProactive();
-      },
       rehydrate: () => hydrate(),
       recoverySafe: (id) =>
         hasNativeRecoveryTarget(hostRuntime.sessionDb, id) &&
@@ -1604,7 +1644,7 @@ export async function runSdkRunCommand(
           createdAt: Date.now() / 1000,
         });
       },
-      onContinuing: (event) => emit({ type: 'turn.continuing', ...event }),
+      onContinuing: (event) => emit({ type: 'turn.continuing', ...event, ...metadata() }),
       onTrace: (event) => {
         const context = hostRuntime.getSessionContext(event.activeSessionId);
         context.traceWriter.record({
@@ -1627,14 +1667,12 @@ export async function runSdkRunCommand(
         // next segment reads counters.modelCalls, and do not compact twice.
         let summary: AttemptCharge | undefined;
         let remainingModelCalls = segment.remainingModelCalls;
-        if (segment.continuation && !openingSummary) {
+        if (!openingSummary) {
           summary = await compactIfProactive();
-        } else if (openingSummary) {
-          summary = openingSummary;
-          openingSummary = undefined;
         }
-        if (summary) remainingModelCalls -= 1;
-        if (remainingModelCalls <= 0) {
+        if (summary) segment.modelCallBudget.used += 1;
+        if (summary && remainingModelCalls !== null) remainingModelCalls -= 1;
+        if (remainingModelCalls !== null && remainingModelCalls <= 0) {
           const activeSessionId = sessionId as string;
           return {
             sessionId: activeSessionId,
@@ -1652,24 +1690,36 @@ export async function runSdkRunCommand(
         let result = await runOnce({
           continuation: segment.continuation,
           remainingModelCalls,
+          modelCallBudget: segment.modelCallBudget,
+          loopState: segment.loopState,
         });
         if (summary) result = chargeLeadingSummary(result, summary);
         if (overflow(result)) {
           messages = hydrate();
           const recoveryHop = makeHop();
-          if (canReduce(recoveryHop, messages)) {
+          if (
+            canReduce(recoveryHop, messages) &&
+            (segment.modelCallBudget.limit === null ||
+              segment.modelCallBudget.used < segment.modelCallBudget.limit)
+          ) {
             const compaction = await compact();
             if (compaction) {
+              segment.modelCallBudget.used += 1;
               // The abandoned drive and the summary are already spent. A retry
               // only gets the logical model-call budget that remains.
-              const leftover = segment.remainingModelCalls - result.iterationsUsed - 1;
-              if (leftover <= 0) {
+              const leftover =
+                segment.remainingModelCalls === null
+                  ? null
+                  : segment.remainingModelCalls - result.iterationsUsed - 1;
+              if (leftover !== null && leftover <= 0) {
                 result = chargeRecoveredAttempt(result, compaction, sessionId as string);
               } else {
                 hop = makeHop();
                 const retry = await runOnce({
                   continuation: true,
                   remainingModelCalls: leftover,
+                  modelCallBudget: segment.modelCallBudget,
+                  loopState: segment.loopState,
                 });
                 result = mergeRecoveredAttempts(result, retry, compaction);
               }

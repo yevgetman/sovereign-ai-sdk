@@ -28,9 +28,9 @@ The locked choice is the first row. Shelling out to `sov run` boots an app aroun
 1. **Resolve provider and model.** `createAgent.ts`, step 1 inside `run` (`resolveRunProvider`). A string name becomes an `LLMProvider`. A concrete provider is used as given.
 2. **Seed messages.** A string becomes one user message. An array is copied. `query()` owns the history it mutates.
 3. **Session id, system prompt, tools.** The following numbered steps in the same function. Tools are a pool, not a growing catalog inside the cycle.
-4. **`query()`.** `packages/sdk/src/core/query.ts`. Signature and defaults are at `export async function* query`. The cycle is `for (let turn = 0; turn < maxTurns; turn++)`.
+4. **`query()`.** `packages/sdk/src/core/query.ts`. Signature and defaults are at `export async function* query`. With no explicit `maxTurns`, the cycle continues until the model finishes, the caller stops it, or a concrete failure blocks it. A positive `maxTurns` bounds provider requests. An internal slice is a continuation boundary, not a lifetime cap.
 5. **One model call.** Inside that `for`: `provider.stream({ model, system, messages, tools: toToolSchemas(toolPool), ... })`. Events yield as they arrive. The assistant message is pushed onto `history`.
-6. **Tool branch.** `assistant.content` is filtered to `tool_use` blocks (just after the history push). No tool calls: the turn can end. Tool calls: `runTools()` executes them and the `for` continues until `maxTurns`, an abort, or a terminal stop.
+6. **Tool branch.** `assistant.content` is filtered to `tool_use` blocks (just after the history push). No tool calls: the turn can end. Tool calls: `runTools()` executes them and the cycle continues until the model finishes, an explicit ceiling, an abort, or a terminal stop.
 7. **Loop detector.** `LoopDetectorState` runs once per turn, before dispatch. The policy (`enforce` / `warn` / `off`) is in that same block. A throw inside the detector must not fail the turn (`guarded`).
 
 `query()` returns a `Terminal` reason (`end_turn`, `tool_use` exhausted, `max_turns`, `interrupted`, `error`). `run()` wraps that as a `RunResult`. Read `createAgent.ts` from the `Agent` type down through the `query()` call rather than copying it.

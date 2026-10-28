@@ -62,7 +62,6 @@ import { budgetProvider } from './treeBudget.js';
 const SUBSCRIPTION_EXECUTOR_ROLE = 'subscription-executor';
 
 const DEFAULT_MAX_CHILDREN = 4;
-const DEFAULT_PER_TURN_TIMEOUT_MS = 60_000;
 const FRONTIER_PROVIDERS: ReadonlySet<string> = new Set([
   'anthropic',
   'openai',
@@ -121,9 +120,8 @@ export type SubagentSchedulerOpts = {
   defaultModel: string;
   /** Cap on concurrent active children per parent session. */
   maxChildrenPerParent?: number;
-  /** Per-child wall-clock timeout in ms, including lane and write-lock waits. Falls back to
-   *  agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS. */
-  perChildTimeoutMs?: number;
+  /** Explicit host ceiling, including lane and write-lock waits. Null/absent is unlimited. */
+  perChildTimeoutMs?: number | null;
   /** maxTokens to pass to the child's AgentRunner. */
   maxTokens: number;
   /** Phase 13.1 trajectory archive root for child-session capture.
@@ -206,10 +204,10 @@ export type DelegateInput = {
    *  AgentTool reads the target agent's lane timeout from
    *  `ctx.laneRegistry?.lookup(agent.role)?.timeoutMs` and threads it
    *  here when a lane was hit. Wins over `opts.perChildTimeoutMs` and
-   *  the `agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS` fallback. Absent
-   *  means "fall through to the construction-time defaults", preserving
+   *  any construction-time host ceiling. Absent
+   *  means "use the construction-time policy", preserving
    *  every existing call site that never sets this field. */
-  perChildTimeoutMsOverride?: number;
+  perChildTimeoutMsOverride?: number | null;
   /** Phase 2 T4 — delegation lifecycle recorder. Fires at start + at every
    *  return path of `delegate()` (success, interrupted). The runtime
    *  constructs a closure per turn that synthesizes the four delegator_*
@@ -274,27 +272,35 @@ export class SubagentScheduler implements Scheduler {
       throw new Error(`unknown subagent: '${input.agentName}'`);
     }
 
-    // Phase 2 T3 — three-step precedence: per-call override (lane
-    // timeout from AgentTool) > scheduler construction-time default >
-    // agent.maxTurns-derived fallback. The override is purely additive:
-    // callers that never set `perChildTimeoutMsOverride` see the
-    // identical fallback chain that shipped pre-T3.
-    const timeoutMs =
-      input.perChildTimeoutMsOverride ??
-      this.opts.perChildTimeoutMs ??
-      agent.maxTurns * DEFAULT_PER_TURN_TIMEOUT_MS;
-    const deadlineAt = Date.now() + timeoutMs;
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    const composed: AbortSignal =
-      input.parentSignal !== undefined
-        ? AbortSignal.any([input.parentSignal, timeoutSignal])
-        : timeoutSignal;
-
-    // Native timeout callbacks cannot run during synchronous host hooks. Check
-    // the absolute deadline too, so delayed acquisition never starts a child.
+    // A lane/request can narrow host policy, never clear or extend it. Agent
+    // call budgets are independent of wall time; no lifetime timer is inferred.
+    const timeouts = [input.perChildTimeoutMsOverride, this.opts.perChildTimeoutMs];
+    for (const timeout of timeouts) {
+      if (
+        timeout !== undefined &&
+        timeout !== null &&
+        (!Number.isSafeInteger(timeout) || timeout <= 0)
+      ) {
+        throw new Error('child timeout must be a positive integer or null');
+      }
+    }
+    const finiteTimeouts = timeouts.filter((v): v is number => typeof v === 'number');
+    const timeoutMs = finiteTimeouts.length > 0 ? Math.min(...finiteTimeouts) : null;
+    const parentDeadline = input.parentToolContext.deadlineAt;
+    const deadlineAt =
+      timeoutMs === null
+        ? (parentDeadline ?? null)
+        : Math.min(Date.now() + timeoutMs, parentDeadline ?? Date.now() + timeoutMs);
+    const timeoutSignal =
+      deadlineAt === null ? undefined : AbortSignal.timeout(Math.max(0, deadlineAt - Date.now()));
+    const signals = [input.parentSignal, input.parentToolContext.signal, timeoutSignal].filter(
+      (s): s is AbortSignal => s !== undefined,
+    );
+    const composed = AbortSignal.any(signals);
+    // Absolute check covers synchronous host hooks that delay timeout callbacks.
     const checkDeadline = (): void => {
       composed.throwIfAborted();
-      if (Date.now() >= deadlineAt) {
+      if (deadlineAt !== null && Date.now() >= deadlineAt) {
         throw new DOMException('Child delegation deadline exceeded', 'TimeoutError');
       }
     };
@@ -309,6 +315,15 @@ export class SubagentScheduler implements Scheduler {
     // inert for every other role / when the config is absent.
     const useSubprocessExecutor =
       this.opts.subscriptionExecutor?.enabled === true && agent.role === SUBSCRIPTION_EXECUTOR_ROLE;
+    if (useSubprocessExecutor) {
+      for (let budget = input.parentToolContext.modelCallBudget; budget; budget = budget.parent) {
+        if (budget.limit !== null) {
+          throw new Error(
+            'shared model-call ceiling cannot be enforced by the subprocess executor',
+          );
+        }
+      }
+    }
     const inheritedSkillRestrictions =
       input.parentToolContext.skillActivation?.hasInheritedRestrictions === true ||
       input.parentToolContext.skillActivation?.activations.some(
@@ -485,6 +500,7 @@ export class SubagentScheduler implements Scheduler {
           childActivation.hasInheritedRestrictions = true;
         const childToolContext: ToolContext = {
           ...inheritedContext,
+          deadlineAt,
           // The child's query owns its lifetime; it is not a gateway retry hop.
           skillContinuityManagedByHost: false,
           ...(childContinuity ? { skillContinuity: childContinuity } : {}),
@@ -575,8 +591,15 @@ export class SubagentScheduler implements Scheduler {
             result = await run!({
               prompt: input.prompt,
               cwd: input.parentToolContext.cwd,
-              // biome-ignore lint/style/noNonNullAssertion: guarded by useSubprocessExecutor (enabled === true ⇒ config present)
-              config: this.opts.subscriptionExecutor!,
+              config: {
+                ...this.opts.subscriptionExecutor,
+                maxTurns: [agent.maxTurns, this.opts.subscriptionExecutor?.maxTurns]
+                  .filter((value): value is number => typeof value === 'number')
+                  .reduce<number | null>(
+                    (limit, value) => (limit === null ? value : Math.min(limit, value)),
+                    null,
+                  ),
+              },
               signal: composed,
               ...(childToolContext.learningObserver !== undefined
                 ? { learningObserver: childToolContext.learningObserver }
@@ -706,7 +729,11 @@ export class SubagentScheduler implements Scheduler {
               PRICE_TABLE[`${resolved.transport.name}:${resolved.model}`] !== undefined))
             ? result.estimatedCostUsd
             : undefined;
-        const summary = extractSummary(result.finalAssistant);
+        const rawSummary = extractSummary(result.finalAssistant);
+        const summary =
+          result.terminal.reason === 'max_turns'
+            ? `[child incomplete: explicit model-call ceiling reached; do not retry to evade the ceiling]\n${rawSummary}`
+            : rawSummary;
         // Phase 13.1 trajectory capture for child sessions. The REPL
         // captures parent sessions at REPL exit; sub-agent sessions
         // run inside SubagentScheduler.delegate() and never see that
@@ -739,17 +766,12 @@ export class SubagentScheduler implements Scheduler {
         // Phase 13.6 — on_delegation hook. Fire after a *successful*
         // child completion so the parent's memory provider can capture
         // the delegation as a learnable observation. We treat
-        // `completed` and `max_turns` as success here: max_turns means
-        // the child hit its iteration cap cleanly (the run was useful
-        // for as far as it got). Errors and interrupts skip the hook —
-        // those are not durable memory candidates. The hook receives
+        // Only completed work counts as success. A model-call ceiling is
+        // incomplete work, even with a useful partial summary. The hook receives
         // the prompt and the rendered summary as `(task, result)`;
         // richer metadata (childSessionId, durationMs, traceId) is
         // captured separately via the trace stream.
-        if (
-          input.memoryManager !== undefined &&
-          (result.terminal.reason === 'completed' || result.terminal.reason === 'max_turns')
-        ) {
+        if (input.memoryManager !== undefined && result.terminal.reason === 'completed') {
           // Best-effort — never block the scheduler return on a memory
           // provider error. Failures route to the trace stream so the
           // operator can diagnose without breaking the parent turn.
@@ -793,9 +815,7 @@ export class SubagentScheduler implements Scheduler {
           }
         }
         // Phase 2 T4 — fire the matching delegation_completed lifecycle
-        // event. `completed` and `max_turns` count as success (matching
-        // the on_delegation memory-hook semantics above); everything else
-        // is a failure path. The synthesis closure routes this onto
+        // event. Only completed work counts as success; limits remain incomplete. The synthesis closure routes this onto
         // `delegator_atom_complete` (for an atom) or `delegator_complete`
         // (for the delegator session itself).
         input.delegationLifecycleRecorder?.({
@@ -806,7 +826,7 @@ export class SubagentScheduler implements Scheduler {
           laneName: lane !== null ? lane.name : null,
           laneProvider: lane !== null ? lane.provider : null,
           laneModel: lane !== null ? lane.model : null,
-          success: result.terminal.reason === 'completed' || result.terminal.reason === 'max_turns',
+          success: result.terminal.reason === 'completed',
           durationMs: Date.now() - delegationStartedAt,
         });
         return {
@@ -916,7 +936,7 @@ export function shouldFireReviewOnDelegation(agentName: string, terminalReason: 
   ) {
     return false;
   }
-  return terminalReason === 'completed' || terminalReason === 'max_turns';
+  return terminalReason === 'completed';
 }
 
 function laneFor(providerName: string): 'local' | 'frontier' {

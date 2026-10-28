@@ -4,7 +4,7 @@ description: Execute a single bounded task efficiently on the cheapest configure
 whenToUse: Use for atoms that don't require deep reasoning — file scanning, simple Q&A, syntax fixes, focused lookups.
 role: cheap-task
 inheritParentTools: true
-maxTurns: 30
+maxTurns: null
 readOnly: false
 ---
 

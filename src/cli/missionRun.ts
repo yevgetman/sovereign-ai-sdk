@@ -69,9 +69,8 @@ export function normalizePerWakeTurnBudget(value: unknown): number {
  *  FIX 1b — the wake is a *bounded* unit of work: the mission's
  *  `perWakeTurnBudget` (default 10, set at `mission init`) caps how many
  *  tool-use continuation turns one wake may take. Previously the wake passed
- *  only `userSettings.maxTurns`; when that was unset, `query()` fell back to its
- *  100-turn default and the per-wake budget was silently ignored — a wake could
- *  run 100 turns instead of the intended 10.
+ *  only `userSettings.maxTurns`. Owner turns no longer have a default model-call
+ *  ceiling, so this explicit per-wake budget is what keeps an unattended wake finite.
  *
  *  #39 — the incoming budget is validated via `normalizePerWakeTurnBudget` so a
  *  missing / 0 / NaN value can never collapse the wake to zero turns.
@@ -80,10 +79,21 @@ export function normalizePerWakeTurnBudget(value: unknown): number {
  *  declares a lower bound than the budget, honor the lower one. (`agentMaxTurns`
  *  is always set in practice — the loader defaults it — but it's optional here
  *  so the helper is independently testable.) */
-export function resolveWakeMaxTurns(perWakeTurnBudget: number, agentMaxTurns?: number): number {
+export function resolveWakeMaxTurns(
+  perWakeTurnBudget: number,
+  agentMaxTurns?: number | null,
+  callerMaxTurns?: number | null,
+): number {
   const budget = normalizePerWakeTurnBudget(perWakeTurnBudget);
-  if (agentMaxTurns === undefined) return budget;
-  return Math.min(budget, agentMaxTurns);
+  const ceilings = [budget, agentMaxTurns, callerMaxTurns].filter(
+    (value): value is number => value !== undefined && value !== null,
+  );
+  for (const ceiling of ceilings) {
+    if (!Number.isSafeInteger(ceiling) || ceiling <= 0) {
+      throw new RangeError('wake ceiling must be a positive safe integer or null');
+    }
+  }
+  return Math.min(...ceilings);
 }
 
 export type MissionWakeOpts = {
@@ -264,12 +274,12 @@ async function runMissionWakeLocked(
       cwd: process.cwd(),
       memoryManager,
       maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
-      // FIX 1b — bound the wake by the mission's per-wake turn budget (capped by
-      // the agent's own maxTurns), NOT query()'s 100-turn default. A user-level
-      // maxTurns, when set lower, tightens it further.
-      maxTurns: Math.min(
-        resolveWakeMaxTurns(missionFiles.state.perWakeTurnBudget, agentDef.maxTurns),
-        userSettings.maxTurns ?? Number.POSITIVE_INFINITY,
+      // Bound the wake by its explicit per-wake budget. A lower agent or caller
+      // ceiling tightens it. Null does not clear the mission budget.
+      maxTurns: resolveWakeMaxTurns(
+        missionFiles.state.perWakeTurnBudget,
+        agentDef.maxTurns,
+        userSettings.maxTurns,
       ),
       // Parity-fix: this surface GAINS microcompaction tuned to the user's
       // settings (it previously inherited query()'s DEFAULT_MICROCOMPACT_CONFIG).

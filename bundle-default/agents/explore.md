@@ -13,7 +13,7 @@ allowedTools:
   - Bash(ls *)
   - Bash(find *)
 role: explore
-maxTurns: 30
+maxTurns: null
 readOnly: true
 ---
 

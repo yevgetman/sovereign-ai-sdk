@@ -135,7 +135,23 @@ describe('AgentTool', () => {
     expect(r.observation?.status).toBe('success');
   });
 
-  test('marks observation status=error when terminal is not completed/max_turns', async () => {
+  test('bounded child returns incomplete diagnostic even with a partial summary', async () => {
+    const ctx: ToolContext = {
+      cwd: process.cwd(),
+      sessionId: 'parent',
+      agents: makeRegistry(['explore']),
+      subagentScheduler: makeStubScheduler({
+        resultOverride: { terminalReason: 'max_turns', summary: 'partial work' },
+      }),
+    };
+    const result = await AgentTool.call({ subagent_type: 'explore', prompt: 'hi' }, ctx);
+    expect(result.observation?.status).toBe('error');
+    const rendered = AgentTool.renderResult?.(result.data);
+    expect(rendered?.isError).toBe(true);
+    expect(rendered?.content).toContain('max_turns');
+  });
+
+  test('marks observation status=error when terminal is not completed', async () => {
     const ctx: ToolContext = {
       cwd: process.cwd(),
       sessionId: 'parent',
@@ -167,7 +183,7 @@ describe('AgentTool', () => {
     expect(out.isError).toBe(false);
   });
 
-  test('renderResult flags is_error when terminal is not completed/max_turns', () => {
+  test('renderResult flags is_error when terminal is not completed', () => {
     const out = (AgentTool.renderResult as NonNullable<typeof AgentTool.renderResult>)({
       childSessionId: 'child-1',
       agentName: 'explore',

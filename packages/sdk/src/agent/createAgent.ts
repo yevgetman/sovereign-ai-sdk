@@ -102,12 +102,7 @@ import type { SkillRuntime } from '../skills/runtime.js';
 import type { CapabilityProfileRegistry } from '../tool/capabilityProfiles.js';
 import { effectiveToolInventory, projectToolInventory } from '../tool/effectiveInventory.js';
 import type { LearningObserverPort } from '../tool/ports.js';
-import {
-  defaultMaxTurns,
-  filterToolsForToolset,
-  isToolsetName,
-  wrapToolsetCanUseTool,
-} from '../tool/toolset.js';
+import { filterToolsForToolset, isToolsetName, wrapToolsetCanUseTool } from '../tool/toolset.js';
 import type { Tool, ToolContext } from '../tool/types.js';
 import type { TraceEvent } from '../trace/types.js';
 import { validateSessionId } from '../util/sessionId.js';
@@ -216,7 +211,7 @@ export type AgentConfig = {
   contextLimits?: ContextLimits;
   pricingSnapshot?: PricingSnapshot;
   maxTokens?: number;
-  maxTurns?: number;
+  maxTurns?: number | null;
   /** Error-propagation mode for a THROWN pre/in-loop op (memory injection,
    *  recall, the UserPromptSubmit hook — the async ops query() runs OUTSIDE its
    *  per-turn try/catch). Omit/`false` (the DEFAULT): a throw is CONVERTED to a
@@ -268,7 +263,11 @@ export type PerTurn = Partial<{
   /** Override the bounded segment call limit. Logical-turn supervisors use
    * this to enforce the remaining cumulative budget without changing the
    * standing toolset limit. */
-  maxTurns: number;
+  maxTurns: number | null;
+  executionSliceModelCalls: number;
+  hostBoundary: NonNullable<QueryParams['hostBoundary']>;
+  modelCallBudget: NonNullable<QueryParams['modelCallBudget']>;
+  loopState: NonNullable<QueryParams['loopState']>;
   /** Marks an internal continuation segment. User-turn hooks and recall do
    * not run again. */
   continuation: boolean;
@@ -307,6 +306,8 @@ export type RunResult = {
   iterationsUsed: number;
   toolCallCount: number;
   distinctToolNames: string[];
+  /** Current active model context. After reduction, read the complete history
+   * from SessionStore/TranscriptStore; do not treat this as a lifetime transcript. */
   messages: Message[];
   /** The run's summed, phase-broken token usage. Accumulator semantics: the
    *  per-call finals (last-seen value per field within each provider call) are
@@ -411,7 +412,7 @@ export function createAgent(config: AgentConfig): Agent {
 
     // 2. Input → seed messages. A string seeds one user message; a Message[] is
     //    copied (never mutated — query() owns the internal history copy too).
-    const seedMessages: Message[] =
+    let seedMessages: Message[] =
       typeof input === 'string'
         ? [{ role: 'user', content: [{ type: 'text', text: input }] }]
         : [...input];
@@ -566,9 +567,15 @@ export function createAgent(config: AgentConfig): Agent {
           ? config.maxTurns
           : requestedToolset !== undefined && config.capabilityProfiles?.has(requestedToolset)
             ? config.capabilityProfiles.maxTurns(requestedToolset)
-            : requestedToolset !== undefined && isToolsetName(requestedToolset)
-              ? defaultMaxTurns(requestedToolset)
-              : undefined;
+            : null;
+    const inheritedModelCallBudget =
+      perTurn.modelCallBudget ?? perTurn.toolContext?.modelCallBudget;
+    const runBudget: NonNullable<QueryParams['modelCallBudget']> = {
+      limit: maxTurns,
+      used: 0,
+      ...(inheritedModelCallBudget ? { parent: inheritedModelCallBudget } : {}),
+    };
+    const runLoopState = perTurn.loopState ?? { strikes: 0 };
     let messages: Message[] = [...seedMessages];
     // Store length before this attempt's early tool-call write. A regenerate
     // truncates back to it so the discarded call does not stay in history.
@@ -712,7 +719,39 @@ export function createAgent(config: AgentConfig): Agent {
         ...(microcompactConfig !== undefined ? { microcompactConfig } : {}),
         ...(contextManager !== undefined ? { contextManager } : {}),
         ...(contextLimits !== undefined ? { contextLimits } : {}),
-        ...(maxTurns !== undefined ? { maxTurns } : {}),
+        maxTurns,
+        ...(perTurn.executionSliceModelCalls !== undefined
+          ? { executionSliceModelCalls: perTurn.executionSliceModelCalls }
+          : {}),
+        ...(perTurn.hostBoundary !== undefined ? { hostBoundary: perTurn.hostBoundary } : {}),
+        onContextReduced: async (reduced) => {
+          // Full history is durable; only the current model context stays in RAM.
+          if (config.sessionStore || config.transcripts) {
+            let start = savedThrough;
+            if (start === undefined && config.sessionStore) {
+              const stored = config.sessionStore.loadMessages(sessionId);
+              start = isRehydratedPrefix(stored, messages) ? stored.length : 0;
+            }
+            config.sessionStore?.upsertSession({ sessionId, model, provider: provider.name });
+            let seq = 0;
+            for (const message of messages.slice(start ?? 0)) {
+              const id =
+                config.sessionStore?.saveMessage(sessionId, {
+                  role: message.role,
+                  content: message.content,
+                }) ?? seq++;
+              if (config.transcripts) {
+                config.transcripts.recordMessage(sessionId, message.role, message.content, id);
+                attemptTranscriptWrites++;
+              }
+            }
+          }
+          messages = reduced.slice();
+          seedMessages = reduced.slice();
+          savedThrough = messages.length;
+        },
+        modelCallBudget: runBudget,
+        loopState: runLoopState,
         ...(perTurn.continuation === true ? { continuation: true } : {}),
         ...(perTurn.logicalTurn === true ? { logicalTurn: true } : {}),
         ...(config.sessionStore !== undefined || config.toolExecutionStore !== undefined
@@ -1313,6 +1352,8 @@ function persistTurn(opts: {
   model: string;
   providerName: string;
   systemPrompt: SystemSegment[];
+  /** Current active model context. After reduction, read the complete history
+   * from SessionStore/TranscriptStore; do not treat this as a lifetime transcript. */
   messages: Message[];
   /** The run's finalized usage total (undefined → no usage reported). */
   usage: TokenUsage | undefined;

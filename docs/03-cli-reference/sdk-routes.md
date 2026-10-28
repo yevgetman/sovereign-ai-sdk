@@ -293,13 +293,15 @@ includes that same `logicalTurnId` for a new turn and for
 `--continue-logical-turn`, and advertises `capabilities.logicalTurnRecovery`.
 A `turn.error` after the id is assigned also carries it, including storage
 and lease failures. The SQLite row is then the one named by that id.
-`--resume` starts a different logical turn; it does not continue this one. A bounded segment that ends at
-`max_tokens` or `max_turns` emits `turn.continuing`, reloads durable state and
-continues without replaying the original prompt. The toolset segment defaults
-are chat 1, web 6, ops 8 and coding 100 model calls. Those numbers bound model
-calls inside one segment. They are not a count of segments, and the durable row
-does not store a segment-count limit. The logical-turn default is 100 model
-calls. `--deadline-ms` covers the complete logical turn, and
+`--resume` starts a different logical turn; it does not continue this one. A slice that ends at
+`max_tokens` or an internal `max_turns` boundary emits `turn.continuing`, reloads durable state and
+continues without replaying the original prompt. Toolsets do not set a model-call budget.
+`session.started` also advertises `capabilities.continuousOwnerTurns`. An omitted
+`maxTurns` stores `logicalModelCallLimit: null` with policy origin `owner`. A
+positive `maxTurns` or `--deadline-ms` is an explicit host ceiling and stays
+binding, including across continuation. Version-1 rows keep their stored numeric
+ceiling and deadline. They are not rewritten as unlimited. A cancelled row does
+not resume under the new policy. `--deadline-ms` covers the complete logical turn, and
 `--continue-logical-turn` aborts at the stored deadline when this invocation
 omits `--deadline-ms`, including a tool that is still blocked. Passing
 `--deadline-ms` together with `--continue-logical-turn` is invalid input.

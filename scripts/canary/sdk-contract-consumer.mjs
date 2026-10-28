@@ -117,8 +117,9 @@ assert.equal(regeneratedBudget.snapshot().accountedTokens, 14);
 assert.equal(regeneratedBudget.snapshot().tokenUsageComplete, true);
 assert.equal(regeneratedBudget.snapshot().unknownRequests, 0);
 assert.equal(regenerated.terminal.reason, 'completed');
-assert.deepEqual(regenerated.usage, { inputTokens: 24, outputTokens: 12 });
+// Regeneration reuses the compacted model context, so the summary is billed once.
+assert.deepEqual(regenerated.usage, { inputTokens: 15, outputTokens: 10 });
 assert.equal(regenerated.usageComplete, true);
-assert.ok(Math.abs(regenerated.estimatedCostUsd - 0.0200057) < 1e-9);
+assert.ok(Math.abs(regenerated.estimatedCostUsd - 0.0100057) < 1e-9);
 
 console.log('SDK_CONTRACT_OK');

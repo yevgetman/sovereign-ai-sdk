@@ -333,14 +333,11 @@ export const SettingsSchema = z
       })
       .strict()
       .optional(),
-    /** Maximum number of model turns inside a single user query before
-     *  the runtime stops with `[max turns reached]`. One turn = one
-     *  assistant message; tool_use turns count, so analysis tasks that
-     *  read many files need a higher cap. Default 100 — high enough to
-     *  function as a runaway-loop circuit breaker rather than a task
-     *  ceiling, mirroring Claude Code's "rely on permission gates +
-     *  Ctrl-C, not a numeric cap" model. */
-    maxTurns: z.number().int().positive().optional(),
+    /** Optional explicit ceiling on provider requests inside one owner turn.
+     *  One count is one model iteration, including a tool-use iteration.
+     *  Omission and null mean no ceiling. A stored positive integer stays
+     *  binding. Zero, negative, and non-finite values are invalid. */
+    maxTurns: z.number().int().positive().nullable().optional(),
     /** When true, show the full tool-result preview block (40 lines /
      *  4000 chars) under each `[tool: ...]` header. Default off — the
      *  REPL just prints a one-line summary so the agent's tool output
@@ -816,7 +813,7 @@ export const SettingsSchema = z
         binary: z.string().optional(),
         permissionMode: z.enum(['plan', 'acceptEdits', 'default', 'bypass']).optional(),
         timeoutMs: z.number().int().positive().optional(),
-        maxTurns: z.number().int().positive().optional(),
+        maxTurns: z.number().int().positive().nullable().optional(),
       })
       .strict()
       .optional(),

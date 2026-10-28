@@ -23,9 +23,14 @@ import { randomUUID } from 'node:crypto';
 import type { PostTurnRequest, PostTurnResponse } from '@yevgetman/sov-protocol';
 import { accumulateUsage, createUsageAccumulator, finalizeUsage } from '@yevgetman/sov-sdk';
 import type { RunResult } from '@yevgetman/sov-sdk/agent/createAgent';
+import {
+  logicalTurnCursor,
+  logicalTurnWorkSignal,
+  superviseLogicalTurn,
+} from '@yevgetman/sov-sdk/agent/logicalTurn';
 import { expandContextReferences } from '@yevgetman/sov-sdk/context/references';
 import { composeConductCanUseTool } from '@yevgetman/sov-sdk/core/conductToolPolicy';
-import type { Message, Terminal } from '@yevgetman/sov-sdk/core/types';
+import type { Message } from '@yevgetman/sov-sdk/core/types';
 import { toToolSchemas } from '@yevgetman/sov-sdk/mcp/schemaSerialization';
 import { REASONING_EFFORTS, type ReasoningEffort } from '@yevgetman/sov-sdk/providers/effort';
 import { isContextOverflowError } from '@yevgetman/sov-sdk/providers/errors';
@@ -44,6 +49,8 @@ import { effectiveToolInventory } from '@yevgetman/sov-sdk/tool/effectiveInvento
 import { buildToolScope, filterParseableRules } from '@yevgetman/sov-sdk/tool/toolScope';
 import type { TraceEvent } from '@yevgetman/sov-sdk/trace/types';
 import { Hono } from 'hono';
+import { persistMessage } from '../../agent/persistMessage.js';
+import { hasNativeRecoveryTarget } from '../../cli/nativeRunOutcome.js';
 import { type CompactResult, shouldCompactProactively } from '../../compact/compactor.js';
 import { synthesizeDelegationEvents } from '../../router/progressEvents.js';
 import type { AppVariables } from '../auth.js';
@@ -634,7 +641,6 @@ async function runTurnInBackground(
     // runOnce so it spans both the initial hop and the overflow-recovery retry:
     // once ANY delta has streamed this turn, the buffered-delivery branch stays
     // skipped for every subsequent assistant_message (streaming byte-identical).
-    let sawTextDelta = false;
     const recordHopUsage = (currentSessionId: string): void => {
       if (!hopResult) return;
       const usage = hopResult.usage ?? finalizeUsage(hopUsageAcc) ?? {};
@@ -732,55 +738,63 @@ async function runTurnInBackground(
     // not all compactions per turn. TUI consumers must therefore handle
     // TWO `compaction_complete` events per turn (each with a distinct
     // `activeSessionId`) and pivot to the latest one.
-    const compactNeeded = modelSnapshot
-      ? shouldCompactModelRequest(
+    const compactBeforeRequest = async () => {
+      const compactNeeded = modelSnapshot
+        ? shouldCompactModelRequest(
+            messages,
+            effectiveSystem,
+            effectiveTools,
+            modelSnapshot.limits,
+            runtime.proactiveCompactThreshold,
+            {
+              counter: modelInputTokenAccounting(modelSnapshot.metadata.provider),
+              model: modelSnapshot.metadata.id,
+              metadata: modelSnapshot.metadata,
+            },
+          )
+        : shouldCompactProactively({
+            messages,
+            systemPrompt: effectiveSystem,
+            contextLength: runtime.resolvedProvider.contextLength,
+            threshold: runtime.proactiveCompactThreshold,
+          });
+      if (compactNeeded) {
+        const result = await runtime.compact(
           messages,
-          effectiveSystem,
-          effectiveTools,
-          modelSnapshot.limits,
-          runtime.proactiveCompactThreshold,
-          {
-            counter: modelInputTokenAccounting(modelSnapshot.metadata.provider),
-            model: modelSnapshot.metadata.id,
-            metadata: modelSnapshot.metadata,
-          },
-        )
-      : shouldCompactProactively({
-          messages,
-          systemPrompt: effectiveSystem,
-          contextLength: runtime.resolvedProvider.contextLength,
-          threshold: runtime.proactiveCompactThreshold,
-        });
-    if (compactNeeded) {
-      const result = await runtime.compact(messages, sessionId, turnSignal);
-      // Backlog #36: when the entire history fit within the tail budget,
-      // compactSession returns a no-op (parentSessionId === newSessionId,
-      // noOp: true) — there's no new child id to pivot onto and no SSE
-      // event worth publishing. Skip both. The TUI never sees a phantom
-      // marker, the local sessionId stays on the parent, and the next
-      // query() call uses the unchanged hydrated messages.
-      if (result.noOp !== true) {
-        publishCompactionComplete(bus, sessionId, result);
-        sessionId = result.newSessionId;
-        // M7 T3 — re-fetch the SessionContext so the post-compaction trace
-        // events land in the child's trace file rather than the parent's.
-        // The `traceRecorder` closure picks up the new ref on its next call
-        // because it dereferences `sessionCtx` dynamically.
-        sessionCtx = runtime.getSessionContext(sessionId);
-        if (sessionCtx.skillContinuity) continuityPorts.add(sessionCtx.skillContinuity);
-        if (modelSnapshot)
-          sessionCtx.modelBudget = {
-            provider: modelSnapshot.metadata.provider,
-            model: modelSnapshot.metadata.id,
-            contextTokens: modelSnapshot.limits.contextTokens,
-          };
-        // The child's persisted state (summary + tail) is now the source of
-        // truth for the model. Reload from the DB rather than mutating
-        // result.tail in place so we pick up the persisted summary message
-        // compactSession wrote at the head of the child's transcript.
-        messages = hydrate();
+          sessionId,
+          logicalTurnWorkSignal(turnSignal) ?? turnSignal,
+        );
+        // Backlog #36: when the entire history fit within the tail budget,
+        // compactSession returns a no-op (parentSessionId === newSessionId,
+        // noOp: true) — there's no new child id to pivot onto and no SSE
+        // event worth publishing. Skip both. The TUI never sees a phantom
+        // marker, the local sessionId stays on the parent, and the next
+        // query() call uses the unchanged hydrated messages.
+        if (result.noOp !== true) {
+          publishCompactionComplete(bus, sessionId, result);
+          sessionId = result.newSessionId;
+          // M7 T3 — re-fetch the SessionContext so the post-compaction trace
+          // events land in the child's trace file rather than the parent's.
+          // The `traceRecorder` closure picks up the new ref on its next call
+          // because it dereferences `sessionCtx` dynamically.
+          sessionCtx = runtime.getSessionContext(sessionId);
+          if (sessionCtx.skillContinuity) continuityPorts.add(sessionCtx.skillContinuity);
+          if (modelSnapshot)
+            sessionCtx.modelBudget = {
+              provider: modelSnapshot.metadata.provider,
+              model: modelSnapshot.metadata.id,
+              contextTokens: modelSnapshot.limits.contextTokens,
+            };
+          // The child's persisted state (summary + tail) is now the source of
+          // truth for the model. Reload from the DB rather than mutating
+          // result.tail in place so we pick up the persisted summary message
+          // compactSession wrote at the head of the child's transcript.
+          messages = hydrate();
+          return result;
+        }
       }
-    }
+      return undefined;
+    };
 
     // Build a session-scoped canUseTool. The runtime's own `canUseTool`
     // carries the M3 deny placeholder for out-of-band callers; here we
@@ -830,62 +844,86 @@ async function runTurnInBackground(
     // (Feature B) narrows the pool + gate for THIS turn only. Persistence is
     // 'gateway-callbacks': createAgent gets no store ports and the relay
     // below writes every message via persistMessage.
-    const composed = composeTurn({
-      runtime,
-      canUseTool: sessionCanUseTool,
-      persistence,
-      ...(modelSnapshot ? { modelMetadata: modelSnapshot.metadata } : {}),
-      ...(skillScope !== undefined ? { skillScope } : {}),
-      ...(skillActivation !== undefined ? { skillActivation } : {}),
-      skillActivationTurnId,
-      manageSkillContinuity: true,
-      ...(perTurnModel !== undefined ? { model: perTurnModel } : {}),
-      ...(perTurnEffort !== undefined ? { effort: perTurnEffort } : {}),
-      ...(perTurnInstructions !== undefined ? { instructions: perTurnInstructions } : {}),
-      ...(pollSteering !== undefined ? { pollSteering } : {}),
-      traceRecorder,
-      delegationLifecycleRecorder,
-      signal: turnSignal,
-      // Task 7.2 — opt OUT of createAgent's convert-throw-to-terminal default
-      // so a pre-loop throw (memory injection, recall, UserPromptSubmit hook)
-      // propagates to the outer catch → `turn_error`.
-      rethrow: true,
-    });
+    const makeComposed = () =>
+      composeTurn({
+        runtime,
+        canUseTool: sessionCanUseTool,
+        persistence,
+        ...(modelSnapshot ? { modelMetadata: modelSnapshot.metadata } : {}),
+        ...(skillScope !== undefined ? { skillScope } : {}),
+        ...(skillActivation !== undefined ? { skillActivation } : {}),
+        skillActivationTurnId,
+        manageSkillContinuity: true,
+        ...(perTurnModel !== undefined ? { model: perTurnModel } : {}),
+        ...(perTurnEffort !== undefined ? { effort: perTurnEffort } : {}),
+        ...(perTurnInstructions !== undefined ? { instructions: perTurnInstructions } : {}),
+        ...(pollSteering !== undefined ? { pollSteering } : {}),
+        traceRecorder,
+        delegationLifecycleRecorder,
+        signal: turnSignal,
+        // Task 7.2 — opt OUT of createAgent's convert-throw-to-terminal default
+        // so a pre-loop throw (memory injection, recall, UserPromptSubmit hook)
+        // propagates to the outer catch → `turn_error`.
+        rethrow: true,
+      });
 
-    // M6 T4 — overflow auto-recovery (M6-02 retry-once). Run the
-    // iteration once; if the resulting Terminal carries a
-    // context-overflow error, run runtime.compact(), publish
-    // compaction_complete, then run the iteration ONCE more against the
-    // post-compaction child session id. A second overflow on the retry
-    // surfaces via the normal turn-error path below (we do NOT recurse).
-    const runOnce = async (currentMessages: Message[]): Promise<Terminal | undefined> => {
-      // Reads outer `sessionId` let — the recovery branch reassigns it between
-      // calls. Do not shadow with a local `const sessionId = …` inside this
-      // closure; doing so would silently break the recovery hop.
-      //
-      // Attestation host turn identity (spec §3.3): mint ONE fresh id per
-      // drive — the compaction-retry hop calls runOnce again and mints its
-      // own — registered under the sessionId THIS drive runs as. `vars`
-      // mirror the ConductContext the hooks see (gateway turns are 'user';
-      // model = the per-turn override else the standing model). Absent
-      // coordinator ⇒ undefined ⇒ the PerTurn field stays ABSENT.
+    // CLI, TUI/drive and HTTP use the SDK's same durable owner-turn supervisor.
+    // The model loop stays continuous. A caller ceiling or a context boundary
+    // continues the same turn; it is not a one-call slice.
+    // Yield only when the next request needs a new segment: an unsafe receipt
+    // must stop before another provider call, and a full history must compact
+    // before that call. Ordinary tool steps stay inside this loop.
+    const hostBoundary = async (history: readonly Message[]) => {
+      const unsafe = runtime.sessionDb
+        .loadToolExecutions(sessionId)
+        .some((receipt) => receipt.state === 'unknown' || receipt.state === 'started');
+      if (unsafe) return 'yield' as const;
+      const compactNeeded = modelSnapshot
+        ? shouldCompactModelRequest(
+            history,
+            effectiveSystem,
+            effectiveTools,
+            modelSnapshot.limits,
+            runtime.proactiveCompactThreshold,
+            {
+              counter: modelInputTokenAccounting(modelSnapshot.metadata.provider),
+              model: modelSnapshot.metadata.id,
+              metadata: modelSnapshot.metadata,
+            },
+          )
+        : shouldCompactProactively({
+            messages: history,
+            systemPrompt: effectiveSystem,
+            contextLength: runtime.resolvedProvider.contextLength,
+            threshold: runtime.proactiveCompactThreshold,
+          });
+      return compactNeeded ? ('yield' as const) : ('continue' as const);
+    };
+    let continuation = false;
+    const runOnce = async (
+      currentMessages: Message[],
+      segment: Parameters<Parameters<typeof superviseLogicalTurn>[0]['runSegment']>[0],
+    ): Promise<RunResult> => {
+      const composed = makeComposed();
       const turnId = runtime.attestationEvidence?.beginTurn(sessionId, {
         surface: 'user',
         model: perTurnModel ?? runtime.model,
       });
       if (turnId !== undefined) mintedTurnIds.push(turnId);
-      // PER-HOP slice: sessionId, turnId and the SessionContext-derived
-      // fields (effort, memory, recall, tool context) are rebuilt for the
-      // possibly-pivoted session; the bus/turn abort signal cancels the
-      // provider stream + tool loop on cancel / disconnect / server.stop().
-      const stream = composed.agent.run(
-        currentMessages,
-        composed.perTurn({
+      const stream = composed.agent.run(currentMessages, {
+        ...composed.perTurn({
           sessionId,
           sessionCtx,
           ...(turnId !== undefined ? { turnId } : {}),
+          maxTurns: segment.remainingModelCalls,
+          modelCallBudget: segment.modelCallBudget,
+          loopState: segment.loopState,
+          hostBoundary,
+          continuation,
+          logicalTurn: true,
         }),
-      );
+      });
+      hopUsageAcc = createUsageAccumulator();
       const relayed = await relayAgentRun(stream, {
         sink: bus,
         sessionId,
@@ -893,124 +931,164 @@ async function runTurnInBackground(
         toolPool: runtime.toolPool,
         persist: composed.relayPersist,
         conductBound: runtime.conduct !== undefined,
-        sawTextDelta,
-        // Usage telemetry (T5) — fold EVERY StreamEvent into both
-        // accumulators: `hopUsageAcc` sums THIS hop's calls (→ sessionDb),
-        // `turnUsageAcc` sums ALL calls across the turn's hops (→ the wire).
-        onStreamEvent: (streamEvent) => {
-          hopUsageAcc = accumulateUsage(hopUsageAcc, streamEvent);
-          turnUsageAcc = accumulateUsage(turnUsageAcc, streamEvent);
+        sawTextDelta: false,
+        onStreamEvent: (event) => {
+          hopUsageAcc = accumulateUsage(hopUsageAcc, event);
+          turnUsageAcc = accumulateUsage(turnUsageAcc, event);
         },
       });
-      sawTextDelta = relayed.sawTextDelta;
+      if (turnId !== undefined) {
+        runtime.attestationEvidence?.endTurn(turnId);
+        const at = mintedTurnIds.indexOf(turnId);
+        if (at >= 0) mintedTurnIds.splice(at, 1);
+      }
+      continuation = true;
       hopResult = relayed.result;
-      return relayed.result.terminal;
-    };
-
-    // Reset the PER-HOP accumulator before each runOnce so this hop's
-    // sessionDb record carries only its own calls' usage. The recovery branch
-    // below reassigns sessionId before the second runOnce — without this reset,
-    // the first hop's usage would be re-recorded under the post-recovery child
-    // id. `turnUsageAcc` is deliberately NOT reset here: it spans both hops to
-    // produce the summed turn total for the wire.
-    hopUsageAcc = createUsageAccumulator();
-    let terminal = await runOnce(messages);
-    // Record this hop's usage against the sessionId it ran under (still the
-    // parent here; the recovery branch reassigns AFTER this).
-    recordHopUsage(sessionId);
-
-    // Overflow recovery path (retry-once). query() captures provider
-    // exceptions into Terminal { reason: 'error', error } at
-    // src/core/query.ts:156-164, so an overflow surfaces here as a
-    // populated terminal.error rather than a thrown exception. If
-    // runtime.compact() itself throws (recursive overflow case), the
-    // outer try/catch publishes turn_error — symmetric to T3's safety
-    // net for the proactive path. A second overflow on the retry's
-    // Terminal falls through to the normal turn_complete path below
-    // (mapTerminalReason maps reason: 'error' → finishReason: 'error',
-    // which the TUI surfaces as a turn-level error to the user) — we
-    // intentionally do NOT recurse into a second compact + retry.
-    //
-    // Per-turn compaction budget (Path A): this branch fires
-    // INDEPENDENTLY of the proactive block above. If proactive ALREADY
-    // compacted earlier in this turn, this recovery hop still runs —
-    // the local `sessionId` at that point is the post-proactive child
-    // id, so the recovery's `compaction_complete` carries that child
-    // as the parent and a NEW grandchild as the activeSessionId. The
-    // local `retriedAfterCompact` semantics guard ONLY this recovery
-    // retry (not all per-turn compactions). The third test in
-    // tests/server/turns.overflowRecovery.test.ts pins the two-event shape.
-    if (terminal?.reason === 'error' && isContextOverflowError(terminal.error)) {
-      const compactResult = await runtime.compact(messages, sessionId, turnSignal);
-      // Backlog #36: a no-op result here means compaction couldn't free up
-      // any headroom (entire history already fit in the tail budget — the
-      // overflow was driven by the system prompt or a single oversized
-      // tool result the tail keeper preserved). No new session id to pivot
-      // onto, no wire event worth publishing. Falling straight through to
-      // a same-session retry would just hit the same overflow, so skip the
-      // retry entirely and surface the original overflow via the normal
-      // turn_error path below — `terminal` already carries it.
-      if (compactResult.noOp === true) {
-        // Whole-branch review I2 — record terminal reason on the
-        // SessionContext so disposal routes this trajectory into
-        // failed.jsonl (the trajectory writer's COMPLETED_REASONS set at
-        // src/trajectory/writer.ts:68 excludes 'error'). Without this,
-        // error-terminal sessions silently bucket into samples.jsonl and
-        // corrupt the corpus consumer's success/failure split.
-        sessionCtx.trajectoryMetadata.terminalReason = 'error';
-        await finishContinuity('failed');
-        bus.publish({
-          type: 'turn_error',
-          seq: bus.nextSeq(),
-          sessionId,
-          error:
-            terminal.error?.message ?? 'context overflow with no compactable history to recover',
-          recoverable: false,
-        });
-        return;
-      }
-      publishCompactionComplete(bus, sessionId, compactResult);
-      sessionId = compactResult.newSessionId;
-      // M7 T3 — re-fetch the SessionContext so the retried run's trace
-      // events land in the child's trace file rather than the parent's.
-      sessionCtx = runtime.getSessionContext(sessionId);
-      if (sessionCtx.skillContinuity) continuityPorts.add(sessionCtx.skillContinuity);
-      if (modelSnapshot)
-        sessionCtx.modelBudget = {
-          provider: modelSnapshot.metadata.provider,
-          model: modelSnapshot.metadata.id,
-          contextTokens: modelSnapshot.limits.contextTokens,
-        };
-      messages = hydrate();
-      // Reset the PER-HOP accumulator before the retry so the second runOnce
-      // starts fresh. recordHopUsage already fired against the parent sessionId
-      // above (the parent's row is safe); the retry's usage records below
-      // against the post-compaction child sessionId. `turnUsageAcc` carries
-      // over from hop1 so the wire total sums both hops.
-      hopUsageAcc = createUsageAccumulator();
-      terminal = await runOnce(messages);
       recordHopUsage(sessionId);
-      // M6-02 retry-once: if the retry's terminal also carries an overflow
-      // error, surface it as turn_error rather than turn_complete (the
-      // post-recovery overflow is a distinct failure surface — "compaction
-      // didn't yield enough headroom" — that the TUI should not gloss as a
-      // normal turn end). Mirrors the second-overflow contract pinned by
-      // the M6 T4 test.
-      if (terminal?.reason === 'error' && isContextOverflowError(terminal.error)) {
-        // Whole-branch review I2 — second overflow after compaction is a
-        // terminal error: bucket the trajectory into failed.jsonl on
-        // disposal (see compactResult.noOp branch above for the same fix).
-        sessionCtx.trajectoryMetadata.terminalReason = 'error';
-        await finishContinuity('failed');
-        bus.publish({
-          type: 'turn_error',
-          seq: bus.nextSeq(),
-          sessionId,
-          error: terminal.error?.message ?? 'context overflow after compaction',
-          recoverable: false,
+      return relayed.result;
+    };
+    const logical = await superviseLogicalTurn({
+      store: runtime.sessionDb,
+      binding: {
+        provider: runtime.resolvedProvider.transport.name,
+        model: perTurnModel ?? runtime.model,
+        cwd: runtime.cwd,
+        permissionMode: runtime.permissionMode,
+        // Bind the effective request scope. Internal continuation never widens it.
+        policyDigest: JSON.stringify({
+          skillScope: skillScope ?? null,
+          instructions: perTurnInstructions ?? null,
+        }),
+      },
+      sessionId,
+      initialMessages: messages,
+      logicalModelCallLimit: runtime.ownerModelCallLimit ?? null,
+      policyOrigin: runtime.ownerModelCallLimit == null ? 'owner' : 'host',
+      signal: turnSignal,
+      rehydrate: () => hydrate(),
+      recoverySafe: (id) => hasNativeRecoveryTarget(runtime.sessionDb, id),
+      progressSnapshot: (id) => {
+        const rows = runtime.sessionDb.loadMessages(id);
+        return {
+          cursor: logicalTurnCursor(rows) ?? null,
+          // Content and state, never transcript ids or timestamps, establish progress.
+          results: rows
+            .slice(-4)
+            .flatMap((row) => row.content.filter((block) => block.type === 'tool_result')),
+          tasks: runtime.taskManager.list(id).map((task) => ({ id: task.id, state: task.state })),
+        };
+      },
+      persistRuntimeContinuation: ({ activeSessionId, id, text }) => {
+        const rows = runtime.sessionDb.loadMessages(activeSessionId);
+        if (rows.at(-1)?.role === 'user' || rows.some((row) => row.toolCallId === id)) return;
+        persistMessage(runtime, activeSessionId, {
+          role: 'user',
+          content: [{ type: 'text', text }],
+          toolCallId: id,
+          toolCalls: { origin: 'runtime', id },
         });
-        return;
-      }
+      },
+      onContinuing: (event) => {
+        // Existing status events are nonterminal and need no new client outcome.
+        bus.publish({ type: 'status_update', seq: bus.nextSeq(), sessionId, streaming: true });
+        sessionCtx.traceWriter.record({
+          type: 'external',
+          source: 'logical-turn',
+          payload: event,
+          iso: new Date().toISOString(),
+        });
+      },
+      runSegment: async (segment) => {
+        messages = segment.messages;
+        const summary = await compactBeforeRequest();
+        const summaryCalls = summary ? 1 : 0;
+        segment.modelCallBudget.used += summaryCalls;
+        const remaining =
+          segment.remainingModelCalls === null ? null : segment.remainingModelCalls - summaryCalls;
+        let result: RunResult;
+        if (remaining !== null && remaining <= 0) {
+          result = {
+            sessionId,
+            terminal: { reason: 'max_turns' },
+            iterationsUsed: 0,
+            toolCallCount: 0,
+            distinctToolNames: [],
+            messages,
+          };
+        } else {
+          result = await runOnce(messages, { ...segment, remainingModelCalls: remaining });
+          if (
+            result.terminal.reason === 'error' &&
+            isContextOverflowError(result.terminal.error) &&
+            (segment.modelCallBudget.limit === null ||
+              segment.modelCallBudget.used < segment.modelCallBudget.limit)
+          ) {
+            // Bound each overflow episode. A productive call clears the episode.
+            messages = hydrate();
+            const compacted = await runtime.compact(
+              messages,
+              sessionId,
+              logicalTurnWorkSignal(turnSignal) ?? turnSignal,
+            );
+            if (!compacted.noOp && compacted.newSessionId !== sessionId) {
+              segment.modelCallBudget.used += 1;
+              publishCompactionComplete(bus, sessionId, compacted);
+              sessionId = compacted.newSessionId;
+              sessionCtx = runtime.getSessionContext(sessionId);
+              if (sessionCtx.skillContinuity) continuityPorts.add(sessionCtx.skillContinuity);
+              messages = hydrate();
+              const retryRemaining =
+                remaining === null ? null : remaining - result.iterationsUsed - 1;
+              if (retryRemaining === null || retryRemaining > 0) {
+                const retry = await runOnce(messages, {
+                  ...segment,
+                  remainingModelCalls: retryRemaining,
+                });
+                result = {
+                  ...retry,
+                  iterationsUsed: result.iterationsUsed + 1 + retry.iterationsUsed,
+                  toolCallCount: result.toolCallCount + retry.toolCallCount,
+                };
+              } else
+                result = {
+                  ...result,
+                  sessionId,
+                  terminal: { reason: 'max_turns' },
+                  iterationsUsed: result.iterationsUsed + 1,
+                };
+            }
+          }
+        }
+        return { ...result, sessionId, iterationsUsed: result.iterationsUsed + summaryCalls };
+      },
+    });
+    sessionId = logical.activeSessionId;
+    const terminal = logical.finalSegment?.terminal;
+    // A provider failure that query already caught is a normal terminal:
+    // turn_complete{finishReason:'error'} plus the failed trajectory bucket.
+    // An unrecoverable context overflow stays turn_error, as do exceptions
+    // that escape the generator and logical stops (explicit ceiling, stall,
+    // unsafe receipt) that have no provider terminal.
+    const handledProviderError =
+      logical.status === 'failed' &&
+      !logical.code &&
+      terminal?.reason === 'error' &&
+      !isContextOverflowError(terminal.error);
+    if (
+      !handledProviderError &&
+      (logical.status === 'failed' ||
+        logical.status === 'stalled' ||
+        logical.status === 'exhausted')
+    ) {
+      throw new Error(
+        logical.finalSegment?.terminal.error?.message ||
+          logical.reply ||
+          (logical.status === 'exhausted'
+            ? 'Explicit host model-call limit reached; work is incomplete.'
+            : logical.status === 'stalled'
+              ? 'Repeated tool results made no progress. Change the approach or resolve the reported obstacle.'
+              : 'Owner turn failed. Inspect the saved session before retrying.'),
+      );
     }
 
     // Whole-branch review I2 — propagate the terminal's reason to the

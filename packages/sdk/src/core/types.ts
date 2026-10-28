@@ -155,6 +155,18 @@ export type SystemSegment = {
   cacheable: boolean;
 };
 
+/** Shared authority ceiling. Children charge every ancestor, so delegation cannot
+ * reset a finite caller limit. Mutable only at a provider-call boundary. */
+export type ModelCallBudget = { limit: number | null; used: number; parent?: ModelCallBudget };
+
+/** Shared failure episode across internal execution slices. */
+export type QueryLoopState = {
+  detector?: import('../loop/detector.js').LoopDetectorState;
+  strikes: number;
+  toolCallCount?: number;
+  ownedTasks?: Map<string, import('../tool/ports.js').TaskManagerPort>;
+};
+
 /** Runtime inputs for one async-generator query loop. */
 export type QueryParams = {
   provider: import('../providers/types.js').LLMProvider;
@@ -173,8 +185,18 @@ export type QueryParams = {
   inputTokenCounter?: (request: import('../providers/types.js').ProviderRequest) => number;
   /** Structured request accounting; uncertain modalities remain explicit. */
   inputTokenAccounting?: import('../providers/tokenAccounting.js').InputTokenAccounting;
-  /** Maximum turns for tool-use continuation. Default 10. */
-  maxTurns?: number;
+  /** Maximum provider requests (including recovery attempts). Omitted/null is unlimited. */
+  maxTurns?: number | null;
+  /** Internal host scheduling boundary; never inherited by children as a budget. */
+  executionSliceModelCalls?: number;
+  /** Before a later provider request, the host may yield this segment so it
+   * can compact or stop on an unsafe tool receipt. A yield is not a model call. */
+  hostBoundary?: (
+    history: readonly Message[],
+  ) => 'continue' | 'yield' | Promise<'continue' | 'yield'>;
+  onContextReduced?: (messages: Message[]) => void | Promise<void>;
+  modelCallBudget?: ModelCallBudget;
+  loopState?: QueryLoopState;
   /** Internal segment after the original user turn was admitted. Skips
    * user-message hooks, recall, and user conduct gates. */
   continuation?: boolean;

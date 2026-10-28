@@ -61,7 +61,7 @@ export type HarnessInfoSnapshot = {
      *  this literal provider/model string instead of role resolution. */
     model?: string;
     readOnly: boolean;
-    maxTurns: number;
+    maxTurns: number | null;
     allowedTools: string[];
     source: 'project' | 'user' | 'bundle';
     trustTier: 'builtin' | 'trusted';
@@ -150,8 +150,18 @@ export function buildHarnessInfoTool(getSnapshot: () => HarnessInfoSnapshot): To
     isConcurrencySafe: () => true,
     renderHint: { kind: 'markdown' },
     checkPermissions: async () => ({ behavior: 'allow' as const }),
-    async call(input) {
-      const snap = getSnapshot();
+    async call(input, ctx) {
+      const snap = structuredClone(getSnapshot());
+      const names = ctx.skillActivation?.tools.map((tool) => tool.name) ?? ctx.activeToolNames;
+      if (names) {
+        const active = new Set(names);
+        snap.tools.native = snap.tools.native.filter((name) => active.has(name));
+        snap.tools.mcp = snap.tools.mcp.filter((name) => active.has(name));
+        for (const server of snap.mcpServers) {
+          server.tools = server.tools.filter((name) => active.has(name));
+          server.toolCount = server.tools.length;
+        }
+      }
       const section = input.section ?? 'all';
       return {
         data: filterSnapshot(snap, section),
@@ -237,7 +247,9 @@ function formatSnapshot(out: Output): string {
       if (a.whenToUse !== undefined && a.whenToUse.length > 0) {
         lines.push(`    when to use: ${a.whenToUse}`);
       }
-      lines.push(`    source: ${a.source} · trust: ${a.trustTier} · maxTurns: ${a.maxTurns}`);
+      lines.push(
+        `    source: ${a.source} · trust: ${a.trustTier} · maxTurns: ${a.maxTurns ?? 'unlimited'}`,
+      );
       if (a.allowedTools.length > 0) {
         lines.push(`    allowedTools: ${a.allowedTools.join(', ')}`);
       }

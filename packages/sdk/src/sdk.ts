@@ -354,6 +354,9 @@ export type {
 } from './persistence/sessionStore.js';
 export {
   LOGICAL_TURN_RECOVERY_CAPABILITY,
+  CONTINUOUS_OWNER_TURNS_CAPABILITY,
+  migrateLogicalTurnPolicy,
+  validateLogicalModelCallLimit,
   LogicalTurnLeaseError,
   superviseLogicalTurn,
 } from './agent/logicalTurn.js';
@@ -362,6 +365,7 @@ export type {
   LogicalTurnContinuation,
   LogicalTurnCounters,
   LogicalTurnRecord,
+  LogicalTurnPolicyOrigin,
   LogicalTurnResult,
   LogicalTurnStatus,
   LogicalTurnStore,

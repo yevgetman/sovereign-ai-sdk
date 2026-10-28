@@ -283,3 +283,42 @@ test('a logical turn with no stored route names the route failure', async () => 
   });
   expect(terminal?.error).not.toBe(GENERIC_INVALID_INPUT);
 });
+
+test('version 2 null policy and migration metadata round trip without numeric coercion', () => {
+  const path = fileDb();
+  const record: LogicalTurnRecord = {
+    ...stored('lt-v2'),
+    version: 2,
+    logicalModelCallLimit: null,
+    policyOrigin: 'owner',
+    policyMigrations: [
+      { at: 3, fromVersion: 1, previousLimit: 100, reason: 'Owner policy migration' },
+    ],
+    cancellationSource: 'owner_stop',
+  };
+  insert(path, record.logicalTurnId, JSON.stringify(record));
+  const db = SessionDb.open({ path });
+  try {
+    expect(db.loadLogicalTurn('lt-v2')).toEqual(record);
+  } finally {
+    db.close();
+  }
+});
+
+test('legacy null, v2 missing origin and invalid numeric policy fail closed', () => {
+  const path = fileDb();
+  for (const [id, patch] of [
+    ['lt-v1-null', { logicalModelCallLimit: null }],
+    ['lt-no-origin', { version: 2, logicalModelCallLimit: null }],
+    ['lt-zero', { version: 2, policyOrigin: 'owner', logicalModelCallLimit: 0 }],
+    ['lt-future', { version: 3, policyOrigin: 'owner', logicalModelCallLimit: null }],
+  ] as const)
+    insert(path, id, JSON.stringify({ ...stored(id), ...patch }));
+  const db = SessionDb.open({ path });
+  try {
+    for (const id of ['lt-v1-null', 'lt-no-origin', 'lt-zero', 'lt-future'])
+      expect(() => db.loadLogicalTurn(id)).toThrow(LogicalTurnRecordError);
+  } finally {
+    db.close();
+  }
+});

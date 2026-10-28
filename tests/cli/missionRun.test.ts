@@ -102,6 +102,20 @@ describe('resolveWakeMaxTurns (FIX 1b)', () => {
     expect(resolveWakeMaxTurns(10, undefined)).toBe(10);
   });
 
+  it('null agent and caller ceilings retain the bounded wake', () => {
+    expect(resolveWakeMaxTurns(10, null, null)).toBe(10);
+    expect(resolveWakeMaxTurns(10, null, 3)).toBe(3);
+    expect(resolveWakeMaxTurns(10, 4, null)).toBe(4);
+    expect(resolveWakeMaxTurns(10, 4, 2)).toBe(2);
+  });
+
+  it('rejects invalid explicit agent and caller ceilings', () => {
+    for (const invalid of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => resolveWakeMaxTurns(10, invalid)).toThrow('positive safe integer or null');
+      expect(() => resolveWakeMaxTurns(10, null, invalid)).toThrow('positive safe integer or null');
+    }
+  });
+
   it('never returns the 100-turn query default for a default budget', () => {
     // The whole point: a default per-wake budget (10) must bound the wake.
     expect(resolveWakeMaxTurns(10, 50)).not.toBe(100);

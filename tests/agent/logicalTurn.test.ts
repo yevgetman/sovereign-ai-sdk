@@ -96,7 +96,7 @@ function setup(
 
 describe('logical-turn supervisor', () => {
   test('continues max_turns internally and emits one cumulative result', async () => {
-    const calls: Array<{ continuation: boolean; remainingModelCalls: number }> = [];
+    const calls: Array<{ continuation: boolean; remainingModelCalls: number | null }> = [];
     const continuing: unknown[] = [];
     const { store, options } = setup(
       async (segment) => {
@@ -474,7 +474,7 @@ describe('logical-turn supervisor', () => {
     expect(seen[1]).toEqual(messages);
   });
 
-  test('an old tool-result byte does not change the fingerprint', async () => {
+  test('changed result content progresses even when the cursor is unchanged', async () => {
     let calls = 0;
     const note = { text: 'alpha' };
     const messages = (): Message[] => [
@@ -512,9 +512,9 @@ describe('logical-turn supervisor', () => {
     const outcome = await superviseLogicalTurn(options);
     expect(outcome.status).toBe('stalled');
     expect(outcome.code).toBe('continuation_stalled');
-    expect(outcome.counters.segments).toBe(3);
+    expect(outcome.counters.segments).toBe(4);
     expect(outcome.finishReason).toBe('repeated:max_turns');
-    expect(calls).toBe(3);
+    expect(calls).toBe(4);
   });
 
   test('a max_tokens boundary keeps the continuation marker without a second read', async () => {
@@ -856,7 +856,7 @@ describe('logical-turn supervisor', () => {
     }
   });
 
-  test('a new transcript row changes the fingerprint', async () => {
+  test('new transcript ids alone do not count as progress', async () => {
     let calls = 0;
     const messages: Message[] = [
       { role: 'user', content: [{ type: 'text', text: 'do the work' }] },
@@ -875,11 +875,11 @@ describe('logical-turn supervisor', () => {
       },
     );
     const outcome = await superviseLogicalTurn(options);
-    expect(outcome.status).toBe('completed');
-    expect(calls).toBe(4);
+    expect(outcome.status).toBe('stalled');
+    expect(calls).toBe(3);
   });
 
-  test('a new completed receipt is progress and a started receipt is not', async () => {
+  test('new receipt ids alone do not count as progress', async () => {
     let startedCalls = 0;
     const started = setup(
       async () => {
@@ -917,11 +917,11 @@ describe('logical-turn supervisor', () => {
       },
     );
     const outcome = await superviseLogicalTurn(options);
-    expect(outcome.status).toBe('completed');
-    expect(calls).toBe(4);
+    expect(outcome.status).toBe('stalled');
+    expect(calls).toBe(3);
   });
 
-  test('a new compaction child changes the fingerprint', async () => {
+  test('a new compaction child alone does not count as progress', async () => {
     let calls = 0;
     const { options } = setup(
       async () => {
@@ -942,9 +942,9 @@ describe('logical-turn supervisor', () => {
       },
     );
     const outcome = await superviseLogicalTurn(options);
-    expect(outcome.status).toBe('completed');
+    expect(outcome.status).toBe('stalled');
     expect(outcome.activeSessionId).toBe('child-1');
-    expect(calls).toBe(4);
+    expect(calls).toBe(3);
   });
 
   test('does not recover across unsafe tool receipts', async () => {
@@ -1906,7 +1906,7 @@ async function runObservedSegment(
   segment: {
     messages: Message[];
     continuation: boolean;
-    remainingModelCalls: number;
+    remainingModelCalls: number | null;
   },
   observed: {
     hookRunner: HookRunner;
