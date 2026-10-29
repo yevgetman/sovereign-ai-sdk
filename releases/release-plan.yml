@@ -48,7 +48,7 @@ release:
         that archive is not in the assembled tree.
       review: releases/history/sdk-0.16.4/qa.json
   build_commit: 7b0b63246400d93561dd6e68103477f84f2d2ec5
-  frozen_manifest_commit: null
+  frozen_manifest_commit: 6c61197944db3c0fab9cca5d4233d87949e677ad
   authorization:
     kind: owner-approval
     reference: "Authenticated Owner Telegram requests to cut and publish the
