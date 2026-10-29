@@ -48,3 +48,30 @@ items:
         package floors, and the dependency advisory check passed."
       - "Local env -u FORCE_COLOR bun test --timeout 20000 on that head:
         6739 pass, 31 skip, 0 fail. bun run audit:dependencies passed."
+  - id: sdk-pr-276
+    product: sovereign-ai-sdk
+    title: Prepare SDK 0.16.4 and SOV 0.6.84 versions, lockfile, and release notes
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/276
+    merged_at: '2026-10-29T00:00:31Z'
+    commits:
+      - sha: 74dab7c1ac36ba98ad14bbcd3798a5e30dc3936d
+        mainline: 1
+    requires:
+      - sdk-pr-274
+      - sdk-pr-275
+    reason: The merge is one application unit and covers the version preparation
+      once. Its first parent is master dba1fa8dab96d01891685cceeef093cb9c1fddae.
+      Its second parent is a47448dd6c1c141b127cd030d2b077fd495b9805. The patch
+      stamps SDK 0.16.4 and SOV 0.6.84 and updates the lockfile workspace version
+      and release notes. It contains no functional source change. Zod 4 is a
+      breaking public dependency and the new continuous-turn exports are a
+      stability minor. The assigned version stays 0.16.4 / 0.6.84. This item
+      does not publish either product.
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/pull/276
+      - "GitHub CI run 40790569144 at a47448dd6c1c141b127cd030d2b077fd495b9805:
+        lint, typecheck, release validation, and both open package floors
+        passed."
+      - "Local env -u FORCE_COLOR bun test --timeout 20000 on that preparation
+        head: 6739 pass, 31 skip, 0 fail. go test ./... in packages/tui passed.
+        bun run audit:dependencies passed."
