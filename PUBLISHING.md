@@ -23,18 +23,35 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
 
 ---
 
-## Candidate SDK 0.16.3 / SOV 0.6.83
+## Candidate SDK 0.16.4 / SOV 0.6.84
 
-The planned patch selects the reviewed resilient logical-turn work from
-[PR103](https://github.com/yevgetman/sovereign-ai-sdk/pull/103), plus reviewed
-version and notes preparation. The SDK tarball is
-`yevgetman-sov-sdk-0.16.3.tgz`, with companion SOV tag `v0.6.83` and separate
+The planned patch selects continuous owner turns from
+[PR274](https://github.com/yevgetman/sovereign-ai-sdk/pull/274) and the
+dependency fix from [PR275](https://github.com/yevgetman/sovereign-ai-sdk/pull/275),
+plus reviewed version and notes preparation. The SDK tarball is
+`yevgetman-sov-sdk-0.16.4.tgz`, with companion SOV tag `v0.6.84` and separate
 `SDK-SHA256SUMS`. The packed SDK README names those same assets. The package
+entry adds continuous owner-turn exports. [STABILITY.md](STABILITY.md) would call
+that addition a minor. Zod 4.6.7 is a breaking public dependency. The assigned
+manifest version stays 0.16.4. Publication requires exact assembled-source gates,
+a frozen cut and public-download proof; this preparation does not establish
+publication. Protocol stays 0.1.0 and debug console stays 0.3.0. npm publication
+stays Owner-only.
+
+## Current public cut — verified 2026-10-18
+
+SDK **0.16.3** and SOV **0.6.83** are published in the combined
+[SOV v0.6.83](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.83) release. PR103 logical turns and reviewed preparation
+PR269 are the two mapped application units from SDK 0.16.2. Exact source is
+296955080ada445c83441b7d2b9207833b443fef; both source tags name that build.
+All eight public files match frozen bytes. The
+[public release](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.83)
+records the hashes, metadata, SDK contents and both native Mac strict ad hoc signatures.
+The package
 entry adds logical-turn exports. [STABILITY.md](STABILITY.md) would call that
-addition a minor. The assigned manifest version stays 0.16.3. Publication
-requires exact assembled-source gates, a frozen cut and public-download proof;
-this preparation does not establish publication. Protocol stays 0.1.0 and debug
-console stays 0.3.0. npm publication stays Owner-only.
+addition a minor. The assigned version stayed 0.16.3. The planned successor is SDK 0.16.4 / SOV 0.6.84, described above.
+Protocol 0.1.0 and debug console 0.3.0 stay unchanged. Linux arm64 is cross-compiled.
+Consumer source pins and local installation have separate records. npm remains Owner-only.
 
 ## Current public cut — verified 2026-10-15
 
@@ -209,9 +226,9 @@ scratch `npm install` of each from the registry resolves.
 
 ```sh
 git tag protocol-v0.1.0
-git tag sdk-v0.16.3
+git tag sdk-v0.16.4
 git tag debug-console-v0.3.0
-git push origin protocol-v0.1.0 sdk-v0.16.3 debug-console-v0.3.0
+git push origin protocol-v0.1.0 sdk-v0.16.4 debug-console-v0.3.0
 ```
 
 (Adjust versions per release; the tags move independently, matching the

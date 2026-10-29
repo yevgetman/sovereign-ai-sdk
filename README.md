@@ -20,8 +20,8 @@ The same runtime drives several run modes — pick by how you want to reach it:
 
 Current state lives in [`docs/07-history/state/`](docs/07-history/state/) — newest dated file is canonical.
 
-- **Latest verified release snapshot:** [SDK 0.16.2 / SOV 0.6.82](https://github.com/yevgetman/sovereign-ai-sdk/blob/8de2118d63599eee90696082b9424daa8e432012/docs/07-history/state/2026-10-15-sdk-release-0162.md) — layered settings repair, all eight public files verified and immutable provenance.
-- **Release candidate:** SDK **0.16.3** / SOV **0.6.83** selects PR103 for resilient logical turns on native SOV runs. Publication requires exact-build checks and public-byte proof. New `.` exports are included under the assigned patch. Installed Kernel producer integration remains unverified.
+- **Latest verified release snapshot:** [SDK 0.16.3 / SOV 0.6.83](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.83) — resilient logical turns, all eight public files verified.
+- **Release candidate:** SDK **0.16.4** / SOV **0.6.84** selects PR274 for continuous owner turns and PR275 for the dependency fix. Publication requires exact-build checks and public-byte proof. New `.` exports and the zod 4 dependency are included under the assigned patch. Installed Kernel producer integration remains unverified.
 - **Release history:** [`CHANGELOG.md`](CHANGELOG.md) records SDK and harness changes separately. Dated build snapshots and older phase/revert records remain in [`docs/07-history/state/`](docs/07-history/state/).
 - **Phase plan:** [`~/code/sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md`](../sovereign-ai-docs/harness/docs/runtime/harness-build-plan.md) is the canonical phased plan.
 - **Architectural ADR:** [`H-0003`](../sovereign-ai-docs/harness/decisions/0003-claude-code-core-hermes-learning-layer.md).
@@ -34,7 +34,7 @@ For day-to-day operation see [`docs/03-cli-reference/usage.md`](docs/03-cli-refe
 
 ## Install the SDK
 
-For an embedded library, use the [SDK package installation and quickstart](packages/sdk/README.md). The SDK **0.16.3** install contract uses its checksummed tarball in companion [SOV v0.6.83](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.83). Check the release-candidate status above before downloading. CLI installation below installs the application, not a library dependency. The SDK supports Node >=20.19.0 and Bun >=1.2.0.
+For an embedded library, use the [SDK package installation and quickstart](packages/sdk/README.md). The SDK **0.16.4** install contract uses its checksummed tarball in companion [SOV v0.6.84](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.84). Check the release-candidate status above before downloading. CLI installation below installs the application, not a library dependency. The SDK supports Node >=20.19.0 and Bun >=1.2.0.
 
 ## Install on a new machine
 

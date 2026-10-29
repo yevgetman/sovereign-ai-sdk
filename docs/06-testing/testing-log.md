@@ -1,3 +1,11 @@
+## 2026-10-28 — SDK 0.16.4 / SOV 0.6.84 source preparation
+
+Scope: reviewed version, lockfile, packed install URLs, changelog and migration notes for PR274 continuous owner turns and PR275 dependency advisories. Protocol 0.1.0 and debug-console 0.3.0 remain unchanged. No functional source change in this preparation commit. The assigned patch stays 0.16.4 / CLI 0.6.84. STABILITY.md would call the new continuous-turn `.` exports a minor. Zod 4.6.7 is a breaking public dependency because GHSA-mrhx-c7xc-m3w5 has no zod 3 patch. Both tensions are recorded and the assigned version is left in place.
+
+macOS arm64, Bun 1.3.13, Go 1.26.1, Node 25.9.0. `bun install --linker hoisted` changed only the SDK workspace version in `bun.lock`. `bun run build`, `bun run lint`, `bun run typecheck`, `bun run release:validate`, and `bun run audit:dependencies` pass on this preparation tree. `go test ./...` in `packages/tui` passes. `env -u FORCE_COLOR bun test --timeout 20000`: **6739 pass / 31 skip / 0 fail**, 41269 assertions, 633 files, 207.53 s. Log: `/tmp/sov-0164-prep-test.txt`. Go log: `/tmp/sov-0164-prep-go.txt`.
+
+The dependency fix itself was checked on `e2b331c95855d63b15eaecf808d5f7c2c1ff5748` before this version bump. Local `bun run audit:dependencies` passed. GitHub CI run 40789236184 passed lint, typecheck, full runtime and Go on Linux and macOS, both open-package floors including the canary, and the dependency advisory check. This preparation does not re-certify a paid provider. Final assembled-cut checks remain separate. No publication, consumer pin, installed upgrade, or restart. npm remains Owner-operated.
+
 ## 2026-10-25 — Continuous owner turns implementation
 
 Scope: approved spec `specs/2026-10-24-continuous-owner-turns-design.md` on branch `feat/continuous-owner-turns` in `/private/tmp/sov-owner-turn-design-20261025`. Owner turns have no default model-call, tool-call, segment, token, cost, or elapsed ceiling. Explicit caller and job limits stay binding. A tool loop stays in one segment. Compaction and an unsafe tool receipt yield a new segment without charging that yield as a model call. Public release remains SDK 0.16.3 / SOV 0.6.83. This work is unreleased.

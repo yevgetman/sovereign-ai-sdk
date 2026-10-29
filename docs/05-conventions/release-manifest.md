@@ -21,14 +21,14 @@ release when the selected work also changes the wrapper. A library-only cut may
 retain the published CLI version. Protocol/debug-console versions remain unchanged
 unless explicitly selected work requires their own release preparation.
 
-The verified cut released SDK **0.16.2** and CLI **0.6.82**. The active draft
-plans SDK **0.16.3** and CLI **0.6.83** from that published baseline.
-PR103 is the resilient logical-turn item. Version and notes preparation is
-selected only after its reviewed merge. Immutable
-releases/history/sdk-0.16.2/ retains frozen manifest/schema/source/review/QA and
-all-eight-file publication proof. The 0.16.3 package entry adds logical-turn
-exports. STABILITY.md classifies that addition as a minor, and the assigned
-version stays 0.16.3 until the Owner changes it. Kernel producer integration
+The verified cut released SDK **0.16.3** and CLI **0.6.83**. The active draft
+plans SDK **0.16.4** and CLI **0.6.84** from that published baseline.
+PR274 is the continuous owner-turn item. PR275 is the dependency-advisory fix.
+Version and notes preparation is selected only after those reviewed merges.
+The 0.16.3 publication proof is the public SOV v0.6.83 release. The 0.16.4
+package entry adds continuous owner-turn exports. STABILITY.md classifies that
+addition as a minor. Zod 4 is a breaking public dependency. The assigned
+version stays 0.16.4 until the Owner changes it. Kernel producer integration
 remains unverified. Consumer pins and local binary state are separate records.
 
 ## Adding work
