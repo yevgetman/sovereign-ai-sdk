@@ -1,13 +1,13 @@
 # Changelog
 
-## SDK 0.16.4 / SOV 0.6.84 — 2026-10-28 (release candidate)
+## SDK 0.16.4 / SOV 0.6.84 — 2026-10-28 (verified public release)
 
-- Include continuous owner turns from [PR274](https://github.com/yevgetman/sovereign-ai-sdk/pull/274) and the dependency fix from [PR275](https://github.com/yevgetman/sovereign-ai-sdk/pull/275), plus reviewed release preparation. Publication is pending exact-build validation and public-byte proof.
+- Include continuous owner turns from [PR274](https://github.com/yevgetman/sovereign-ai-sdk/pull/274) and the dependency fix from [PR275](https://github.com/yevgetman/sovereign-ai-sdk/pull/275), plus reviewed release preparation. All eight public downloads match the frozen cut; exact source and publication proof are archived under releases/history/sdk-0.16.4/.
 - Owner turns keep working until the task finishes, the owner stops, human input is required, or a concrete blocker stops safe progress. There is no default ceiling on model calls, tool calls, segments, tokens, cost, or elapsed time. Explicit caller and job limits stay binding, including `--deadline-ms`. A parent ceiling still wins when a child omits a limit. Zero, negative, and non-finite limits stay invalid.
 - The package entry adds `CONTINUOUS_OWNER_TURNS_CAPABILITY`, `migrateLogicalTurnPolicy`, `validateLogicalModelCallLimit`, and the type `LogicalTurnPolicyOrigin`. [STABILITY.md](STABILITY.md) classifies a new `.` export as a minor. Zod 4 is a breaking public dependency because GHSA-mrhx-c7xc-m3w5 has no zod 3 patch. The assigned manifest version stays this patch. No existing frozen export name was removed or renamed.
 - `sov capabilities` and sdk-run `session.started` advertise the continuous owner-turn capability. A tool loop under an explicit ceiling stays one segment. A compaction yield starts a new segment and does not charge that yield as a model call. `turn.continuing` carries the same route, provider, and auth metadata as the terminal events.
 - A handled provider error that is not a context overflow completes as `turn_complete` with `finishReason: error`. Overflow, stall, exhaustion, and an unsafe receipt stay `turn_error`. Host exit 0 is completion, including `waiting_user`. Exit 1 is a non-logical failure. Exit 2 is invalid input. Exit 3 is a logical-turn stop. Exit 130 is SIGINT. Exit 143 is SIGTERM.
-- body-parser 2.4.0, happy-dom 21.0.4, and zod 4.6.7, including the nested MCP SDK copy, clear the previous high advisories. Provider tool schemas keep the previous JSON Schema shape. Protocol event types now require `input` and `output` where the schema requires `unknown`. Protocol stays 0.1.0. Debug console stays 0.3.0. Node >=20.19.0 and Bun >=1.2.0 remain supported. These notes do not establish publication. npm publication stays Owner-operated.
+- body-parser 2.4.0, happy-dom 21.0.4, and zod 4.6.7, including the nested MCP SDK copy, clear the previous high advisories. Provider tool schemas keep the previous JSON Schema shape. Protocol event types now require `input` and `output` where the schema requires `unknown`. Protocol stays 0.1.0. Debug console stays 0.3.0. Node >=20.19.0 and Bun >=1.2.0 remain supported. The public SDK tarball and CLI archives use separate SDK-SHA256SUMS and SHA256SUMS. npm publication stays Owner-operated.
 
 ## SDK 0.16.3 / SOV 0.6.83 — 2026-10-18 (verified public release)
 

@@ -21,16 +21,16 @@ release when the selected work also changes the wrapper. A library-only cut may
 retain the published CLI version. Protocol/debug-console versions remain unchanged
 unless explicitly selected work requires their own release preparation.
 
-The verified cut released SDK **0.16.3** and CLI **0.6.83**. The active draft
-plans SDK **0.16.4** and CLI **0.6.84** from that published baseline.
-PR274 is the continuous owner-turn item. PR275 is the dependency-advisory fix.
-Version and notes preparation is selected only after those reviewed merges.
-Immutable releases/history/sdk-0.16.3/ retains the frozen manifest, schemas,
-source mappings, QA and all-eight-file publication proof. The 0.16.4 package
-entry adds continuous owner-turn exports. STABILITY.md classifies that addition
-as a minor. Zod 4 is a breaking public dependency. The assigned version stays
-0.16.4 until the Owner changes it. Kernel producer integration remains
-unverified. Consumer pins and local binary state are separate records.
+The verified cut released SDK **0.16.4** and CLI **0.6.84**. The active empty
+draft plans SDK **0.16.5** and CLI **0.6.85** from that published baseline.
+PR274 provides continuous owner turns, PR275 patches the dependency advisories,
+and PR276 provides reviewed version and notes preparation. Each merge maps once
+into the exact assembled build. Immutable releases/history/sdk-0.16.4/ retains
+the frozen manifest, schemas, source mappings, QA and all-eight-file publication
+proof. The 0.16.4 package entry adds continuous owner-turn exports. STABILITY.md
+classifies that addition as a minor. Zod 4 is a breaking public dependency. The
+assigned version stayed 0.16.4. Kernel producer integration remains unverified.
+Consumer pins and local binary state are separate records.
 
 ## Adding work
 

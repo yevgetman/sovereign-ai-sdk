@@ -1,0 +1,77 @@
+schema_version: 4
+product: sovereign-ai-sdk
+version: 0.16.4
+items:
+  - id: sdk-pr-274
+    product: sovereign-ai-sdk
+    title: Keep owner turns running until the work is done
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/274
+    merged_at: '2026-10-28T22:56:05Z'
+    commits:
+      - sha: 01c772341d9e73ab180adc6570937cf462e9f839
+        mainline: 1
+    requires: []
+    reason: The merge is one application unit and covers the feature branch once.
+      Its first parent is master e1a08bb5ad0f273e7184efa0b7fc582409325483.
+      Its second parent is 603e7591baff531ce0f315ca119d2b915f7d7a6a. The merge
+      tree matches that feature head. This schedules SDK 0.16.4 and SOV 0.6.84.
+      It does not publish the SDK or the harness.
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/pull/274
+      - "GitHub CI run 40184570382 at 603e7591baff531ce0f315ca119d2b915f7d7a6a:
+        lint, typecheck, full runtime and Go on Linux and macOS, and both open
+        package floors passed. The dependency advisory check failed for
+        body-parser GHSA-27r3-jxmh-p828, happy-dom GHSA-834v-8h66-3h79, and zod
+        GHSA-mrhx-c7xc-m3w5. This merge does not change the lockfile from the
+        0.16.3 baseline."
+      - "Local bun run canary passed on the feature head, under Node and Bun."
+  - id: sdk-pr-275
+    product: sovereign-ai-sdk
+    title: Patch body-parser, happy-dom, and zod advisories
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/275
+    merged_at: '2026-10-28T23:48:28Z'
+    commits:
+      - sha: 83c934936bd4e66e1517e8cd9f0fe35aa029a390
+        mainline: 1
+    requires: []
+    reason: The merge is one application unit and covers the fix once. Its
+      first parent is master 308a0259995db07a6c37b64f7b7acbc06d12bda4. Its
+      second parent is e2b331c95855d63b15eaecf808d5f7c2c1ff5748. This schedules
+      the dependency fix in SDK 0.16.4 and SOV 0.6.84. It does not publish
+      either product. Zod 4 is a breaking public dependency and the new
+      continuous-turn exports are a stability minor. The assigned version stays
+      0.16.4 / 0.6.84.
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/pull/275
+      - "GitHub CI run 40789236184 at e2b331c95855d63b15eaecf808d5f7c2c1ff5748:
+        lint, typecheck, full runtime and Go on Linux and macOS, both open
+        package floors, and the dependency advisory check passed."
+      - "Local env -u FORCE_COLOR bun test --timeout 20000 on that head:
+        6739 pass, 31 skip, 0 fail. bun run audit:dependencies passed."
+  - id: sdk-pr-276
+    product: sovereign-ai-sdk
+    title: Prepare SDK 0.16.4 and SOV 0.6.84 versions, lockfile, and release notes
+    pull_request: https://github.com/yevgetman/sovereign-ai-sdk/pull/276
+    merged_at: '2026-10-29T00:00:31Z'
+    commits:
+      - sha: 74dab7c1ac36ba98ad14bbcd3798a5e30dc3936d
+        mainline: 1
+    requires:
+      - sdk-pr-274
+      - sdk-pr-275
+    reason: The merge is one application unit and covers the version preparation
+      once. Its first parent is master dba1fa8dab96d01891685cceeef093cb9c1fddae.
+      Its second parent is a47448dd6c1c141b127cd030d2b077fd495b9805. The patch
+      stamps SDK 0.16.4 and SOV 0.6.84 and updates the lockfile workspace version
+      and release notes. It contains no functional source change. Zod 4 is a
+      breaking public dependency and the new continuous-turn exports are a
+      stability minor. The assigned version stays 0.16.4 / 0.6.84. This item
+      does not publish either product.
+    qa:
+      - https://github.com/yevgetman/sovereign-ai-sdk/pull/276
+      - "GitHub CI run 40790569144 at a47448dd6c1c141b127cd030d2b077fd495b9805:
+        lint, typecheck, release validation, and both open package floors
+        passed."
+      - "Local env -u FORCE_COLOR bun test --timeout 20000 on that preparation
+        head: 6739 pass, 31 skip, 0 fail. go test ./... in packages/tui passed.
+        bun run audit:dependencies passed."

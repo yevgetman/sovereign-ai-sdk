@@ -23,22 +23,20 @@ Packages covered: `@yevgetman/sov-sdk` (`packages/sdk`),
 
 ---
 
-## Candidate SDK 0.16.4 / SOV 0.6.84
+## Current public cut — verified 2026-10-29
 
-The planned patch selects continuous owner turns from
-[PR274](https://github.com/yevgetman/sovereign-ai-sdk/pull/274) and the
-dependency fix from [PR275](https://github.com/yevgetman/sovereign-ai-sdk/pull/275),
-plus reviewed version and notes preparation. The SDK tarball is
-`yevgetman-sov-sdk-0.16.4.tgz`, with companion SOV tag `v0.6.84` and separate
-`SDK-SHA256SUMS`. The packed SDK README names those same assets. The package
-entry adds continuous owner-turn exports. [STABILITY.md](STABILITY.md) would call
-that addition a minor. Zod 4.6.7 is a breaking public dependency. The assigned
-manifest version stays 0.16.4. Publication requires exact assembled-source gates,
-a frozen cut and public-download proof; this preparation does not establish
-publication. Protocol stays 0.1.0 and debug console stays 0.3.0. npm publication
-stays Owner-only.
+SDK **0.16.4** and SOV **0.6.84** are published in the combined
+[SOV v0.6.84](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.84) release. PR274 continuous owner turns, PR275 dependency fixes, and reviewed preparation
+PR276 are the three mapped application units from SDK 0.16.3. Exact source is
+7b0b63246400d93561dd6e68103477f84f2d2ec5; both source tags name that build.
+All eight public files match frozen bytes. [Immutable proof](releases/history/sdk-0.16.4/publication.json)
+records hashes, metadata, SDK contents and both native Mac strict ad hoc signatures.
+The package entry adds continuous owner-turn exports. [STABILITY.md](STABILITY.md) would call that
+addition a minor. Zod 4.6.7 is a breaking public dependency. The assigned version stayed 0.16.4. The next empty draft is SDK 0.16.5 / SOV 0.6.85.
+Protocol 0.1.0 and debug console 0.3.0 stay unchanged. Linux arm64 is cross-compiled.
+Consumer source pins and local installation have separate records. npm remains Owner-only.
 
-## Current public cut — verified 2026-10-18
+## Previous public cut — verified 2026-10-18
 
 SDK **0.16.3** and SOV **0.6.83** are published in the combined
 [SOV v0.6.83](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.83) release. PR103 logical turns and reviewed preparation
@@ -47,11 +45,11 @@ PR269 are the two mapped application units from SDK 0.16.2. Exact source is
 All eight public files match frozen bytes. [Immutable proof](releases/history/sdk-0.16.3/publication.json)
 records hashes, metadata, SDK contents and both native Mac strict ad hoc signatures.
 The package entry adds logical-turn exports. [STABILITY.md](STABILITY.md) would call that
-addition a minor. The assigned version stayed 0.16.3. The planned successor is SDK 0.16.4 / SOV 0.6.84, described above.
+addition a minor. The assigned version stayed 0.16.3.
 Protocol 0.1.0 and debug console 0.3.0 stay unchanged. Linux arm64 is cross-compiled.
 Consumer source pins and local installation have separate records. npm remains Owner-only.
 
-## Previous public cut — verified 2026-10-15
+## Earlier public cut — verified 2026-10-15
 
 SDK **0.16.2** and SOV **0.6.82** are published in the combined
 [SOV v0.6.82](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.82) release. PR97 settings repair and reviewed preparation

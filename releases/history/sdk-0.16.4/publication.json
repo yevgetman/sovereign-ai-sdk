@@ -1,0 +1,96 @@
+{
+  "result": "pass",
+  "checked_at": "2026-10-29T00:41:26Z",
+  "build_commit": "7b0b63246400d93561dd6e68103477f84f2d2ec5",
+  "sdk_version": "0.16.4",
+  "cli_version": "0.6.84",
+  "release_id": "sdk-0.16.4",
+  "release_url": "https://github.com/yevgetman/sov-releases/releases/tag/v0.6.84",
+  "release_published_at": "2026-10-29T00:29:03Z",
+  "all_public_downloads_match_frozen_bytes": true,
+  "checksum_files_match": true,
+  "npm_publish": false,
+  "artifacts": [
+    {
+      "arch": "darwin-arm64",
+      "filename": "sov-darwin-arm64.tar.gz",
+      "sha256": "3f013e3a986bb785708d8d6ba52878091c625aa384d7dbaf9dcafd47b1b840b9",
+      "size": 34303422,
+      "source_commit": "7b0b63246400d93561dd6e68103477f84f2d2ec5",
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.84/sov-darwin-arm64.tar.gz"
+    },
+    {
+      "arch": "darwin-x64",
+      "filename": "sov-darwin-x64.tar.gz",
+      "sha256": "50f38b71f619c80e8196be52185c754e670e4e010effaa6ff2dba606bc2ae12d",
+      "size": 37372121,
+      "source_commit": "7b0b63246400d93561dd6e68103477f84f2d2ec5",
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.84/sov-darwin-x64.tar.gz"
+    },
+    {
+      "arch": "linux-arm64",
+      "filename": "sov-linux-arm64.tar.gz",
+      "sha256": "7907af86708e482f57645cfdf244a617dd4a16ca29b830b7b54f02062dd1e0fb",
+      "size": 44877442,
+      "source_commit": "7b0b63246400d93561dd6e68103477f84f2d2ec5",
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.84/sov-linux-arm64.tar.gz"
+    },
+    {
+      "arch": "linux-x64",
+      "filename": "sov-linux-x64.tar.gz",
+      "sha256": "972c91a7080c357d5fbb20f2c8e7ff3b78f78cc8e77bc1d60690f9ec311c5a82",
+      "size": 45321521,
+      "source_commit": "7b0b63246400d93561dd6e68103477f84f2d2ec5",
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.84/sov-linux-x64.tar.gz"
+    },
+    {
+      "arch": "windows-x64",
+      "filename": "sov-windows-x64.zip",
+      "sha256": "0c6b5c8daad1ff25632a8834b6640478d59fcba870af870efb23657fd8889c29",
+      "size": 48439788,
+      "source_commit": "7b0b63246400d93561dd6e68103477f84f2d2ec5",
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.84/sov-windows-x64.zip"
+    },
+    {
+      "arch": "package",
+      "filename": "yevgetman-sov-sdk-0.16.4.tgz",
+      "sha256": "9377548b338d9506fce0886c5d72097edc7630ee8b3c6d87612f4db4534ca6f4",
+      "size": 1140759,
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.84/yevgetman-sov-sdk-0.16.4.tgz"
+    },
+    {
+      "filename": "SHA256SUMS",
+      "sha256": "173b6ea51e5d74f5cffd711b442bfc1ef9a3d983ea0c3b4c0aa5da2e91de2bc7",
+      "size": 440,
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.84/SHA256SUMS"
+    },
+    {
+      "filename": "SDK-SHA256SUMS",
+      "sha256": "a5ff0b4f0a1cfb4229bdf0903f51dce0af0f2bb8194903f98348881da5be919e",
+      "size": 95,
+      "location": "https://github.com/yevgetman/sov-releases/releases/download/v0.6.84/SDK-SHA256SUMS"
+    }
+  ],
+  "native_downloaded_mac": {
+    "darwin-arm64": {
+      "version": "0.6.84",
+      "codesign_strict": "pass",
+      "signature": "adhoc"
+    },
+    "darwin-x64": {
+      "version": "0.6.84",
+      "codesign_strict": "pass",
+      "signature": "adhoc",
+      "executed": "rosetta"
+    }
+  },
+  "frozen_manifest_commit": "6c61197944db3c0fab9cca5d4233d87949e677ad",
+  "frozen_manifest_sha256": "c41f344151656b9207c862cc0636fade4f81629cb85c9709e5fd3e12fc804b43",
+  "ci_exact": "https://github.com/yevgetman/sovereign-ai-sdk/actions/runs/40793319573",
+  "limits": [
+    "Linux arm64 is cross-compiled and was not executed natively.",
+    "Windows archive was scanned. CI smoke-windows printed the version. Native Windows execution was not run on this Mac.",
+    "Mac signatures are ad hoc. No Developer ID signing or notarization is claimed.",
+    "STABILITY.md would call the new package-entry exports a minor. Zod 4 is a breaking public dependency. The assigned patch 0.16.4 was left in place."
+  ]
+}

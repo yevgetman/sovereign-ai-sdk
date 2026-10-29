@@ -1,90 +1,35 @@
 schema_version: 4
 node: sovereign-ai
 product: sovereign-ai-sdk
-updated_at: '2026-10-29T00:19:00Z'
-checkout: /tmp/sdk-0164-assemble
+updated_at: '2026-10-29T00:41:26Z'
+checkout: .
 last_release: &a1
-  version: 0.16.3
-  cli_version: 0.6.83
-  source_commit: 296955080ada445c83441b7d2b9207833b443fef
-  evidence: releases/history/sdk-0.16.3/publication.json
-reconciliation:
-  history_start_commit: 296955080ada445c83441b7d2b9207833b443fef
-  through_main_commit: 74dab7c1ac36ba98ad14bbcd3798a5e30dc3936d
-  checked_at: '2026-10-29T00:19:00Z'
-  evidence: releases/history/sdk-0.16.3/publication.json remains the verified
-    baseline. Items sdk-pr-274, sdk-pr-275, and sdk-pr-276 are the only
-    selected units. They map onto assembled build
-    7b0b63246400d93561dd6e68103477f84f2d2ec5. Commits
-    308a0259995db07a6c37b64f7b7acbc06d12bda4,
-    dba1fa8dab96d01891685cceeef093cb9c1fddae, and
-    938469a8f7883fffca2321e1ee1c69af7c04f408 only wrote the manifest and are
-    not product items. This freeze does not publish. Consumer pins are
-    separate.
-release:
-  id: sdk-0.16.4
-  product: sovereign-ai-sdk
   version: 0.16.4
   cli_version: 0.6.84
-  status: frozen
+  source_commit: 7b0b63246400d93561dd6e68103477f84f2d2ec5
+  evidence: releases/history/sdk-0.16.4/publication.json
+reconciliation:
+  history_start_commit: 7b0b63246400d93561dd6e68103477f84f2d2ec5
+  through_main_commit: 7b0b63246400d93561dd6e68103477f84f2d2ec5
+  checked_at: '2026-10-29T00:41:26Z'
+  evidence: All eight public SDK 0.16.4 and SOV 0.6.84 downloads match frozen
+    bytes, metadata, and native Mac versions and strict ad hoc signatures. This
+    record merge preserves the published build as an ancestor of master. The
+    next empty patch draft resets derived cut fields. Consumer pins are separate.
+release:
+  id: sdk-0.16.5
+  product: sovereign-ai-sdk
+  version: 0.16.5
+  cli_version: 0.6.85
+  status: draft
   base: *a1
-  applied_commits:
-    - item_id: sdk-pr-274
-      source_commit: 01c772341d9e73ab180adc6570937cf462e9f839
-      release_commit: ffa9a2c0d80c0711dcdb980072a80f99fcc06045
-    - item_id: sdk-pr-275
-      source_commit: 83c934936bd4e66e1517e8cd9f0fe35aa029a390
-      release_commit: 6195d57201e137916ec3ff10e75e97101ae94911
-    - item_id: sdk-pr-276
-      source_commit: 74dab7c1ac36ba98ad14bbcd3798a5e30dc3936d
-      release_commit: 7b0b63246400d93561dd6e68103477f84f2d2ec5
-  preparation_commits:
-    - item_id: sdk-pr-276
-      commit: 7b0b63246400d93561dd6e68103477f84f2d2ec5
-      reason: Reviewed mapped versions, lockfile, install contract, and
-        continuous owner-turn notes. Documentation conflicts kept the new
-        0.16.4 candidate text and the baseline 0.16.3 candidate changelog
-        heading. The public 0.16.3 proof is cited by release URL because
-        that archive is not in the assembled tree.
-      review: releases/history/sdk-0.16.4/qa.json
-  build_commit: 7b0b63246400d93561dd6e68103477f84f2d2ec5
-  frozen_manifest_commit: 6c61197944db3c0fab9cca5d4233d87949e677ad
-  authorization:
-    kind: owner-approval
-    reference: "Authenticated Owner Telegram requests to cut and publish the
-      SOV SDK, pin it to its consumers, and then fix the dependency-audit
-      blocker and proceed. Covers SDK 0.16.4 and SOV 0.6.84 at
-      7b0b63246400d93561dd6e68103477f84f2d2ec5, the public GitHub release,
-      consumer source pins, and the local public SOV update. Zod 4 is a
-      breaking public dependency and the new continuous-turn exports are a
-      stability minor. The assigned version stays 0.16.4 / 0.6.84. npm stays
-      Owner-operated. No Kernel runtime, Mac app, or Telekit publication and
-      no daemon restart."
-    at: '2026-10-29T00:19:00Z'
-    build_commit: 7b0b63246400d93561dd6e68103477f84f2d2ec5
-  validation:
-    - check: exact assembled source gates
-      result: pass
-      build_commit: 7b0b63246400d93561dd6e68103477f84f2d2ec5
-      evidence: "bun install --frozen-lockfile --linker hoisted; bun run
-        lint; bun run typecheck; bun run build; env -u FORCE_COLOR bun test
-        --timeout 20000 is 6727 pass, 31 skip, 0 fail, 41250 assertions, 632
-        files, 208.74s; go test ./... in packages/tui passed; bun run canary
-        passed; bun run audit:dependencies passed with 7 reported advisories
-        and no unexcepted high or critical findings; npm publish --dry-run
-        passed for protocol 0.1.0, sdk 0.16.4, and debug-console 0.3.0. No
-        live provider call."
-    - check: five platform archives, scans, metadata, and Mac ad hoc signatures
-      result: pass
-      build_commit: 7b0b63246400d93561dd6e68103477f84f2d2ec5
-      evidence: "bun 1.4.2 release:build for darwin-arm64, darwin-x64,
-        linux-x64, linux-arm64, and windows-x64. All stage and archive scans
-        were clean. Both Mac binaries print 0.6.84 and pass codesign --verify
-        --strict with Signature=adhoc. No Developer ID or notarization. Linux
-        arm64 and Windows were not executed natively. The release workflow
-        rebuilds the public archives. These local hashes are the pre-tag
-        gate, not the published bytes."
+  applied_commits: []
+  preparation_commits: []
+  build_commit: null
+  frozen_manifest_commit: null
+  authorization: null
+  validation: []
   artifacts: []
   published_at: null
   publication_evidence: null
-  manifest_sha256: c41f344151656b9207c862cc0636fade4f81629cb85c9709e5fd3e12fc804b43
+  manifest_sha256: null

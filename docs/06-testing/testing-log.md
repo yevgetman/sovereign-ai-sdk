@@ -1,3 +1,7 @@
+## 2026-10-29 — SDK 0.16.4 / SOV 0.6.84 public bytes
+
+Scope: downloaded every file from the public SOV v0.6.84 release and compared it with the frozen cut at 7b0b63246400d93561dd6e68103477f84f2d2ec5. All eight files match SHA-256 and size. Checksum files match the frozen two-space records. Five archives report version v0.6.84 and that source revision. Both downloaded Mac binaries print 0.6.84 and pass `codesign --verify --strict` with an ad hoc signature. The x64 binary ran under Rosetta. Packed SDK version is 0.16.4. Linux arm64 was not executed natively. Windows was scanned, and CI smoke-windows printed the version. No npm publish. Proof: releases/history/sdk-0.16.4/publication.json.
+
 ## 2026-10-28 — SDK 0.16.4 / SOV 0.6.84 source preparation
 
 Scope: reviewed version, lockfile, packed install URLs, changelog and migration notes for PR274 continuous owner turns and PR275 dependency advisories. Protocol 0.1.0 and debug-console 0.3.0 remain unchanged. No functional source change in this preparation commit. The assigned patch stays 0.16.4 / CLI 0.6.84. STABILITY.md would call the new continuous-turn `.` exports a minor. Zod 4.6.7 is a breaking public dependency because GHSA-mrhx-c7xc-m3w5 has no zod 3 patch. Both tensions are recorded and the assigned version is left in place.

@@ -15,7 +15,7 @@ entitlement or transport image support. See [SDK routes](https://github.com/yevg
 
 ## Install
 
-SDK **0.16.4** uses the version-specific tarball and `SDK-SHA256SUMS` in [SOV v0.6.84](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.84). Download both assets, verify the checksum, then install the local tarball. This cut is a release candidate until that release is verified:
+SDK **0.16.4** uses the version-specific tarball and `SDK-SHA256SUMS` in [SOV v0.6.84](https://github.com/yevgetman/sov-releases/releases/tag/v0.6.84). The public release is verified. Download both assets, verify the checksum, then install the local tarball:
 
 ```sh
 curl -fLO https://github.com/yevgetman/sov-releases/releases/download/v0.6.84/yevgetman-sov-sdk-0.16.4.tgz
